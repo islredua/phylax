@@ -1,5 +1,6 @@
 """Formularios de autenticación con el estilo Phylax Dark."""
 
+from django import forms
 from django.contrib.auth.forms import AuthenticationForm, PasswordResetForm, SetPasswordForm
 
 
@@ -22,3 +23,18 @@ class StyledPasswordResetForm(StyledFormMixin, PasswordResetForm):
 
 class StyledSetPasswordForm(StyledFormMixin, SetPasswordForm):
     pass
+
+
+class MFACodeForm(StyledFormMixin, forms.Form):
+    code = forms.CharField(
+        label="Código",
+        max_length=20,
+        widget=forms.TextInput(
+            attrs={
+                "autocomplete": "one-time-code",
+                "autofocus": True,
+                "inputmode": "text",
+                "spellcheck": "false",
+            }
+        ),
+    )

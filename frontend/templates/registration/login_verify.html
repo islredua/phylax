@@ -1,0 +1,13 @@
+{% extends "registration/_auth_base.html" %}
+{% block title %}Verificación en dos pasos{% endblock %}
+{% block auth_content %}
+<h1 class="text-xl">Verificación en dos pasos</h1>
+<p class="text-text-secondary">Escribe el código de 6 dígitos de tu app autenticadora.</p>
+<form method="post" class="space-y-4" novalidate>
+  {% csrf_token %}
+  {% include "registration/_form_fields.html" %}
+  <p class="text-xs text-text-muted">¿Sin acceso a tu app? Usa uno de tus códigos de respaldo.</p>
+  <button type="submit" class="btn-primary w-full">Verificar</button>
+</form>
+<p class="text-center text-xs"><a href="{% url 'accounts:login' %}">Cancelar</a></p>
+{% endblock %}

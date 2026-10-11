@@ -2,19 +2,26 @@ from django.contrib.auth import views as auth_views
 from django.urls import path, reverse_lazy
 
 from .forms import LoginForm, StyledPasswordResetForm, StyledSetPasswordForm
-from .views import AuditedPasswordResetConfirmView, AuditedPasswordResetView, AuditLogListView
+from .views import (
+    AuditedPasswordResetConfirmView,
+    AuditedPasswordResetView,
+    AuditLogListView,
+    MFAVerifyView,
+    PhylaxLoginView,
+)
 
 app_name = "accounts"
 
 urlpatterns = [
     path(
         "login/",
-        auth_views.LoginView.as_view(
+        PhylaxLoginView.as_view(
             authentication_form=LoginForm,
             redirect_authenticated_user=True,
         ),
         name="login",
     ),
+    path("login/verify/", MFAVerifyView.as_view(), name="login_verify"),
     # Desde Django 5.0 LogoutView solo acepta POST (protección CSRF).
     path("logout/", auth_views.LogoutView.as_view(), name="logout"),
     path(
