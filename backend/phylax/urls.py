@@ -15,6 +15,7 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     path("health/", health, name="health"),
     path("accounts/", include("apps.accounts.urls")),
+    path("users/", include("apps.accounts.user_admin_urls")),
     # Rutas por módulo (se incluirán conforme se desarrollen):
     # path("api/scanners/", include("apps.scanners.urls")),
     # path("api/assets/", include("apps.assets.urls")),

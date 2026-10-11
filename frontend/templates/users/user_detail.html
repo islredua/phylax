@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}{{ target.username }}{% endblock %}
+{% block content %}
+<p class="mb-2 text-xs"><a href="{% url 'users:list' %}">← Usuarios</a></p>
+<div class="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+  <h1 class="font-mono">{{ target.username }}{% if is_self %} <span class="font-sans text-sm text-text-muted">(tú)</span>{% endif %}</h1>
+  {% if can_manage %}<a href="{% url 'users:edit' target.pk %}" class="btn-secondary hover:no-underline">Editar</a>{% endif %}
+</div>
+
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+  <div class="card">
+    <h2 class="mb-3">Cuenta</h2>
+    <dl class="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+      <div><dt class="form-label">Nombre</dt><dd>{{ target.get_full_name|default:"—" }}</dd></div>
+      <div><dt class="form-label">Correo</dt><dd>{{ target.email|default:"—" }}</dd></div>
+      <div><dt class="form-label">Rol</dt><dd>{% if role %}{{ role_label }} <span class="font-mono text-xs text-text-muted">({{ role }})</span>{% else %}<span class="text-text-muted">sin rol</span>{% endif %}{% if target.is_superuser %} · <span class="text-warning">superusuario</span>{% endif %}</dd></div>
+      <div><dt class="form-label">Estado</dt><dd>{% if target.is_active %}Activo{% else %}<span class="text-text-muted">Inactivo</span>{% endif %}{% if target.must_change_password %} · <span class="text-warning">contraseña temporal pendiente</span>{% endif %}</dd></div>
+      <div><dt class="form-label">MFA</dt><dd>{% if has_mfa %}<span class="text-accent">Activo</span>{% else %}<span class="text-text-muted">Inactivo</span>{% endif %}</dd></div>
+      <div><dt class="form-label">Último acceso</dt><dd class="font-mono text-xs">{{ target.last_login|date:"Y-m-d H:i"|default:"nunca" }}</dd></div>
+      <div><dt class="form-label">Alta</dt><dd class="font-mono text-xs">{{ target.date_joined|date:"Y-m-d H:i" }}</dd></div>
+      <div><dt class="form-label">Sesiones activas</dt><dd>{{ sessions|length }}</dd></div>
+    </dl>
+  </div>
+
+  {% if can_manage and not is_self %}
+  <div class="card space-y-3">
+    <h2>Acciones</h2>
+    <div class="flex flex-wrap gap-2">
+      {% if target.is_active %}
+      <a href="{% url 'users:deactivate' target.pk %}" class="btn-secondary hover:no-underline">Desactivar</a>
+      {% else %}
+      <a href="{% url 'users:reactivate' target.pk %}" class="btn-secondary hover:no-underline">Reactivar</a>
+      {% endif %}
+      <a href="{% url 'users:reset_password' target.pk %}" class="btn-secondary hover:no-underline">Asignar contraseña temporal</a>
+      {% if has_mfa %}<a href="{% url 'users:reset_mfa' target.pk %}" class="btn-secondary hover:no-underline">Resetear MFA</a>{% endif %}
+      {% if sessions %}<a href="{% url 'users:revoke_sessions' target.pk %}" class="btn-secondary hover:no-underline">Cerrar sesiones</a>{% endif %}
+    </div>
+    <p class="text-xs text-text-muted">Todas las acciones quedan registradas en la bitácora con tu usuario.</p>
+  </div>
+  {% elif is_self %}
+  <div class="card"><p class="text-text-secondary">Para tu propia cuenta usa <a href="{% url 'accounts:me' %}">Mi cuenta</a>.</p></div>
+  {% endif %}
+</div>
+
+<h2 class="mb-2 mt-6">Actividad reciente</h2>
+<div class="overflow-x-auto rounded-lg border border-border">
+  <table class="w-full text-left">
+    <thead class="bg-surface-elevated text-xs uppercase tracking-wide text-text-muted">
+      <tr><th class="px-3 py-2">Fecha</th><th class="px-3 py-2">Evento</th><th class="px-3 py-2">IP</th><th class="px-3 py-2">Detalles</th></tr>
+    </thead>
+    <tbody class="divide-y divide-surface-muted">
+      {% for entry in recent_events %}
+      <tr>
+        <td class="whitespace-nowrap px-3 py-2 font-mono text-xs text-text-secondary">{{ entry.timestamp|date:"Y-m-d H:i:s" }}</td>
+        <td class="px-3 py-2 text-xs">{{ entry.get_event_type_display }}</td>
+        <td class="px-3 py-2 font-mono text-xs">{{ entry.ip_address|default:"—" }}</td>
+        <td class="px-3 py-2 font-mono text-xs text-text-secondary">{% for key, value in entry.metadata.items %}{% if key != "username" %}{{ key }}={{ value }} {% endif %}{% endfor %}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="4" class="px-3 py-4 text-center text-text-muted">Sin eventos.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if perms.accounts.view_auditlogentry %}<p class="mt-2 text-xs"><a href="{% url 'accounts:audit_log' %}?user={{ target.pk }}">Ver todo en la bitácora →</a></p>{% endif %}
+{% endblock %}

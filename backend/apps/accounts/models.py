@@ -14,6 +14,11 @@ from django.utils import timezone
 class User(AbstractUser):
     """Usuario de Phylax. Los roles se modelan como grupos de Django."""
 
+    must_change_password = models.BooleanField(
+        default=False,
+        help_text="La contraseña es temporal (asignada por un administrador) y debe cambiarse.",
+    )
+
     class Meta(AbstractUser.Meta):
         swappable = "AUTH_USER_MODEL"
         verbose_name = "usuario"
@@ -35,6 +40,12 @@ class AuditEvent(models.TextChoices):
     MFA_FAILED = "mfa_failed", "Código MFA inválido"
     BACKUP_CODES_REGENERATED = "backup_codes_regenerated", "Códigos de respaldo regenerados"
     SESSIONS_REVOKED = "sessions_revoked", "Sesiones cerradas"
+    USER_CREATED = "user_created", "Usuario creado"
+    USER_UPDATED = "user_updated", "Usuario modificado"
+    USER_DEACTIVATED = "user_deactivated", "Usuario desactivado"
+    USER_REACTIVATED = "user_reactivated", "Usuario reactivado"
+    PASSWORD_RESET_BY_ADMIN = "password_reset_by_admin", "Contraseña temporal asignada"
+    MFA_RESET = "mfa_reset", "MFA reseteado por administrador"
 
 
 class AuditLogEntry(models.Model):

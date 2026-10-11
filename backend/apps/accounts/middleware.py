@@ -45,7 +45,8 @@ class MFAEnforcementMiddleware:
         from . import mfa
 
         user = request.user
-        if not user.is_authenticated:
+        if not user.is_authenticated or user.must_change_password:
+            # Con contraseña temporal manda PasswordChangeRequiredMiddleware.
             return None
         if getattr(view_func, "mfa_enrollment_exempt", False):
             return None
@@ -54,3 +55,32 @@ class MFAEnforcementMiddleware:
         if not mfa.mfa_required(user) or mfa.has_mfa(user):
             return None
         return redirect("accounts:mfa_setup")
+
+
+def password_change_exempt(view_func):
+    """Marca una vista como accesible para usuarios con contraseña temporal."""
+    view_func.password_change_exempt = True
+    return view_func
+
+
+class PasswordChangeRequiredMiddleware:
+    """Obliga a cambiar una contraseña temporal antes de usar Phylax (ADR-006).
+
+    Se evalúa antes que el enforcement de MFA: primero contraseña propia, luego MFA.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        return self.get_response(request)
+
+    def process_view(self, request, view_func, view_args, view_kwargs):
+        user = request.user
+        if not user.is_authenticated or not user.must_change_password:
+            return None
+        if getattr(view_func, "password_change_exempt", False):
+            return None
+        if not getattr(view_func, "login_required", True):
+            return None
+        return redirect("accounts:password_change")

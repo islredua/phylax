@@ -140,12 +140,13 @@ Estructura por fases alineada al cronograma del documento (Capítulo 4). Marca c
 
 ### Módulo 0c: Administración de usuarios (`apps.accounts`)
 
-- [ ] Listado con búsqueda y filtros (rol, estado, MFA)
-- [ ] Alta con contraseña temporal y cambio forzado en el primer login
-- [ ] Edición y asignación de un solo rol por usuario
-- [ ] Desactivar/reactivar (sin borrado)
-- [ ] Acciones de soporte: forzar reset de contraseña, resetear MFA, cerrar sesiones
-- [ ] Salvaguardas: no auto-desactivarse, no dejar el sistema sin admin
+- [x] Listado con búsqueda y filtros (rol, estado, MFA)
+- [x] Alta con contraseña temporal y cambio forzado en el primer login
+- [x] Edición y asignación de un solo rol por usuario
+- [x] Desactivar/reactivar (sin borrado)
+- [x] Acciones de soporte: forzar reset de contraseña, resetear MFA, cerrar sesiones
+- [x] Salvaguardas: no auto-desactivarse, no dejar el sistema sin admin, solo superusuarios administran superusuarios
+- [x] ADR-006: administración de usuarios
 
 ### Módulo 1: Escaneo activo (`apps.scanners`)
 
