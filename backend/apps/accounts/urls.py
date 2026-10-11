@@ -1,22 +1,31 @@
 from django.contrib.auth import views as auth_views
 from django.urls import path, reverse_lazy
 
+from . import account_views as me
 from .forms import LoginForm, StyledPasswordResetForm, StyledSetPasswordForm
-from .views import AuditedPasswordResetConfirmView, AuditedPasswordResetView, AuditLogListView
+from .middleware import mfa_enrollment_exempt
+from .views import (
+    AuditedPasswordResetConfirmView,
+    AuditedPasswordResetView,
+    AuditLogListView,
+    MFAVerifyView,
+    PhylaxLoginView,
+)
 
 app_name = "accounts"
 
 urlpatterns = [
     path(
         "login/",
-        auth_views.LoginView.as_view(
+        PhylaxLoginView.as_view(
             authentication_form=LoginForm,
             redirect_authenticated_user=True,
         ),
         name="login",
     ),
+    path("login/verify/", MFAVerifyView.as_view(), name="login_verify"),
     # Desde Django 5.0 LogoutView solo acepta POST (protección CSRF).
-    path("logout/", auth_views.LogoutView.as_view(), name="logout"),
+    path("logout/", mfa_enrollment_exempt(auth_views.LogoutView.as_view()), name="logout"),
     path(
         "password-reset/",
         AuditedPasswordResetView.as_view(
@@ -46,4 +55,18 @@ urlpatterns = [
         name="password_reset_complete",
     ),
     path("audit-log/", AuditLogListView.as_view(), name="audit_log"),
+    # Mi cuenta
+    path("me/", me.OverviewView.as_view(), name="me"),
+    path("me/profile/", me.ProfileView.as_view(), name="profile"),
+    path("me/password/", me.PasswordChangeView.as_view(), name="password_change"),
+    path("me/security/", me.SecurityView.as_view(), name="security"),
+    path(
+        "me/security/mfa/setup/",
+        mfa_enrollment_exempt(me.MFASetupView.as_view()),
+        name="mfa_setup",
+    ),
+    path("me/security/mfa/disable/", me.MFADisableView.as_view(), name="mfa_disable"),
+    path("me/security/backup-codes/", me.BackupCodesView.as_view(), name="backup_codes"),
+    path("me/security/sessions/revoke/", me.SessionRevokeView.as_view(), name="session_revoke"),
+    path("me/activity/", me.ActivityView.as_view(), name="activity"),
 ]

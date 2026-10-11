@@ -29,6 +29,12 @@ PROJECT_PACKAGE = "apps."
 USER_MANAGEMENT_APPS = {"accounts", "auth"}
 # (app_label, model) que nunca deben modificarse ni borrarse desde la aplicación.
 IMMUTABLE_MODELS = {("accounts", "auditlogentry")}
+# (app_label, model) con secretos: ningún rol recibe permisos sobre ellos.
+SECRET_MODELS = {
+    ("accounts", "mfadevice"),
+    ("accounts", "backupcode"),
+    ("accounts", "usersession"),
+}
 
 ALL_ACTIONS = {"view", "add", "change", "delete"}
 ROLE_ACTIONS = {
@@ -61,6 +67,8 @@ def permissions_for_role(role, using="default"):
     for perm in perms:
         action = perm.codename.split("_", 1)[0]
         model_key = (perm.content_type.app_label, perm.content_type.model)
+        if model_key in SECRET_MODELS:
+            continue
         if model_key in IMMUTABLE_MODELS and action != "view":
             continue
         if action in actions:

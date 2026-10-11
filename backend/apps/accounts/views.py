@@ -1,11 +1,91 @@
-from django import forms
-from django.contrib.auth import get_user_model
-from django.contrib.auth import views as auth_views
-from django.contrib.auth.mixins import PermissionRequiredMixin
-from django.views.generic import ListView
+import time
 
+from django import forms
+from django.conf import settings
+from django.contrib import messages
+from django.contrib.auth import get_user_model, login
+from django.contrib.auth import views as auth_views
+from django.contrib.auth.decorators import login_not_required
+from django.contrib.auth.mixins import PermissionRequiredMixin
+from django.http import HttpResponseRedirect
+from django.shortcuts import redirect, resolve_url
+from django.urls import reverse
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import never_cache
+from django.views.decorators.csrf import csrf_protect
+from django.views.decorators.debug import sensitive_post_parameters
+from django.views.generic import FormView, ListView
+
+from . import mfa, user_sessions
 from .audit import record_event
+from .forms import MFACodeForm
 from .models import AuditEvent, AuditLogEntry
+
+MFA_PENDING_SESSION_KEY = "_phylax_mfa_pending"
+
+
+class PhylaxLoginView(auth_views.LoginView):
+    """Primer paso del login. Si el usuario tiene MFA no abre la sesión todavía."""
+
+    def form_valid(self, form):
+        user = form.get_user()
+        if not mfa.has_mfa(user):
+            return super().form_valid(form)
+        self.request.session[MFA_PENDING_SESSION_KEY] = {
+            "user_id": user.pk,
+            "backend": user.backend,
+            "next": self.get_redirect_url(),
+            "attempts": 0,
+            "started_at": time.time(),
+        }
+        return HttpResponseRedirect(reverse("accounts:login_verify"))
+
+
+@method_decorator(
+    [login_not_required, sensitive_post_parameters(), csrf_protect, never_cache], name="dispatch"
+)
+class MFAVerifyView(FormView):
+    """Segundo paso del login: código TOTP o de respaldo."""
+
+    form_class = MFACodeForm
+    template_name = "registration/login_verify.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        self.pending = request.session.get(MFA_PENDING_SESSION_KEY)
+        if not self.pending:
+            return redirect(settings.LOGIN_URL)
+        if time.time() - self.pending["started_at"] > settings.MFA_LOGIN_TIMEOUT_SECONDS:
+            return self._abort("La verificación expiró. Inicia sesión de nuevo.")
+        self.pending_user = (
+            get_user_model()
+            ._default_manager.filter(pk=self.pending["user_id"], is_active=True)
+            .first()
+        )
+        if self.pending_user is None:
+            return self._abort("No fue posible completar el inicio de sesión.")
+        return super().dispatch(request, *args, **kwargs)
+
+    def form_valid(self, form):
+        user = self.pending_user
+        if mfa.verify_second_factor(user, form.cleaned_data["code"]):
+            pending = self.request.session.pop(MFA_PENDING_SESSION_KEY)
+            login(self.request, user, backend=pending["backend"])
+            return HttpResponseRedirect(pending["next"] or resolve_url(settings.LOGIN_REDIRECT_URL))
+
+        self.pending["attempts"] += 1
+        self.request.session[MFA_PENDING_SESSION_KEY] = self.pending
+        record_event(
+            AuditEvent.MFA_FAILED, user=user, request=self.request, attempt=self.pending["attempts"]
+        )
+        if self.pending["attempts"] >= settings.MFA_LOGIN_MAX_ATTEMPTS:
+            return self._abort("Demasiados códigos inválidos. Inicia sesión de nuevo.")
+        form.add_error("code", "Código inválido o ya utilizado.")
+        return self.form_invalid(form)
+
+    def _abort(self, message):
+        self.request.session.pop(MFA_PENDING_SESSION_KEY, None)
+        messages.error(self.request, message)
+        return redirect(settings.LOGIN_URL)
 
 
 class AuditedPasswordResetView(auth_views.PasswordResetView):
@@ -26,6 +106,8 @@ class AuditedPasswordResetConfirmView(auth_views.PasswordResetConfirmView):
     def form_valid(self, form):
         response = super().form_valid(form)
         record_event(AuditEvent.PASSWORD_RESET_COMPLETED, user=form.user, request=self.request)
+        # Quien restablece la contraseña puede estar recuperando una cuenta comprometida.
+        user_sessions.revoke(form.user)
         return response
 
 

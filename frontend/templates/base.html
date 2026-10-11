@@ -19,7 +19,7 @@
         {% block nav %}
         {% if perms.accounts.view_auditlogentry %}<a href="{% url 'accounts:audit_log' %}" class="text-text-secondary">Bitácora</a>{% endif %}
         {% endblock %}
-        <span class="text-text-muted">{{ user.get_username }}</span>
+        <a href="{% url 'accounts:me' %}" class="text-text-secondary" title="Mi cuenta">{{ user.get_username }}</a>
         <form method="post" action="{% url 'accounts:logout' %}">
           {% csrf_token %}
           <button type="submit" class="btn-secondary py-1">Cerrar sesión</button>

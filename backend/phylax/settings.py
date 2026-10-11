@@ -40,6 +40,9 @@ MIDDLEWARE = [
     # (health, login, password reset). Ver ADR-004.
     "django.contrib.auth.middleware.LoginRequiredMiddleware",
     "apps.accounts.middleware.AuditContextMiddleware",
+    "apps.accounts.user_sessions.SessionActivityMiddleware",
+    # Superusuarios y roles en MFA_REQUIRED_ROLES deben enrolar MFA antes de continuar.
+    "apps.accounts.middleware.MFAEnforcementMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "django_htmx.middleware.HtmxMiddleware",
@@ -81,6 +84,15 @@ AUTH_USER_MODEL = "accounts.User"
 LOGIN_URL = "accounts:login"
 LOGIN_REDIRECT_URL = "home"
 LOGOUT_REDIRECT_URL = "accounts:login"
+
+# --- MFA (TOTP) ---
+# Roles que deben tener MFA activo; los superusuarios siempre lo requieren (ADR-005).
+MFA_REQUIRED_ROLES = [
+    r.strip() for r in os.environ.get("MFA_REQUIRED_ROLES", "admin").split(",") if r.strip()
+]
+MFA_ISSUER = os.environ.get("MFA_ISSUER", "Phylax")
+MFA_LOGIN_MAX_ATTEMPTS = 5
+MFA_LOGIN_TIMEOUT_SECONDS = 5 * 60
 
 # --- Sesión y cookies ---
 # La plataforma es un activo de alto valor (STRIDE): sesiones cortas y cookies

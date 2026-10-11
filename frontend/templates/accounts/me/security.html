@@ -1,0 +1,63 @@
+{% extends "accounts/me/_layout.html" %}
+{% block title %}Seguridad{% endblock %}
+{% block account_content %}
+<h1>Seguridad</h1>
+
+<div class="card space-y-3">
+  <h2>Verificación en dos pasos</h2>
+  {% if has_mfa %}
+  <p class="text-text-secondary">Estado: <span class="text-accent">activa</span>. Al iniciar sesión se te pedirá un código de tu app autenticadora.</p>
+  <p class="text-text-secondary">Códigos de respaldo disponibles: <span class="font-mono {% if backup_codes_left < 3 %}text-warning{% endif %}">{{ backup_codes_left }}</span></p>
+  <div class="flex flex-wrap gap-2">
+    <a href="{% url 'accounts:backup_codes' %}" class="btn-secondary hover:no-underline">Regenerar códigos de respaldo</a>
+    {% if not mfa_required %}<a href="{% url 'accounts:mfa_disable' %}" class="btn-secondary hover:no-underline">Desactivar</a>{% endif %}
+  </div>
+  {% if mfa_required %}<p class="text-xs text-text-muted">Tu rol exige verificación en dos pasos; no puede desactivarse.</p>{% endif %}
+  {% else %}
+  <p class="text-text-secondary">Estado: <span class="text-warning">inactiva</span>. Protege tu cuenta con un código temporal además de tu contraseña.</p>
+  {% if mfa_required %}<div class="alert-error" role="alert">Tu rol exige verificación en dos pasos.</div>{% endif %}
+  <a href="{% url 'accounts:mfa_setup' %}" class="btn-primary hover:no-underline">Activar verificación en dos pasos</a>
+  {% endif %}
+</div>
+
+<div class="card space-y-3">
+  <div class="flex items-baseline justify-between">
+    <h2>Sesiones activas</h2>
+    {% if sessions|length > 1 %}
+    <form method="post" action="{% url 'accounts:session_revoke' %}">
+      {% csrf_token %}
+      <button type="submit" class="btn-secondary py-1">Cerrar las demás sesiones</button>
+    </form>
+    {% endif %}
+  </div>
+  <div class="overflow-x-auto rounded-lg border border-border">
+    <table class="w-full text-left">
+      <thead class="bg-surface text-xs uppercase tracking-wide text-text-muted">
+        <tr><th class="px-3 py-2">Dispositivo</th><th class="px-3 py-2">IP</th><th class="px-3 py-2">Inicio</th><th class="px-3 py-2">Última actividad</th><th class="px-3 py-2"></th></tr>
+      </thead>
+      <tbody class="divide-y divide-surface-muted">
+        {% for s in sessions %}
+        <tr>
+          <td class="max-w-xs truncate px-3 py-2 text-xs text-text-secondary" title="{{ s.user_agent }}">{{ s.user_agent|default:"Desconocido" }}</td>
+          <td class="px-3 py-2 font-mono text-xs">{{ s.ip_address|default:"—" }}</td>
+          <td class="whitespace-nowrap px-3 py-2 font-mono text-xs">{{ s.created_at|date:"Y-m-d H:i" }}</td>
+          <td class="whitespace-nowrap px-3 py-2 font-mono text-xs">{{ s.last_seen_at|date:"Y-m-d H:i" }}</td>
+          <td class="px-3 py-2 text-right">
+            {% if s.session_key == current_session_key %}
+            <span class="rounded bg-surface-muted px-2 py-0.5 text-xs text-text-secondary">Esta sesión</span>
+            {% else %}
+            <form method="post" action="{% url 'accounts:session_revoke' %}">
+              {% csrf_token %}<input type="hidden" name="session_id" value="{{ s.pk }}">
+              <button type="submit" class="btn-secondary py-1 text-xs">Cerrar</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5" class="px-3 py-4 text-center text-text-muted">Sin sesiones registradas.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
