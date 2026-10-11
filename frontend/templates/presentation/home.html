@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Inicio{% endblock %}
+{% block content %}
+<div class="card">
+  <h1>Bienvenido, {{ user.get_username }}</h1>
+  <p class="mt-2 text-text-secondary">
+    Rol:
+    {% for group in user.groups.all %}<span class="font-mono text-text-primary">{{ group.name }}</span>{% if not forloop.last %}, {% endif %}{% empty %}<span class="text-text-muted">sin rol asignado</span>{% endfor %}
+  </p>
+  <p class="mt-4 text-text-muted">Las vistas técnica y ejecutiva llegarán con el módulo de presentación (M5).</p>
+</div>
+{% endblock %}

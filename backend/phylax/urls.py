@@ -2,7 +2,7 @@
 
 from django.contrib import admin
 from django.http import JsonResponse
-from django.urls import path
+from django.urls import include, path
 
 
 def health(_request):
@@ -12,10 +12,11 @@ def health(_request):
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("health/", health, name="health"),
+    path("accounts/", include("apps.accounts.urls")),
     # Rutas por módulo (se incluirán conforme se desarrollen):
     # path("api/scanners/", include("apps.scanners.urls")),
     # path("api/assets/", include("apps.assets.urls")),
     # path("api/cti/", include("apps.cti.urls")),
     # path("api/scoring/", include("apps.scoring.urls")),
-    # path("", include("apps.presentation.urls")),
+    path("", include("apps.presentation.urls")),
 ]

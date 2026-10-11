@@ -74,6 +74,16 @@ DATABASES = {
 
 # --- Autenticación ---
 AUTH_USER_MODEL = "accounts.User"
+LOGIN_URL = "accounts:login"
+LOGIN_REDIRECT_URL = "home"
+LOGOUT_REDIRECT_URL = "accounts:login"
+
+# --- Correo (password reset) ---
+# En desarrollo el correo se imprime en la consola del contenedor.
+EMAIL_BACKEND = os.environ.get(
+    "DJANGO_EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
+)
+DEFAULT_FROM_EMAIL = os.environ.get("DJANGO_DEFAULT_FROM_EMAIL", "phylax@localhost")
 
 # --- Validadores de contraseñas ---
 AUTH_PASSWORD_VALIDATORS = [

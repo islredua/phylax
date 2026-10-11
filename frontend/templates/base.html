@@ -1,0 +1,39 @@
+{% load static %}<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Phylax{% endblock %} · phylax</title>
+  <link rel="icon" type="image/svg+xml" href="{% static 'img/favicon.svg' %}">
+  <link rel="stylesheet" href="{% static 'css/phylax.css' %}">
+</head>
+<body class="min-h-screen">
+  {% block header %}
+  <header class="border-b border-border bg-surface-elevated">
+    <div class="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
+      <a href="/" class="text-lg font-semibold text-text-primary hover:no-underline">
+        phylax <span class="text-accent">●</span>
+      </a>
+      {% if user.is_authenticated %}
+      <nav class="flex items-center gap-4 text-text-secondary">
+        {% block nav %}{% endblock %}
+        <span class="text-text-muted">{{ user.get_username }}</span>
+        <form method="post" action="{% url 'accounts:logout' %}">
+          {% csrf_token %}
+          <button type="submit" class="btn-secondary py-1">Cerrar sesión</button>
+        </form>
+      </nav>
+      {% endif %}
+    </div>
+  </header>
+  {% endblock %}
+  <main class="mx-auto max-w-7xl px-6 py-6">
+    {% if messages %}
+    <div class="mb-4 space-y-2">
+      {% for message in messages %}<div class="alert-info">{{ message }}</div>{% endfor %}
+    </div>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

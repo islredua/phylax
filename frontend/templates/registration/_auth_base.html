@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block header %}{% endblock %}
+{% block content %}
+<div class="flex min-h-[80vh] items-center justify-center">
+  <div class="w-full max-w-sm">
+    <p class="mb-6 text-center text-2xl font-semibold">phylax <span class="text-accent">●</span></p>
+    <div class="card space-y-4">
+      {% block auth_content %}{% endblock %}
+    </div>
+  </div>
+</div>
+{% endblock %}
