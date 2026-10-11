@@ -129,6 +129,24 @@ Estructura por fases alineada al cronograma del documento (Capítulo 4). Marca c
 - [x] Bitácora de auditoría (`AuditLogEntry`) de eventos de autenticación y roles + vista `/accounts/audit-log/` (STRIDE Repudiation)
 - [ ] Protección contra fuerza bruta (`django-axes`) — diferido a despliegue productivo (ADR-004)
 
+### Módulo 0b: Mi cuenta y MFA (`apps.accounts`)
+
+- [x] TOTP (RFC 6238) con librería estándar + QR con `segno` (ADR-005)
+- [x] Login en dos pasos (TOTP o código de respaldo), anti-replay y límite de intentos
+- [x] MFA obligatorio para rol `admin` y superusuarios
+- [x] Códigos de respaldo de un solo uso
+- [x] Mi cuenta: perfil, cambio de contraseña, activar/desactivar MFA, sesiones activas, actividad
+- [x] ADR-005: MFA y autoservicio de cuenta
+
+### Módulo 0c: Administración de usuarios (`apps.accounts`)
+
+- [ ] Listado con búsqueda y filtros (rol, estado, MFA)
+- [ ] Alta con contraseña temporal y cambio forzado en el primer login
+- [ ] Edición y asignación de un solo rol por usuario
+- [ ] Desactivar/reactivar (sin borrado)
+- [ ] Acciones de soporte: forzar reset de contraseña, resetear MFA, cerrar sesiones
+- [ ] Salvaguardas: no auto-desactivarse, no dejar el sistema sin admin
+
 ### Módulo 1: Escaneo activo (`apps.scanners`)
 
 **Semana:** S2–S3

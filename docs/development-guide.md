@@ -68,3 +68,14 @@ docker compose exec backend python manage.py sync_roles
 ```
 
 Ver ADR-004 para la matriz de permisos.
+
+## MFA en desarrollo
+
+Los usuarios con rol `admin` y los superusuarios deben activar MFA en su primer
+acceso (`/accounts/me/security/mfa/setup/`). Cualquier app TOTP sirve. Si pierdes
+el dispositivo en local, desde el contenedor:
+
+```bash
+docker compose exec backend python manage.py shell -c \
+  "from apps.accounts import mfa; from apps.accounts.models import User; mfa.disable(User.objects.get(username='admin'))"
+```
