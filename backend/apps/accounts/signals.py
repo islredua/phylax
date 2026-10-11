@@ -5,6 +5,7 @@ from django.contrib.auth.signals import user_logged_in, user_logged_out, user_lo
 from django.db.models.signals import m2m_changed
 from django.dispatch import receiver
 
+from . import user_sessions
 from .audit import record_event
 from .models import AuditEvent
 
@@ -16,12 +17,16 @@ USERNAME_MAX_LENGTH = User._meta.get_field(User.USERNAME_FIELD).max_length
 @receiver(user_logged_in, dispatch_uid="accounts.audit_login")
 def audit_login(sender, request, user, **kwargs):
     record_event(AuditEvent.LOGIN_SUCCESS, user=user, request=request)
+    if request is not None and hasattr(request, "session"):
+        user_sessions.track(request, user)
 
 
 @receiver(user_logged_out, dispatch_uid="accounts.audit_logout")
 def audit_logout(sender, request, user, **kwargs):
     if user is not None:
         record_event(AuditEvent.LOGOUT, user=user, request=request)
+    if request is not None and hasattr(request, "session"):
+        user_sessions.forget(request.session.session_key)
 
 
 @receiver(user_login_failed, dispatch_uid="accounts.audit_login_failed")

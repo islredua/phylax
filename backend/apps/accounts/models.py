@@ -8,6 +8,7 @@ campos; existe para dejar espacio a MFA y a referencias desde otros módulos.
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.utils import timezone
 
 
 class User(AbstractUser):
@@ -122,3 +123,29 @@ class BackupCode(models.Model):
 
     def __str__(self):
         return f"Código de respaldo de {self.user}"
+
+
+class UserSession(models.Model):
+    """Sesión activa de un usuario, para listarla y poder cerrarla.
+
+    Complementa (no reemplaza) el backend de sesiones de Django.
+    ``session_key`` es un secreto equivalente a la cookie: ningún rol recibe
+    permisos sobre este modelo y nunca se muestra completo en la interfaz.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="tracked_sessions"
+    )
+    session_key = models.CharField(max_length=40, unique=True)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        ordering = ["-last_seen_at"]
+        verbose_name = "sesión de usuario"
+        verbose_name_plural = "sesiones de usuario"
+
+    def __str__(self):
+        return f"Sesión de {self.user} ({self.ip_address or 'IP desconocida'})"

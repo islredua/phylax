@@ -16,7 +16,7 @@ from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.debug import sensitive_post_parameters
 from django.views.generic import FormView, ListView
 
-from . import mfa
+from . import mfa, user_sessions
 from .audit import record_event
 from .forms import MFACodeForm
 from .models import AuditEvent, AuditLogEntry
@@ -106,6 +106,8 @@ class AuditedPasswordResetConfirmView(auth_views.PasswordResetConfirmView):
     def form_valid(self, form):
         response = super().form_valid(form)
         record_event(AuditEvent.PASSWORD_RESET_COMPLETED, user=form.user, request=self.request)
+        # Quien restablece la contraseña puede estar recuperando una cuenta comprometida.
+        user_sessions.revoke(form.user)
         return response
 
 

@@ -30,7 +30,11 @@ USER_MANAGEMENT_APPS = {"accounts", "auth"}
 # (app_label, model) que nunca deben modificarse ni borrarse desde la aplicación.
 IMMUTABLE_MODELS = {("accounts", "auditlogentry")}
 # (app_label, model) con secretos: ningún rol recibe permisos sobre ellos.
-SECRET_MODELS = {("accounts", "mfadevice"), ("accounts", "backupcode")}
+SECRET_MODELS = {
+    ("accounts", "mfadevice"),
+    ("accounts", "backupcode"),
+    ("accounts", "usersession"),
+}
 
 ALL_ACTIONS = {"view", "add", "change", "delete"}
 ROLE_ACTIONS = {
