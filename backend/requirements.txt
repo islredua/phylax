@@ -9,7 +9,6 @@ httpx==0.27.2
 
 # Scanner integrations
 python-nmap==0.7.1
-libnmap==0.7.3
 
 # CTI consumption
 requests==2.32.3
