@@ -1,6 +1,7 @@
 from django.contrib.auth import views as auth_views
 from django.urls import path, reverse_lazy
 
+from . import account_views as me
 from .forms import LoginForm, StyledPasswordResetForm, StyledSetPasswordForm
 from .views import (
     AuditedPasswordResetConfirmView,
@@ -53,4 +54,14 @@ urlpatterns = [
         name="password_reset_complete",
     ),
     path("audit-log/", AuditLogListView.as_view(), name="audit_log"),
+    # Mi cuenta
+    path("me/", me.OverviewView.as_view(), name="me"),
+    path("me/profile/", me.ProfileView.as_view(), name="profile"),
+    path("me/password/", me.PasswordChangeView.as_view(), name="password_change"),
+    path("me/security/", me.SecurityView.as_view(), name="security"),
+    path("me/security/mfa/setup/", me.MFASetupView.as_view(), name="mfa_setup"),
+    path("me/security/mfa/disable/", me.MFADisableView.as_view(), name="mfa_disable"),
+    path("me/security/backup-codes/", me.BackupCodesView.as_view(), name="backup_codes"),
+    path("me/security/sessions/revoke/", me.SessionRevokeView.as_view(), name="session_revoke"),
+    path("me/activity/", me.ActivityView.as_view(), name="activity"),
 ]

@@ -35,6 +35,12 @@ def track(request, user):
     request.session[SEEN_SESSION_KEY] = time.time()
 
 
+def rekey(old_key, new_key):
+    """Sigue a la sesión actual cuando Django rota su llave (cycle_key)."""
+    if old_key and new_key and old_key != new_key:
+        UserSession.objects.filter(session_key=old_key).update(session_key=new_key)
+
+
 def forget(session_key):
     if session_key:
         UserSession.objects.filter(session_key=session_key).delete()

@@ -1,0 +1,31 @@
+{% extends "accounts/me/_layout.html" %}
+{% block title %}Mi cuenta{% endblock %}
+{% block account_content %}
+<h1>Mi cuenta</h1>
+{% if mfa_required and not has_mfa %}
+<div class="alert-error" role="alert">Tu rol exige verificación en dos pasos. <a href="{% url 'accounts:mfa_setup' %}">Actívala ahora</a>.</div>
+{% endif %}
+<div class="card">
+  <h2 class="mb-3">Perfil</h2>
+  <dl class="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+    <div><dt class="form-label">Usuario</dt><dd class="font-mono">{{ user.get_username }}</dd></div>
+    <div><dt class="form-label">Rol</dt><dd>{% if role %}<span class="font-mono">{{ role.name }}</span>{% else %}<span class="text-text-muted">sin rol asignado</span>{% endif %}</dd></div>
+    <div><dt class="form-label">Nombre</dt><dd>{{ user.get_full_name|default:"—" }}</dd></div>
+    <div><dt class="form-label">Correo</dt><dd>{{ user.email|default:"—" }}</dd></div>
+    <div><dt class="form-label">Último inicio de sesión</dt><dd class="font-mono text-xs">{{ user.last_login|date:"Y-m-d H:i" }}</dd></div>
+    <div><dt class="form-label">Miembro desde</dt><dd class="font-mono text-xs">{{ user.date_joined|date:"Y-m-d" }}</dd></div>
+  </dl>
+  <a href="{% url 'accounts:profile' %}" class="btn-secondary mt-4 hover:no-underline">Editar perfil</a>
+</div>
+<div class="card">
+  <h2 class="mb-3">Seguridad</h2>
+  <ul class="space-y-2 text-text-secondary">
+    <li>Verificación en dos pasos:
+      {% if has_mfa %}<span class="text-accent">activa</span> · {{ backup_codes_left }} código{{ backup_codes_left|pluralize }} de respaldo disponible{{ backup_codes_left|pluralize }}
+      {% else %}<span class="text-warning">inactiva</span>{% endif %}
+    </li>
+    <li>Sesiones activas: {{ session_count }}</li>
+  </ul>
+  <a href="{% url 'accounts:security' %}" class="btn-secondary mt-4 hover:no-underline">Administrar seguridad</a>
+</div>
+{% endblock %}
