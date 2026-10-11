@@ -39,6 +39,7 @@ MIDDLEWARE = [
     # Todas las vistas requieren sesión salvo las marcadas con @login_not_required
     # (health, login, password reset). Ver ADR-004.
     "django.contrib.auth.middleware.LoginRequiredMiddleware",
+    "apps.accounts.middleware.AuditContextMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "django_htmx.middleware.HtmxMiddleware",

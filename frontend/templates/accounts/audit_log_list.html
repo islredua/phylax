@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Bitácora de auditoría{% endblock %}
+{% block content %}
+<div class="mb-4 flex items-baseline justify-between">
+  <h1>Bitácora de auditoría</h1>
+  <p class="text-xs text-text-muted">{{ paginator.count }} evento{{ paginator.count|pluralize }} · solo lectura</p>
+</div>
+
+<form method="get" class="card mb-4 grid grid-cols-1 gap-4 p-4 md:grid-cols-5 md:items-end">
+  {% for field in filter_form %}
+  <div>
+    <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+    {{ field }}
+    {% for error in field.errors %}<p class="mt-1 text-xs text-danger">{{ error }}</p>{% endfor %}
+  </div>
+  {% endfor %}
+  <div class="flex gap-2">
+    <button type="submit" class="btn-primary">Filtrar</button>
+    <a href="{% url 'accounts:audit_log' %}" class="btn-secondary hover:no-underline">Limpiar</a>
+  </div>
+</form>
+
+<div class="overflow-x-auto rounded-lg border border-border">
+  <table class="w-full text-left">
+    <thead class="bg-surface-elevated text-xs uppercase tracking-wide text-text-muted">
+      <tr>
+        <th class="px-3 py-2">Fecha</th>
+        <th class="px-3 py-2">Evento</th>
+        <th class="px-3 py-2">Usuario</th>
+        <th class="px-3 py-2">IP</th>
+        <th class="px-3 py-2">Detalles</th>
+        <th class="px-3 py-2">User agent</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-surface-muted">
+      {% for entry in entries %}
+      <tr class="hover:bg-surface-muted">
+        <td class="whitespace-nowrap px-3 py-2 font-mono text-xs text-text-secondary">{{ entry.timestamp|date:"Y-m-d H:i:s" }}</td>
+        <td class="whitespace-nowrap px-3 py-2">
+          <span class="rounded px-2 py-0.5 text-xs {% if entry.event_type == 'login_failed' %}bg-danger/15 text-danger{% elif entry.event_type == 'role_assigned' or entry.event_type == 'role_revoked' or entry.event_type == 'password_reset_requested' %}bg-warning/15 text-warning{% else %}bg-surface-muted text-text-secondary{% endif %}">{{ entry.get_event_type_display }}</span>
+        </td>
+        <td class="px-3 py-2">{% if entry.user %}{{ entry.user.get_username }}{% else %}<span class="text-text-muted">—</span>{% endif %}</td>
+        <td class="px-3 py-2 font-mono text-xs">{{ entry.ip_address|default:"—" }}</td>
+        <td class="px-3 py-2 font-mono text-xs text-text-secondary">{% for key, value in entry.metadata.items %}{{ key }}={{ value }}{% if not forloop.last %} · {% endif %}{% endfor %}</td>
+        <td class="max-w-xs truncate px-3 py-2 text-xs text-text-muted" title="{{ entry.user_agent }}">{{ entry.user_agent|default:"—" }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6" class="px-3 py-6 text-center text-text-muted">Sin eventos para los filtros seleccionados.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if is_paginated %}
+<nav class="mt-4 flex items-center justify-between text-text-secondary" aria-label="Paginación">
+  {% if page_obj.has_previous %}<a class="btn-secondary hover:no-underline" href="{% querystring page=page_obj.previous_page_number %}">Anterior</a>{% else %}<span></span>{% endif %}
+  <span class="text-xs">Página {{ page_obj.number }} de {{ paginator.num_pages }}</span>
+  {% if page_obj.has_next %}<a class="btn-secondary hover:no-underline" href="{% querystring page=page_obj.next_page_number %}">Siguiente</a>{% else %}<span></span>{% endif %}
+</nav>
+{% endif %}
+{% endblock %}

@@ -16,7 +16,9 @@
       </a>
       {% if user.is_authenticated %}
       <nav class="flex items-center gap-4 text-text-secondary">
-        {% block nav %}{% endblock %}
+        {% block nav %}
+        {% if perms.accounts.view_auditlogentry %}<a href="{% url 'accounts:audit_log' %}" class="text-text-secondary">Bitácora</a>{% endif %}
+        {% endblock %}
         <span class="text-text-muted">{{ user.get_username }}</span>
         <form method="post" action="{% url 'accounts:logout' %}">
           {% csrf_token %}

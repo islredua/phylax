@@ -12,7 +12,7 @@ Matriz (ver ADR-004):
             No puede borrar (STRIDE Tampering: evitar pérdida de evidencia).
 - auditor:  solo view en las apps del proyecto, incluida la bitácora.
 
-Los modelos listados en IMMUTABLE_MODELS solo admiten ``view`` para
+Los modelos inmutables (bitácora de auditoría) solo admiten ``view`` para
 cualquier rol.
 """
 
@@ -28,7 +28,7 @@ PROJECT_PACKAGE = "apps."
 # Apps cuya administración equivale a gestionar usuarios y roles.
 USER_MANAGEMENT_APPS = {"accounts", "auth"}
 # (app_label, model) que nunca deben modificarse ni borrarse desde la aplicación.
-IMMUTABLE_MODELS: set[tuple[str, str]] = set()
+IMMUTABLE_MODELS = {("accounts", "auditlogentry")}
 
 ALL_ACTIONS = {"view", "add", "change", "delete"}
 ROLE_ACTIONS = {
