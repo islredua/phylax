@@ -1,10 +1,12 @@
 """URLs raíz de Phylax."""
 
 from django.contrib import admin
+from django.contrib.auth.decorators import login_not_required
 from django.http import JsonResponse
 from django.urls import include, path
 
 
+@login_not_required
 def health(_request):
     return JsonResponse({"status": "ok", "service": "phylax"})
 
