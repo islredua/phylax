@@ -21,6 +21,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "django_htmx",
     # apps del proyecto
+    "apps.accounts",
     "apps.assets",
     "apps.scanners",
     "apps.cti",
@@ -70,6 +71,9 @@ DATABASES = {
         "PORT": os.environ.get("POSTGRES_PORT", "5432"),
     }
 }
+
+# --- Autenticación ---
+AUTH_USER_MODEL = "accounts.User"
 
 # --- Validadores de contraseñas ---
 AUTH_PASSWORD_VALIDATORS = [
