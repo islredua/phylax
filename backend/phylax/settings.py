@@ -41,6 +41,8 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.LoginRequiredMiddleware",
     "apps.accounts.middleware.AuditContextMiddleware",
     "apps.accounts.user_sessions.SessionActivityMiddleware",
+    # Contraseña temporal: cambiarla antes de cualquier otra cosa (incluido MFA).
+    "apps.accounts.middleware.PasswordChangeRequiredMiddleware",
     # Superusuarios y roles en MFA_REQUIRED_ROLES deben enrolar MFA antes de continuar.
     "apps.accounts.middleware.MFAEnforcementMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",

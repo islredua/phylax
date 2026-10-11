@@ -104,6 +104,7 @@ class AuditedPasswordResetView(auth_views.PasswordResetView):
 
 class AuditedPasswordResetConfirmView(auth_views.PasswordResetConfirmView):
     def form_valid(self, form):
+        form.user.must_change_password = False  # la nueva contraseña la eligió el usuario
         response = super().form_valid(form)
         record_event(AuditEvent.PASSWORD_RESET_COMPLETED, user=form.user, request=self.request)
         # Quien restablece la contraseña puede estar recuperando una cuenta comprometida.

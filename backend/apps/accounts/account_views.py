@@ -87,12 +87,20 @@ class PasswordChangeView(AccountSectionMixin, auth_views.PasswordChangeView):
     section = "password"
     success_url = reverse_lazy("accounts:me")
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["forced"] = self.request.user.must_change_password
+        return context
+
     def form_valid(self, form):
         # super() mantiene viva la sesión actual (update_session_auth_hash), pero
         # rota su llave: se re-asocia antes de cerrar las demás.
         old_key = self.request.session.session_key
         response = super().form_valid(form)
         user = self.request.user
+        if user.must_change_password:
+            user.must_change_password = False
+            user.save(update_fields=["must_change_password"])
         new_key = self.request.session.session_key
         user_sessions.rekey(old_key, new_key)
         closed = user_sessions.revoke(user, except_key=new_key)

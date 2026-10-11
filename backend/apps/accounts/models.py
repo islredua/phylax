@@ -14,6 +14,11 @@ from django.utils import timezone
 class User(AbstractUser):
     """Usuario de Phylax. Los roles se modelan como grupos de Django."""
 
+    must_change_password = models.BooleanField(
+        default=False,
+        help_text="La contraseña es temporal (asignada por un administrador) y debe cambiarse.",
+    )
+
     class Meta(AbstractUser.Meta):
         swappable = "AUTH_USER_MODEL"
         verbose_name = "usuario"
