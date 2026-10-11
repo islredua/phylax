@@ -1,7 +1,5 @@
 """Login, logout, middleware global de autenticación y password reset."""
 
-import re
-
 import pytest
 from django.urls import reverse
 
@@ -127,19 +125,13 @@ def test_logout_via_post_ends_session(client, user):
 # --- Password reset ----------------------------------------------------------
 
 
-def _reset_link(message):
-    match = re.search(r"https?://[^/]+(/accounts/reset/[^/]+/[^/]+/)", message.body)
-    assert match, message.body
-    return match.group(1)
-
-
-def test_password_reset_sends_email_for_known_account(client, user, mailoutbox):
+def test_password_reset_sends_email_for_known_account(client, user, mailoutbox, reset_link):
     response = client.post("/accounts/password-reset/", {"email": user.email})
     assert response.status_code == 302
     assert response.url == "/accounts/password-reset/done/"
     assert len(mailoutbox) == 1
     assert mailoutbox[0].to == [user.email]
-    _reset_link(mailoutbox[0])
+    reset_link(mailoutbox[0])
 
 
 def test_password_reset_does_not_reveal_unknown_email(client, mailoutbox):
@@ -150,9 +142,9 @@ def test_password_reset_does_not_reveal_unknown_email(client, mailoutbox):
     assert mailoutbox == []
 
 
-def test_password_reset_full_flow_changes_password(client, user, mailoutbox):
+def test_password_reset_full_flow_changes_password(client, user, mailoutbox, reset_link):
     client.post("/accounts/password-reset/", {"email": user.email})
-    response = client.get(_reset_link(mailoutbox[0]), follow=True)
+    response = client.get(reset_link(mailoutbox[0]), follow=True)
     assert response.status_code == 200
     assert response.context["validlink"] is True
 

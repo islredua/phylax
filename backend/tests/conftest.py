@@ -1,3 +1,5 @@
+import re
+
 import factory
 import pytest
 from django.contrib.auth.models import Group
@@ -62,3 +64,15 @@ def auditor_user(make_user):
 @pytest.fixture
 def superuser(make_user):
     return make_user(is_superuser=True)
+
+
+@pytest.fixture
+def reset_link():
+    """Extrae la ruta del enlace de restablecimiento de un correo enviado."""
+
+    def _reset_link(message):
+        match = re.search(r"https?://[^/\s]+(/accounts/reset/[^/]+/[^/]+/)", message.body)
+        assert match, message.body
+        return match.group(1)
+
+    return _reset_link

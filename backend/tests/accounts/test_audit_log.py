@@ -73,10 +73,9 @@ def test_password_reset_request_for_unknown_email_stores_no_email(client):
     assert entry.metadata == {"matched_account": False}
 
 
-def test_password_reset_completion_is_logged(client, user, mailoutbox):
+def test_password_reset_completion_is_logged(client, user, mailoutbox, reset_link):
     client.post("/accounts/password-reset/", {"email": user.email})
-    link = mailoutbox[0].body.split("testserver", 1)[1].split()[0]
-    response = client.get(link, follow=True)
+    response = client.get(reset_link(mailoutbox[0]), follow=True)
     client.post(
         response.redirect_chain[-1][0],
         {"new_password1": "Nueva-Clave-2026!", "new_password2": "Nueva-Clave-2026!"},
