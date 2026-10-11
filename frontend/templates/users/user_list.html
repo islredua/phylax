@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Usuarios{% endblock %}
+{% block content %}
+<div class="mb-4 flex items-baseline justify-between">
+  <h1>Usuarios</h1>
+  <div class="flex items-center gap-3">
+    <p class="text-xs text-text-muted">{{ paginator.count }} usuario{{ paginator.count|pluralize }}</p>
+    {% if perms.accounts.add_user %}<a href="{% url 'users:create' %}" class="btn-primary hover:no-underline">Nuevo usuario</a>{% endif %}
+  </div>
+</div>
+
+<form method="get" class="card mb-4 grid grid-cols-1 gap-4 p-4 md:grid-cols-5 md:items-end">
+  {% for field in filter_form %}
+  <div>
+    <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+    {{ field }}
+  </div>
+  {% endfor %}
+  <div class="flex gap-2">
+    <button type="submit" class="btn-primary">Filtrar</button>
+    <a href="{% url 'users:list' %}" class="btn-secondary hover:no-underline">Limpiar</a>
+  </div>
+</form>
+
+<div class="overflow-x-auto rounded-lg border border-border">
+  <table class="w-full text-left">
+    <thead class="bg-surface-elevated text-xs uppercase tracking-wide text-text-muted">
+      <tr>
+        <th class="px-3 py-2">Usuario</th>
+        <th class="px-3 py-2">Nombre</th>
+        <th class="px-3 py-2">Rol</th>
+        <th class="px-3 py-2">Estado</th>
+        <th class="px-3 py-2">MFA</th>
+        <th class="px-3 py-2">Último acceso</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-surface-muted">
+      {% for u in users %}
+      <tr class="hover:bg-surface-muted">
+        <td class="px-3 py-2 font-mono"><a href="{% url 'users:detail' u.pk %}">{{ u.username }}</a>{% if u.is_superuser %} <span class="text-xs text-text-muted">(superusuario)</span>{% endif %}</td>
+        <td class="px-3 py-2 text-text-secondary">{{ u.get_full_name|default:"—" }}</td>
+        <td class="px-3 py-2">{% for g in u.groups.all %}<span class="font-mono text-xs">{{ g.name }}</span>{% if not forloop.last %}, {% endif %}{% empty %}<span class="text-text-muted">sin rol</span>{% endfor %}</td>
+        <td class="px-3 py-2">{% if u.is_active %}<span class="text-text-secondary">Activo</span>{% else %}<span class="rounded bg-surface-muted px-2 py-0.5 text-xs text-text-muted">Inactivo</span>{% endif %}{% if u.must_change_password %} <span class="rounded bg-warning/15 px-2 py-0.5 text-xs text-warning">contraseña temporal</span>{% endif %}</td>
+        <td class="px-3 py-2">{% if u.has_mfa %}<span class="text-accent">Activo</span>{% else %}<span class="text-text-muted">—</span>{% endif %}</td>
+        <td class="whitespace-nowrap px-3 py-2 font-mono text-xs text-text-secondary">{{ u.last_login|date:"Y-m-d H:i"|default:"nunca" }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="6" class="px-3 py-6 text-center text-text-muted">Sin usuarios para los filtros seleccionados.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if is_paginated %}
+<nav class="mt-4 flex items-center justify-between text-text-secondary" aria-label="Paginación">
+  {% if page_obj.has_previous %}<a class="btn-secondary hover:no-underline" href="{% querystring page=page_obj.previous_page_number %}">Anterior</a>{% else %}<span></span>{% endif %}
+  <span class="text-xs">Página {{ page_obj.number }} de {{ paginator.num_pages }}</span>
+  {% if page_obj.has_next %}<a class="btn-secondary hover:no-underline" href="{% querystring page=page_obj.next_page_number %}">Siguiente</a>{% else %}<span></span>{% endif %}
+</nav>
+{% endif %}
+{% endblock %}

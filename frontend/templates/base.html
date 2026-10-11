@@ -17,6 +17,7 @@
       {% if user.is_authenticated %}
       <nav class="flex items-center gap-4 text-text-secondary">
         {% block nav %}
+        {% if perms.accounts.view_user %}<a href="{% url 'users:list' %}" class="text-text-secondary">Usuarios</a>{% endif %}
         {% if perms.accounts.view_auditlogentry %}<a href="{% url 'accounts:audit_log' %}" class="text-text-secondary">Bitácora</a>{% endif %}
         {% endblock %}
         <a href="{% url 'accounts:me' %}" class="text-text-secondary" title="Mi cuenta">{{ user.get_username }}</a>
