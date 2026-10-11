@@ -1,0 +1,76 @@
+/*
+ * Fuente de estilos de Phylax (Tailwind CSS 4, configuración CSS-first).
+ * Compilar con el binario standalone; ver docs/development-guide.md.
+ * Los tokens replican la paleta Phylax Dark de ADR-003.
+ */
+@import "tailwindcss";
+
+@source "../templates";
+@source "../../backend/apps";
+
+@theme {
+  --color-surface: #0f172a;
+  --color-surface-elevated: #1e293b;
+  --color-surface-muted: #334155;
+  --color-border: #475569;
+  --color-text-primary: #f8fafc;
+  --color-text-secondary: #cbd5e1;
+  --color-text-muted: #94a3b8;
+  --color-accent: #10b981;
+  --color-accent-hover: #059669;
+  --color-danger: #ef4444;
+  --color-warning: #f59e0b;
+  --color-info: #3b82f6;
+
+  /* Sin fuentes remotas (on-premise): Inter/JetBrains Mono solo si están instaladas. */
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", Consolas, monospace;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-surface text-text-primary font-sans text-sm antialiased;
+  }
+  h1 {
+    @apply text-2xl font-semibold;
+  }
+  h2 {
+    @apply text-xl font-semibold;
+  }
+  a {
+    @apply text-info hover:underline;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-surface-elevated border border-border rounded-lg p-6;
+  }
+  .form-label {
+    @apply block text-xs font-medium text-text-muted mb-1;
+  }
+  .form-input {
+    @apply w-full rounded-md border border-border bg-surface px-3 py-2 text-text-primary
+      placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-1
+      focus:ring-accent;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-md bg-accent px-4 py-2 font-medium
+      text-surface hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-accent
+      focus:ring-offset-2 focus:ring-offset-surface cursor-pointer;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded-md border border-border
+      bg-transparent px-4 py-2 font-medium text-text-secondary hover:bg-surface-muted
+      cursor-pointer;
+  }
+  .alert-error {
+    @apply rounded-md border border-danger/60 bg-danger/10 px-3 py-2 text-danger;
+  }
+  .alert-info {
+    @apply rounded-md border border-info/60 bg-info/10 px-3 py-2 text-text-secondary;
+  }
+}

@@ -33,6 +33,8 @@ services:
       PYTHONUNBUFFERED: 1
     volumes:
       - ./backend:/app
+      # Templates y estáticos viven fuera de backend/ (settings: BASE_DIR.parent / "frontend").
+      - ./frontend:/frontend:ro
       - scan_results:/data/scan-results
       - cti_cache:/data/cti-cache
     ports:
