@@ -82,6 +82,15 @@ LOGIN_URL = "accounts:login"
 LOGIN_REDIRECT_URL = "home"
 LOGOUT_REDIRECT_URL = "accounts:login"
 
+# --- MFA (TOTP) ---
+# Roles que deben tener MFA activo; los superusuarios siempre lo requieren (ADR-005).
+MFA_REQUIRED_ROLES = [
+    r.strip() for r in os.environ.get("MFA_REQUIRED_ROLES", "admin").split(",") if r.strip()
+]
+MFA_ISSUER = os.environ.get("MFA_ISSUER", "Phylax")
+MFA_LOGIN_MAX_ATTEMPTS = 5
+MFA_LOGIN_TIMEOUT_SECONDS = 5 * 60
+
 # --- Sesión y cookies ---
 # La plataforma es un activo de alto valor (STRIDE): sesiones cortas y cookies
 # no accesibles desde JavaScript. Las cookies "secure" se activan fuera de DEBUG;

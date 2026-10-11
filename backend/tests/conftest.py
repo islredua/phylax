@@ -3,8 +3,10 @@ import re
 import factory
 import pytest
 from django.contrib.auth.models import Group
+from django.utils import timezone
 
-from apps.accounts.models import User
+from apps.accounts import totp
+from apps.accounts.models import MFADevice, User
 from apps.accounts.roles import ADMIN, AUDITOR, OPERATOR
 
 PASSWORD = "Phylax-Pruebas-2026!"
@@ -30,12 +32,21 @@ def user_factory(db):
     return UserFactory
 
 
+def enroll_mfa(user):
+    """Crea un dispositivo TOTP confirmado y lo devuelve."""
+    return MFADevice.objects.create(
+        user=user, secret=totp.generate_secret(), confirmed_at=timezone.now()
+    )
+
+
 @pytest.fixture
 def make_user(db):
-    def _make_user(role=None, **kwargs):
+    def _make_user(role=None, mfa=False, **kwargs):
         user = UserFactory(**kwargs)
         if role:
             user.groups.add(Group.objects.get(name=role))
+        if mfa:
+            enroll_mfa(user)
         return user
 
     return _make_user
@@ -48,7 +59,8 @@ def user(make_user):
 
 @pytest.fixture
 def admin_user(make_user):
-    return make_user(ADMIN)
+    # El rol admin exige MFA (ADR-005); el fixture ya lo trae enrolado.
+    return make_user(ADMIN, mfa=True)
 
 
 @pytest.fixture
@@ -63,7 +75,17 @@ def auditor_user(make_user):
 
 @pytest.fixture
 def superuser(make_user):
-    return make_user(is_superuser=True)
+    return make_user(is_superuser=True, mfa=True)
+
+
+@pytest.fixture
+def current_code():
+    """Código TOTP vigente de un dispositivo."""
+
+    def _current_code(device, offset=0):
+        return totp.totp(device.secret, at=timezone.now().timestamp() + offset)
+
+    return _current_code
 
 
 @pytest.fixture

@@ -27,6 +27,13 @@ class AuditEvent(models.TextChoices):
     PASSWORD_RESET_COMPLETED = "password_reset_completed", "Contraseña restablecida"
     ROLE_ASSIGNED = "role_assigned", "Rol asignado"
     ROLE_REVOKED = "role_revoked", "Rol retirado"
+    PASSWORD_CHANGED = "password_changed", "Contraseña cambiada"
+    EMAIL_CHANGED = "email_changed", "Correo cambiado"
+    MFA_ENABLED = "mfa_enabled", "MFA activado"
+    MFA_DISABLED = "mfa_disabled", "MFA desactivado"
+    MFA_FAILED = "mfa_failed", "Código MFA inválido"
+    BACKUP_CODES_REGENERATED = "backup_codes_regenerated", "Códigos de respaldo regenerados"
+    SESSIONS_REVOKED = "sessions_revoked", "Sesiones cerradas"
 
 
 class AuditLogEntry(models.Model):
@@ -66,3 +73,52 @@ class AuditLogEntry(models.Model):
 
     def delete(self, *args, **kwargs):
         raise ValueError("Las entradas de la bitácora de auditoría no se pueden borrar.")
+
+
+class MFADevice(models.Model):
+    """Dispositivo TOTP del usuario (uno por usuario).
+
+    El secreto se guarda sin cifrar (decisión documentada en ADR-005).
+    ``confirmed_at`` nulo significa enrolamiento iniciado pero no confirmado.
+    """
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="mfa_device"
+    )
+    secret = models.CharField(max_length=64)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    # Último time-step aceptado: impide reutilizar un código dentro de su ventana.
+    last_used_step = models.BigIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "dispositivo MFA"
+        verbose_name_plural = "dispositivos MFA"
+
+    def __str__(self):
+        return f"MFA de {self.user}"
+
+    @property
+    def is_confirmed(self):
+        return self.confirmed_at is not None
+
+
+class BackupCode(models.Model):
+    """Código de respaldo de un solo uso. Solo se guarda su HMAC."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="backup_codes"
+    )
+    code_hash = models.CharField(max_length=64)
+    used_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "código de respaldo"
+        verbose_name_plural = "códigos de respaldo"
+        constraints = [
+            models.UniqueConstraint(fields=["user", "code_hash"], name="unique_backup_code")
+        ]
+
+    def __str__(self):
+        return f"Código de respaldo de {self.user}"
