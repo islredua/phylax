@@ -3,6 +3,7 @@ from django.urls import path, reverse_lazy
 
 from . import account_views as me
 from .forms import LoginForm, StyledPasswordResetForm, StyledSetPasswordForm
+from .middleware import mfa_enrollment_exempt
 from .views import (
     AuditedPasswordResetConfirmView,
     AuditedPasswordResetView,
@@ -24,7 +25,7 @@ urlpatterns = [
     ),
     path("login/verify/", MFAVerifyView.as_view(), name="login_verify"),
     # Desde Django 5.0 LogoutView solo acepta POST (protección CSRF).
-    path("logout/", auth_views.LogoutView.as_view(), name="logout"),
+    path("logout/", mfa_enrollment_exempt(auth_views.LogoutView.as_view()), name="logout"),
     path(
         "password-reset/",
         AuditedPasswordResetView.as_view(
@@ -59,7 +60,11 @@ urlpatterns = [
     path("me/profile/", me.ProfileView.as_view(), name="profile"),
     path("me/password/", me.PasswordChangeView.as_view(), name="password_change"),
     path("me/security/", me.SecurityView.as_view(), name="security"),
-    path("me/security/mfa/setup/", me.MFASetupView.as_view(), name="mfa_setup"),
+    path(
+        "me/security/mfa/setup/",
+        mfa_enrollment_exempt(me.MFASetupView.as_view()),
+        name="mfa_setup",
+    ),
     path("me/security/mfa/disable/", me.MFADisableView.as_view(), name="mfa_disable"),
     path("me/security/backup-codes/", me.BackupCodesView.as_view(), name="backup_codes"),
     path("me/security/sessions/revoke/", me.SessionRevokeView.as_view(), name="session_revoke"),

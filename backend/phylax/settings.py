@@ -41,6 +41,8 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.LoginRequiredMiddleware",
     "apps.accounts.middleware.AuditContextMiddleware",
     "apps.accounts.user_sessions.SessionActivityMiddleware",
+    # Superusuarios y roles en MFA_REQUIRED_ROLES deben enrolar MFA antes de continuar.
+    "apps.accounts.middleware.MFAEnforcementMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "django_htmx.middleware.HtmxMiddleware",
