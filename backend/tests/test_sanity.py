@@ -3,7 +3,6 @@
 Si estos fallan, nada más del sistema puede funcionar. Son la primera línea de defensa.
 """
 
-from django.apps import apps
 from django.conf import settings
 
 
