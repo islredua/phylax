@@ -78,3 +78,6 @@ Thumbs.db
 secrets/
 *.pem
 *.key
+
+# Herramientas locales (binario standalone de Tailwind, etc.)
+.tools/

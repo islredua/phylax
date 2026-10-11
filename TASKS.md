@@ -115,17 +115,19 @@ Estructura por fases alineada al cronograma del documento (Capítulo 4). Marca c
 
 **Semana:** S2 (en paralelo con M1)
 
-- [ ] Diseñar roles: admin, operador, auditor (solo lectura)
-- [ ] Usar Django auth built-in con grupos
-- [ ] Login page con template custom
-- [ ] Password reset flow (email por consola en dev)
-- [ ] Decorador `@login_required` global vía middleware
-- [ ] Login form estilizado con Tailwind
-- [ ] Logout endpoint
-- [ ] Admin solo accesible por group "admin"
-- [ ] Tests: login válido, inválido, acceso denegado sin auth
-- [ ] ADR-002: estrategia de auth y permisos
-- [ ] Modelado de MFA como trabajo futuro (documentado en ADR)
+- [x] Diseñar roles: admin, operador (sin borrado), auditor (solo lectura)
+- [x] Usar Django auth built-in con grupos (+ modelo `accounts.User` propio)
+- [x] Login page con template custom
+- [x] Password reset flow (email por consola en dev)
+- [x] Login requerido global vía middleware (`LoginRequiredMiddleware` de Django 5.1)
+- [x] Login form estilizado con Tailwind
+- [x] Logout endpoint (solo POST)
+- [x] Admin solo accesible por group "admin" (+ superusuarios como acceso de emergencia)
+- [x] Tests: login válido, inválido, acceso denegado sin auth
+- [x] ADR-004: estrategia de auth y permisos (ADR-002 corresponde a la estrategia de ramas)
+- [x] Modelado de MFA como trabajo futuro (documentado en ADR)
+- [x] Bitácora de auditoría (`AuditLogEntry`) de eventos de autenticación y roles + vista `/accounts/audit-log/` (STRIDE Repudiation)
+- [ ] Protección contra fuerza bruta (`django-axes`) — diferido a despliegue productivo (ADR-004)
 
 ### Módulo 1: Escaneo activo (`apps.scanners`)
 
@@ -380,7 +382,7 @@ Estructura por fases alineada al cronograma del documento (Capítulo 4). Marca c
 - [ ] Mantener `CHANGELOG.md` con cambios por versión
 
 ### Calidad de código
-- [ ] Pre-commit hooks: ruff + black + check de trailing whitespace
+- [x] Pre-commit hooks: ruff + black + check de trailing whitespace
 - [ ] CI debe pasar en cada PR
 - [ ] Cobertura mínima: 60% global, 80% en motor de scoring y wrappers de escáner
 - [ ] Code review conmigo (Claude Code) antes de merge
