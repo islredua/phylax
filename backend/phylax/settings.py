@@ -1,4 +1,5 @@
 """Django settings para Phylax."""
+
 import os
 from pathlib import Path
 
@@ -7,9 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # --- Seguridad ---
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "insecure-fallback-change-me")
 DEBUG = os.environ.get("DJANGO_DEBUG", "0") == "1"
-ALLOWED_HOSTS = os.environ.get(
-    "DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,backend"
-).split(",")
+ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,backend").split(",")
 
 # --- Aplicaciones ---
 INSTALLED_APPS = [
@@ -95,9 +94,7 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # --- LLM (Ollama) ---
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
-OLLAMA_DEFAULT_MODEL = os.environ.get(
-    "OLLAMA_DEFAULT_MODEL", "qwen2.5:3b-instruct-q4_K_M"
-)
+OLLAMA_DEFAULT_MODEL = os.environ.get("OLLAMA_DEFAULT_MODEL", "qwen2.5:3b-instruct-q4_K_M")
 OLLAMA_TIMEOUT_SECONDS = int(os.environ.get("OLLAMA_TIMEOUT_SECONDS", "180"))
 OLLAMA_EVAL_MODELS = [
     m.strip()

@@ -4,6 +4,7 @@ El activo es la unidad central del modelo de datos. Toda vulnerabilidad detectad
 se asocia a un activo. Las dimensiones contextuales del scoring (criticidad,
 exposición, sensibilidad de datos) viven aquí.
 """
+
 from django.db import models
 
 

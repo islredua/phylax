@@ -1,4 +1,5 @@
 """URLs raíz de Phylax."""
+
 from django.contrib import admin
 from django.http import JsonResponse
 from django.urls import path

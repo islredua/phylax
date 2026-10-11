@@ -1,4 +1,5 @@
 """Cliente HTTP para Ollama local (con modo mock para desarrollo sin GPU)."""
+
 from __future__ import annotations
 
 import hashlib
@@ -68,9 +69,7 @@ class OllamaClient:
         self.base_url = (base_url or settings.OLLAMA_BASE_URL).rstrip("/")
         self.default_model = default_model or settings.OLLAMA_DEFAULT_MODEL
         self.timeout = timeout_seconds or settings.OLLAMA_TIMEOUT_SECONDS
-        self.mock_mode = (
-            mock_mode if mock_mode is not None else settings.LLM_MOCK_MODE
-        )
+        self.mock_mode = mock_mode if mock_mode is not None else settings.LLM_MOCK_MODE
 
     @retry(
         stop=stop_after_attempt(3),
