@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install linters
+        run: pip install ruff==0.7.4 black==24.10.0
+      - name: Ruff
+        run: ruff check backend/
+      - name: Black
+        run: black --check backend/
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: phylax_test
+          POSTGRES_USER: phylax
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U phylax -d phylax_test"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        working-directory: backend
+        run: pip install -r requirements.txt
+      - name: Run tests
+        working-directory: backend
+        env:
+          DJANGO_SECRET_KEY: ci-test-key
+          DJANGO_DEBUG: "0"
+          POSTGRES_DB: phylax_test
+          POSTGRES_USER: phylax
+          POSTGRES_PASSWORD: test
+          POSTGRES_HOST: localhost
+          OLLAMA_BASE_URL: http://localhost:11434
+        run: pytest -v --cov=apps --cov-report=term-missing

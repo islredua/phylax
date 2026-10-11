@@ -1,0 +1,80 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Django
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+.django-cache/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Docker
+*.pid
+
+# Datasets grandes (no versionar binarios)
+datasets/raw/
+datasets/snapshots/
+*.jsonl.gz
+*.parquet
+
+# CTI snapshots (se descargan, no se versionan)
+scripts/cti-cache/
+nvd-cache/
+epss-cache/
+
+# Modelos LLM (demasiado grandes para git)
+*.gguf
+*.bin
+models/
+
+# Logs
+logs/
+*.log
+
+# Resultados experimentales
+experiments/*/results/
+experiments/*/*.csv
+experiments/*/*.pkl
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Secrets
+secrets/
+*.pem
+*.key

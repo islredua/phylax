@@ -1,0 +1,32 @@
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+exclude = [".venv", "migrations", "__pycache__"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "DJ", "SIM"]
+ignore = ["E501"]  # Line length se maneja por black
+
+[tool.ruff.lint.per-file-ignores]
+"*/migrations/*" = ["E", "F", "N"]
+"settings.py" = ["F401", "F403"]
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+exclude = '''
+/(
+    \.venv
+  | migrations
+  | __pycache__
+)/
+'''
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "phylax.settings"
+python_files = ["test_*.py", "*_test.py", "tests.py"]
+addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["apps"]
+omit = ["*/migrations/*", "*/tests/*", "manage.py"]
