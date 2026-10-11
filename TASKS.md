@@ -124,7 +124,7 @@ Estructura por fases alineada al cronograma del documento (Capítulo 4). Marca c
 - [ ] Logout endpoint
 - [ ] Admin solo accesible por group "admin"
 - [ ] Tests: login válido, inválido, acceso denegado sin auth
-- [ ] ADR-002: estrategia de auth y permisos
+- [ ] ADR-004: estrategia de auth y permisos (ADR-002 corresponde a la estrategia de ramas)
 - [ ] Modelado de MFA como trabajo futuro (documentado en ADR)
 
 ### Módulo 1: Escaneo activo (`apps.scanners`)
