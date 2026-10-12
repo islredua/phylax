@@ -198,6 +198,8 @@ def is_in_scope(value):
     if sbom is not None:
         return sbom.asset.in_scope and sbom.asset.status in SCANNABLE_STATUSES
     for kind in (IdentifierKind.IMAGE_DIGEST, IdentifierKind.IMAGE_REF):
+        if kind == IdentifierKind.IMAGE_DIGEST and "@" not in value:
+            continue
         candidate = value.split("@", 1)[1] if kind == IdentifierKind.IMAGE_DIGEST else value
         try:
             normalized = normalize_identifier(kind, candidate)
@@ -1021,3 +1023,29 @@ def decide_suggestion(suggestion_id, *, user, decision, value=None):
     suggestion.decided_at = timezone.now()
     suggestion.save()
     return suggestion
+
+
+# --------------------------------------------------------------------------
+# Contrato: registries, imágenes y SBOM (implementación en módulos dedicados)
+# --------------------------------------------------------------------------
+
+
+def register_container_image(ref, *, registry=None, digest=None, user, **context):
+    """Crea/actualiza un activo ``CONTAINER_IMAGE``. Ver ``registry_services``."""
+    from .registry_services import register_container_image as impl
+
+    return impl(ref, registry=registry, digest=digest, user=user, **context)
+
+
+def get_registry_auth(registry_id):
+    """Usuario/token descifrados **solo** para uso interno del worker."""
+    from .registry_services import get_registry_auth as impl
+
+    return impl(registry_id)
+
+
+def attach_sbom(asset, uploaded_file, *, user):
+    """Adjunta un SBOM CycloneDX/SPDX JSON. Ver ``sbom``."""
+    from .sbom import attach_sbom as impl
+
+    return impl(asset, uploaded_file, user=user)

@@ -29,7 +29,7 @@ con LLM local). Se actualiza en cada etapa.
 | 5 | Celery + Redis + Beat + compose | ✅ |
 | 6 | App `llm` + Ollama + `eval_criticality` | ✅ |
 | 7 | App `discovery` | ✅ |
-| 8 | Registries, imágenes, SBOM | ⏳ |
+| 8 | Registries, imágenes, SBOM | ✅ |
 | 9 | UI y permisos | ⏳ |
 | 10 | Importación / exportación CSV | ⏳ |
 | 11 | `seed_lab_assets` + compose del laboratorio | ⏳ |
@@ -84,3 +84,8 @@ Se documentan aquí conforme aparezcan.
 - **Pruebas** escriben archivos en un `MEDIA_ROOT` temporal (antes escribían en el volumen real).
 - **Verificación real** con Ollama en CPU (`qwen2.5:0.5b-instruct`): la solicitud vuelve en ~16 ms,
   el worker infiere en ~15 s, salida estructurada válida al primer intento y el estado pasa a `cpu`.
+- **Registries**: emparejamiento automático por host al registrar una imagen sin registry explícito;
+  dos referencias con el mismo digest resuelven al mismo activo de imagen.
+- **SBOM**: un mismo SBOM adjunto a varios activos se almacena una sola vez (`sboms/<sha256>.json`);
+  el nombre original se reduce a su `basename` (sin rutas).
+- Bug corregido en `is_in_scope` con referencias de imagen sin digest (encontrado por las pruebas).
