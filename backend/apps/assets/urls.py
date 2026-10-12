@@ -21,6 +21,10 @@ urlpatterns = [
     path("<uuid:pk>/confirm/", views.ConfirmView.as_view(), name="confirm"),
     path("<uuid:pk>/merge/", views.MergeView.as_view(), name="merge"),
     path("<uuid:pk>/suggest/", views.SuggestView.as_view(), name="suggest"),
+    path("<uuid:pk>/suggest/status/", views.SuggestionStatusView.as_view(), name="suggest_status"),
+    path(
+        "<uuid:pk>/restore/", views.TransitionView.as_view(), {"action": "restore"}, name="restore"
+    ),
     path("<uuid:pk>/sbom/", views_images.SbomAttachView.as_view(), name="sbom_attach"),
     path("unconfirmed/", views.UnconfirmedListView.as_view(), name="unconfirmed"),
     path("import/", views_io.ImportExportView.as_view(), name="import"),

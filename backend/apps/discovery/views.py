@@ -3,12 +3,14 @@
 from django.contrib import messages
 from django.contrib.auth.mixins import PermissionRequiredMixin
 from django.core.exceptions import ValidationError
+from django.db.models import Count, Q
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views import View
 from django.views.generic import ListView
 
+from apps.assets.enums import AssetOrigin, AssetStatus, ServiceState
 from apps.assets.forms import DiscoveryLaunchForm
 from apps.assets.models import Asset, NetworkRange
 
@@ -18,6 +20,43 @@ from .models import DiscoveryRun
 
 class Perm(PermissionRequiredMixin):
     raise_exception = True
+
+
+# Situación de un host observado respecto del inventario.
+HOST_FILTERS = (
+    ("", "Todos", None),
+    ("pending", "Por confirmar", (AssetStatus.UNCONFIRMED,)),
+    ("inventory", "En inventario", (AssetStatus.ACTIVE, AssetStatus.STALE)),
+    ("ignored", "Ignorados", (AssetStatus.IGNORED,)),
+    ("retired", "Retirados", (AssetStatus.RETIRED,)),
+)
+
+
+def observed_hosts(run, show=""):
+    """Hosts que tocó la ejecución, con conteos por situación (para filtros y totales)."""
+    touched = run.assets_touched.all()
+    counts = {
+        key: (touched.filter(status__in=statuses).count() if statuses else touched.count())
+        for key, _, statuses in HOST_FILTERS
+    }
+    statuses = {k: st for k, _, st in HOST_FILTERS}.get(show)
+    if statuses:
+        touched = touched.filter(status__in=statuses)
+    open_services = Count("services", filter=Q(services__state=ServiceState.OPEN))
+    hosts = list(
+        touched.annotate(open_services=open_services)
+        .prefetch_related("identifiers")
+        .order_by("status", "name")[:300]
+    )
+    for asset in hosts:
+        # Alta por esta ejecución: origen descubrimiento y creado durante el run.
+        asset.new_in_run = (
+            asset.origin == AssetOrigin.DISCOVERY
+            and run.started_at is not None
+            and asset.created_at >= run.started_at
+            and (run.finished_at is None or asset.created_at <= run.finished_at)
+        )
+    return hosts, counts
 
 
 class RunListView(Perm, ListView):
@@ -37,9 +76,15 @@ class RunDetailView(Perm, View):
             pk=pk,
         )
         output, truncated = run.output_tail()
+        show = request.GET.get("show", "")
+        hosts, counts = observed_hosts(run, show)
         context = {
             "run": run,
-            "assets": run.assets_touched.order_by("name")[:100],
+            "hosts": hosts,
+            "host_counts": counts,
+            "show": show,
+            "host_filters": HOST_FILTERS,
+            "open_conflicts": run.conflicts_found.filter(resolved=False).count(),
             "output": output,
             "output_truncated": truncated,
         }

@@ -360,3 +360,32 @@ def test_text_output_path_must_be_generated_by_phylax(settings):
             mode=PRIVILEGED,
             text_output="/etc/cron.d/x.txt",
         )
+
+
+def test_run_detail_lists_observed_hosts_with_inventory_status(client, make_user):
+    from apps.assets.enums import AssetOrigin
+
+    client.force_login(make_user(OPERATOR))
+    now = timezone.now()
+    run = DiscoveryRun.objects.create(
+        target_asset=AssetFactory(),
+        profile="SERVICE_SCAN",
+        status=RunStatus.SUCCEEDED,
+        started_at=now - timedelta(minutes=5),
+        finished_at=now + timedelta(minutes=5),
+    )
+    pending = AssetFactory(
+        name="nuevo-host", status=AssetStatus.UNCONFIRMED, origin=AssetOrigin.DISCOVERY
+    )
+    known = AssetFactory(name="ya-conocido")
+    ignored = AssetFactory(name="ruido", status=AssetStatus.IGNORED)
+    run.assets_touched.add(pending, known, ignored)
+    body = client.get(f"/discovery/runs/{run.pk}/").content.decode()
+    assert "Agregar al inventario" in body and "en inventario" in body and "Restaurar" in body
+    assert "nuevo</span>" in body
+    body = client.get(f"/discovery/runs/{run.pk}/?show=pending").content.decode()
+    assert "nuevo-host" in body and "ya-conocido" not in body
+    confirm = client.get(f"/inventory/{pending.pk}/confirm/?next=/discovery/runs/{run.pk}/")
+    assert f'value="/discovery/runs/{run.pk}/"' in confirm.content.decode()
+    evil = client.get(f"/inventory/{pending.pk}/confirm/?next=javascript:alert(1)")
+    assert "javascript:" not in evil.content.decode()

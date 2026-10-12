@@ -55,14 +55,19 @@
   </section>
   <section class="card flex flex-col gap-3">
     <h3 class="card-title mb-0">Acciones</h3>
-    {% if perms.assets.decide_criticality and asset.status != 'RETIRED' %}
-    {% include "assets/_suggest_action.html" %}
-    {% endif %}
+    {% if asset.status != 'RETIRED' %}{% include "assets/_suggest_action.html" %}{% endif %}
     {% if perms.discovery.run_discovery and has_ip and asset.status != 'RETIRED' %}
     <form method="post" action="{% url 'discovery:rescan' asset.pk %}">{% csrf_token %}<button class="btn-secondary w-full" type="submit">Re-escanear servicios</button></form>
     {% endif %}
     {% if perms.assets.change_asset and asset.status != 'IGNORED' and asset.status != 'RETIRED' %}
     <form method="post" action="{% url 'assets:ignore' asset.pk %}">{% csrf_token %}<button class="btn-secondary w-full" type="submit">Ignorar</button></form>
+    {% endif %}
+    {% if asset.status == 'IGNORED' %}
+    <div class="alert-info text-sm">Este activo está <strong>ignorado</strong>: no se escanea ni aparece en la lista por defecto.</div>
+    {% if perms.assets.change_asset %}
+    <form method="post" action="{% url 'assets:restore' asset.pk %}">{% csrf_token %}<button class="btn-primary w-full" type="submit">Restaurar</button></form>
+    <p class="text-xs text-muted">Vuelve al inventario si tiene sus datos completos; si no, a «Por confirmar».</p>
+    {% endif %}
     {% endif %}
     <p class="text-xs text-muted">Ninguna sugerencia del LLM cambia la criticidad sin tu decisión.</p>
   </section>
@@ -145,9 +150,7 @@
 </div>
 
 {% elif tab == "sugerencias" %}
-{% if perms.assets.decide_criticality and asset.status != 'RETIRED' %}
-{% include "assets/_suggest_action.html" with htmx_target="#suggestions" %}
-{% endif %}
+{% if asset.status != 'RETIRED' %}{% include "assets/_suggest_action.html" with htmx_target="#suggestions" %}{% endif %}
 <div id="suggestions" class="flex flex-col gap-3">
   {% for s in suggestions %}{% include "assets/_suggestion_card.html" with show_asset=False %}{% empty %}<p class="muted">Aún no hay sugerencias para este activo.</p>{% endfor %}
 </div>

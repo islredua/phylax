@@ -569,7 +569,8 @@ def create_asset(
 ):
     """Alta manual (o por importación) de un activo ``ACTIVE``.
 
-    Sin criticidad, programa una sugerencia automática (``suggestion_trigger=None`` la omite).
+    Programa una sugerencia automática (``suggestion_trigger=None`` la omite). Si la persona
+    ya fijó la criticidad, la sugerencia solo la contrasta: coincide o queda «revisión sugerida».
     """
     _require(user, "assets.add_asset")
     normalized = _normalize_all(identifiers)
@@ -591,7 +592,7 @@ def create_asset(
     asset.save()
     if tags:
         asset.tags.set(tags)
-    if asset.criticality is None and suggestion_trigger:
+    if suggestion_trigger:
         schedule_suggestion(asset.pk, trigger=suggestion_trigger, requested_by=user)
     return asset
 
@@ -687,8 +688,27 @@ def confirm_asset(asset, *, user, fields=None, criticality=None):
     asset.status = AssetStatus.ACTIVE
     _attribute(asset, user)
     asset.save()
-    if asset.criticality is None:
-        schedule_suggestion(asset.pk, trigger=SuggestionTrigger.CONFIRM, requested_by=user)
+    schedule_suggestion(asset.pk, trigger=SuggestionTrigger.CONFIRM, requested_by=user)
+    return asset
+
+
+@transaction.atomic
+def restore_asset(asset, *, user):
+    """Deshace «ignorar»: ``IGNORED`` → ``ACTIVE`` si cumple lo exigido al confirmar; si no,
+    vuelve a la cola ``UNCONFIRMED``."""
+    _require(user, "assets.change_asset")
+    asset = _locked(asset)
+    if asset.status != AssetStatus.IGNORED:
+        raise ValidationError("Solo se restauran activos ignorados.")
+    complete = all(getattr(asset, f) for f in CONFIRM_REQUIRED_FIELDS)
+    if complete:
+        try:
+            check_asset_identifiers(asset)
+        except ValidationError:
+            complete = False
+    asset.status = AssetStatus.ACTIVE if complete else AssetStatus.UNCONFIRMED
+    _attribute(asset, user)
+    asset.save()
     return asset
 
 
@@ -972,6 +992,18 @@ def _debounce_key(asset_id):
     return f"assets:suggest-due:{asset_id}"
 
 
+def _due_key(asset_id):
+    return f"assets:suggest-at:{asset_id}"
+
+
+def scheduled_suggestion_at(asset_id):
+    """Hora prevista de la sugerencia automática que espera su turno, o ``None``."""
+    from datetime import datetime
+
+    value = cache.get(_due_key(asset_id))
+    return datetime.fromisoformat(value) if value else None
+
+
 def schedule_suggestion(asset_id, *, trigger, requested_by=None):
     """Programa una sugerencia automática ``SUGGEST_DEBOUNCE_S`` después de la última edición.
 
@@ -981,6 +1013,8 @@ def schedule_suggestion(asset_id, *, trigger, requested_by=None):
     """
     token = uuid.uuid4().hex
     cache.set(_debounce_key(asset_id), token, SUGGEST_DEBOUNCE_S * 10)
+    due = timezone.now() + timedelta(seconds=SUGGEST_DEBOUNCE_S)
+    cache.set(_due_key(asset_id), due.isoformat(), SUGGEST_DEBOUNCE_S * 10)
     user_id = getattr(requested_by, "pk", None)
 
     def enqueue():
@@ -997,7 +1031,7 @@ def run_scheduled_suggestion(asset_id, trigger, token, user_id=None):
     """Tarea al vencer la espera: solicita la sugerencia si nadie editó después."""
     if cache.get(_debounce_key(asset_id)) != token:
         return None  # una edición posterior programó otra
-    cache.delete(_debounce_key(asset_id))
+    cache.delete_many([_debounce_key(asset_id), _due_key(asset_id)])
     asset = Asset.objects.filter(pk=asset_id).first()
     if asset is None or asset.status != AssetStatus.ACTIVE:
         return None
@@ -1071,15 +1105,24 @@ def request_criticality_suggestion(
                 )
             return in_flight
         fingerprint = suggestion_fingerprint(build_input(asset), model)
-        if trigger != SuggestionTrigger.MANUAL:
-            latest = (
-                CriticalitySuggestion.objects.filter(asset=asset)
-                .exclude(state__in=(SuggestionState.SUPERSEDED, SuggestionState.FAILED))
-                .order_by("-created_at")
-                .first()
-            )
-            if latest is not None and latest.fingerprint == fingerprint:
+        latest = (
+            CriticalitySuggestion.objects.filter(asset=asset)
+            .exclude(state__in=(SuggestionState.SUPERSEDED, SuggestionState.FAILED))
+            .order_by("-created_at")
+            .first()
+        )
+        if latest is not None and latest.fingerprint == fingerprint:
+            if trigger != SuggestionTrigger.MANUAL:
                 return latest
+            raise ValidationError(
+                f"El contexto del activo no cambió desde la sugerencia del "
+                f"{timezone.localtime(latest.created_at):%Y-%m-%d %H:%M} "
+                f"({latest.get_suggested_display() or 'sin clase'}, "
+                f"{latest.get_state_display().lower()}): no se volvió a consultar al modelo porque "
+                "con temperatura 0 respondería lo mismo. Cambia la descripción, la función, el "
+                "entorno o los datos del activo para obtener otra sugerencia, o fija la criticidad "
+                "a mano."
+            )
         if user is not None:
             _check_rate_limit(user)
         previous = (
@@ -1372,25 +1415,40 @@ def delete_network_range(network_range, *, user):
     refresh_range_membership(user=user)
 
 
-def bulk_apply(assets, *, user, action, tag=None, environment=None):
-    """Acciones masivas de la lista de activos. Devuelve cuántos activos se procesaron."""
-    done = 0
+def bulk_apply(assets, *, user, action, tags=(), value=None):
+    """Acciones masivas de la lista de activos.
+
+    Se aplica activo por activo: un fallo en uno no deshace ni detiene los demás.
+    Devuelve ``(aplicados, [(activo, motivo), ...])``.
+    """
+
+    def tag(asset, add):
+        _attribute(asset, user)
+        (asset.tags.add if add else asset.tags.remove)(*tags)
+
+    handlers = {
+        "tag": lambda a: tag(a, True),
+        "untag": lambda a: tag(a, False),
+        "environment": lambda a: update_asset(a, user=user, fields={"environment": value}),
+        "business_role": lambda a: update_asset(a, user=user, fields={"business_role": value}),
+        "suggest": lambda a: request_criticality_suggestion(a.pk, user=user),
+        "ignore": lambda a: ignore_asset(a, user=user),
+        "restore": lambda a: restore_asset(a, user=user),
+        "retire": lambda a: retire_asset(a, user=user),
+    }
+    if action not in handlers:
+        raise ValidationError("Acción masiva desconocida.")
+    _require(user, "assets.decide_criticality" if action == "suggest" else "assets.change_asset")
+    done, failed = 0, []
     for asset in assets:
-        if action == "tag":
-            _require(user, "assets.change_asset")
-            asset.tags.add(tag)
-        elif action == "environment":
-            update_asset(asset, user=user, fields={"environment": environment})
-        elif action == "suggest":
-            request_criticality_suggestion(asset.pk, user=user)
-        elif action == "ignore":
-            ignore_asset(asset, user=user)
-        elif action == "retire":
-            retire_asset(asset, user=user)
+        try:
+            with transaction.atomic():
+                handlers[action](asset)
+        except ValidationError as exc:
+            failed.append((asset, " ".join(exc.messages)))
         else:
-            raise ValidationError("Acción masiva desconocida.")
-        done += 1
-    return done
+            done += 1
+    return done, failed
 
 
 def get_or_create_tags(raw):

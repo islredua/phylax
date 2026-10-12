@@ -34,22 +34,39 @@
   {% csrf_token %}
   <input type="hidden" name="next" value="{{ request.get_full_path }}">
   {% if perms.assets.change_asset %}
-  <div class="flex flex-wrap items-end gap-2">
-    <select name="action" class="form-input w-auto" aria-label="Acción masiva">
-      {% for value, label in bulk_actions %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
-    </select>
-    <input name="tag" class="form-input w-40" placeholder="etiqueta" aria-label="Etiqueta">
-    <select name="environment" class="form-input w-auto" aria-label="Entorno">
-      <option value="">entorno…</option>
-      {% for value, label in environments %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
-    </select>
-    <button type="submit" class="btn-secondary">Aplicar a seleccionados</button>
+  {# phylax.js muestra solo el parámetro de la acción elegida; sin JS se ven todos y el servidor valida. #}
+  <div class="card flex flex-wrap items-end gap-3 py-3" data-bulk>
+    <div>
+      <label class="form-label" for="bulk-action">Acción sobre los seleccionados</label>
+      <select id="bulk-action" name="action" class="form-input w-auto" data-bulk-action required>
+        <option value="">Elige una acción…</option>
+        {% for value, label, param, confirm in bulk_actions %}{% if value != 'suggest' or perms.assets.decide_criticality %}<option value="{{ value }}" data-param="{{ param }}" data-confirm="{{ confirm }}">{{ label }}</option>{% endif %}{% endfor %}
+      </select>
+    </div>
+    <div data-bulk-param="tags">
+      <label class="form-label" for="bulk-tags">Etiquetas</label>
+      <input id="bulk-tags" name="tags" class="form-input w-56" placeholder="p. ej. pci, sucursal-norte" autocomplete="off">
+    </div>
+    <div data-bulk-param="ENVIRONMENT">
+      <label class="form-label" for="bulk-env">Nuevo entorno</label>
+      <select id="bulk-env" name="value_ENVIRONMENT" class="form-input w-auto">
+        <option value="">Elige…</option>{% for value, label in environments %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+    <div data-bulk-param="BUSINESS_ROLE">
+      <label class="form-label" for="bulk-role">Nueva función de negocio</label>
+      <select id="bulk-role" name="value_BUSINESS_ROLE" class="form-input w-auto">
+        <option value="">Elige…</option>{% for value, label in business_roles %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="btn-secondary" data-bulk-submit>Aplicar a <span data-bulk-count>los</span> seleccionados</button>
+    <p class="w-full text-xs text-muted" data-bulk-hint>Marca activos en la tabla y elige una acción. Cambiar entorno o función reprograma la sugerencia de criticidad.</p>
   </div>
   {% endif %}
   <div class="table-wrap">
     <table class="data-table">
       <thead><tr>
-        {% if perms.assets.change_asset %}<th class="w-6"><span class="sr-only">Seleccionar</span></th>{% endif %}
+        {% if perms.assets.change_asset %}<th class="w-6"><input type="checkbox" class="checkbox" data-bulk-all aria-label="Seleccionar todos los de esta página"></th>{% endif %}
         <th>Nombre</th><th>Tipo</th><th>Identificador</th><th>Criticidad</th><th>Exposición</th><th>Entorno</th><th>Estado</th><th>Visto</th>
       </tr></thead>
       <tbody>

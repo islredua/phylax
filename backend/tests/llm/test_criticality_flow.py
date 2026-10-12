@@ -186,16 +186,23 @@ def test_suggestions_use_the_system_model_and_reject_missing(operator):
 
 def test_fingerprint_reuses_previous_answer_without_inferring(ollama, operator):
     route = ollama.post(f"{BASE}/api/chat").respond(json=chat_response(VALID))
-    asset = AssetFactory(criticality=None)
+    asset = AssetFactory(criticality=None, description="Contexto A")
     first = services.request_criticality_suggestion(asset.pk, user=operator)
-    first.refresh_from_db()
-    services.decide_suggestion(first.pk, user=operator, decision=SuggestionState.REJECTED)
+    # Mismo contexto que la última: se explica en lugar de repetir la consulta.
+    with pytest.raises(ValidationError, match="no cambió"):
+        services.request_criticality_suggestion(asset.pk, user=operator)
+    asset.description = "Contexto B"
+    asset.save()
+    services.request_criticality_suggestion(asset.pk, user=operator)
     calls = route.call_count
+    asset.description = "Contexto A"  # se revierte la edición
+    asset.save()
     again = services.request_criticality_suggestion(asset.pk, user=operator)
+    first.refresh_from_db()
     assert route.call_count == calls  # sin nueva inferencia
     assert again.reused_from == first and again.fingerprint == first.fingerprint
     assert again.suggested == first.suggested and not again.is_processing
-    # Automático con la misma huella que la última: no crea nada.
+    # Automático con la misma huella que la última: devuelve esa, sin crear nada.
     assert services.request_criticality_suggestion(asset.pk, trigger="CONTEXT_CHANGE") == again
 
 

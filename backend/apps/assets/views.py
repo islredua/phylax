@@ -5,7 +5,7 @@ from django.contrib.auth.mixins import PermissionRequiredMixin
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import Count, Exists, OuterRef, Q
-from django.http import HttpResponseRedirect
+from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
@@ -14,8 +14,8 @@ from django.views.generic import ListView, TemplateView
 
 from apps.llm.status import active_model, active_model_ready
 
-from . import services
-from .enums import AssetStatus, Criticality, Environment, SuggestionState
+from . import catalogs, services
+from .enums import AssetStatus, Criticality, SuggestionState
 from .forms import (
     AssetFilterForm,
     AssetForm,
@@ -37,13 +37,20 @@ DETAIL_TABS = (
     ("historial", "Historial"),
     ("descubrimientos", "Descubrimientos"),
 )
+# (acción, etiqueta, parámetro que requiere: "tags", catálogo o None).
 BULK_ACTIONS = (
-    ("tag", "Etiquetar"),
-    ("environment", "Cambiar entorno"),
-    ("suggest", "Sugerir criticidad (LLM)"),
-    ("ignore", "Ignorar"),
-    ("retire", "Retirar"),
+    ("tag", "Agregar etiquetas", "tags"),
+    ("untag", "Quitar etiquetas", "tags"),
+    ("environment", "Cambiar entorno", catalogs.ENVIRONMENT),
+    ("business_role", "Cambiar función de negocio", catalogs.BUSINESS_ROLE),
+    ("suggest", "Sugerir criticidad (LLM)", None),
+    ("ignore", "Ignorar", None),
+    ("restore", "Restaurar ignorados", None),
+    ("retire", "Retirar", None),
 )
+BULK_PARAM = {key: param for key, _, param in BULK_ACTIONS}
+# Acciones que no se pueden deshacer desde la interfaz: piden confirmación.
+BULK_CONFIRM = {"retire": "Los activos retirados no se pueden reactivar. ¿Retirar {n} activo(s)?"}
 
 
 class Perm(PermissionRequiredMixin):
@@ -53,6 +60,21 @@ class Perm(PermissionRequiredMixin):
 def _messages_from(request, error):
     for message in getattr(error, "messages", [str(error)]):
         messages.error(request, message)
+
+
+def _suggestion_note(asset):
+    if not asset.has_minimum_context:
+        return (
+            "No se pidió sugerencia de criticidad al LLM: falta la descripción o la función "
+            "de negocio (contexto insuficiente)."
+        )
+    when = "en un minuto" if services.scheduled_suggestion_at(asset.pk) else "en breve"
+    if asset.criticality:
+        return (
+            f"El LLM contrastará la criticidad {when}; si sugiere otra, el activo quedará en "
+            "«revisión sugerida»."
+        )
+    return f"El LLM sugerirá la criticidad {when} (pestaña Sugerencias LLM)."
 
 
 def _safe_next(request, default):
@@ -115,8 +137,11 @@ class AssetListView(Perm, ListView):
         context.update(
             filter_form=self.filter_form,
             status_counts=[(s, label, counts.get(s, 0)) for s, label in AssetStatus.choices],
-            bulk_actions=BULK_ACTIONS,
-            environments=Environment.choices,
+            bulk_actions=[
+                (k, label, param or "", BULK_CONFIRM.get(k, "")) for k, label, param in BULK_ACTIONS
+            ],
+            environments=catalogs.choices(catalogs.ENVIRONMENT),
+            business_roles=catalogs.choices(catalogs.BUSINESS_ROLE),
         )
         return context
 
@@ -128,29 +153,40 @@ class BulkActionView(Perm, View):
         ids = request.POST.getlist("ids")
         action = request.POST.get("action", "")
         back = _safe_next(request, reverse("assets:list"))
+        if action not in BULK_PARAM:
+            messages.error(request, "Elige una acción.")
+            return HttpResponseRedirect(back)
         if not ids:
             messages.error(request, "Selecciona al menos un activo.")
             return HttpResponseRedirect(back)
-        assets = list(Asset.objects.filter(pk__in=ids))
-        tag = None
-        if action == "tag":
-            tags = services.get_or_create_tags(request.POST.get("tag", ""))
+        param = BULK_PARAM[action]
+        tags, value = (), None
+        if param == "tags":
+            tags = services.get_or_create_tags(request.POST.get("tags", ""))
             if not tags:
-                messages.error(request, "Escribe la etiqueta a aplicar.")
+                messages.error(request, "Escribe al menos una etiqueta (separadas por comas).")
                 return HttpResponseRedirect(back)
-            tag = tags[0]
-        environment = request.POST.get("environment") or None
-        if action == "environment" and environment not in Environment.values:
-            messages.error(request, "Elige un entorno.")
-            return HttpResponseRedirect(back)
+        elif param:
+            # El servicio valida el código contra el catálogo (entradas activas).
+            value = request.POST.get(f"value_{param}") or ""
+            if not value:
+                messages.error(request, "Elige un valor de la lista.")
+                return HttpResponseRedirect(back)
+        assets = list(Asset.objects.filter(pk__in=ids).order_by("name"))
         try:
-            done = services.bulk_apply(
-                assets, user=request.user, action=action, tag=tag, environment=environment
+            done, failed = services.bulk_apply(
+                assets, user=request.user, action=action, tags=tags, value=value
             )
         except ValidationError as error:
             _messages_from(request, error)
-        else:
-            messages.success(request, f"Acción aplicada a {done} activo(s).")
+            return HttpResponseRedirect(back)
+        label = {k: lbl for k, lbl, _ in BULK_ACTIONS}[action]
+        if done:
+            messages.success(request, f"{label}: aplicado a {done} activo(s).")
+        if failed:
+            detail = "; ".join(f"{a.name}: {reason}" for a, reason in failed[:5])
+            more = f" (y {len(failed) - 5} más)" if len(failed) > 5 else ""
+            messages.warning(request, f"{len(failed)} activo(s) sin cambios — {detail}{more}")
         return HttpResponseRedirect(back)
 
 
@@ -214,6 +250,7 @@ class AssetDetailView(Perm, TemplateView):
             llm_model=active_model(),
             llm_ready=active_model_ready(),
             in_flight=services.processing_suggestion(asset) is not None,
+            scheduled_at=services.scheduled_suggestion_at(asset.pk),
         )
         if tab == "resumen":
             context["has_ip"] = asset.identifiers.filter(kind__in=("IPV4", "IPV6")).exists()
@@ -279,7 +316,7 @@ class AssetCreateView(Perm, View):
             except ValidationError as error:
                 form.add_error(None, error)
             else:
-                messages.success(request, "Activo creado.")
+                messages.success(request, f"Activo creado. {_suggestion_note(asset)}")
                 return redirect("assets:detail", pk=asset.pk)
         return render(
             request, self.template_name, {"form": form, "formset": formset, "asset": None}
@@ -378,6 +415,7 @@ class TransitionView(Perm, View):
     actions = {
         "ignore": (services.ignore_asset, "Activo ignorado."),
         "retire": (services.retire_asset, "Activo retirado."),
+        "restore": (services.restore_asset, None),
     }
 
     def post(self, request, pk, action):
@@ -386,7 +424,13 @@ class TransitionView(Perm, View):
         asset = get_object_or_404(Asset, pk=pk)
         function, message = self.actions[action]
         try:
-            function(asset, user=request.user)
+            result = function(asset, user=request.user)
+            if message is None:  # restaurar: el destino depende de los datos del activo
+                message = (
+                    "Activo restaurado al inventario."
+                    if result.status == AssetStatus.ACTIVE
+                    else "Activo devuelto a «Por confirmar»: completa sus datos para confirmarlo."
+                )
             messages.success(request, message)
         except ValidationError as error:
             _messages_from(request, error)
@@ -404,6 +448,36 @@ def _card(request, suggestion):
         "assets/_suggestion_card.html",
         {"s": suggestion, "criticality_choices": Criticality.choices},
     )
+
+
+class SuggestionStatusView(Perm, View):
+    """Fragmento del botón de sugerencia; se consulta mientras hay una programada o en curso.
+
+    Cuando deja de estarlo, pide recargar la página para mostrar la tarjeta y las marcas.
+    """
+
+    permission_required = "assets.view_asset"
+
+    def get(self, request, pk):
+        asset = get_object_or_404(Asset, pk=pk)
+        scheduled_at = services.scheduled_suggestion_at(asset.pk)
+        in_flight = services.processing_suggestion(asset) is not None
+        if request.GET.get("waiting") and not (scheduled_at or in_flight):
+            response = HttpResponse(status=204)
+            response["HX-Refresh"] = "true"
+            return response
+        return render(
+            request,
+            "assets/_suggest_action.html",
+            {
+                "asset": asset,
+                "scheduled_at": scheduled_at,
+                "in_flight": in_flight,
+                "llm_model": active_model(),
+                "llm_ready": active_model_ready(),
+                "htmx_target": request.GET.get("target", ""),
+            },
+        )
 
 
 class SuggestView(Perm, View):
@@ -539,6 +613,7 @@ class UnconfirmedListView(Perm, ListView):
         context["merge_targets"] = Asset.objects.exclude(
             status__in=(AssetStatus.RETIRED, AssetStatus.UNCONFIRMED)
         ).order_by("name")
+        context["ignored_count"] = Asset.objects.filter(status=AssetStatus.IGNORED).count()
         return context
 
 
@@ -558,7 +633,8 @@ class ConfirmView(Perm, View):
                 "data_classification": asset.data_classification,
             }
         )
-        return render(request, self.template_name, {"asset": asset, "form": form})
+        back = _safe_next(request, reverse("assets:unconfirmed"))
+        return render(request, self.template_name, {"asset": asset, "form": form, "back": back})
 
     def post(self, request, pk):
         asset = get_object_or_404(Asset, pk=pk)
@@ -574,10 +650,11 @@ class ConfirmView(Perm, View):
             except ValidationError as error:
                 form.add_error(None, error)
             else:
-                note = "" if criticality else " Se solicitó una sugerencia de criticidad al LLM."
-                messages.success(request, f"Activo confirmado.{note}")
-                return redirect("assets:unconfirmed")
-        return render(request, self.template_name, {"asset": asset, "form": form})
+                asset.refresh_from_db()
+                messages.success(request, f"Activo confirmado. {_suggestion_note(asset)}")
+                return HttpResponseRedirect(_safe_next(request, reverse("assets:unconfirmed")))
+        back = _safe_next(request, reverse("assets:unconfirmed"))
+        return render(request, self.template_name, {"asset": asset, "form": form, "back": back})
 
 
 class MergeView(Perm, View):

@@ -133,3 +133,14 @@ Se documentan aquí conforme aparezcan.
 - La espera usa un testigo en Redis; si Redis se reinicia durante la espera, la tarea
   programada no encuentra testigo y no hace nada (el barrido nocturno lo recupera).
 - `INSUFFICIENT_CONTEXT` se calcula al vuelo (`Asset.has_minimum_context`), no se almacena.
+
+## Revisión del autor, ronda 2
+
+| Reporte | Causa | Corrección |
+|---|---|---|
+| La sugerencia automática no aparece al dar de alta | Sí se generaba, pero 60 s después y sin ningún aviso; con criticidad manual no se pedía | El activo muestra «Sugerencia programada (HH:MM:SS)» y se recarga solo al terminar; el alta y la confirmación siempre la programan (con criticidad manual, la sugerencia la contrasta) |
+| `IntegrityError` al ejecutar nmap | `worker-discovery` no se reinició tras la migración 0007 y no enviaba `review_suggested` | `db_default=False` en la columna (0008); tras migrar se reinician **todos** los servicios |
+| Acciones masivas: el segundo campo siempre era «etiqueta» | Todos los parámetros visibles a la vez; entorno validado contra el enum anterior; un error detenía el lote | Solo se muestra el parámetro de la acción (`static/js/phylax.js`, sin scripts inline), seleccionar todos, contador, confirmación al retirar; nuevas acciones (quitar etiquetas, cambiar función, restaurar); se aplica activo por activo y se informa qué no se aplicó y por qué |
+| «Respuesta reutilizada» tras cambiar a producción | El cambio a producción fue previo; el clic se hizo con el mismo contexto que la última sugerencia | Con el mismo contexto que la última sugerencia, el botón explica que no cambió nada (temperatura 0 → misma respuesta) en lugar de crear una copia; la reutilización queda para contextos que vuelven a uno anterior |
+| «Ignorar» no se podía deshacer | No existía la transición | `restore_asset`: vuelve a `ACTIVE` si cumple lo exigido al confirmar, si no a `UNCONFIRMED`; botón en el detalle, acción masiva y enlace a ignorados desde «Por confirmar» |
+| La ejecución no mostraba qué hosts encontró | Solo había conteos | Tabla «Hosts observados» con filtros (por confirmar, en inventario, ignorados, retirados), marca «nuevo», «Agregar al inventario…» (vuelve a la ejecución) e ignorar/restaurar |

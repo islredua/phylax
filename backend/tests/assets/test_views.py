@@ -291,13 +291,104 @@ def test_merge_from_unconfirmed(client, as_role):
 def test_bulk_actions(client, as_role):
     as_role(OPERATOR)
     a, b = AssetFactory(), AssetFactory()
-    client.post("/inventory/bulk/", {"ids": [a.pk, b.pk], "action": "tag", "tag": "lab"})
-    assert a.tags.filter(name="lab").exists() and b.tags.filter(name="lab").exists()
-    client.post("/inventory/bulk/", {"ids": [a.pk], "action": "environment", "environment": "DEV"})
+    client.post("/inventory/bulk/", {"ids": [a.pk, b.pk], "action": "tag", "tags": "lab, pci"})
+    assert set(a.tags.values_list("name", flat=True)) == {"lab", "pci"}
+    client.post("/inventory/bulk/", {"ids": [a.pk], "action": "untag", "tags": "pci"})
+    assert set(a.tags.values_list("name", flat=True)) == {"lab"}
+    client.post(
+        "/inventory/bulk/", {"ids": [a.pk], "action": "environment", "value_ENVIRONMENT": "DEV"}
+    )
+    client.post(
+        "/inventory/bulk/",
+        {"ids": [a.pk], "action": "business_role", "value_BUSINESS_ROLE": "MONITOREO"},
+    )
     a.refresh_from_db()
-    assert a.environment == "DEV"
+    assert (a.environment, a.business_role) == ("DEV", "MONITOREO")
     client.post("/inventory/bulk/", {"ids": [a.pk, b.pk], "action": "retire"})
     assert Asset.objects.filter(status=AssetStatus.RETIRED).count() == 2
+
+
+def test_bulk_reports_failures_without_stopping(client, as_role):
+    as_role(OPERATOR)
+    ok, ignored = AssetFactory(), AssetFactory(status=AssetStatus.IGNORED, name="zz-ignorado")
+    AssetIdentifierFactory(asset=ignored, kind=IdentifierKind.IPV4, value="10.92.0.1")
+    response = client.post(
+        "/inventory/bulk/", {"ids": [ok.pk, ignored.pk], "action": "restore"}, follow=True
+    )
+    body = response.content.decode()
+    ignored.refresh_from_db()
+    assert ignored.status == AssetStatus.ACTIVE
+    assert "aplicado a 1" in body and "1 activo(s) sin cambios" in body
+    # Valor fuera del catálogo: no se aplica y se informa por activo.
+    response = client.post(
+        "/inventory/bulk/",
+        {"ids": [ok.pk], "action": "environment", "value_ENVIRONMENT": "MARTE"},
+        follow=True,
+    )
+    ok.refresh_from_db()
+    assert ok.environment != "MARTE" and "sin cambios" in response.content.decode()
+    response = client.post("/inventory/bulk/", {"ids": [ok.pk], "action": "tag"}, follow=True)
+    assert "al menos una etiqueta" in response.content.decode()
+
+
+def test_bulk_bar_markup(client, as_role):
+    as_role(OPERATOR)
+    AssetFactory()
+    body = client.get("/inventory/").content.decode()
+    assert 'data-bulk-param="ENVIRONMENT"' in body and "data-bulk-all" in body
+    assert 'data-confirm="Los activos retirados' in body and "js/phylax.js" in body
+
+
+def test_restore_ignored_asset(client, as_role):
+    as_role(OPERATOR)
+    complete = AssetFactory(status=AssetStatus.IGNORED)
+    AssetIdentifierFactory(asset=complete, kind=IdentifierKind.IPV4, value="10.90.0.1")
+    discovered = AssetFactory(status=AssetStatus.IGNORED, environment=None, business_role=None)
+    assert "Restaurar" in client.get(f"/inventory/{complete.pk}/").content.decode()
+    client.post(f"/inventory/{complete.pk}/restore/")
+    client.post(f"/inventory/{discovered.pk}/restore/")
+    complete.refresh_from_db()
+    discovered.refresh_from_db()
+    assert complete.status == AssetStatus.ACTIVE
+    assert discovered.status == AssetStatus.UNCONFIRMED  # faltan datos: vuelve a la cola
+
+
+def test_scheduled_suggestion_is_visible_and_refreshes(client, as_role, monkeypatch):
+    from apps.assets import services
+
+    as_role(OPERATOR)
+    asset = AssetFactory(criticality=None)
+    monkeypatch.setattr(services.transaction, "on_commit", lambda f, using=None, robust=False: None)
+    services.schedule_suggestion(asset.pk, trigger="CREATE")
+    body = client.get(f"/inventory/{asset.pk}/").content.decode()
+    assert "Sugerencia programada" in body and "suggest/status/?waiting=1" in body
+    services.cache.delete_many([services._debounce_key(asset.pk), services._due_key(asset.pk)])
+    response = client.get(
+        f"/inventory/{asset.pk}/suggest/status/?waiting=1", HTTP_HX_REQUEST="true"
+    )
+    assert response.status_code == 204 and response["HX-Refresh"] == "true"
+
+
+def test_create_message_explains_automatic_suggestion(client, as_role):
+    as_role(OPERATOR)
+    response = client.post(
+        "/inventory/new/",
+        {
+            "name": "nuevo",
+            "asset_type": "HOST",
+            "environment": "PROD",
+            "business_role": "API",
+            "description": "API de pagos",
+            "criticality": "ALTO",
+            "in_scope": "on",
+            "ident-TOTAL_FORMS": "1",
+            "ident-INITIAL_FORMS": "0",
+            "ident-0-kind": "IPV4",
+            "ident-0-value": "10.91.0.1",
+        },
+        follow=True,
+    )
+    assert "contrastará la criticidad" in response.content.decode()
 
 
 # --- Sugerencias LLM: segundo plano, polling y salida escapada ----------------------------
@@ -357,9 +448,8 @@ def test_llm_rationale_is_escaped(client, as_role):
 def test_rate_limit_message(client, as_role, settings):
     settings.LLM_RATE_LIMIT_PER_MIN = 1
     as_role(OPERATOR)
-    asset = AssetFactory()
-    client.post(f"/inventory/{asset.pk}/suggest/", HTTP_HX_REQUEST="true")
-    response = client.post(f"/inventory/{asset.pk}/suggest/", HTTP_HX_REQUEST="true")
+    client.post(f"/inventory/{AssetFactory().pk}/suggest/", HTTP_HX_REQUEST="true")
+    response = client.post(f"/inventory/{AssetFactory().pk}/suggest/", HTTP_HX_REQUEST="true")
     assert "Límite" in response.content.decode()
 
 

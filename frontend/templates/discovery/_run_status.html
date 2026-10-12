@@ -5,7 +5,7 @@
     <div class="mb-3 flex flex-wrap items-center gap-2">{% run_status_badge run %}{% if run.is_active %}<span class="text-xs text-muted">se actualiza automáticamente…</span>{% endif %}</div>
     <div class="grid grid-cols-2 gap-3 md:grid-cols-5">
       <div><p class="stat-label">Hosts activos</p><p class="stat-value">{{ run.hosts_up }}</p></div>
-      <div><p class="stat-label">Activos nuevos</p><p class="stat-value">{{ run.assets_created }}</p></div>
+      <div><p class="stat-label">Activos nuevos</p><p class="stat-value"><a href="?show=pending#observed-hosts" class="hover:no-underline" title="Ver los hosts por confirmar">{{ run.assets_created }}</a></p></div>
       <div><p class="stat-label">Actualizados</p><p class="stat-value">{{ run.assets_updated }}</p></div>
       <div><p class="stat-label">Conflictos</p><p class="stat-value {% if run.conflicts %}text-high{% endif %}">{{ run.conflicts }}</p></div>
       <div><p class="stat-label">Servicios</p><p class="stat-value">{{ run.services_seen }}</p></div>
@@ -29,10 +29,48 @@
     </div>
     {% if output %}<pre class="code-block max-h-[32rem]" id="nmap-output">{{ output }}</pre>{% else %}<p class="text-sm text-muted">{% if run.is_active %}Esperando la salida de nmap…{% else %}Sin salida registrada.{% endif %}</p>{% endif %}
   </section>
-  {% if assets %}
-  <section class="flex flex-col gap-2">
-    <h3 class="eyebrow">Activos observados</h3>
-    <div class="flex flex-wrap gap-1">{% for a in assets %}<a href="{% url 'assets:detail' a.pk %}" class="badge-neutral hover:no-underline">{{ a.name }}</a>{% endfor %}</div>
+  <section class="flex flex-col gap-2" id="observed-hosts">
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <h3 class="card-title mb-0">Hosts observados</h3>
+      {% if open_conflicts %}<a href="{% url 'assets:conflicts' %}" class="badge-high hover:no-underline">{{ open_conflicts }} conflicto(s) de identidad sin resolver</a>{% endif %}
+    </div>
+    <p class="text-xs text-muted">Los que están «por confirmar» aún no forman parte del inventario: confírmalos para agregarlos (o ignóralos). No se escanean ni se puntúan hasta entonces.</p>
+    <nav class="subtabs" aria-label="Filtrar hosts">
+      {% for key, label, statuses in host_filters %}{% for k, n in host_counts.items %}{% if k == key %}<a href="?show={{ key }}#observed-hosts" class="subtab {% if key == show %}subtab-active{% endif %}"{% if key == show %} aria-current="true"{% endif %}>{{ label }} <span class="font-mono text-xs">{{ n }}</span></a>{% endif %}{% endfor %}{% endfor %}
+    </nav>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th>Host</th><th>Identificadores</th><th>Servicios abiertos</th><th>Situación</th><th></th></tr></thead>
+        <tbody>
+          {% for a in hosts %}
+          <tr>
+            <td><a href="{% url 'assets:detail' a.pk %}" class="font-medium">{{ a.name }}</a>{% if a.new_in_run %} <span class="badge-primary">nuevo</span>{% endif %}{% if a.os_guess %}<p class="text-xs text-muted">{{ a.os_guess }}</p>{% endif %}</td>
+            <td class="text-xs">{% for i in a.identifiers.all %}<span class="font-mono">{{ i.value }}</span>{% if not forloop.last %}<br>{% endif %}{% endfor %}</td>
+            <td class="font-mono">{{ a.open_services }}</td>
+            <td>
+              {% if a.status == 'UNCONFIRMED' %}<span class="badge-medium">por confirmar</span>
+              {% elif a.status == 'ACTIVE' or a.status == 'STALE' %}<span class="badge-low">en inventario</span>
+              {% elif a.status == 'IGNORED' %}<span class="badge-neutral">ignorado</span>
+              {% else %}<span class="badge-neutral">{{ a.get_status_display|lower }}</span>{% endif %}
+            </td>
+            <td class="text-right">
+              {% if perms.assets.change_asset %}
+              <div class="flex justify-end gap-2">
+                {% if a.status == 'UNCONFIRMED' %}
+                <a href="{% url 'assets:confirm' a.pk %}?next={{ request.path|urlencode }}" class="btn-primary btn-sm">Agregar al inventario…</a>
+                <form method="post" action="{% url 'assets:ignore' a.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}?show={{ show }}"><button class="btn-secondary btn-sm" type="submit">Ignorar</button></form>
+                {% elif a.status == 'IGNORED' %}
+                <form method="post" action="{% url 'assets:restore' a.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}?show={{ show }}"><button class="btn-secondary btn-sm" type="submit">Restaurar</button></form>
+                {% endif %}
+              </div>
+              {% endif %}
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="5" class="table-empty">{% if run.is_active %}Aún no hay hosts registrados; aparecerán al terminar el escaneo.{% elif show %}Ningún host en esta situación.{% else %}La ejecución no registró hosts.{% endif %}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </section>
-  {% endif %}
 </div>
