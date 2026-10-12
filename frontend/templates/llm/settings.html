@@ -8,6 +8,7 @@
     <h3 class="card-title mb-0">Modelo activo del sistema</h3>
     <p class="muted text-sm">Se usa en todas las inferencias: sugerencias de criticidad (manuales, automáticas y barrido nocturno) y, en adelante, CTI y narrativa ejecutiva. Cambiarlo no altera las decisiones ya tomadas.</p>
     {% if not active_ready %}<div class="alert-warning text-sm">El modelo activo <span class="font-mono">{{ active }}</span> no está descargado.</div>{% endif %}
+    {% if active_small %}<div class="alert-warning text-sm">El modelo activo <span class="font-mono">{{ active }}</span> tiene menos de {{ small_threshold|floatformat:0 }} mil millones de parámetros: sirve para probar el flujo, pero sus sugerencias no son confiables (suele copiar la rúbrica y dar explicaciones que contradicen su propia clase). Para uso real elige un modelo de 7B o más.</div>{% endif %}
     {% if models %}
     <form method="post" class="flex flex-wrap items-end gap-2">
       {% csrf_token %}
@@ -41,7 +42,7 @@
           <td class="font-mono text-xs">{{ m.parameter_size|default:"—" }}</td>
           <td class="font-mono text-xs">{{ m.quantization|default:"—" }}</td>
           <td class="font-mono text-xs">{{ m.size|bytes_gb }}</td>
-          <td>{% if m.name == active %}<span class="badge-primary">activo</span>{% endif %}</td>
+          <td>{% if m.name == active %}<span class="badge-primary">activo</span>{% endif %} {% if m.small %}<span class="badge-medium" title="Menos de {{ small_threshold|floatformat:0 }}B parámetros">solo pruebas</span>{% endif %}</td>
         </tr>
         {% empty %}<tr><td colspan="5" class="table-empty">Sin modelos descargados.</td></tr>{% endfor %}
       </tbody>

@@ -17,6 +17,7 @@ from django.core.management.base import BaseCommand, CommandError
 from apps.assets.criticality_policy import apply as apply_policy
 from apps.assets.llm_input import build_input_from_dict, render_user_message
 from apps.llm.client import run_structured
+from apps.llm.coherence import other_classes_mentioned
 from apps.llm.prompts import load_prompt
 from apps.llm.schemas import CRITICALITY_CLASSES, CRITICALITY_SCHEMA, CriticalityOutput
 
@@ -84,6 +85,8 @@ def compute_metrics(rows):
             y_true, y_policy, labels=labels, average="macro", zero_division=0
         ),
         "policy_adjusted_pct": 100 * sum(1 for r in rows if r["policy_adjusted"]) / len(rows),
+        # Explicación que nombra una clase distinta de la elegida (entre las válidas).
+        "rationale_mismatch_pct": 100 * sum(1 for r in rows if r["rationale_mismatch"]) / len(rows),
         "invalid_pct": 100 * sum(1 for r in rows if not r["parsed_ok"]) / len(rows),
         "latency_median_ms": _median(durations),
         "latency_p95_ms": _percentile(durations, 95),
@@ -150,6 +153,12 @@ class Command(BaseCommand):
                         "predicted": predicted,
                         "predicted_policy": policy.final if policy else None,
                         "policy_adjusted": bool(policy and policy.adjusted),
+                        "rationale_mismatch": bool(
+                            predicted
+                            and other_classes_mentioned(
+                                predicted, (log.parsed or {}).get("rationale", "")
+                            )
+                        ),
                         "parsed_ok": log.parsed_ok,
                         "confidence": (log.parsed or {}).get("confidence"),
                         "total_duration_ms": log.total_duration_ms,
@@ -165,7 +174,8 @@ class Command(BaseCommand):
             self.stdout.write(
                 f"{model}: exactitud={m['accuracy']:.3f} f1_macro={m['f1_macro']:.3f} "
                 f"(con política: {m['accuracy_policy']:.3f} / {m['f1_macro_policy']:.3f}, "
-                f"ajustadas {m['policy_adjusted_pct']:.1f}%) "
+                f"ajustadas {m['policy_adjusted_pct']:.1f}%, "
+                f"explicación incoherente {m['rationale_mismatch_pct']:.1f}%) "
                 f"f1_ponderado={m['f1_weighted']:.3f} inválidas={m['invalid_pct']:.1f}% "
                 f"latencia_mediana={m['latency_median_ms']} ms p95={m['latency_p95_ms']} ms "
                 f"tokens/s={m['tokens_per_second_median']}"

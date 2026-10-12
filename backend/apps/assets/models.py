@@ -525,6 +525,13 @@ class CriticalitySuggestion(UUIDModel):
         return f"Sugerencia {self.get_state_display()} para {self.asset}"
 
     @property
+    def rationale_mismatch(self):
+        """Clases que nombra la explicación distintas de la que propuso el LLM."""
+        from apps.llm.coherence import other_classes_mentioned
+
+        return other_classes_mentioned(self.llm_class, self.rationale) if self.llm_class else []
+
+    @property
     def is_processing(self):
         """Pendiente y todavía sin respuesta del LLM (las reutilizadas nacen respondidas)."""
         return (

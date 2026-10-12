@@ -38,6 +38,9 @@
     {% endif %}
     {% if s.policy_adjusted %}<p class="text-xs text-ink-soft">El modelo propuso <strong>{{ s.get_llm_class_display|lower }}</strong>; la política lo ajustó a <strong>{{ s.get_suggested_display|lower }}</strong> ({{ s.policy_rule }}).</p>{% endif %}
     {% if s.reused_from_id %}<p class="text-xs text-muted">Mismo contexto, modelo y prompt que una respuesta anterior: se reutilizó sin volver a inferir.</p>{% endif %}
+    {% with other=s.rationale_mismatch %}{% if other %}
+    <p class="alert-warning text-sm" role="note"><strong>Explicación incoherente:</strong> el modelo eligió <strong>{{ s.get_llm_class_display|lower }}</strong>, pero su explicación habla de {% for c in other %}<span class="font-mono">{{ c }}</span>{% if not forloop.last %}, {% endif %}{% endfor %}. No te fíes del texto; revisa el activo antes de decidir. Es frecuente en modelos pequeños: un administrador puede elegir uno mayor en Administración › LLM.</p>
+    {% endif %}{% endwith %}
     {% if s.rationale %}<p class="text-ink-soft">{{ s.rationale|linebreaksbr }}</p>{% endif %}
     {% if s.signals %}<ul class="flex flex-wrap gap-1">{% for signal in s.signals %}<li class="badge-neutral">{{ signal }}</li>{% endfor %}</ul>{% endif %}
   {% endif %}

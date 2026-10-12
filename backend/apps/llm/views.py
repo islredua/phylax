@@ -20,13 +20,18 @@ class LLMSettingsView(PermissionRequiredMixin, View):
     def _context(self, form=None):
         state = status.get_status()
         installed = state.get("installed") or []
-        details = state.get("installed_details") or [{"name": n} for n in installed]
+        details = [
+            {**m, "small": status.is_small_model(m.get("parameter_size"))}
+            for m in (state.get("installed_details") or [{"name": n} for n in installed])
+        ]
         active = status.active_model()
         missing = [m for m in settings.LLM_AVAILABLE_MODELS if installed and m not in installed]
         return {
             "state": state,
             "active": active,
             "active_ready": status.active_model_ready(),
+            "active_small": any(m["small"] for m in details if m["name"] == active),
+            "small_threshold": status.SMALL_MODEL_BILLIONS,
             "models": details,
             "missing": missing,
             "form": form or ActiveModelForm(initial={"model": active}, installed=installed),

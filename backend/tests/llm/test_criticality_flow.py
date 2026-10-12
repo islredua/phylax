@@ -313,3 +313,38 @@ def test_nightly_sweep_is_serial_and_keeps_model_loaded(ollama, operator):
     suggestion = CriticalitySuggestion.objects.get(asset=pending)
     assert suggestion.trigger == "NIGHTLY" and suggestion.llm_class
     assert json.loads(route.calls.last.request.content)["keep_alive"] == "30m"
+
+
+def test_rationale_naming_another_class_is_flagged(client, operator):
+    from apps.llm.coherence import other_classes_mentioned
+
+    # Caso real con qwen2.5:0.5b: eligió BAJO y la explicación copia la rúbrica de MEDIO
+    # y nombra INFORMATIVO.
+    text = (
+        "El activo es un sistema interno de producción con datos internos y impacto "
+        "moderado o local, lo que la clasifica en la clase `INFORMATIVO`."
+    )
+    assert other_classes_mentioned("BAJO", text) == ["INFORMATIVO"]
+    assert other_classes_mentioned("ALTO", "Impacto medio y riesgo bajo; clase ALTO.") == []
+    assert other_classes_mentioned("CRITICO", "Es CRÍTICO por el directorio.") == []
+    asset = AssetFactory()
+    suggestion = CriticalitySuggestion.objects.create(
+        asset=asset,
+        llm_class="BAJO",
+        suggested="BAJO",
+        rationale=text,
+        inference=InferenceLog.objects.create(task="ASSET_CRITICALITY", model="m", parsed_ok=True),
+    )
+    assert suggestion.rationale_mismatch == ["INFORMATIVO"]
+    client.force_login(operator)
+    body = client.get(f"/inventory/suggestions/{suggestion.pk}/").content.decode()
+    assert "Explicación incoherente" in body and "INFORMATIVO" in body
+
+
+def test_small_models_are_flagged():
+    from apps.llm.status import is_small_model, parameter_billions
+
+    assert parameter_billions("494.03M") == pytest.approx(0.494, abs=1e-3)
+    assert parameter_billions("7.6B") == 7.6
+    assert is_small_model("494.03M") and not is_small_model("7.6B")
+    assert not is_small_model("") and parameter_billions("raro") is None

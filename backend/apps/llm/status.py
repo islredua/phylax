@@ -5,6 +5,8 @@ caché; las vistas solo leen la caché. El sistema se adapta al hardware: con CP
 usa ``LLM_TIMEOUT_CPU_S`` en lugar de ``LLM_TIMEOUT_S``.
 """
 
+import re
+
 import httpx
 from django.conf import settings
 from django.core.cache import cache
@@ -45,6 +47,7 @@ def probe():
             "installed": None,
         }
     installed = [m.get("name", "") for m in tags]
+    # Ollama reporta el tamaño como "494.03M" o "7.6B".
     details = [
         {
             "name": m.get("name", ""),
@@ -141,3 +144,20 @@ def active_model_ready():
     """``True`` si el modelo activo está descargado (o no se sabe aún / modo simulado)."""
     installed = installed_models()
     return installed is None or active_model() in installed
+
+
+SMALL_MODEL_BILLIONS = 3.0
+
+
+def parameter_billions(parameter_size):
+    """``"7.6B"`` → 7.6, ``"494.03M"`` → 0.494; ``None`` si no se puede interpretar."""
+    match = re.fullmatch(r"\s*([\d.]+)\s*([MBT])\s*", parameter_size or "", re.IGNORECASE)
+    if not match:
+        return None
+    scale = {"M": 1e-3, "B": 1.0, "T": 1e3}[match.group(2).upper()]
+    return float(match.group(1)) * scale
+
+
+def is_small_model(parameter_size):
+    billions = parameter_billions(parameter_size)
+    return billions is not None and billions < SMALL_MODEL_BILLIONS
