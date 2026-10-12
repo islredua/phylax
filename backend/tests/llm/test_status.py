@@ -7,6 +7,8 @@ from apps.llm import status
 from apps.llm.tasks import refresh_llm_status
 from tests.llm.helpers import BASE
 
+pytestmark = pytest.mark.django_db
+
 
 @pytest.mark.parametrize(
     ("running", "hint", "expected"),
@@ -60,17 +62,24 @@ def test_refresh_keeps_last_observed_accelerator(respx_mock, settings):
     assert status.refresh()["accelerator"] == "cpu"
 
 
-def test_installed_models_drive_choices(respx_mock, settings):
+def test_active_model_is_global_and_admin_only(respx_mock, settings, make_user):
+    from django.core.exceptions import PermissionDenied, ValidationError
+
+    from apps.accounts.roles import ADMIN, OPERATOR
+
     settings.LLM_DEFAULT_MODEL = "grande:7b"
-    settings.LLM_AVAILABLE_MODELS = ["grande:7b", "chico:0.5b"]
-    assert status.installed_models() is None  # aún sin sondeo: desconocido
-    assert status.preferred_model() == "grande:7b"
+    assert status.active_model() == "grande:7b"  # sin configurar: el predeterminado
     respx_mock.get(f"{BASE}/api/version").respond(json={"version": "0.5.7"})
     respx_mock.get(f"{BASE}/api/ps").respond(json={"models": []})
-    respx_mock.get(f"{BASE}/api/tags").respond(json={"models": [{"name": "chico:0.5b"}]})
+    respx_mock.get(f"{BASE}/api/tags").respond(
+        json={"models": [{"name": "chico:0.5b", "size": 397000000}]}
+    )
     status.refresh()
-    assert status.model_choices() == [
-        {"name": "grande:7b", "installed": False},
-        {"name": "chico:0.5b", "installed": True},
-    ]
-    assert status.preferred_model() == "chico:0.5b"
+    assert not status.active_model_ready()
+    with pytest.raises(PermissionDenied):
+        status.set_active_model("chico:0.5b", user=make_user(OPERATOR))
+    admin = make_user(ADMIN, mfa=True)
+    with pytest.raises(ValidationError, match="no está descargado"):
+        status.set_active_model("grande:7b", user=admin)
+    status.set_active_model("chico:0.5b", user=admin)
+    assert status.active_model() == "chico:0.5b" and status.active_model_ready()

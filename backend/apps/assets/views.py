@@ -12,7 +12,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views import View
 from django.views.generic import ListView, TemplateView
 
-from apps.llm.status import model_choices, preferred_model
+from apps.llm.status import active_model, active_model_ready
 
 from . import services
 from .enums import AssetStatus, Criticality, Environment, SuggestionState
@@ -211,8 +211,8 @@ class AssetDetailView(Perm, TemplateView):
             tab=tab,
             tabs=DETAIL_TABS,
             criticality_choices=Criticality.choices,
-            llm_models=model_choices(),
-            default_model=preferred_model(),
+            llm_model=active_model(),
+            llm_ready=active_model_ready(),
         )
         if tab == "resumen":
             context["has_ip"] = asset.identifiers.filter(kind__in=("IPV4", "IPV6")).exists()
@@ -410,11 +410,9 @@ class SuggestView(Perm, View):
 
     def post(self, request, pk):
         asset = get_object_or_404(Asset, pk=pk)
-        model = request.POST.get("model") or None
         try:
-            suggestion = services.request_criticality_suggestion(
-                asset.pk, user=request.user, model=model
-            )
+            # El modelo no se elige aquí: es el activo del sistema (Administración › LLM).
+            suggestion = services.request_criticality_suggestion(asset.pk, user=request.user)
         except ValidationError as error:
             if request.htmx:
                 return render(request, "assets/_inline_error.html", {"errors": error.messages})
@@ -509,8 +507,8 @@ class ClassificationView(Perm, TemplateView):
             unclassified=unclassified,
             failed=recent_failed,
             criticality_choices=Criticality.choices,
-            llm_models=model_choices(),
-            default_model=preferred_model(),
+            llm_model=active_model(),
+            llm_ready=active_model_ready(),
         )
         return context
 

@@ -557,24 +557,45 @@ def test_list_shows_primary_identifier(client, as_role):
     assert rows[0].display_identifier == "10.94.0.9"
 
 
-def test_selector_disables_models_not_downloaded(client, as_role, settings):
+def test_no_model_selector_outside_admin_and_missing_model_warning(client, as_role, settings):
     from django.core.cache import cache
 
     from apps.llm.status import CACHE_KEY
 
     settings.LLM_MOCK_MODE = False
     settings.LLM_DEFAULT_MODEL = "grande:7b"
-    settings.LLM_AVAILABLE_MODELS = ["grande:7b", "chico:0.5b"]
     as_role(OPERATOR)
     asset = AssetFactory()
-    cache.set(CACHE_KEY, {"available": True, "accelerator": "cpu", "installed": ["chico:0.5b"]})
+    cache.set(CACHE_KEY, {"available": True, "accelerator": "cpu", "installed": ["grande:7b"]})
     body = client.get(f"/inventory/{asset.pk}/").content.decode()
-    assert 'value="grande:7b" disabled' in body and "(no descargado)" in body
-    assert 'value="chico:0.5b" selected' in body
+    assert 'name="model"' not in body and "Modelo del sistema" in body and "grande:7b" in body
     cache.set(CACHE_KEY, {"available": True, "accelerator": "cpu", "installed": []})
     body = client.get(f"/inventory/{asset.pk}/").content.decode()
-    assert "No hay modelos descargados" in body and "ollama pull grande:7b" in body
-    assert "Sugerir criticidad con IA" not in body
+    assert "no está descargado" in body and "Sugerir criticidad con IA" not in body
+
+
+def test_llm_settings_page_is_admin_only(client, as_role, settings):
+    from django.core.cache import cache
+
+    from apps.llm.status import CACHE_KEY, active_model
+
+    settings.LLM_MOCK_MODE = False
+    cache.set(
+        CACHE_KEY,
+        {
+            "available": True,
+            "accelerator": "cpu",
+            "installed": ["a:1", "b:2"],
+            "installed_details": [{"name": "a:1", "size": 2 * 1024**3}, {"name": "b:2"}],
+        },
+    )
+    as_role(OPERATOR)
+    assert client.get("/llm/").status_code == 403
+    as_role(ADMIN)
+    body = client.get("/llm/").content.decode()
+    assert "a:1" in body and "2.0 GB" in body
+    client.post("/llm/", {"model": "b:2"})
+    assert active_model() == "b:2"
 
 
 def test_edit_is_two_step_and_same_class_counts_as_accept(client, as_role):

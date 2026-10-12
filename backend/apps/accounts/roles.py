@@ -43,6 +43,7 @@ ADMIN_MANAGED_MODELS = {
     ("assets", "networkrange"),
     ("assets", "containerregistry"),
     ("assets", "catalogentry"),
+    ("llm", "llmsettings"),
 }
 # (app_label, model) con secretos: ningún rol recibe permisos sobre ellos.
 SECRET_MODELS = {

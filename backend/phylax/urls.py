@@ -18,6 +18,7 @@ urlpatterns = [
     path("users/", include("apps.accounts.user_admin_urls")),
     path("inventory/", include("apps.assets.urls")),
     path("discovery/", include("apps.discovery.urls")),
+    path("llm/", include("apps.llm.urls")),
     # Rutas por módulo (se incluirán conforme se desarrollen):
     # path("api/scanners/", include("apps.scanners.urls")),
     # path("api/cti/", include("apps.cti.urls")),

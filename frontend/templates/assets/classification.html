@@ -4,7 +4,7 @@
 {% block toolbar %}<div class="toolbar"><h2>Pendientes de clasificación</h2></div>{% endblock %}
 {% block content %}
 <p class="muted">El LLM local propone una criticidad; tú decides. Las sugerencias en proceso se actualizan solas.</p>
-{% if not default_model %}{% include "assets/_no_models.html" %}{% endif %}
+{% if not llm_ready %}{% include "assets/_model_missing.html" %}{% else %}<p class="text-xs text-muted">Modelo del sistema: <span class="font-mono">{{ llm_model }}</span></p>{% endif %}
 
 <section class="flex flex-col gap-3">
   <h3 class="eyebrow">Sugerencias por decidir</h3>
@@ -28,10 +28,9 @@
           <td class="text-ink-soft">{{ a.environment|catalog:"ENVIRONMENT" }}</td>
           <td class="text-ink-soft">{{ a.business_role|catalog:"BUSINESS_ROLE" }}</td>
           <td class="text-right">
-            {% if perms.assets.decide_criticality and default_model %}
+            {% if perms.assets.decide_criticality and llm_ready %}
             <form method="post" action="{% url 'assets:suggest' a.pk %}" hx-post="{% url 'assets:suggest' a.pk %}" hx-target="#pending" hx-swap="afterbegin" hx-on::after-request="if(event.detail.successful){document.getElementById('unclassified-{{ a.pk }}').remove()}" class="flex justify-end gap-2">
               {% csrf_token %}<input type="hidden" name="next" value="{% url 'assets:classification' %}">
-              {% include "assets/_model_select.html" with extra_class="w-auto py-1 text-xs" %}
               <button class="btn-secondary btn-sm" type="submit">Sugerir</button>
             </form>
             {% endif %}

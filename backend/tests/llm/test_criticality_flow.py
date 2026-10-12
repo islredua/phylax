@@ -98,11 +98,6 @@ def test_permission_and_rate_limit(ollama, operator, make_user, settings):
         services.request_criticality_suggestion(asset.pk, user=operator)
 
 
-def test_disallowed_model_is_rejected(operator):
-    with pytest.raises(ValidationError, match="no permitido"):
-        services.request_criticality_suggestion(AssetFactory().pk, user=operator, model="gpt-4")
-
-
 def test_confirming_without_criticality_triggers_suggestion(ollama, operator):
     ollama.post(f"{BASE}/api/chat").respond(json=chat_response(VALID))
     asset = AssetFactory(status=AssetStatus.UNCONFIRMED, criticality=None)
@@ -161,21 +156,20 @@ def test_eval_rejects_bad_dataset(tmp_path):
         )
 
 
-def test_missing_model_is_rejected_before_queuing(operator):
+def test_suggestions_use_the_system_model_and_reject_missing(operator):
     from django.core.cache import cache
 
-    from apps.llm.status import CACHE_KEY
+    from apps.llm.status import CACHE_KEY, set_active_model
 
     cache.set(
         CACHE_KEY,
         {"available": True, "accelerator": "cpu", "installed": ["llama3.1:8b-instruct-q4_K_M"]},
     )
     asset = AssetFactory()
+    # El predeterminado (qwen) no está descargado: aviso inmediato, sin sugerencia fallida.
     with pytest.raises(ValidationError, match="no está descargado"):
-        services.request_criticality_suggestion(
-            asset.pk, user=operator, model="qwen2.5:7b-instruct-q4_K_M"
-        )
+        services.request_criticality_suggestion(asset.pk, user=operator)
     assert not CriticalitySuggestion.objects.filter(asset=asset).exists()
-    # Sin modelo explícito se usa el primero descargado.
+    set_active_model("llama3.1:8b-instruct-q4_K_M", user=None)
     suggestion = services.request_criticality_suggestion(asset.pk, user=operator)
     assert suggestion.model == "llama3.1:8b-instruct-q4_K_M"

@@ -45,6 +45,15 @@ def probe():
             "installed": None,
         }
     installed = [m.get("name", "") for m in tags]
+    details = [
+        {
+            "name": m.get("name", ""),
+            "size": m.get("size") or 0,
+            "parameter_size": (m.get("details") or {}).get("parameter_size", ""),
+            "quantization": (m.get("details") or {}).get("quantization_level", ""),
+        }
+        for m in tags
+    ]
     if running:
         on_gpu = any((m.get("size_vram") or 0) > 0 for m in running)
         accelerator = "gpu" if on_gpu else "cpu"
@@ -57,6 +66,7 @@ def probe():
         "version": version,
         "loaded": [m.get("name", "") for m in running],
         "installed": installed,
+        "installed_details": details,
     }
 
 
@@ -91,20 +101,43 @@ def installed_models():
     return get_status().get("installed")
 
 
-def model_choices():
-    """Modelos ofrecidos en la UI: ``[{"name", "installed"}]`` (``installed=None`` = desconocido)."""
+ACTIVE_MODEL_CACHE_KEY = "llm:active_model"
+
+
+def active_model():
+    """Modelo que usan todas las inferencias del sistema (lo elige un administrador)."""
+    model = cache.get(ACTIVE_MODEL_CACHE_KEY)
+    if model is None:
+        from .models import LLMSettings
+
+        row = LLMSettings.objects.filter(pk=1).only("active_model").first()
+        model = (row.active_model if row else "") or settings.LLM_DEFAULT_MODEL
+        cache.set(ACTIVE_MODEL_CACHE_KEY, model, 300)
+    return model
+
+
+def set_active_model(model, *, user):
+    """Fija el modelo activo. Solo ``llm.manage_llm``; debe estar descargado si se conoce la lista."""
+    from django.core.exceptions import PermissionDenied, ValidationError
+
+    from .models import LLMSettings
+
+    if user is not None and not user.has_perm("llm.manage_llm"):
+        raise PermissionDenied("Solo un administrador elige el modelo del sistema.")
     installed = installed_models()
-    names = list(dict.fromkeys([settings.LLM_DEFAULT_MODEL, *settings.LLM_AVAILABLE_MODELS]))
-    return [
-        {"name": name, "installed": None if installed is None else name in installed}
-        for name in names
-    ]
+    if installed is not None and model not in installed:
+        raise ValidationError(f"El modelo «{model}» no está descargado en Ollama.")
+    row, _ = LLMSettings.objects.get_or_create(pk=1)
+    row.active_model = model
+    row.updated_by = user
+    if user is not None:
+        row._history_user = user
+    row.save()
+    cache.delete(ACTIVE_MODEL_CACHE_KEY)
+    return row
 
 
-def preferred_model():
-    """El predeterminado si está descargado; si no, el primero descargado de la lista."""
-    choices = model_choices()
-    usable = [c["name"] for c in choices if c["installed"] is not False]
-    if settings.LLM_DEFAULT_MODEL in usable:
-        return settings.LLM_DEFAULT_MODEL
-    return usable[0] if usable else None
+def active_model_ready():
+    """``True`` si el modelo activo está descargado (o no se sabe aún / modo simulado)."""
+    installed = installed_models()
+    return installed is None or active_model() in installed

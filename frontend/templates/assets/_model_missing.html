@@ -1,0 +1,4 @@
+<div class="alert-warning text-sm">
+  El modelo activo <span class="font-mono">{{ llm_model }}</span> no está descargado en Ollama.
+  {% if perms.llm.manage_llm %}Descárgalo o elige otro en <a href="{% url 'llm:settings' %}">Administración › LLM</a>.{% else %}Pide a un administrador que lo descargue o elija otro modelo.{% endif %}
+</div>
