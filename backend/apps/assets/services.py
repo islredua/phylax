@@ -54,6 +54,9 @@ from .normalization import ip_kind, normalize_identifier
 logger = logging.getLogger(__name__)
 
 SCANNABLE_STATUSES = (AssetStatus.ACTIVE, AssetStatus.STALE)
+# Estados que reciben sugerencia de criticidad automática. Incluye «por confirmar»: al
+# completar el contexto de un activo descubierto ya se calcula, antes de confirmarlo.
+SUGGESTIBLE_STATUSES = (AssetStatus.ACTIVE, AssetStatus.STALE, AssetStatus.UNCONFIRMED)
 PROMPT_VERSION = "v1"
 # Campos mínimos para confirmar un activo descubierto (sección 6).
 CONFIRM_REQUIRED_FIELDS = ("name", "asset_type", "environment", "business_role")
@@ -499,7 +502,7 @@ def _upsert_locked(host, identifiers, payload, run):
     _upsert_services(asset, host)
     if (
         not created
-        and asset.status == AssetStatus.ACTIVE
+        and asset.status in SUGGESTIBLE_STATUSES
         and _service_signature(asset) != services_before
     ):
         schedule_suggestion(asset.pk, trigger=SuggestionTrigger.CONTEXT_CHANGE)
@@ -615,7 +618,7 @@ def update_asset(asset, *, user, fields=None, criticality=..., exposure=..., tag
     asset.save()
     if tags is not None:
         asset.tags.set(tags)
-    if asset.status == AssetStatus.ACTIVE and _context_snapshot(asset) != before:
+    if asset.status in SUGGESTIBLE_STATUSES and _context_snapshot(asset) != before:
         schedule_suggestion(asset.pk, trigger=SuggestionTrigger.CONTEXT_CHANGE, requested_by=user)
     return asset
 
@@ -1067,7 +1070,7 @@ def run_scheduled_suggestion(asset_id, trigger, user_id=None):
 
 def _run_scheduled_suggestion(asset_id, trigger, user_id):
     asset = Asset.objects.filter(pk=asset_id).first()
-    if asset is None or asset.status != AssetStatus.ACTIVE:
+    if asset is None or asset.status not in SUGGESTIBLE_STATUSES:
         return None
     from django.contrib.auth import get_user_model
 
@@ -1309,7 +1312,7 @@ def assets_for_sweep(limit):
     """Activos activos sin criticidad, con contexto mínimo y sin sugerencia pendiente."""
     pending = CriticalitySuggestion.objects.filter(state=SuggestionState.PENDING)
     candidates = (
-        Asset.objects.filter(status=AssetStatus.ACTIVE, criticality__isnull=True)
+        Asset.objects.filter(status__in=SUGGESTIBLE_STATUSES, criticality__isnull=True)
         .exclude(business_role__isnull=True)
         .exclude(business_role="")
         .exclude(description="")

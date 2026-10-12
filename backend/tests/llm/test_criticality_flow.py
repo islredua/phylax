@@ -385,3 +385,34 @@ def test_auto_applied_can_be_changed_but_not_rejected(ollama, operator):
     )
     asset.refresh_from_db()
     assert (asset.criticality, asset.criticality_source) == ("MEDIO", "LLM_EDITED")
+
+
+def test_completing_a_discovered_asset_triggers_suggestion(ollama, operator):
+    """Un activo descubierto (por confirmar) recibe sugerencia al completar su contexto."""
+    ollama.post(f"{BASE}/api/chat").respond(json=chat_response(VALID))
+    asset = AssetFactory(
+        status=AssetStatus.UNCONFIRMED,
+        criticality=None,
+        description="",
+        environment=None,
+        business_role=None,
+    )
+    # Al escanearlo, sin contexto mínimo, no se llama al LLM.
+    assert services.run_scheduled_suggestion(asset.pk, "SCAN") is None
+    services.update_asset(
+        asset,
+        user=operator,
+        fields={
+            "description": "Sitio institucional",
+            "environment": "PROD",
+            "business_role": "API",
+        },
+    )
+    suggestion = CriticalitySuggestion.objects.get(asset=asset)
+    asset.refresh_from_db()
+    assert suggestion.trigger == "CONTEXT_CHANGE" and asset.status == AssetStatus.UNCONFIRMED
+    assert asset.criticality == suggestion.suggested and asset.criticality_source == "LLM_AUTO"
+    # Ignorado o retirado: no.
+    asset.status = AssetStatus.IGNORED
+    asset.save()
+    assert services.run_scheduled_suggestion(asset.pk, "CONTEXT_CHANGE") is None
