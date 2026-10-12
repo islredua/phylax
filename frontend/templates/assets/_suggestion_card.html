@@ -34,7 +34,7 @@
   {% if s.is_processing %}
     <p class="muted">Analizando el activo…</p>
   {% elif s.state == 'FAILED' %}
-    <p class="text-critical">{{ s.inference.error|default:"La inferencia no se completó." }}</p>
+    <p class="text-critical">{{ s.inference.error|default:s.fail_reason|default:"La inferencia no se completó." }}</p>
   {% else %}
     {% if s.state == 'PENDING' and s.asset.criticality %}
     <p class="alert-warning text-sm">Sugiere <strong>{{ s.get_suggested_display|lower }}</strong>; la criticidad vigente es <strong>{{ s.asset.get_criticality_display|lower }}</strong>.</p>

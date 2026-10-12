@@ -198,6 +198,10 @@ CELERY_TASK_ROUTES = {
 }
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_BEAT_SCHEDULE = {
+    "recover-orphaned-suggestions": {
+        "task": "apps.assets.tasks.recover_orphaned_suggestions",
+        "schedule": crontab(minute="*/5"),
+    },
     "sweep-unclassified-criticality": {
         "task": "apps.assets.tasks.sweep_unclassified_criticality",
         "schedule": crontab(hour=2, minute=0),
@@ -252,6 +256,8 @@ LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0"))
 LLM_SEED = int(os.environ.get("LLM_SEED", "42"))
 LLM_NUM_CTX = int(os.environ.get("LLM_NUM_CTX", "4096"))
 LLM_RATE_LIMIT_PER_MIN = int(os.environ.get("LLM_RATE_LIMIT_PER_MIN", "30"))
+# Una sugerencia encolada que no empieza en este tiempo se reencola (mensaje perdido).
+LLM_ORPHAN_QUEUE_GRACE_S = int(os.environ.get("LLM_ORPHAN_QUEUE_GRACE_S", "1800"))
 # Barrido nocturno de activos sin criticidad (en serie, cola llm).
 LLM_SWEEP_MAX_ASSETS = int(os.environ.get("LLM_SWEEP_MAX_ASSETS", "200"))
 # Modo simulado: respuestas JSON válidas y deterministas, sin Ollama (desarrollo/pruebas).

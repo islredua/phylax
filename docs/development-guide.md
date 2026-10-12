@@ -103,7 +103,8 @@ Section(
 Después de `migrate`, reinicia **todos** los servicios que cargan Django (`backend`, `worker`,
 `worker-llm`, `worker-discovery`, `beat`): un worker con código anterior a una columna nueva
 falla al insertar. Las columnas nuevas con valor por defecto usan además `db_default` para
-tolerar ese desfase.
+tolerar ese desfase. Reiniciar `worker-llm` a mitad de una inferencia es seguro: al arrancar
+reencola las sugerencias interrumpidas.
 
 ## Roles
 

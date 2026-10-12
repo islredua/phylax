@@ -3,6 +3,7 @@
 import logging
 
 from celery import shared_task
+from celery.signals import worker_ready
 
 from . import services
 
@@ -21,6 +22,7 @@ def mark_stale_assets():
 @shared_task(acks_late=True, soft_time_limit=1900, time_limit=2000)
 def suggest_criticality(suggestion_id):
     """Cola ``llm`` (concurrencia 1): inferencia de criticidad en segundo plano."""
+    services.mark_suggestion_started(suggestion_id)
     try:
         suggestion = services.complete_suggestion(suggestion_id)
     except BaseException:
@@ -45,6 +47,26 @@ def sweep_unclassified_criticality():
     count = services.sweep_unclassified()
     logger.info("Barrido nocturno de criticidad: %d activo(s)", count)
     return count
+
+
+@shared_task(acks_late=True, soft_time_limit=120, time_limit=180)
+def recover_orphaned_suggestions():
+    """Cada 5 min (Beat): reencola sugerencias atascadas (worker interrumpido o mensaje perdido)."""
+    result = services.recover_stale_suggestions()
+    if any(result.values()):
+        logger.warning("Sugerencias huérfanas: %s", result)
+    return result
+
+
+@worker_ready.connect
+def _recover_on_llm_worker_start(sender=None, **kwargs):
+    """Al arrancar el worker que consume ``llm``: recupera lo que el reinicio interrumpió."""
+    task_consumer = getattr(sender, "task_consumer", None)
+    queues = {q.name for q in getattr(task_consumer, "queues", [])}
+    if "llm" not in queues:
+        return
+    recovered = services.recover_interrupted_suggestions()
+    logger.info("Worker llm listo: %d sugerencia(s) interrumpida(s) reencolada(s)", recovered)
 
 
 @shared_task(acks_late=True, soft_time_limit=1800, time_limit=1900)
