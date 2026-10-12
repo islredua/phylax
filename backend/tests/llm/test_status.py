@@ -45,3 +45,13 @@ def test_refresh_task_runs_on_default_queue():
 
     assert refresh_llm_status.queue == "default"
     assert "apps.llm.tasks.refresh_llm_status" not in settings.CELERY_TASK_ROUTES
+
+
+def test_refresh_keeps_last_observed_accelerator(respx_mock, settings):
+    settings.LLM_ACCELERATOR = "auto"
+    respx_mock.get(f"{BASE}/api/version").respond(json={"version": "0.5.7"})
+    ps = respx_mock.get(f"{BASE}/api/ps")
+    ps.respond(json={"models": [{"name": "m", "size_vram": 0}]})
+    assert status.refresh()["accelerator"] == "cpu"
+    ps.respond(json={"models": []})  # el modelo se descargó de memoria
+    assert status.refresh()["accelerator"] == "cpu"

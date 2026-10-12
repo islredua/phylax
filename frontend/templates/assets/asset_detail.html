@@ -58,7 +58,7 @@
     <form method="post" action="{% url 'assets:suggest' asset.pk %}" class="flex flex-col gap-2">
       {% csrf_token %}<input type="hidden" name="next" value="{% url 'assets:detail' asset.pk %}?tab=sugerencias">
       <label class="form-label" for="model">Modelo local</label>
-      <select id="model" name="model" class="form-input">{% for m in llm_models %}<option value="{{ m }}">{{ m }}</option>{% endfor %}</select>
+      <select id="model" name="model" class="form-input">{% for m in llm_models %}<option value="{{ m }}"{% if m == default_model %} selected{% endif %}>{{ m }}</option>{% endfor %}</select>
       <button class="btn-primary" type="submit">Sugerir criticidad con IA</button>
     </form>
     {% endif %}
@@ -152,7 +152,7 @@
 {% if perms.assets.decide_criticality and asset.status != 'RETIRED' %}
 <form method="post" action="{% url 'assets:suggest' asset.pk %}" hx-post="{% url 'assets:suggest' asset.pk %}" hx-target="#suggestions" hx-swap="afterbegin" class="flex flex-wrap items-end gap-2">
   {% csrf_token %}<input type="hidden" name="next" value="{% url 'assets:detail' asset.pk %}?tab=sugerencias">
-  <select name="model" class="form-input w-auto" aria-label="Modelo">{% for m in llm_models %}<option value="{{ m }}">{{ m }}</option>{% endfor %}</select>
+  <select name="model" class="form-input w-auto" aria-label="Modelo">{% for m in llm_models %}<option value="{{ m }}"{% if m == default_model %} selected{% endif %}>{{ m }}</option>{% endfor %}</select>
   <button class="btn-primary" type="submit">Sugerir criticidad con IA</button>
 </form>
 {% endif %}

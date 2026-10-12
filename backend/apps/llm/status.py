@@ -52,6 +52,11 @@ def probe():
 
 def refresh():
     status = {**probe(), "checked_at": timezone.now().isoformat()}
+    previous = cache.get(CACHE_KEY) or {}
+    # Ollama descarga el modelo de memoria tras unos minutos sin uso: sin modelo cargado no se
+    # observa el acelerador, así que se conserva el último observado.
+    if status["accelerator"] == "unknown" and previous.get("accelerator") in ("gpu", "cpu"):
+        status["accelerator"] = previous["accelerator"]
     cache.set(CACHE_KEY, status, CACHE_TTL)
     return status
 

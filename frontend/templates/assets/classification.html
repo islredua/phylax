@@ -5,14 +5,16 @@
 <p class="muted">El LLM local propone una criticidad; tú decides. Las sugerencias en proceso se actualizan solas.</p>
 
 <section class="flex flex-col gap-3">
-  <h3 class="eyebrow">Sugerencias por decidir · {{ pending|length }}</h3>
+  <h3 class="eyebrow">Sugerencias por decidir</h3>
   <div id="pending" class="flex flex-col gap-3">
-    {% for s in pending %}{% include "assets/_suggestion_card.html" %}{% empty %}<p class="muted">No hay sugerencias pendientes.</p>{% endfor %}
+    {% for s in pending %}{% include "assets/_suggestion_card.html" %}{% endfor %}
+    {# Visible solo cuando no hay tarjetas (también tras insertar una con HTMX). #}
+    <p class="muted hidden only:block">No hay sugerencias pendientes.</p>
   </div>
 </section>
 
 <section class="flex flex-col gap-2">
-  <h3 class="eyebrow">Activos sin criticidad · {{ unclassified|length }}</h3>
+  <h3 class="eyebrow">Activos sin criticidad</h3>
   <div class="table-wrap">
     <table class="data-table">
       <thead><tr><th>Activo</th><th>Tipo</th><th>Entorno</th><th>Función</th><th></th></tr></thead>

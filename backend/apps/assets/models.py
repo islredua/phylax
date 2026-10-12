@@ -143,20 +143,32 @@ class Asset(UUIDModel):
         "entorno", max_length=10, choices=Environment.choices, null=True, blank=True
     )
     network_range = models.ForeignKey(
-        NetworkRange, null=True, blank=True, on_delete=models.SET_NULL, related_name="assets"
+        NetworkRange,
+        verbose_name="rango de red",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="assets",
     )
 
     criticality = models.CharField(
         "criticidad", max_length=12, choices=Criticality.choices, null=True, blank=True
     )
     criticality_source = models.CharField(
-        max_length=12, choices=CriticalitySource.choices, null=True, blank=True
+        "origen de la criticidad",
+        max_length=12,
+        choices=CriticalitySource.choices,
+        null=True,
+        blank=True,
     )
     exposure = models.CharField(
         "exposición", max_length=10, choices=Exposure.choices, null=True, blank=True
     )
     exposure_source = models.CharField(
-        max_length=10, choices=ExposureSource.choices, default=ExposureSource.RANGE
+        "origen de la exposición",
+        max_length=10,
+        choices=ExposureSource.choices,
+        default=ExposureSource.RANGE,
     )
     data_classification = models.CharField(
         "clasificación de datos",
@@ -166,31 +178,49 @@ class Asset(UUIDModel):
         blank=True,
     )
     data_categories = ArrayField(
-        models.CharField(max_length=25, choices=DataCategory.choices), default=list, blank=True
+        models.CharField(max_length=25, choices=DataCategory.choices),
+        verbose_name="categorías de datos",
+        default=list,
+        blank=True,
     )
 
     technical_owner = models.ForeignKey(
-        USER, null=True, blank=True, on_delete=models.SET_NULL, related_name="owned_assets"
+        USER,
+        verbose_name="responsable técnico",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="owned_assets",
     )
     business_owner = models.CharField("responsable de negocio", max_length=200, blank=True)
     tags = models.ManyToManyField(Tag, blank=True, related_name="assets")
 
     in_scope = models.BooleanField("dentro del alcance", default=True)
     status = models.CharField(
-        max_length=12, choices=AssetStatus.choices, default=AssetStatus.ACTIVE
+        "estado", max_length=12, choices=AssetStatus.choices, default=AssetStatus.ACTIVE
     )
     origin = models.CharField(
-        max_length=10, choices=AssetOrigin.choices, default=AssetOrigin.MANUAL
+        "origen", max_length=10, choices=AssetOrigin.choices, default=AssetOrigin.MANUAL
     )
 
-    first_seen = models.DateTimeField(null=True, blank=True)
-    last_seen = models.DateTimeField(null=True, blank=True)
+    first_seen = models.DateTimeField("visto por primera vez", null=True, blank=True)
+    last_seen = models.DateTimeField("visto por última vez", null=True, blank=True)
     os_guess = models.CharField("sistema operativo (estimado)", max_length=200, blank=True)
     parent = models.ForeignKey(
-        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="children"
+        "self",
+        verbose_name="activo padre",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="children",
     )
     merged_into = models.ForeignKey(
-        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="absorbed"
+        "self",
+        verbose_name="fusionado en",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="absorbed",
     )
     created_by = models.ForeignKey(
         USER, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
@@ -212,6 +242,16 @@ class Asset(UUIDModel):
 
     def __str__(self):
         return self.name
+
+    @property
+    def display_identifier(self):
+        """Identificador para listas: el principal, si no una IP, si no el primero."""
+        identifiers = list(self.identifiers.all())  # usa el prefetch de la vista
+        for test in (lambda i: i.is_primary, lambda i: i.kind in ("IPV4", "IPV6"), lambda i: True):
+            match = next((i for i in identifiers if test(i)), None)
+            if match is not None:
+                return match.value
+        return ""
 
 
 class AssetIdentifier(UUIDModel):

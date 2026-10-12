@@ -58,7 +58,7 @@
           {% if perms.assets.change_asset %}<td><input type="checkbox" name="ids" value="{{ a.pk }}" class="checkbox" aria-label="Seleccionar {{ a.name }}"></td>{% endif %}
           <td><a href="{% url 'assets:detail' a.pk %}" class="font-medium">{{ a.name }}</a>{% for t in a.tags.all %} <span class="badge-neutral">{{ t.name }}</span>{% endfor %}</td>
           <td class="text-ink-soft">{{ a.get_asset_type_display }}</td>
-          <td class="font-mono text-xs">{% for i in a.identifiers.all %}{% if forloop.first %}{{ i.value|truncatechars:40 }}{% endif %}{% empty %}—{% endfor %}</td>
+          <td class="font-mono text-xs">{{ a.display_identifier|truncatechars:40|default:"—" }}</td>
           <td>{% criticality_badge a.criticality a.criticality_source %}</td>
           <td>{% exposure_badge a.exposure a.exposure_source %}</td>
           <td class="text-ink-soft">{{ a.environment|choice_label:"Environment" }}</td>

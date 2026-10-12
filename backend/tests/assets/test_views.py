@@ -505,3 +505,25 @@ def test_pending_sbom_belongs_to_its_user(client, as_role, make_user):
     pending_url = client.post("/inventory/sbom/upload/", {"file": upload}).url
     client.force_login(make_user(OPERATOR))
     assert client.get(pending_url).status_code == 404
+
+
+def test_history_shows_spanish_labels_and_related_names(client, as_role):
+    rng = NetworkRangeFactory(name="rango-historial", cidr="10.93.0.0/24")
+    as_role(OPERATOR)
+    from apps.assets import services
+
+    asset = services.create_asset(
+        user=None, fields={"name": "hist"}, identifiers=[(IdentifierKind.IPV4, "10.93.0.5")]
+    )
+    body = client.get(f"/inventory/{asset.pk}/", {"tab": "historial"}).content.decode()
+    assert "rango de red" in body and "rango-historial" in body
+    assert str(rng.pk) not in body
+
+
+def test_list_shows_primary_identifier(client, as_role):
+    asset = AssetFactory(name="multi")
+    AssetIdentifierFactory(asset=asset, kind=IdentifierKind.FQDN, value="a-primero.phylax.local")
+    AssetIdentifierFactory(asset=asset, kind=IdentifierKind.IPV4, value="10.94.0.9")
+    as_role(AUDITOR)
+    rows = client.get("/inventory/", {"q": "multi"}).context["assets"]
+    assert rows[0].display_identifier == "10.94.0.9"

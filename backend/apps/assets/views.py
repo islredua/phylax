@@ -157,6 +157,19 @@ class BulkActionView(Perm, View):
 # --------------------------------------------------------------------------
 
 
+def _display_value(field, value):
+    """Valor legible para el historial: etiqueta de enum o nombre del objeto relacionado."""
+    if value in (None, "", []):
+        return value
+    if field.is_relation:
+        related = field.related_model._default_manager.filter(pk=value).first()
+        return str(related) if related else f"(eliminado) {value}"
+    if isinstance(value, list):
+        inner = dict(getattr(field, "base_field", field).choices or ())
+        return ", ".join(str(inner.get(v, v)) for v in value)
+    return dict(field.choices or ()).get(value, value)
+
+
 def _history(asset):
     entries = []
     records = asset.history.select_related("history_user").order_by("-history_date")[:50]
@@ -167,12 +180,11 @@ def _history(asset):
             delta = record.diff_against(previous, excluded_fields=["updated_at", "created_at"])
             for change in delta.changes:
                 field = Asset._meta.get_field(change.field)
-                labels = dict(field.choices or ())
                 changes.append(
                     {
                         "field": getattr(field, "verbose_name", change.field),
-                        "old": labels.get(change.old, change.old),
-                        "new": labels.get(change.new, change.new),
+                        "old": _display_value(field, change.old),
+                        "new": _display_value(field, change.new),
                     }
                 )
         entries.append({"record": record, "changes": changes})
@@ -198,6 +210,7 @@ class AssetDetailView(Perm, TemplateView):
             tabs=DETAIL_TABS,
             criticality_choices=Criticality.choices,
             llm_models=settings.LLM_AVAILABLE_MODELS,
+            default_model=settings.LLM_DEFAULT_MODEL,
         )
         if tab == "resumen":
             context["has_ip"] = asset.identifiers.filter(kind__in=("IPV4", "IPV6")).exists()

@@ -18,7 +18,7 @@
       {% endif %}
     </div>
     <p class="font-mono text-[11px] text-muted">
-      {{ s.model|default:"—" }}{% if s.inference and s.inference.total_duration_ms %} · {{ s.inference.total_duration_ms|floatformat:0 }} ms{% endif %}{% if s.inference.tokens_per_second %} · {{ s.inference.tokens_per_second|floatformat:1 }} tok/s{% endif %}{% if s.inference.accelerator %} · {{ s.inference.accelerator|upper }}{% endif %}
+      {{ s.model|default:"—" }}{% if s.inference and s.inference.total_duration_ms %} · {{ s.inference.total_duration_ms|floatformat:0 }} ms{% endif %}{% if s.inference.tokens_per_second %} · {{ s.inference.tokens_per_second|floatformat:1 }} tok/s{% endif %}{% if s.inference.accelerator and s.inference.accelerator != 'unknown' %} · {{ s.inference.accelerator|upper }}{% endif %}
     </p>
   </div>
 
