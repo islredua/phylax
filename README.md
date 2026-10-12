@@ -12,13 +12,13 @@ El modelo tradicional de gestión de vulnerabilidades está estructuralmente rot
 
 Cinco módulos integrados sobre un stack FOSS:
 
-1. **Escaneo activo** — orquesta `nmap`, `nuclei` y `Grype`
-2. **Inventario de activos** — PostgreSQL con criticidad asistida por LLM local
+1. **Escaneo de vulnerabilidades** — `nuclei` y `Grype` sobre los objetivos del inventario
+2. **Inventario de activos** — enrolamiento sin agentes (manual, CSV, descubrimiento `nmap`, imágenes, SBOM), alcance autorizado y criticidad sugerida por LLM local
 3. **Enriquecimiento CTI** — integra EPSS, CISA KEV y NVD
 4. **Motor de scoring** — multidimensional (CVSS + EPSS + KEV + contexto)
 5. **Presentación** — vista técnica + vista ejecutiva con narrativa generada por LLM
 
-Backend: Django 5 + PostgreSQL 16. Inferencia: Ollama (en host). Despliegue: Docker Compose.
+Backend: Django 5 + PostgreSQL 16 + Celery/Redis. Inferencia: Ollama en Docker Compose (GPU opcional). Despliegue: Docker Compose.
 
 Ver [docs/architecture.md](docs/architecture.md) para el detalle completo.
 
@@ -32,21 +32,71 @@ Ver [docs/architecture.md](docs/architecture.md) para el detalle completo.
 
 ## Setup rápido
 
-Requiere Docker Desktop con WSL2 backend. Ollama en host es opcional (modo mock disponible para desarrollo sin GPU).
+Requiere Docker (Docker Desktop con WSL2 en Windows). Con GPU NVIDIA, además NVIDIA Container
+Toolkit; sin GPU todo funciona en CPU (más lento).
 
 ```bash
 git clone https://github.com/islredua/phylax.git
 cd phylax
 
 cp .env.example .env
-# Si no tienes GPU/Ollama: dejar LLM_MOCK_MODE=1 en .env
+# Obligatorio: llave de cifrado de campos
+python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+#   → pégala en PHYLAX_FIELD_ENCRYPTION_KEYS
+# Sin descargar modelos aún: LLM_MOCK_MODE=1
 
-docker compose up -d
-docker compose exec backend python manage.py migrate
+scripts/compose.sh up -d          # detecta GPU NVIDIA y la habilita para Ollama
 docker compose exec backend python manage.py createsuperuser
 
 curl http://localhost:8000/health/
 ```
+
+### Servicios
+
+| Servicio | Función | Puertos |
+|---|---|---|
+| `backend` | Django (UI y API) | 8000 |
+| `db` | PostgreSQL 16 | 5432 (solo desarrollo) |
+| `redis` | Broker de Celery y caché | — |
+| `ollama` | LLM local (GPU opcional vía `docker-compose.gpu.yml`) | — |
+| `worker` | Tareas generales (`default`) | — |
+| `worker-llm` | Inferencia LLM (`llm`, concurrencia 1) | — |
+| `worker-discovery` | Descubrimiento nmap (`discovery`), usuario no root con `NET_RAW`/`NET_ADMIN` | — |
+| `beat` | Tareas programadas | — |
+
+### Modelos LLM
+
+```bash
+docker compose exec ollama ollama pull qwen2.5:7b-instruct-q4_K_M
+docker compose exec ollama ollama pull llama3.1:8b-instruct-q4_K_M
+docker compose exec ollama ollama pull mistral:7b-instruct-q4_K_M
+```
+
+Variables: `OLLAMA_BASE_URL`, `LLM_DEFAULT_MODEL`, `LLM_AVAILABLE_MODELS`, `LLM_TIMEOUT_S` (GPU),
+`LLM_TIMEOUT_CPU_S` (CPU), `LLM_RATE_LIMIT_PER_MIN`, `LLM_MOCK_MODE`. El encabezado de la UI
+indica si el LLM corre en GPU, CPU o no está disponible. Las sugerencias siempre se ejecutan en
+segundo plano y la pantalla se actualiza sola al terminar.
+
+### Laboratorio sintético
+
+```bash
+docker compose -f docker-compose.yml -f lab/docker-compose.lab.yml up -d
+docker compose exec backend python manage.py seed_lab_assets     # --reset para reiniciar
+```
+
+Luego en **Descubrimiento › Rangos de red › lab-dmz › Descubrir ahora**. Evaluación de LLMs:
+`manage.py eval_criticality` (ver `datasets/README.md`).
+
+### Limitaciones de red del escáner
+
+- El escáner solo alcanza los segmentos con ruta desde el host de Phylax.
+- Con red bridge de Docker, la **MAC** solo se obtiene para objetivos en la misma red de Docker
+  (laboratorio); en redes reales solo se ve la MAC de equipos en el mismo segmento L2.
+- Sin capabilities de red, Phylax lo detecta y degrada a `-sT` sin detección de sistema operativo.
+- Nada se escanea fuera de un rango con autorización vigente.
+
+Otras variables nuevas: `PHYLAX_FIELD_ENCRYPTION_KEYS`, `PHYLAX_ASSET_STALE_DAYS`,
+`PHYLAX_MAX_DISCOVERY_PREFIX`, `PHYLAX_SBOM_MAX_MB`, `DISCOVERY_*` (ver `.env.example`).
 
 ## Estructura del repositorio
 
@@ -68,6 +118,7 @@ phylax/
 - [`docs/architecture.md`](docs/architecture.md) — Arquitectura detallada por módulo
 - [`docs/stride-threat-model.md`](docs/stride-threat-model.md) — Modelo de amenaza STRIDE
 - [`docs/adrs/`](docs/adrs/) — Architecture Decision Records
+- [`docs/modules/`](docs/modules/) — Especificación, contrato y modelo de amenaza por módulo
 - [`TASKS.md`](TASKS.md) — Plan maestro de desarrollo
 
 ## Estado del proyecto

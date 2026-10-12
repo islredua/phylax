@@ -33,7 +33,7 @@ con LLM local). Se actualiza en cada etapa.
 | 9 | UI y permisos | ✅ |
 | 10 | Importación / exportación CSV | ✅ |
 | 11 | `seed_lab_assets` + compose del laboratorio | ✅ |
-| 12 | Documentación y verificación final | ⏳ |
+| 12 | Documentación y verificación final | ✅ |
 
 ## Desviaciones respecto a la especificación
 

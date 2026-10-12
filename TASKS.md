@@ -47,11 +47,11 @@ Estructura por fases alineada al cronograma del documento (Capítulo 4). Marca c
 
 - [x] Monolito modular (no microservicios)
 - [x] Django apps por módulo
-- [x] Ollama en host, Django en Docker
+- [x] Ollama en Docker Compose con GPU opcional (ADR-008, actualiza ADR-001)
 - [x] PostgreSQL como única DB
 - [ ] Patrón para lógica de negocio: services layer (`apps/<modulo>/services.py`) o fat models. Recomiendo services layer.
 - [ ] Patrón de respuesta de errores en API: estandarizar (DRF default o custom).
-- [ ] Decidir uso de Celery/Redis para tareas asíncronas (ej. escaneos largos). Fuera de MVP, pero reservarse decisión.
+- [x] Celery + Redis + Beat para tareas asíncronas (ADR-008)
 
 ---
 
@@ -148,7 +148,10 @@ Estructura por fases alineada al cronograma del documento (Capítulo 4). Marca c
 - [x] Salvaguardas: no auto-desactivarse, no dejar el sistema sin admin, solo superusuarios administran superusuarios
 - [x] ADR-006: administración de usuarios
 
-### Módulo 1: Escaneo activo (`apps.scanners`)
+### Módulo 1: Escaneo de vulnerabilidades (`apps.scanners`)
+
+> El descubrimiento con nmap pasó al Módulo 2 (`apps.discovery`). Este módulo consumirá
+> `assets.services.get_scan_targets()` y ejecutará nuclei y Grype.
 
 **Semana:** S2–S3
 
@@ -192,39 +195,25 @@ Estructura por fases alineada al cronograma del documento (Capítulo 4). Marca c
 - [ ] Cobertura ≥ 70% para wrappers y normalizadores
 - [ ] docs/modules/scanners.md con ejemplos
 
-### Módulo 2: Inventario de activos (`apps.assets`)
+### Módulo 2: Inventario de activos (`apps.assets`, `apps.discovery`, `apps.llm`)
 
-**Semana:** S3–S4
+Especificación final: [`docs/modules/02-inventario-activos.md`](docs/modules/02-inventario-activos.md).
 
-#### 2.1 Modelo de datos
-- [x] Modelo `Asset` con criticality, exposure, data_sensitivity (ya creado)
-- [ ] Agregar modelo `AssetTag` para taxonomía libre
-- [ ] Agregar modelo `AssetGroup` para agrupaciones lógicas
-- [ ] Agregar historial de cambios de criticidad (`AssetCriticalityHistory`)
-
-#### 2.2 CRUD y UI
-- [ ] Lista de activos con filtros (criticidad, exposición, tag)
-- [ ] Form de creación/edición
-- [ ] Importación masiva CSV
-- [ ] Export a CSV/JSON
-- [ ] Vista detalle con hallazgos asociados
-
-#### 2.3 Integración LLM para criticidad asistida
-- [ ] Prompt engineering para clasificación (en `apps/assets/llm_prompts.py`)
-- [ ] Vista: "Sugerir criticidad con IA" → llama al LLM, muestra sugerencia + explicación
-- [ ] UX: el usuario SIEMPRE confirma antes de persistir (requisito de STRIDE Repudiation)
-- [ ] Log de auditoría: quién confirmó, cuándo, modelo usado
-- [ ] Tests con mock LLM
-
-#### 2.4 Dataset para evaluación eje 2
-- [ ] Diseñar schema del dataset de criticidad (50 ejemplos: hostname + descripción + servicios + etiqueta)
-- [ ] Curar los 50 ejemplos manualmente
-- [ ] Guardar en `datasets/criticality-50.jsonl`
-- [ ] Script `experiments/llm_eval/criticality/run.py` que lo consume (esqueleto)
-
-#### 2.5 Tests + docs
-- [ ] Cobertura ≥ 70%
-- [ ] docs/modules/assets.md
+- [x] Modelo de datos (UUID, enums, identidad en `AssetIdentifier`, historial con simple-history)
+- [x] Normalización de identificadores y resolución de identidad con conflictos (sin fusión automática)
+- [x] Contrato `services.py` / `contracts.py` para vulnerabilidades y scoring (`docs/modules/02-interfaces.md`)
+- [x] Ciclo de vida: confirmar, ignorar, STALE (Beat), retirar, fusionar
+- [x] Rangos de red con alcance autorizado, exposición por longest-prefix match
+- [x] Descubrimiento con nmap (perfiles fijos, worker no root con capabilities, programado)
+- [x] Registries (token cifrado write-only), imágenes de contenedor y SBOM (CycloneDX/SPDX)
+- [x] Sugerencia de criticidad con LLM local en segundo plano, humano en el ciclo
+- [x] Celery + Redis + Beat; Ollama en compose con GPU opcional (ADR-008)
+- [x] Importación CSV con dry-run y exportación segura
+- [x] UI (Inventario, Descubrimiento, Registries) y permisos por rol
+- [x] `seed_lab_assets` y `lab/docker-compose.lab.yml`
+- [x] Comando `eval_criticality` y dataset de ejemplo (`datasets/criticality-example.jsonl`)
+- [ ] Curar el dataset real de criticidad (`datasets/criticality-50.jsonl`) — autor
+- [ ] Imágenes vulnerables definitivas del laboratorio (TODO en `lab/docker-compose.lab.yml`)
 
 ### Módulo 3: Enriquecimiento CTI (`apps.cti`)
 
