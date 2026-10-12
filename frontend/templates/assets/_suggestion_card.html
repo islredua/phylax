@@ -39,19 +39,23 @@
       {% csrf_token %}<input type="hidden" name="decision" value="ACCEPTED">
       <button class="btn-primary btn-sm" type="submit">Aceptar {{ s.get_suggested_display|lower }}</button>
     </form>
-    <form method="post" action="{% url 'assets:decide' s.pk %}" hx-post="{% url 'assets:decide' s.pk %}" hx-target="#suggestion-{{ s.pk }}" hx-swap="outerHTML" class="flex items-end gap-2">
-      {% csrf_token %}<input type="hidden" name="decision" value="EDITED">
-      <select name="value" class="form-input py-1 text-xs" aria-label="Criticidad">
-        {% for value, label in criticality_choices %}<option value="{{ value }}"{% if value == s.suggested %} selected{% endif %}>{{ label }}</option>{% endfor %}
-      </select>
-      <button class="btn-secondary btn-sm" type="submit">Editar</button>
-    </form>
+    <details class="group">
+      <summary class="btn-secondary btn-sm list-none">Editar…</summary>
+      <form method="post" action="{% url 'assets:decide' s.pk %}" hx-post="{% url 'assets:decide' s.pk %}" hx-target="#suggestion-{{ s.pk }}" hx-swap="outerHTML" class="mt-2 flex items-end gap-2">
+        {% csrf_token %}<input type="hidden" name="decision" value="EDITED">
+        <label class="sr-only" for="edit-{{ s.pk }}">Criticidad</label>
+        <select id="edit-{{ s.pk }}" name="value" class="form-input py-1 text-xs">
+          {% for value, label in criticality_choices %}<option value="{{ value }}"{% if value == s.suggested %} selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+        <button class="btn-primary btn-sm" type="submit">Guardar</button>
+      </form>
+    </details>
     <form method="post" action="{% url 'assets:decide' s.pk %}" hx-post="{% url 'assets:decide' s.pk %}" hx-target="#suggestion-{{ s.pk }}" hx-swap="outerHTML">
       {% csrf_token %}<input type="hidden" name="decision" value="REJECTED">
       <button class="btn-secondary btn-sm" type="submit">Rechazar</button>
     </form>
   </div>
   {% elif s.decided_by %}
-  <p class="text-xs text-muted">Decidió <span class="font-mono">{{ s.decided_by.get_username }}</span> el {{ s.decided_at|date:"Y-m-d H:i" }}.</p>
+  <p class="text-xs text-muted">Decidió <span class="font-mono">{{ s.decided_by.get_username }}</span> el {{ s.decided_at|date:"Y-m-d H:i" }}{% if s.final_value %}: criticidad <strong class="text-ink">{{ s.get_final_value_display|lower }}</strong>{% endif %}. <a href="{% url 'assets:detail' s.asset_id %}">Ver activo</a></p>
   {% endif %}
 </article>

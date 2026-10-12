@@ -1015,6 +1015,9 @@ def decide_suggestion(suggestion_id, *, user, decision, value=None):
             raise ValidationError("La sugerencia no tiene una clase que aceptar.")
         set_criticality(asset, suggestion.suggested, source=CriticalitySource.LLM_ACCEPTED)
         final = suggestion.suggested
+    elif decision == SuggestionState.EDITED and value == suggestion.suggested:
+        # "Editar" sin cambiar la clase equivale a aceptarla.
+        return decide_suggestion(suggestion_id, user=user, decision=SuggestionState.ACCEPTED)
     elif decision == SuggestionState.EDITED:
         if value not in Criticality.values:
             raise ValidationError("Elige una criticidad válida.")
