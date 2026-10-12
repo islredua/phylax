@@ -10,6 +10,7 @@
     {% endfor %}
   </div>
   <div class="page-actions">
+    <a href="{% url 'assets:export' %}?{{ request.GET.urlencode }}" class="btn-secondary">Exportar CSV</a>
     {% if perms.assets.change_asset %}<a href="{% url 'assets:sbom_upload' %}" class="btn-secondary">Subir SBOM</a>{% endif %}
     {% if perms.assets.add_asset %}<a href="{% url 'assets:create' %}" class="btn-primary">Nuevo activo</a>{% endif %}
   </div>

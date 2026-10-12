@@ -1,0 +1,21 @@
+<div id="import-status" class="flex flex-col gap-4" {% if upload.status == 'PROCESSING' %}hx-get="{% url 'assets:import_status' upload.pk %}" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+  {% if upload.status == 'PROCESSING' %}
+    <div class="alert-info">Procesando {{ upload.meta.rows }} filas en segundo plano… esta página se actualizará sola.</div>
+  {% elif upload.status == 'FAILED' %}
+    <div class="alert-error">La importación falló: {{ upload.result.error }}</div>
+  {% elif upload.status == 'DONE' %}
+    <div class="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div class="card"><p class="stat-label">Creados</p><p class="stat-value">{{ upload.result.counts.create }}</p></div>
+      <div class="card"><p class="stat-label">Actualizados</p><p class="stat-value">{{ upload.result.counts.update }}</p></div>
+      <div class="card"><p class="stat-label">Conflictos</p><p class="stat-value">{{ upload.result.counts.conflict }}</p></div>
+      <div class="card"><p class="stat-label">Errores</p><p class="stat-value">{{ upload.result.counts.error }}</p></div>
+    </div>
+    {% if upload.result.llm_requested %}<div class="alert-info">Se solicitaron {{ upload.result.llm_requested }} sugerencias de criticidad: revísalas en <a href="{% url 'assets:classification' %}">Clasificación</a>.</div>{% endif %}
+    {% if upload.result.counts.conflict %}<div class="alert-warning">Hay conflictos de identidad por revisar en <a href="{% url 'assets:conflicts' %}">Conflictos</a>.</div>{% endif %}
+    {% if upload.result.errors %}
+    <div class="table-wrap"><table class="data-table"><thead><tr><th>Fila</th><th>Error</th></tr></thead><tbody>
+      {% for e in upload.result.errors %}<tr><td class="font-mono text-xs">{{ e.line }}</td><td class="text-xs">{{ e.detail }}</td></tr>{% endfor %}
+    </tbody></table></div>
+    {% endif %}
+  {% endif %}
+</div>

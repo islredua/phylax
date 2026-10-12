@@ -205,6 +205,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.discovery.tasks.run_scheduled_discoveries",
         "schedule": crontab(minute="*/15"),
     },
+    "expire-import-previews": {
+        "task": "apps.assets.tasks.expire_import_previews",
+        "schedule": crontab(minute=5),
+    },
     "refresh-llm-status": {
         "task": "apps.llm.tasks.refresh_llm_status",
         "schedule": 60.0,

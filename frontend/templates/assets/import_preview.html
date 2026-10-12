@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Vista previa de importación{% endblock %}
+{% block toolbar %}<div class="toolbar"><h2>Vista previa · {{ upload.original_filename }}</h2><a href="{% url 'assets:import' %}" class="btn-secondary btn-sm">← Importar</a></div>{% endblock %}
+{% block content %}
+<div class="grid grid-cols-2 gap-3 md:grid-cols-4">
+  <div class="card"><p class="stat-label">Crear</p><p class="stat-value">{{ upload.meta.counts.create }}</p></div>
+  <div class="card"><p class="stat-label">Actualizar</p><p class="stat-value">{{ upload.meta.counts.update }}</p></div>
+  <div class="card"><p class="stat-label">Conflictos</p><p class="stat-value {% if upload.meta.counts.conflict %}text-high{% endif %}">{{ upload.meta.counts.conflict }}</p></div>
+  <div class="card"><p class="stat-label">Errores</p><p class="stat-value {% if upload.meta.counts.error %}text-critical{% endif %}">{{ upload.meta.counts.error }}</p></div>
+</div>
+<form method="post" class="flex flex-wrap items-center gap-3">
+  {% csrf_token %}
+  <button class="btn-primary" type="submit">Confirmar importación</button>
+  <span class="text-xs text-muted">Las filas con error se omiten; los conflictos se registran para revisión. {% if upload.meta.request_llm %}Se pedirá sugerencia LLM para los activos sin criticidad.{% endif %} Vista previa válida hasta {{ upload.expires_at|date:"H:i" }}.</span>
+</form>
+<div class="table-wrap">
+  <table class="data-table">
+    <thead><tr><th>Fila</th><th>Nombre</th><th>Acción</th><th>Detalle</th></tr></thead>
+    <tbody>
+      {% for e in upload.meta.plan %}
+      <tr>
+        <td class="font-mono text-xs">{{ e.line }}</td>
+        <td>{{ e.name|default:"—" }}</td>
+        <td>{% if e.action == 'create' %}<span class="badge-low">crear</span>{% elif e.action == 'update' %}<span class="badge-primary">actualizar</span>{% elif e.action == 'conflict' %}<span class="badge-high">conflicto</span>{% else %}<span class="badge-critical">error</span>{% endif %}</td>
+        <td class="text-xs text-ink-soft">{{ e.detail|default:"—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

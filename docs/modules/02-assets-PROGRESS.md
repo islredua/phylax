@@ -31,7 +31,7 @@ con LLM local). Se actualiza en cada etapa.
 | 7 | App `discovery` | ✅ |
 | 8 | Registries, imágenes, SBOM | ✅ |
 | 9 | UI y permisos | ✅ |
-| 10 | Importación / exportación CSV | ⏳ |
+| 10 | Importación / exportación CSV | ✅ |
 | 11 | `seed_lab_assets` + compose del laboratorio | ⏳ |
 | 12 | Documentación y verificación final | ⏳ |
 
@@ -101,3 +101,7 @@ Se documentan aquí conforme aparezcan.
   activo; la usará también la importación CSV).
 - **Rangos de red** se gestionan en `assets` (son modelos del inventario) aunque se muestren en la
   sección Descubrimiento; el borrado de un rango recalcula la exposición heredada.
+- **CSV**: el dry-run detecta además filas que repiten identificadores dentro del mismo archivo
+  ("Actualiza el activo de la fila N"). Las sugerencias LLM pedidas por una importación son disparos
+  del sistema (sin el límite de tasa por usuario, que bloquearía importaciones grandes).
+- **Exportación** reutiliza exactamente los filtros de la lista de activos (`filter_assets`).

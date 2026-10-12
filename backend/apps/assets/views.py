@@ -65,6 +65,38 @@ def _safe_next(request, default):
 # --------------------------------------------------------------------------
 
 
+def filter_assets(params):
+    """Filtros de la lista (también los usa la exportación CSV). Devuelve ``(queryset, form)``."""
+    qs = Asset.objects.select_related("network_range").prefetch_related("identifiers", "tags")
+    form = AssetFilterForm(params or None)
+    status = ""
+    if form.is_valid():
+        data = form.cleaned_data
+        status = data["status"]
+        if data["q"]:
+            qs = qs.filter(
+                Q(name__icontains=data["q"]) | Q(identifiers__value__icontains=data["q"])
+            )
+        for name in ("asset_type", "exposure", "environment", "origin"):
+            if data[name]:
+                qs = qs.filter(**{name: data[name]})
+        if data["criticality"] == "none":
+            qs = qs.filter(criticality__isnull=True)
+        elif data["criticality"]:
+            qs = qs.filter(criticality=data["criticality"])
+        if data["network_range"]:
+            qs = qs.filter(network_range=data["network_range"])
+        if data["tag"]:
+            qs = qs.filter(tags=data["tag"])
+    if status == "all":
+        pass
+    elif status:
+        qs = qs.filter(status=status)
+    else:
+        qs = qs.exclude(status__in=HIDDEN_BY_DEFAULT)
+    return qs.distinct().order_by("name"), form
+
+
 class AssetListView(Perm, ListView):
     permission_required = "assets.view_asset"
     template_name = "assets/asset_list.html"
@@ -72,34 +104,8 @@ class AssetListView(Perm, ListView):
     paginate_by = 25
 
     def get_queryset(self):
-        qs = Asset.objects.select_related("network_range").prefetch_related("identifiers", "tags")
-        self.filter_form = AssetFilterForm(self.request.GET or None)
-        status = ""
-        if self.filter_form.is_valid():
-            data = self.filter_form.cleaned_data
-            status = data["status"]
-            if data["q"]:
-                qs = qs.filter(
-                    Q(name__icontains=data["q"]) | Q(identifiers__value__icontains=data["q"])
-                )
-            for name in ("asset_type", "exposure", "environment", "origin"):
-                if data[name]:
-                    qs = qs.filter(**{name: data[name]})
-            if data["criticality"] == "none":
-                qs = qs.filter(criticality__isnull=True)
-            elif data["criticality"]:
-                qs = qs.filter(criticality=data["criticality"])
-            if data["network_range"]:
-                qs = qs.filter(network_range=data["network_range"])
-            if data["tag"]:
-                qs = qs.filter(tags=data["tag"])
-        if status == "all":
-            pass
-        elif status:
-            qs = qs.filter(status=status)
-        else:
-            qs = qs.exclude(status__in=HIDDEN_BY_DEFAULT)
-        return qs.distinct().order_by("name")
+        qs, self.filter_form = filter_assets(self.request.GET)
+        return qs
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

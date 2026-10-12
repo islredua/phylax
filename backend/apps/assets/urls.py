@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views, views_images, views_scope
+from . import views, views_images, views_io, views_scope
 
 app_name = "assets"
 
@@ -23,6 +23,11 @@ urlpatterns = [
     path("<uuid:pk>/suggest/", views.SuggestView.as_view(), name="suggest"),
     path("<uuid:pk>/sbom/", views_images.SbomAttachView.as_view(), name="sbom_attach"),
     path("unconfirmed/", views.UnconfirmedListView.as_view(), name="unconfirmed"),
+    path("import/", views_io.ImportExportView.as_view(), name="import"),
+    path("import/<uuid:token>/", views_io.ImportPreviewView.as_view(), name="import_preview"),
+    path("import/<uuid:token>/status/", views_io.ImportStatusView.as_view(), name="import_status"),
+    path("export.csv", views_io.ExportView.as_view(), name="export"),
+    path("template.csv", views_io.TemplateCsvView.as_view(), name="import_template"),
     path("classification/", views.ClassificationView.as_view(), name="classification"),
     path("suggestions/<uuid:pk>/", views.SuggestionCardView.as_view(), name="suggestion_card"),
     path("suggestions/<uuid:pk>/decide/", views.DecideView.as_view(), name="decide"),

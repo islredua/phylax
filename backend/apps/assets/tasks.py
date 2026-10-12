@@ -29,3 +29,41 @@ def suggest_criticality(suggestion_id):
         raise
     logger.info("Sugerencia %s: %s", suggestion_id, suggestion.state)
     return str(suggestion.state)
+
+
+@shared_task(acks_late=True, soft_time_limit=1800, time_limit=1900)
+def import_assets_csv(upload_id, request_llm=False):
+    """Importaciones grandes (más de 200 filas) en segundo plano."""
+    from .csv_io import execute_import, read_rows
+    from .models import PendingUpload, UploadStatus
+
+    upload = PendingUpload.objects.select_related("user").get(pk=upload_id)
+    try:
+        with upload.file.open("rb") as fh:
+            rows = read_rows(fh.read())
+        upload.result = execute_import(rows, user=upload.user, request_llm=request_llm)
+        upload.status = UploadStatus.DONE
+    except Exception as exc:
+        logger.exception("Importación %s fallida", upload_id)
+        upload.status = UploadStatus.FAILED
+        upload.result = {"error": str(exc)[:500]}
+    upload.save(update_fields=["status", "result", "updated_at"])
+    return str(upload.status)
+
+
+@shared_task(acks_late=True, soft_time_limit=120, time_limit=180)
+def expire_import_previews():
+    """Horaria: elimina cargas temporales (CSV y SBOM) caducadas y sus archivos."""
+    from django.utils import timezone
+
+    from .models import PendingUpload, UploadStatus
+
+    expired = PendingUpload.objects.filter(expires_at__lte=timezone.now()).exclude(
+        status=UploadStatus.PROCESSING
+    )
+    count = 0
+    for upload in expired:
+        upload.file.delete(save=False)
+        upload.delete()
+        count += 1
+    return count
