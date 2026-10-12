@@ -3,6 +3,8 @@
 import os
 from pathlib import Path
 
+from celery.schedules import crontab
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # --- Seguridad ---
@@ -150,6 +152,43 @@ PHYLAX_ASSET_STALE_DAYS = int(os.environ.get("PHYLAX_ASSET_STALE_DAYS", "14"))
 PHYLAX_MAX_DISCOVERY_PREFIX = int(os.environ.get("PHYLAX_MAX_DISCOVERY_PREFIX", "16"))
 PHYLAX_SBOM_MAX_MB = int(os.environ.get("PHYLAX_SBOM_MAX_MB", "50"))
 
+# --- Redis: broker de Celery y caché ---
+REDIS_URL = os.environ.get("REDIS_URL", "")
+if REDIS_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": os.environ.get("REDIS_CACHE_URL", REDIS_URL),
+            "KEY_PREFIX": "phylax",
+        }
+    }
+else:
+    CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
+
+# --- Celery (tareas en segundo plano) ---
+CELERY_BROKER_URL = REDIS_URL or "memory://"
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_TASK_ALWAYS_EAGER = os.environ.get("CELERY_TASK_ALWAYS_EAGER", "0") == "1"
+CELERY_TASK_EAGER_PROPAGATES = True
+CELERY_TASK_SERIALIZER = "json"
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_IGNORE_RESULT = True
+CELERY_TASK_ACKS_LATE = True
+CELERY_TASK_REJECT_ON_WORKER_LOST = True
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_TASK_DEFAULT_QUEUE = "default"
+CELERY_TASK_ROUTES = {
+    "apps.llm.tasks.*": {"queue": "llm"},
+    "apps.discovery.tasks.*": {"queue": "discovery"},
+}
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_BEAT_SCHEDULE = {
+    "mark-stale-assets": {
+        "task": "apps.assets.tasks.mark_stale_assets",
+        "schedule": crontab(hour=3, minute=0),
+    },
+}
+
 # --- Archivos subidos (SBOM, XML de discovery, cargas temporales) ---
 # Nunca se sirven directamente: solo vía vistas que verifican permisos.
 MEDIA_ROOT = os.environ.get("PHYLAX_MEDIA_ROOT", "/data/media")
@@ -217,5 +256,12 @@ LOGGING = {
     "root": {
         "handlers": ["console"],
         "level": "INFO" if not DEBUG else "DEBUG",
+    },
+    # Celery es muy verboso en DEBUG (introspección de tareas en cada arranque).
+    "loggers": {
+        "celery": {"level": "INFO"},
+        "kombu": {"level": "INFO"},
+        "amqp": {"level": "INFO"},
+        "factory": {"level": "INFO"},
     },
 }

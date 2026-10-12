@@ -542,3 +542,18 @@ def test_processing_suggestion_cannot_be_decided(operator):
     assert pending.is_processing
     with pytest.raises(ValidationError):
         services.decide_suggestion(pending.pk, user=operator, decision=SuggestionState.ACCEPTED)
+
+
+def test_mark_stale_task_runs_via_celery():
+    from apps.assets.tasks import mark_stale_assets
+
+    AssetFactory(last_seen=timezone.now() - timedelta(days=60))
+    assert mark_stale_assets.delay().get() == 1
+
+
+def test_beat_schedule_and_routes_are_configured():
+    from django.conf import settings
+
+    tasks = {entry["task"] for entry in settings.CELERY_BEAT_SCHEDULE.values()}
+    assert "apps.assets.tasks.mark_stale_assets" in tasks
+    assert settings.CELERY_TASK_ROUTES["apps.llm.tasks.*"]["queue"] == "llm"

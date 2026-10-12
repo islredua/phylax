@@ -26,7 +26,7 @@ con LLM local). Se actualiza en cada etapa.
 | 2 | `core` + cifrado de campos + dependencias | ✅ |
 | 3 | Modelos, enums, migraciones, admin, factories, normalización | ✅ |
 | 4 | Services, contracts y ciclo de vida | ✅ |
-| 5 | Celery + Redis + Beat + compose | ⏳ |
+| 5 | Celery + Redis + Beat + compose | ✅ |
 | 6 | App `llm` + Ollama + `eval_criticality` | ⏳ |
 | 7 | App `discovery` | ⏳ |
 | 8 | Registries, imágenes, SBOM | ⏳ |
@@ -51,3 +51,9 @@ Se documentan aquí conforme aparezcan.
 - **Activos retirados sin fusión** liberan sus identificadores si el host reaparece (si no, la
   unicidad `(kind, value)` impediría registrar el nuevo activo).
 - **`is_in_scope`**: una IP de un activo con `in_scope=False` queda fuera aunque su rango esté autorizado.
+- **Workers separados** (`worker`, `worker-llm`, `worker-discovery`) en lugar de consolidar `default,llm`:
+  la cola `llm` necesita concurrencia 1 sin bloquear importaciones ni tareas del inventario.
+- **Imagen única**: solo `backend` construye `phylax-backend:dev`; los workers la reutilizan
+  (`pull_policy: never`). Construirla en paralelo desde cada servicio falla.
+- **Pruebas**: Celery lee los settings de Django en vivo (namespace `CELERY`), por lo que el modo
+  síncrono se activa sobrescribiendo `CELERY_TASK_ALWAYS_EAGER` en `tests/conftest.py`, no `app.conf`.
