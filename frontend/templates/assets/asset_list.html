@@ -76,7 +76,7 @@
           <td><a href="{% url 'assets:detail' a.pk %}" class="font-medium">{{ a.name }}</a>{% if a.review_suggested %} <span class="badge-medium">revisión sugerida</span>{% endif %}{% for t in a.tags.all %} <span class="badge-neutral">{{ t.name }}</span>{% endfor %}</td>
           <td class="text-ink-soft">{{ a.asset_type|catalog:"ASSET_TYPE" }}</td>
           <td class="font-mono text-xs">{{ a.display_identifier|truncatechars:40|default:"—" }}</td>
-          <td>{% criticality_badge a.criticality a.criticality_source %}</td>
+          {% include "assets/_criticality_cell.html" %}
           <td>{% exposure_badge a.exposure a.exposure_source %}</td>
           <td class="text-ink-soft">{{ a.environment|catalog:"ENVIRONMENT" }}</td>
           <td>{% status_badge a.status %}</td>

@@ -12,7 +12,6 @@ import ipaddress
 import json
 import logging
 import re
-import uuid
 from collections.abc import Iterable
 from datetime import timedelta
 
@@ -66,7 +65,6 @@ CONTEXT_FIELDS = (
     "data_classification",
     "data_categories",
 )
-SUGGEST_DEBOUNCE_S = 60
 INSUFFICIENT_CONTEXT = (
     "Contexto insuficiente: completa la descripción y la función de negocio del activo "
     "para que el LLM pueda sugerir su criticidad."
@@ -666,10 +664,11 @@ def _locked(asset):
 
 
 @transaction.atomic
-def confirm_asset(asset, *, user, fields=None, criticality=None):
+def confirm_asset(asset, *, user, fields=None, criticality=None, suggest=True):
     """``UNCONFIRMED``/``IGNORED`` → ``ACTIVE``. Exige nombre, tipo, entorno y función.
 
-    Si queda sin criticidad se solicita una sugerencia al LLM al confirmar la transacción.
+    Programa una sugerencia de criticidad (``suggest=False`` la omite, p. ej. porque se
+    pedirá al terminar un escaneo de servicios).
     """
     _require(user, "assets.change_asset")
     asset = _locked(asset)
@@ -688,7 +687,8 @@ def confirm_asset(asset, *, user, fields=None, criticality=None):
     asset.status = AssetStatus.ACTIVE
     _attribute(asset, user)
     asset.save()
-    schedule_suggestion(asset.pk, trigger=SuggestionTrigger.CONFIRM, requested_by=user)
+    if suggest:
+        schedule_suggestion(asset.pk, trigger=SuggestionTrigger.CONFIRM, requested_by=user)
     return asset
 
 
@@ -710,6 +710,42 @@ def restore_asset(asset, *, user):
     _attribute(asset, user)
     asset.save()
     return asset
+
+
+def _is_ip(value):
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _match_keys(asset):
+    """Claves para reconocer el mismo equipo: identificadores, nombre y primer label DNS.
+
+    Los identificadores son únicos, así que dos activos nunca comparten uno exacto; un
+    duplicado se reconoce por el hostname (``web01`` ~ ``web01.lab.phylax`` ~
+    ``lab-web01.red``) o por el nombre.
+    """
+    keys = set()
+    values = [i.value for i in asset.identifiers.all()] + [asset.name]
+    for value in values:
+        value = (value or "").strip().lower()
+        if not value:
+            continue
+        keys.add(value)
+        if not _is_ip(value):
+            label = value.split(".")[0]
+            keys.add(label)
+            # Prefijos de Docker/DHCP como "lab-web01": también "web01".
+            keys.add(label.rsplit("-", 1)[-1] if "-" in label else label)
+    return {k for k in keys if len(k) >= 3}
+
+
+def merge_candidates(asset, pool):
+    """Activos vigentes de ``pool`` que parecen el mismo equipo que ``asset``."""
+    keys = _match_keys(asset)
+    return [other for other in pool if other.pk != asset.pk and keys & _match_keys(other)]
 
 
 @transaction.atomic
@@ -988,50 +1024,48 @@ def context_completeness(asset):
     return ContextCompleteness.PARTIAL
 
 
-def _debounce_key(asset_id):
-    return f"assets:suggest-due:{asset_id}"
+def _queued_key(asset_id):
+    return f"assets:suggest-queued:{asset_id}"
 
 
-def _due_key(asset_id):
-    return f"assets:suggest-at:{asset_id}"
+def queued_suggestions(asset_ids):
+    """Subconjunto de ``asset_ids`` con una sugerencia automática recién disparada."""
+    keys = {_queued_key(pk): pk for pk in asset_ids}
+    return {keys[k] for k in cache.get_many(list(keys))}
 
 
-def scheduled_suggestion_at(asset_id):
-    """Hora prevista de la sugerencia automática que espera su turno, o ``None``."""
-    from datetime import datetime
-
-    value = cache.get(_due_key(asset_id))
-    return datetime.fromisoformat(value) if value else None
+def suggestion_queued(asset_id):
+    """``True`` entre que se dispara una sugerencia automática y la tarea la crea."""
+    return bool(cache.get(_queued_key(asset_id)))
 
 
 def schedule_suggestion(asset_id, *, trigger, requested_by=None):
-    """Programa una sugerencia automática ``SUGGEST_DEBOUNCE_S`` después de la última edición.
+    """Solicita una sugerencia automática en cuanto se confirma la transacción.
 
-    Cada llamada renueva un testigo en caché; al vencer, solo la tarea con el
-    testigo vigente solicita la sugerencia (las ediciones intermedias no generan
-    inferencias).
+    La tarea (cola ``default``) solo crea la sugerencia y la encola en ``llm``; si
+    el contexto cambia mientras otra está en curso, la nueva la reemplaza.
     """
-    token = uuid.uuid4().hex
-    cache.set(_debounce_key(asset_id), token, SUGGEST_DEBOUNCE_S * 10)
-    due = timezone.now() + timedelta(seconds=SUGGEST_DEBOUNCE_S)
-    cache.set(_due_key(asset_id), due.isoformat(), SUGGEST_DEBOUNCE_S * 10)
     user_id = getattr(requested_by, "pk", None)
 
     def enqueue():
         from .tasks import auto_suggest_criticality
 
-        auto_suggest_criticality.apply_async(
-            (str(asset_id), str(trigger), token, user_id), countdown=SUGGEST_DEBOUNCE_S
-        )
+        # Marca breve para que la UI muestre «en curso» antes de que exista la sugerencia.
+        cache.set(_queued_key(asset_id), 1, 120)
+        auto_suggest_criticality.delay(str(asset_id), str(trigger), user_id)
 
     transaction.on_commit(enqueue)
 
 
-def run_scheduled_suggestion(asset_id, trigger, token, user_id=None):
-    """Tarea al vencer la espera: solicita la sugerencia si nadie editó después."""
-    if cache.get(_debounce_key(asset_id)) != token:
-        return None  # una edición posterior programó otra
-    cache.delete_many([_debounce_key(asset_id), _due_key(asset_id)])
+def run_scheduled_suggestion(asset_id, trigger, user_id=None):
+    """Cuerpo de la tarea automática: solicita la sugerencia si el activo sigue vigente."""
+    try:
+        return _run_scheduled_suggestion(asset_id, trigger, user_id)
+    finally:
+        cache.delete(_queued_key(asset_id))
+
+
+def _run_scheduled_suggestion(asset_id, trigger, user_id):
     asset = Asset.objects.filter(pk=asset_id).first()
     if asset is None or asset.status != AssetStatus.ACTIVE:
         return None
@@ -1068,11 +1102,12 @@ def request_criticality_suggestion(
     """Solicita una sugerencia de criticidad (cola ``llm``, segundo plano).
 
     - Sin contexto mínimo (descripción y función de negocio) no se llama al LLM.
-    - Si ya hay una en curso para el activo, no se encola otra.
+    - Si ya hay una en curso para el activo, no se encola otra: la persona recibe un
+      aviso; un disparo automático con otro contexto la reemplaza por una nueva.
     - Huella (entrada + modelo + prompt): si ya existe una respuesta con la misma
       huella se reutiliza sin inferir. En disparos automáticos, si la última
       sugerencia del activo tiene la misma huella no se hace nada.
-    - Nunca cambia la criticidad: la decisión es humana (ver ``_settle``).
+    - Nunca cambia una criticidad decidida por una persona (ver ``_settle``).
 
     ``user`` (persona) exige ``assets.decide_criticality`` y aplica el límite de
     tasa; ``user=None`` es un disparo del sistema.
@@ -1097,14 +1132,17 @@ def request_criticality_suggestion(
         asset = _locked(Asset.objects.get(pk=asset_id))
         if not asset.has_minimum_context:
             raise ValidationError(INSUFFICIENT_CONTEXT)
+        fingerprint = suggestion_fingerprint(build_input(asset), model)
         in_flight = processing_suggestion(asset)
         if in_flight is not None:
             if user is not None:
                 raise ValidationError(
                     "Ya hay una sugerencia en curso para este activo; espera a que termine."
                 )
-            return in_flight
-        fingerprint = suggestion_fingerprint(build_input(asset), model)
+            if in_flight.fingerprint == fingerprint:
+                return in_flight
+            # El contexto cambió mientras se procesaba: esa respuesta ya no sirve. Se marca
+            # reemplazada (si el worker ya la tomó, su resultado se guarda pero no se aplica).
         latest = (
             CriticalitySuggestion.objects.filter(asset=asset)
             .exclude(state__in=(SuggestionState.SUPERSEDED, SuggestionState.FAILED))
@@ -1175,14 +1213,24 @@ def _apply_policy(suggestion, asset, llm_class):
 
 
 def _settle(suggestion, asset):
-    """Tras la respuesta: nunca sobrescribe una decisión humana.
+    """Tras la respuesta del LLM (con la política aplicada).
 
-    - Activo sin criticidad → queda ``PENDING`` para que una persona decida.
-    - Con criticidad y misma clase → ``CONSISTENT`` (sin acción).
-    - Con criticidad y clase distinta → ``PENDING`` y el activo se marca
-      «revisión sugerida».
+    - Activo sin criticidad, o con criticidad calculada por IA → se aplica sola
+      (origen ``LLM_AUTO``, sugerencia ``AUTO``). Una persona puede confirmarla o cambiarla.
+    - Criticidad decidida por una persona y misma clase → ``CONSISTENT``.
+    - Criticidad decidida por una persona y otra clase → ``PENDING`` y el activo queda
+      en «revisión sugerida». Nunca se sobrescribe una decisión humana.
     """
-    if not suggestion.suggested or asset.criticality is None:
+    if not suggestion.suggested:
+        return
+    if asset.criticality is None or asset.criticality_source == CriticalitySource.LLM_AUTO:
+        set_criticality(asset, suggestion.suggested, source=CriticalitySource.LLM_AUTO)
+        asset.review_suggested = False
+        asset.save(
+            update_fields=["criticality", "criticality_source", "review_suggested", "updated_at"]
+        )
+        suggestion.state = SuggestionState.AUTO
+        suggestion.final_value = suggestion.suggested
         return
     if suggestion.suggested == asset.criticality:
         suggestion.state = SuggestionState.CONSISTENT
@@ -1301,9 +1349,19 @@ def decide_suggestion(suggestion_id, *, user, decision, value=None):
     """
     _require(user, "assets.decide_criticality")
     suggestion = CriticalitySuggestion.objects.select_for_update().get(pk=suggestion_id)
-    if suggestion.state != SuggestionState.PENDING or suggestion.is_processing:
-        raise ValidationError("Esta sugerencia no está pendiente de decisión.")
     asset = _locked(suggestion.asset)
+    # Una aplicada automáticamente se puede confirmar o cambiar mientras siga vigente.
+    auto_current = (
+        suggestion.state == SuggestionState.AUTO
+        and asset.criticality_source == CriticalitySource.LLM_AUTO
+        and asset.criticality == suggestion.final_value
+    )
+    if auto_current and decision == SuggestionState.REJECTED:
+        raise ValidationError("Una criticidad aplicada por la IA se confirma o se cambia.")
+    if not auto_current and (
+        suggestion.state != SuggestionState.PENDING or suggestion.is_processing
+    ):
+        raise ValidationError("Esta sugerencia no está pendiente de decisión.")
     if decision == SuggestionState.ACCEPTED:
         if not suggestion.suggested:
             raise ValidationError("La sugerencia no tiene una clase que aceptar.")

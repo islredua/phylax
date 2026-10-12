@@ -39,9 +39,16 @@ def criticality_badge(value, source=None):
         )  # noqa: S308 (literal)
     label = Criticality(value).label
     title = CriticalitySource(source).label if source else ""
-    return format_html(
+    badge = format_html(
         '<span class="{}" title="{}">{}</span>', CRITICALITY_STYLE[value], title, label
     )
+    if source == CriticalitySource.LLM_AUTO:
+        # Calculada por la IA sin revisión humana: se distingue de una decisión de una persona.
+        return format_html(
+            '{} <span class="pill-neutral" title="Calculada por IA, sin revisión humana">IA</span>',
+            badge,
+        )
+    return badge
 
 
 @register.simple_tag

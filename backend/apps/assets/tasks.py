@@ -32,9 +32,9 @@ def suggest_criticality(suggestion_id):
 
 
 @shared_task(acks_late=True, soft_time_limit=60, time_limit=90)
-def auto_suggest_criticality(asset_id, trigger, token, user_id=None):
-    """Cola ``default``: vence la espera tras la última edición y encola la sugerencia."""
-    suggestion = services.run_scheduled_suggestion(asset_id, trigger, token, user_id)
+def auto_suggest_criticality(asset_id, trigger, user_id=None):
+    """Cola ``default``: crea la sugerencia automática y la encola en ``llm``."""
+    suggestion = services.run_scheduled_suggestion(asset_id, trigger, user_id)
     return str(suggestion.pk) if suggestion else None
 
 

@@ -155,26 +155,33 @@ Pydantic (1 reintento) → `InferenceLog` siempre → **política determinista**
 en la cola `llm` (concurrencia 1); la UI se actualiza sola. El modelo es único para el
 sistema y lo elige un administrador en **Administración › LLM**.
 
-**Disparo automático** (el botón queda como respaldo):
+**Disparo automático e inmediato** (el botón queda como respaldo):
 
 | Disparador | Cuándo |
 |---|---|
-| `CREATE` / `IMPORT` | Alta manual o por CSV sin criticidad |
-| `CONFIRM` | Confirmar un activo sin criticidad |
-| `CONTEXT_CHANGE` | Cambian descripción, función, entorno, clasificación o categorías de datos, o los servicios abiertos relevantes (descubrimiento) de un activo `ACTIVE` |
+| `CREATE` / `IMPORT` | Alta manual o por CSV (si al dar de alta se lanza un escaneo, se pide al terminar) |
+| `CONFIRM` | Confirmar un activo (ídem si se lanza escaneo) |
+| `SCAN` | Termina un escaneo de servicios del activo |
+| `CONTEXT_CHANGE` | Cambian descripción, función, entorno, clasificación o categorías de datos, o los servicios abiertos relevantes de un activo `ACTIVE` |
 | `NIGHTLY` | Beat 02:00: activos sin criticidad, en serie, con `keep_alive=30m` |
 
-- **Espera de 60 s** tras la última edición (testigo en caché + `countdown`): solo la tarea
-  con el testigo vigente solicita la sugerencia.
+- **Sin espera**: la sugerencia se pide al confirmar la transacción. Si el contexto cambia
+  mientras otra está en curso, la nueva la reemplaza (la anterior queda `SUPERSEDED` y su
+  respuesta no se aplica).
 - **Huella** = sha256(`build_input()` + modelo + versión del prompt). Si ya existe una
   respuesta con la misma huella se reutiliza sin inferir (`reused_from`); un disparo
-  automático cuya huella coincide con la última sugerencia del activo no hace nada.
-- **Una a la vez**: con una sugerencia en curso no se encola otra y el botón se deshabilita.
+  automático cuya huella coincide con la última sugerencia del activo no hace nada, y el
+  botón explica que el contexto no cambió.
+- **Una a la vez** por persona: con una sugerencia en curso el botón se deshabilita.
 - **Contexto mínimo**: sin descripción y función de negocio no se llama al LLM; el activo
   muestra «contexto insuficiente» y pide completarlos.
-- **Nunca sobrescribe una decisión humana**: si el activo ya tiene criticidad y la sugerencia
-  coincide, queda `CONSISTENT`; si difiere, queda `PENDING` y el activo se marca
-  **«revisión sugerida»** hasta que una persona decide.
+- **Aplicación automática** (decisión del autor, revisión 3): si el activo **no tiene
+  criticidad**, o la que tiene la calculó la IA, la clase final se aplica sola con origen
+  `LLM_AUTO` («Calculada por IA», marca **IA** en la lista) y la sugerencia queda `AUTO`.
+  Una persona puede **confirmarla** (pasa a `LLM_ACCEPTED`) o **cambiarla** (`LLM_EDITED`).
+- **Nunca sobrescribe una decisión humana**: con criticidad manual, aceptada o editada, si
+  la sugerencia coincide queda `CONSISTENT`; si difiere queda `PENDING` y el activo se
+  marca **«revisión sugerida»** («por decidir» en la lista) hasta que alguien decide.
 - **Política** (`apps/assets/criticality_policy.py`, de la rúbrica v1, sobre atributos del
   catálogo): identidad/control en producción → mínimo Crítico; producción con datos
   restringidos o sensibles → mínimo Alto; no productivo con datos reales → máximo Medio;
@@ -193,6 +200,14 @@ Administración › Catálogos (solo admin). Las entradas no se borran: se desac
 sistema (`HOST`, `CONTAINER_IMAGE`, `OTHER`, `PROD`, `LAB`) conservan su código y no se
 desactivan. Atributos: tipos → identificadores requeridos (al menos uno); entornos →
 productivo; funciones → identidad/control.
+
+Al dar de alta un activo a mano (o confirmar uno visto solo por un barrido) con una IP en
+un rango autorizado, y si la persona puede lanzar escaneos, se lanza un **escaneo de
+servicios** que completa MAC, hostname, SO y servicios; al terminar se pide la sugerencia.
+El detalle del activo muestra «Escanear servicios» (o «Re-escanear» si ya hubo uno) y, al
+lanzarlo, se queda en su pestaña Descubrimientos, que se actualiza en vivo. En «Por
+confirmar» solo se ofrece fusionar con activos vigentes que parecen el mismo equipo
+(mismo hostname o nombre).
 
 Registrar un activo exige nombre, tipo, entorno, función de negocio y al menos un
 identificador del tipo requerido (Host → IPv4/IPv6; Base de datos → IP o FQDN; Aplicación
@@ -241,6 +256,6 @@ Se verifica en vistas **y** en services. Los permisos se asignan en `apps/accoun
 | — | `ContainerRegistry.environment`, `PendingUpload`, `DiscoveryRun.assets_touched` | Regla https/LAB, cargas en dos pasos, pestaña Descubrimientos |
 | Enums `AssetType`/`Environment`/`BusinessRole` | Catálogos administrables (`CatalogEntry`) | Revisión del autor: deben poder modificarse |
 | Modelo elegible por solicitud | Modelo único del sistema (`LLMSettings`), solo admin | Revisión del autor |
-| Sugerencia bajo demanda (+ al confirmar) | Automática con espera, huella, política y «revisión sugerida»; botón como respaldo | Revisión del autor |
+| Sugerencia bajo demanda; la decisión siempre humana | Automática e inmediata con huella y política; se aplica sola si el activo no tiene criticidad humana; «revisión sugerida» si contradice una decisión humana | Revisión del autor (rondas 1 y 3) |
 | Confianza numérica en la UI | Completitud del contexto + concordancia con la política | La confianza autodeclarada del LLM no está calibrada |
 | Casilla «solicitar sugerencia» al importar | Disparo automático `IMPORT` | Revisión del autor |

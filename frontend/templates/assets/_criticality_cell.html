@@ -1,0 +1,13 @@
+{% load inventory %}
+{# Celda de criticidad de la lista. Mientras el LLM procesa, se consulta cada 5 s. #}
+<td id="crit-{{ a.pk }}" class="whitespace-nowrap"{% if a.suggestion_processing %} hx-get="{% url 'assets:criticality_cell' a.pk %}" hx-trigger="every 5s" hx-swap="outerHTML"{% endif %}>
+  {% criticality_badge a.criticality a.criticality_source %}
+  {% if a.suggestion_processing %}
+  <a href="{% url 'assets:detail' a.pk %}?tab=sugerencias" class="ml-1 inline-flex align-middle text-primary hover:no-underline" title="El LLM está calculando la criticidad; clic para ver el estado">
+    <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-opacity=".25" stroke-width="3"/><path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+    <span class="sr-only">Sugerencia de criticidad en curso</span>
+  </a>
+  {% elif a.suggestion_pending %}
+  <a href="{% url 'assets:detail' a.pk %}?tab=sugerencias" class="badge-medium ml-1 hover:no-underline" title="Hay una sugerencia de criticidad por aceptar o rechazar">por decidir</a>
+  {% endif %}
+</td>

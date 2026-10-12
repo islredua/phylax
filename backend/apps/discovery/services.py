@@ -198,7 +198,33 @@ def execute_run(run_id):
     if DiscoveryRun.objects.filter(pk=run_id, status=RunStatus.CANCELLED).exists():
         run.status = RunStatus.CANCELLED
     run.save()
+    if run.target_asset_id and run.status != RunStatus.CANCELLED:
+        # Escaneo de un activo: ya con servicios, MAC y hostname, se calcula su criticidad.
+        # La huella evita una inferencia nueva si el escaneo no cambió el contexto.
+        assets_services.schedule_suggestion(run.target_asset_id, trigger="SCAN")
     return run
+
+
+def can_scan(asset):
+    """``True`` si el activo tiene alguna IP dentro del alcance autorizado."""
+    return bool(_asset_ips(asset))
+
+
+def has_service_scan(asset):
+    """``True`` si alguna vez se lanzó un escaneo de servicios sobre el activo."""
+    return DiscoveryRun.objects.filter(target_asset=asset).exists()
+
+
+def runs_for_asset(asset):
+    """Ejecuciones que escanearon el activo o lo observaron (en curso primero)."""
+    from django.db.models import Q
+
+    return (
+        DiscoveryRun.objects.filter(Q(target_asset=asset) | Q(assets_touched=asset))
+        .distinct()
+        .select_related("network_range", "requested_by")
+        .order_by("-created_at")
+    )
 
 
 def due_ranges(now=None):

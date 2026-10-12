@@ -276,7 +276,9 @@ def test_confirm_flow_requests_llm_suggestion(client, as_role):
     assert response.url == "/inventory/unconfirmed/"
     asset.refresh_from_db()
     assert asset.status == AssetStatus.ACTIVE
-    assert CriticalitySuggestion.objects.filter(asset=asset, state=SuggestionState.PENDING).exists()
+    # Sin criticidad previa, la sugerencia se aplicó sola.
+    assert CriticalitySuggestion.objects.filter(asset=asset, state=SuggestionState.AUTO).exists()
+    assert asset.criticality_source == "LLM_AUTO"
 
 
 def test_merge_from_unconfirmed(client, as_role):
@@ -353,20 +355,25 @@ def test_restore_ignored_asset(client, as_role):
     assert discovered.status == AssetStatus.UNCONFIRMED  # faltan datos: vuelve a la cola
 
 
-def test_scheduled_suggestion_is_visible_and_refreshes(client, as_role, monkeypatch):
-    from apps.assets import services
+def test_queued_suggestion_is_visible_and_refreshes(client, as_role, monkeypatch):
+    from apps.assets import services, tasks
 
     as_role(OPERATOR)
     asset = AssetFactory(criticality=None)
-    monkeypatch.setattr(services.transaction, "on_commit", lambda f, using=None, robust=False: None)
+    monkeypatch.setattr(tasks.auto_suggest_criticality, "delay", lambda *a: None)
+    monkeypatch.setattr(services.transaction, "on_commit", lambda f, using=None, robust=False: f())
     services.schedule_suggestion(asset.pk, trigger="CREATE")
     body = client.get(f"/inventory/{asset.pk}/").content.decode()
-    assert "Sugerencia programada" in body and "suggest/status/?waiting=1" in body
-    services.cache.delete_many([services._debounce_key(asset.pk), services._due_key(asset.pk)])
+    assert "Sugerencia en curso" in body and "suggest/status/?waiting=1" in body
+    row = client.get("/inventory/").content.decode()
+    assert f'id="crit-{asset.pk}"' in row and "animate-spin" in row
+    services.cache.delete(services._queued_key(asset.pk))
     response = client.get(
         f"/inventory/{asset.pk}/suggest/status/?waiting=1", HTTP_HX_REQUEST="true"
     )
     assert response.status_code == 204 and response["HX-Refresh"] == "true"
+    cell = client.get(f"/inventory/{asset.pk}/criticality/").content.decode()
+    assert "animate-spin" not in cell and "hx-trigger" not in cell
 
 
 def test_create_message_explains_automatic_suggestion(client, as_role):
@@ -785,3 +792,82 @@ def test_catalog_admin(client, as_role):
     prod.refresh_from_db()
     assert prod.code == "PROD" and prod.label == "Productivo" and prod.is_active
     assert response.status_code == 302
+
+
+def test_list_marks_ai_criticality_and_pending_decision(client, as_role):
+    from apps.llm.models import InferenceLog
+
+    as_role(OPERATOR)
+    auto = AssetFactory(name="calculado", criticality="ALTO", criticality_source="LLM_AUTO")
+    human = AssetFactory(name="humano", criticality="BAJO", criticality_source="MANUAL")
+    CriticalitySuggestion.objects.create(
+        asset=human,
+        suggested="ALTO",
+        llm_class="ALTO",
+        inference=InferenceLog.objects.create(task="ASSET_CRITICALITY", model="m", parsed_ok=True),
+    )
+    body = client.get("/inventory/").content.decode()
+    assert "Calculada por IA, sin revisión humana" in body
+    assert f"/inventory/{human.pk}/?tab=sugerencias" in body and "por decidir" in body
+    assert auto.name in body
+
+
+def test_scan_buttons_and_redirect_stay_on_asset(client, as_role, monkeypatch):
+    from apps.discovery import services as discovery
+
+    as_role(OPERATOR)
+    NetworkRangeFactory(cidr="10.93.0.0/24")
+    asset = AssetFactory()
+    AssetIdentifierFactory(asset=asset, kind=IdentifierKind.IPV4, value="10.93.0.5")
+    body = client.get(f"/inventory/{asset.pk}/?tab=servicios").content.decode()
+    assert "Escanear servicios" in body and "Re-escanear" not in body
+    monkeypatch.setattr(discovery, "_enqueue", lambda run_id: None)
+    response = client.post(f"/discovery/assets/{asset.pk}/rescan/")
+    assert response.url == f"/inventory/{asset.pk}/?tab=descubrimientos"
+    body = client.get(response.url).content.decode()
+    assert "Escaneo en curso" in body and 'hx-select="#asset-runs"' in body
+    discovery.DiscoveryRun.objects.update(status="SUCCEEDED")
+    assert "Re-escanear servicios" in client.get(f"/inventory/{asset.pk}/").content.decode()
+
+
+def test_manual_create_launches_scan_and_defers_suggestion(client, as_role, monkeypatch):
+    from apps.discovery import services as discovery
+    from apps.discovery.models import DiscoveryRun
+
+    as_role(OPERATOR)
+    NetworkRangeFactory(cidr="10.94.0.0/24")
+    monkeypatch.setattr(discovery, "_enqueue", lambda run_id: None)
+    response = client.post(
+        "/inventory/new/",
+        {
+            "name": "nuevo-escaneado",
+            "asset_type": "HOST",
+            "environment": "PROD",
+            "business_role": "API",
+            "description": "API de pagos",
+            "in_scope": "on",
+            "ident-TOTAL_FORMS": "1",
+            "ident-INITIAL_FORMS": "0",
+            "ident-0-kind": "IPV4",
+            "ident-0-value": "10.94.0.7",
+        },
+        follow=True,
+    )
+    asset = Asset.objects.get(name="nuevo-escaneado")
+    assert DiscoveryRun.objects.filter(target_asset=asset, profile="SERVICE_SCAN").exists()
+    assert "Se lanzó un escaneo de servicios" in response.content.decode()
+    assert not CriticalitySuggestion.objects.filter(asset=asset).exists()  # llega tras el escaneo
+
+
+def test_merge_only_offered_for_matching_active_assets(client, as_role):
+    as_role(OPERATOR)
+    active = AssetFactory(name="web01")
+    AssetIdentifierFactory(asset=active, kind=IdentifierKind.FQDN, value="web01.lab.phylax")
+    twin = AssetFactory(name="172.30.10.50", status=AssetStatus.UNCONFIRMED)
+    AssetIdentifierFactory(asset=twin, kind=IdentifierKind.FQDN, value="lab-web01.phylax-lab-dmz")
+    loner = AssetFactory(name="172.30.10.60", status=AssetStatus.UNCONFIRMED)
+    AssetIdentifierFactory(asset=loner, kind=IdentifierKind.IPV4, value="172.30.10.60")
+    body = client.get("/inventory/unconfirmed/").content.decode()
+    assert body.count('aria-label="Fusionar en"') == 1
+    assert f'action="/inventory/{twin.pk}/merge/"' in body
+    assert f'action="/inventory/{loner.pk}/merge/"' not in body

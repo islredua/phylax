@@ -119,14 +119,19 @@ class RescanView(Perm, View):
 
     def post(self, request, asset_pk):
         asset = get_object_or_404(Asset, pk=asset_pk)
+        first = not services.has_service_scan(asset)
         try:
-            run = services.request_discovery(user=request.user, profile="SERVICE_SCAN", asset=asset)
+            services.request_discovery(user=request.user, profile="SERVICE_SCAN", asset=asset)
         except ValidationError as error:
             for message in error.messages:
                 messages.error(request, message)
             return redirect(reverse("assets:detail", args=[asset.pk]))
-        messages.success(request, "Re-escaneo en cola.")
-        return redirect("discovery:run_detail", pk=run.pk)
+        messages.success(
+            request,
+            f"{'Escaneo' if first else 'Re-escaneo'} de servicios en cola; aquí ves su avance.",
+        )
+        # Se queda en el activo: su pestaña Descubrimientos muestra la ejecución en vivo.
+        return redirect(f"{reverse('assets:detail', args=[asset.pk])}?tab=descubrimientos")
 
 
 class CancelView(Perm, View):

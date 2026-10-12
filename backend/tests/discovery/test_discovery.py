@@ -389,3 +389,26 @@ def test_run_detail_lists_observed_hosts_with_inventory_status(client, make_user
     assert f'value="/discovery/runs/{run.pk}/"' in confirm.content.decode()
     evil = client.get(f"/inventory/{pending.pk}/confirm/?next=javascript:alert(1)")
     assert "javascript:" not in evil.content.decode()
+
+
+def test_asset_scan_completes_identifiers_and_requests_suggestion(
+    lab_range, operator, fake_nmap, monkeypatch
+):
+    from apps.assets import services as assets_services
+
+    triggered = []
+    monkeypatch.setattr(
+        assets_services,
+        "schedule_suggestion",
+        lambda asset_id, **kw: triggered.append((asset_id, kw["trigger"])),
+    )
+    asset = AssetFactory()
+    AssetIdentifierFactory(asset=asset, kind=IdentifierKind.IPV4, value="172.30.10.11")
+    fake_nmap.outputs = [SERVICE]
+    run = services.execute_run(
+        DiscoveryRun.objects.create(target_asset=asset, profile="SERVICE_SCAN").pk
+    )
+    assert run.status == RunStatus.SUCCEEDED, run.error
+    kinds = set(asset.identifiers.values_list("kind", flat=True))
+    assert {"IPV4", "MAC"} <= kinds  # la MAC observada por nmap se agrega sola
+    assert (asset.pk, "SCAN") in triggered

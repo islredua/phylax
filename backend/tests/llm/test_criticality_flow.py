@@ -59,13 +59,14 @@ def test_request_and_complete_suggestion(ollama, operator):
     asset = AssetFactory(criticality=None)
     suggestion = services.request_criticality_suggestion(asset.pk, user=operator)
     suggestion.refresh_from_db()
-    assert suggestion.state == SuggestionState.PENDING and not suggestion.is_processing
     assert suggestion.suggested == "ALTO" and suggestion.confidence == 0.82
     assert suggestion.signals == ["entorno PROD", "datos PII"]
     assert suggestion.inference.object_ref == f"assets.Asset:{asset.pk}"
     assert suggestion.inference.request_payload["asset"]["name"] == asset.name
+    # Sin criticidad previa: se aplica sola, marcada como calculada por IA.
     asset.refresh_from_db()
-    assert asset.criticality is None  # nada cambia sin decisión humana
+    assert suggestion.state == SuggestionState.AUTO and suggestion.final_value == "ALTO"
+    assert (asset.criticality, asset.criticality_source) == ("ALTO", "LLM_AUTO")
 
 
 def test_in_flight_guard_and_supersede_on_context_change(ollama, operator):
@@ -75,14 +76,22 @@ def test_in_flight_guard_and_supersede_on_context_change(ollama, operator):
     assert first.is_processing
     with pytest.raises(ValidationError, match="en curso"):
         services.request_criticality_suggestion(asset.pk, user=operator)
-    # Automático con una en curso: devuelve la misma, sin encolar otra.
+    # Automático con el mismo contexto: devuelve la misma, sin encolar otra.
     assert services.request_criticality_suggestion(asset.pk, trigger="CONFIRM") == first
-    services.complete_suggestion(first.pk)
+    # Automático con otro contexto: reemplaza la que estaba en curso.
     asset.description = "Otro contexto"
     asset.save()
-    second = services.request_criticality_suggestion(asset.pk, user=operator, enqueue=False)
+    second = services.request_criticality_suggestion(
+        asset.pk, trigger="CONTEXT_CHANGE", enqueue=False
+    )
     first.refresh_from_db()
     assert first.state == SuggestionState.SUPERSEDED and second.is_processing
+    services.complete_suggestion(first.pk)  # el worker ya la había tomado: no se aplica
+    asset.refresh_from_db()
+    assert asset.criticality is None
+    services.complete_suggestion(second.pk)
+    asset.refresh_from_db()
+    assert asset.criticality == "ALTO"
 
 
 def test_failed_inference_marks_suggestion_failed(ollama, operator):
@@ -216,26 +225,18 @@ def test_minimum_context_required(operator):
         services.request_criticality_suggestion(asset.pk, user=operator)
 
 
-def test_debounce_only_last_edit_fires(operator, monkeypatch):
-    from django.core.cache import cache
-
+def test_automatic_suggestion_is_immediate_and_flagged_while_queued(operator, monkeypatch):
     from apps.assets import tasks
 
     calls = []
-    monkeypatch.setattr(
-        tasks.auto_suggest_criticality,
-        "apply_async",
-        lambda args, countdown: calls.append((args, countdown)),
-    )
+    monkeypatch.setattr(tasks.auto_suggest_criticality, "delay", lambda *a: calls.append(a))
     asset = AssetFactory(criticality=None)
-    services.schedule_suggestion(asset.pk, trigger="CREATE")
-    services.schedule_suggestion(asset.pk, trigger="CONTEXT_CHANGE")
-    assert [c[1] for c in calls] == [60, 60]
-    (old, _), (new, _) = calls
-    assert services.run_scheduled_suggestion(*old) is None  # hubo una edición posterior
-    suggestion = services.run_scheduled_suggestion(*new)
-    assert suggestion.trigger == "CONTEXT_CHANGE"
-    assert cache.get(services._debounce_key(asset.pk)) is None
+    services.schedule_suggestion(asset.pk, trigger="CREATE", requested_by=operator)
+    assert calls == [(str(asset.pk), "CREATE", operator.pk)]  # sin espera
+    assert services.suggestion_queued(asset.pk)
+    assert services.queued_suggestions([asset.pk]) == {asset.pk}
+    suggestion = services.run_scheduled_suggestion(*calls[0])
+    assert suggestion.trigger == "CREATE" and not services.suggestion_queued(asset.pk)
 
 
 def test_context_change_schedules_and_never_overwrites_human_decision(
@@ -252,7 +253,7 @@ def test_context_change_schedules_and_never_overwrites_human_decision(
         asset, user=operator, fields={"description": "Directorio activo corporativo"}
     )
     assert scheduled == ["CONTEXT_CHANGE"]
-    # La IA sugiere otra clase: el activo queda en revisión sugerida, sin cambiar la criticidad.
+    # Criticidad humana y la IA sugiere otra: revisión sugerida, sin cambiar la criticidad.
     ollama.post(f"{BASE}/api/chat").respond(json=chat_response(VALID))
     suggestion = services.request_criticality_suggestion(asset.pk, trigger="CONTEXT_CHANGE")
     suggestion.refresh_from_db()
@@ -348,3 +349,39 @@ def test_small_models_are_flagged():
     assert parameter_billions("7.6B") == 7.6
     assert is_small_model("494.03M") and not is_small_model("7.6B")
     assert not is_small_model("") and parameter_billions("raro") is None
+
+
+def test_auto_applied_is_updated_by_ai_but_human_decision_is_not(ollama, operator):
+    ollama.post(f"{BASE}/api/chat").respond(json=chat_response(VALID))  # ALTO
+    asset = AssetFactory(
+        criticality="BAJO",
+        criticality_source="LLM_AUTO",
+        environment="PROD",
+        business_role="API",
+        data_classification="INTERNA",
+        data_categories=[],
+    )
+    # Criticidad previa calculada por IA: la nueva respuesta la reemplaza sola.
+    suggestion = services.request_criticality_suggestion(asset.pk, trigger="CONTEXT_CHANGE")
+    suggestion.refresh_from_db()
+    asset.refresh_from_db()
+    assert suggestion.state == SuggestionState.AUTO and asset.criticality == "ALTO"
+    # Confirmarla la convierte en decisión humana.
+    services.decide_suggestion(suggestion.pk, user=operator, decision=SuggestionState.ACCEPTED)
+    asset.refresh_from_db()
+    assert asset.criticality_source == "LLM_ACCEPTED"
+    with pytest.raises(ValidationError):
+        services.decide_suggestion(suggestion.pk, user=operator, decision=SuggestionState.REJECTED)
+
+
+def test_auto_applied_can_be_changed_but_not_rejected(ollama, operator):
+    ollama.post(f"{BASE}/api/chat").respond(json=chat_response(VALID))
+    asset = AssetFactory(criticality=None)
+    suggestion = services.request_criticality_suggestion(asset.pk, user=operator)
+    with pytest.raises(ValidationError, match="confirma o se cambia"):
+        services.decide_suggestion(suggestion.pk, user=operator, decision=SuggestionState.REJECTED)
+    services.decide_suggestion(
+        suggestion.pk, user=operator, decision=SuggestionState.EDITED, value="MEDIO"
+    )
+    asset.refresh_from_db()
+    assert (asset.criticality, asset.criticality_source) == ("MEDIO", "LLM_EDITED")

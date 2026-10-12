@@ -56,9 +56,7 @@
   <section class="card flex flex-col gap-3">
     <h3 class="card-title mb-0">Acciones</h3>
     {% if asset.status != 'RETIRED' %}{% include "assets/_suggest_action.html" %}{% endif %}
-    {% if perms.discovery.run_discovery and has_ip and asset.status != 'RETIRED' %}
-    <form method="post" action="{% url 'discovery:rescan' asset.pk %}">{% csrf_token %}<button class="btn-secondary w-full" type="submit">Re-escanear servicios</button></form>
-    {% endif %}
+    {% include "assets/_scan_action.html" with extra_class="w-full" %}
     {% if perms.assets.change_asset and asset.status != 'IGNORED' and asset.status != 'RETIRED' %}
     <form method="post" action="{% url 'assets:ignore' asset.pk %}">{% csrf_token %}<button class="btn-secondary w-full" type="submit">Ignorar</button></form>
     {% endif %}
@@ -116,10 +114,11 @@
         <td class="max-w-xs truncate font-mono text-[11px] text-muted" title="{{ s.banner }}">{{ s.banner|default:"—" }}</td>
         <td class="font-mono text-xs">{{ s.last_seen|date:"Y-m-d" }}</td>
       </tr>
-      {% empty %}<tr><td colspan="8" class="table-empty">Sin servicios observados. Lanza un escaneo de servicios para poblarlos.</td></tr>{% endfor %}
+      {% empty %}<tr><td colspan="8" class="table-empty">{% if scan_active %}Hay un escaneo en curso; los servicios aparecerán al terminar.{% elif has_scan %}El último escaneo no encontró servicios abiertos.{% else %}Aún no se ha escaneado este activo.{% endif %}</td></tr>{% endfor %}
     </tbody>
   </table>
 </div>
+<div class="flex flex-wrap items-center gap-3">{% include "assets/_scan_action.html" %}</div>
 
 {% elif tab == "sbom" %}
 {% if perms.assets.change_asset %}
@@ -173,21 +172,25 @@
 </div>
 
 {% elif tab == "descubrimientos" %}
-<div class="table-wrap">
+<div class="flex flex-wrap items-center gap-3">{% include "assets/_scan_action.html" %}</div>
+{# Mientras hay un escaneo en cola o en curso, la tabla se refresca sola cada 3 s. #}
+<div id="asset-runs" class="table-wrap"{% if scan_active %} hx-get="{% url 'assets:detail' asset.pk %}?tab=descubrimientos" hx-select="#asset-runs" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
   <table class="data-table">
-    <thead><tr><th>Fecha</th><th>Perfil</th><th>Rango</th><th>Estado</th><th></th></tr></thead>
+    <thead><tr><th>Fecha</th><th>Perfil</th><th>Alcance</th><th>Estado</th><th>Hosts / servicios</th><th></th></tr></thead>
     <tbody>
       {% for r in runs %}
       <tr>
         <td class="font-mono text-xs">{{ r.created_at|date:"Y-m-d H:i" }}</td>
         <td>{{ r.get_profile_display }}</td>
-        <td>{{ r.network_range.name|default:"—" }}</td>
-        <td>{% run_status_badge r %}</td>
-        <td><a href="{% url 'discovery:run_detail' r.pk %}" class="btn-secondary btn-sm">Ver</a></td>
+        <td>{% if r.network_range %}{{ r.network_range.name }}{% else %}este activo{% endif %}</td>
+        <td>{% run_status_badge r %}{% if r.is_active %} <span class="text-xs text-muted">se actualiza sola…</span>{% endif %}</td>
+        <td class="font-mono text-xs">{{ r.hosts_up }} / {{ r.services_seen }}</td>
+        <td><a href="{% url 'discovery:run_detail' r.pk %}" class="btn-secondary btn-sm">Ver detalle</a></td>
       </tr>
-      {% empty %}<tr><td colspan="5" class="table-empty">Ningún descubrimiento ha observado este activo.</td></tr>{% endfor %}
+      {% empty %}<tr><td colspan="6" class="table-empty">Ningún descubrimiento ha escaneado ni observado este activo.</td></tr>{% endfor %}
     </tbody>
   </table>
 </div>
+{% if scan_active %}<p class="text-xs text-muted">Al terminar se actualizan los servicios e identificadores (MAC, hostname) y se recalcula la criticidad sugerida.</p>{% endif %}
 {% endif %}
 {% endblock %}

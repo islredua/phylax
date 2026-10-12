@@ -25,6 +25,8 @@ class CriticalitySource(models.TextChoices):
     MANUAL = "MANUAL", "Manual"
     LLM_ACCEPTED = "LLM_ACCEPTED", "Sugerencia LLM aceptada"
     LLM_EDITED = "LLM_EDITED", "Sugerencia LLM editada"
+    # Aplicada sin intervención humana porque el activo no tenía criticidad.
+    LLM_AUTO = "LLM_AUTO", "Calculada por IA"
     IMPORT = "IMPORT", "Importación"
 
 
@@ -113,6 +115,8 @@ class SuggestionState(models.TextChoices):
     FAILED = "FAILED", "Fallida"
     # Revisión tras un cambio de contexto que confirma la decisión humana vigente.
     CONSISTENT = "CONSISTENT", "Coincide con la decisión vigente"
+    # Aplicada automáticamente: el activo no tenía criticidad o la tenía calculada por IA.
+    AUTO = "AUTO", "Aplicada automáticamente"
 
 
 class SuggestionTrigger(models.TextChoices):
@@ -122,6 +126,7 @@ class SuggestionTrigger(models.TextChoices):
     CONFIRM = "CONFIRM", "Confirmación"
     CONTEXT_CHANGE = "CONTEXT_CHANGE", "Cambio de contexto"
     NIGHTLY = "NIGHTLY", "Barrido nocturno"
+    SCAN = "SCAN", "Tras escaneo de servicios"
 
 
 class ContextCompleteness(models.TextChoices):

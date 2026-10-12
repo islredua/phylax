@@ -15,7 +15,7 @@ from django.views.generic import ListView, TemplateView
 from apps.llm.status import active_model, active_model_ready
 
 from . import catalogs, services
-from .enums import AssetStatus, Criticality, SuggestionState
+from .enums import AssetStatus, Criticality, SuggestionState, SuggestionTrigger
 from .forms import (
     AssetFilterForm,
     AssetForm,
@@ -62,19 +62,47 @@ def _messages_from(request, error):
         messages.error(request, message)
 
 
+def _may_auto_scan(user, identifiers):
+    """Se escanea al dar de alta si la persona puede lanzar escaneos y hay una IP autorizada."""
+    return user.has_perm("discovery.run_discovery") and any(
+        kind in ("IPV4", "IPV6") and services.is_in_scope(value) for kind, value in identifiers
+    )
+
+
+def _auto_scan(request, asset, *, fallback_trigger):
+    """Lanza un escaneo de servicios del activo recién agregado para completar sus
+    identificadores (MAC, hostname), servicios y SO. Devuelve el texto para el mensaje."""
+    from apps.discovery import services as discovery
+
+    if request.user.has_perm("discovery.run_discovery") and discovery.can_scan(asset):
+        try:
+            discovery.request_discovery(user=request.user, profile="SERVICE_SCAN", asset=asset)
+        except ValidationError:
+            pass
+        else:
+            return (
+                "Se lanzó un escaneo de servicios para completar MAC, hostname y servicios; "
+                "al terminar, el LLM calculará la criticidad."
+            )
+    services.schedule_suggestion(asset.pk, trigger=fallback_trigger, requested_by=request.user)
+    return _suggestion_note(asset)
+
+
 def _suggestion_note(asset):
     if not asset.has_minimum_context:
         return (
             "No se pidió sugerencia de criticidad al LLM: falta la descripción o la función "
             "de negocio (contexto insuficiente)."
         )
-    when = "en un minuto" if services.scheduled_suggestion_at(asset.pk) else "en breve"
-    if asset.criticality:
+    if asset.criticality and asset.criticality_source != "LLM_AUTO":
         return (
-            f"El LLM contrastará la criticidad {when}; si sugiere otra, el activo quedará en "
-            "«revisión sugerida»."
+            "El LLM contrastará la criticidad en segundo plano; si sugiere otra, el activo "
+            "quedará en «revisión sugerida»."
         )
-    return f"El LLM sugerirá la criticidad {when} (pestaña Sugerencias LLM)."
+    return (
+        "El LLM está calculando la criticidad en segundo plano; se aplicará sola al terminar "
+        "y podrás confirmarla o cambiarla."
+    )
 
 
 def _safe_next(request, default):
@@ -87,6 +115,20 @@ def _safe_next(request, default):
 # --------------------------------------------------------------------------
 # Lista, acciones masivas
 # --------------------------------------------------------------------------
+
+
+def with_suggestion_flags(qs):
+    """Anota si el activo tiene una sugerencia en curso o una respondida por decidir."""
+    pending = CriticalitySuggestion.objects.filter(
+        asset=OuterRef("pk"), state=SuggestionState.PENDING
+    )
+    processing = pending.filter(inference__isnull=True, reused_from__isnull=True)
+    return qs.annotate(
+        suggestion_processing=Exists(processing),
+        suggestion_pending=Exists(
+            pending.exclude(inference__isnull=True, reused_from__isnull=True)
+        ),
+    )
 
 
 def filter_assets(params):
@@ -129,10 +171,17 @@ class AssetListView(Perm, ListView):
 
     def get_queryset(self):
         qs, self.filter_form = filter_assets(self.request.GET)
-        return qs
+        return with_suggestion_flags(qs)
+
+    @staticmethod
+    def get_context_data_flags(assets):
+        queued = services.queued_suggestions([a.pk for a in assets])
+        for asset in assets:
+            asset.suggestion_processing = asset.suggestion_processing or asset.pk in queued
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        self.get_context_data_flags(context["assets"])
         counts = dict(Asset.objects.values_list("status").annotate(n=Count("id")))
         context.update(
             filter_form=self.filter_form,
@@ -144,6 +193,17 @@ class AssetListView(Perm, ListView):
             business_roles=catalogs.choices(catalogs.BUSINESS_ROLE),
         )
         return context
+
+
+class CriticalityCellView(Perm, View):
+    """Celda de criticidad de una fila (se consulta mientras el LLM procesa)."""
+
+    permission_required = "assets.view_asset"
+
+    def get(self, request, pk):
+        asset = get_object_or_404(with_suggestion_flags(Asset.objects.all()), pk=pk)
+        asset.suggestion_processing = asset.suggestion_processing or services.suggestion_queued(pk)
+        return render(request, "assets/_criticality_cell.html", {"a": asset})
 
 
 class BulkActionView(Perm, View):
@@ -249,12 +309,18 @@ class AssetDetailView(Perm, TemplateView):
             criticality_choices=Criticality.choices,
             llm_model=active_model(),
             llm_ready=active_model_ready(),
-            in_flight=services.processing_suggestion(asset) is not None,
-            scheduled_at=services.scheduled_suggestion_at(asset.pk),
+            in_flight=services.processing_suggestion(asset) is not None
+            or services.suggestion_queued(asset.pk),
         )
-        if tab == "resumen":
-            context["has_ip"] = asset.identifiers.filter(kind__in=("IPV4", "IPV6")).exists()
-        elif tab == "identificadores":
+        from apps.discovery import services as discovery
+
+        runs = discovery.runs_for_asset(asset)
+        context.update(
+            can_scan=discovery.can_scan(asset),
+            has_scan=discovery.has_service_scan(asset),
+            scan_active=runs.filter(status__in=("QUEUED", "RUNNING")).exists(),
+        )
+        if tab == "identificadores":
             context["identifiers"] = asset.identifiers.all()
             context["identifier_formset"] = IdentifierFormSet(prefix="ident")
         elif tab == "servicios":
@@ -268,7 +334,7 @@ class AssetDetailView(Perm, TemplateView):
         elif tab == "historial":
             context["history"] = _history(asset)
         elif tab == "descubrimientos":
-            context["runs"] = asset.discovery_runs_seen.select_related("network_range")[:50]
+            context["runs"] = runs[:50]
         return context
 
 
@@ -304,19 +370,28 @@ class AssetCreateView(Perm, View):
         form = AssetForm(request.POST)
         formset = IdentifierFormSet(request.POST, prefix="ident")
         if form.is_valid() and formset.is_valid():
+            identifiers = _identifiers_from(formset)
+            will_scan = _may_auto_scan(request.user, identifiers)
             try:
                 asset = services.create_asset(
                     user=request.user,
                     fields=form.context_fields(),
-                    identifiers=_identifiers_from(formset),
+                    identifiers=identifiers,
                     criticality=form.cleaned_data["criticality"] or None,
                     exposure=form.cleaned_data["exposure"] or None,
                     tags=services.get_or_create_tags(form.cleaned_data["tags"]),
+                    # Con escaneo, la sugerencia se pide al terminar (con servicios y MAC).
+                    suggestion_trigger=None if will_scan else SuggestionTrigger.CREATE,
                 )
             except ValidationError as error:
                 form.add_error(None, error)
             else:
-                messages.success(request, f"Activo creado. {_suggestion_note(asset)}")
+                note = (
+                    _auto_scan(request, asset, fallback_trigger=SuggestionTrigger.CREATE)
+                    if will_scan
+                    else _suggestion_note(asset)
+                )
+                messages.success(request, f"Activo creado. {note}")
                 return redirect("assets:detail", pk=asset.pk)
         return render(
             request, self.template_name, {"form": form, "formset": formset, "asset": None}
@@ -460,9 +535,10 @@ class SuggestionStatusView(Perm, View):
 
     def get(self, request, pk):
         asset = get_object_or_404(Asset, pk=pk)
-        scheduled_at = services.scheduled_suggestion_at(asset.pk)
-        in_flight = services.processing_suggestion(asset) is not None
-        if request.GET.get("waiting") and not (scheduled_at or in_flight):
+        in_flight = services.processing_suggestion(asset) is not None or services.suggestion_queued(
+            asset.pk
+        )
+        if request.GET.get("waiting") and not in_flight:
             response = HttpResponse(status=204)
             response["HX-Refresh"] = "true"
             return response
@@ -471,7 +547,6 @@ class SuggestionStatusView(Perm, View):
             "assets/_suggest_action.html",
             {
                 "asset": asset,
-                "scheduled_at": scheduled_at,
                 "in_flight": in_flight,
                 "llm_model": active_model(),
                 "llm_ready": active_model_ready(),
@@ -610,9 +685,14 @@ class UnconfirmedListView(Perm, ListView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["merge_targets"] = Asset.objects.exclude(
-            status__in=(AssetStatus.RETIRED, AssetStatus.UNCONFIRMED)
-        ).order_by("name")
+        # Solo se ofrece fusionar con activos vigentes que coinciden (hostname o nombre).
+        pool = list(
+            Asset.objects.filter(status__in=(AssetStatus.ACTIVE, AssetStatus.STALE))
+            .prefetch_related("identifiers")
+            .order_by("name")
+        )
+        for asset in context["assets"]:
+            asset.merge_targets = services.merge_candidates(asset, pool)
         context["ignored_count"] = Asset.objects.filter(status=AssetStatus.IGNORED).count()
         return context
 
@@ -643,15 +723,33 @@ class ConfirmView(Perm, View):
             data = dict(form.cleaned_data)
             criticality = data.pop("criticality") or None
             data["data_classification"] = data["data_classification"] or None
+            from apps.discovery import services as discovery
+
+            # Visto solo por un barrido: un escaneo de servicios completa su contexto y la
+            # sugerencia se pide al terminar.
+            will_scan = (
+                request.user.has_perm("discovery.run_discovery")
+                and not discovery.has_service_scan(asset)
+                and discovery.can_scan(asset)
+            )
             try:
                 services.confirm_asset(
-                    asset, user=request.user, fields=data, criticality=criticality
+                    asset,
+                    user=request.user,
+                    fields=data,
+                    criticality=criticality,
+                    suggest=not will_scan,
                 )
             except ValidationError as error:
                 form.add_error(None, error)
             else:
                 asset.refresh_from_db()
-                messages.success(request, f"Activo confirmado. {_suggestion_note(asset)}")
+                note = (
+                    _auto_scan(request, asset, fallback_trigger=SuggestionTrigger.CONFIRM)
+                    if will_scan
+                    else _suggestion_note(asset)
+                )
+                messages.success(request, f"Activo confirmado. {note}")
                 return HttpResponseRedirect(_safe_next(request, reverse("assets:unconfirmed")))
         back = _safe_next(request, reverse("assets:unconfirmed"))
         return render(request, self.template_name, {"asset": asset, "form": form, "back": back})

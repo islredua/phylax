@@ -8,6 +8,7 @@ urlpatterns = [
     path("", views.AssetListView.as_view(), name="list"),
     path("new/", views.AssetCreateView.as_view(), name="create"),
     path("bulk/", views.BulkActionView.as_view(), name="bulk"),
+    path("<uuid:pk>/criticality/", views.CriticalityCellView.as_view(), name="criticality_cell"),
     path("<uuid:pk>/", views.AssetDetailView.as_view(), name="detail"),
     path("<uuid:pk>/edit/", views.AssetEditView.as_view(), name="edit"),
     path("<uuid:pk>/identifiers/", views.IdentifierAddView.as_view(), name="identifier_add"),
