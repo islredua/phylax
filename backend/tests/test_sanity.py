@@ -13,8 +13,9 @@ def test_settings_loaded():
 
 
 def test_all_apps_registered():
-    """Los siete apps del proyecto están registrados en INSTALLED_APPS."""
+    """Las apps del proyecto están registrados en INSTALLED_APPS."""
     expected = {
+        "apps.core",
         "apps.accounts",
         "apps.assets",
         "apps.scanners",

@@ -23,7 +23,7 @@ con LLM local). Se actualiza en cada etapa.
 | # | Etapa | Estado |
 |---|---|---|
 | 1 | Reconocimiento y este documento | ✅ |
-| 2 | `core` + cifrado de campos + dependencias | ⏳ |
+| 2 | `core` + cifrado de campos + dependencias | ✅ |
 | 3 | Modelos, enums, migraciones, admin, factories, normalización | ⏳ |
 | 4 | Services, contracts y ciclo de vida | ⏳ |
 | 5 | Celery + Redis + Beat + compose | ⏳ |

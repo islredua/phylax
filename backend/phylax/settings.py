@@ -19,8 +19,10 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
+    "simple_history",
     "django_htmx",
     # apps del proyecto
+    "apps.core",
     "apps.accounts",
     "apps.assets",
     "apps.scanners",
@@ -46,6 +48,8 @@ MIDDLEWARE = [
     # Superusuarios y roles en MFA_REQUIRED_ROLES deben enrolar MFA antes de continuar.
     "apps.accounts.middleware.MFAEnforcementMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
+    # Registra el usuario autor de cada cambio en simple-history.
+    "simple_history.middleware.HistoryRequestMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "django_htmx.middleware.HtmxMiddleware",
 ]
@@ -116,6 +120,12 @@ EMAIL_BACKEND = os.environ.get(
     "DJANGO_EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
 )
 DEFAULT_FROM_EMAIL = os.environ.get("DJANGO_DEFAULT_FROM_EMAIL", "phylax@localhost")
+
+# --- Cifrado de campos (tokens de registry) ---
+# Lista separada por comas; la primera cifra, todas descifran (rotación).
+PHYLAX_FIELD_ENCRYPTION_KEYS = [
+    k.strip() for k in os.environ.get("PHYLAX_FIELD_ENCRYPTION_KEYS", "").split(",") if k.strip()
+]
 
 # --- Validadores de contraseñas ---
 AUTH_PASSWORD_VALIDATORS = [
