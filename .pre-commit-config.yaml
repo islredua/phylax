@@ -3,9 +3,9 @@ repos:
     rev: v5.0.0
     hooks:
       - id: trailing-whitespace
-        exclude: ^frontend/static/css/phylax\.css$
+        exclude: ^frontend/static/(css/phylax\.css|brand/.*\.svg)$
       - id: end-of-file-fixer
-        exclude: ^frontend/static/css/phylax\.css$
+        exclude: ^frontend/static/(css/phylax\.css|brand/.*\.svg)$
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.7.4
     hooks:

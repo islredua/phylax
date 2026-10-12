@@ -1,15 +1,19 @@
 {% extends "base.html" %}
 {% block title %}{% if target %}Editar {{ target.username }}{% else %}Nuevo usuario{% endif %}{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <h2>{% if target %}Editar <span class="font-mono">{{ target.username }}</span>{% else %}Nuevo usuario{% endif %}</h2>
+  <a href="{% if target %}{% url 'users:detail' target.pk %}{% else %}{% url 'users:list' %}{% endif %}" class="btn-secondary btn-sm">← Volver</a>
+</div>
+{% endblock %}
 {% block content %}
-<p class="mb-2 text-xs"><a href="{% url 'users:list' %}">← Usuarios</a></p>
-<h1 class="mb-1">{% if target %}Editar <span class="font-mono">{{ target.username }}</span>{% else %}Nuevo usuario{% endif %}</h1>
-{% if not target %}<p class="mb-4 text-text-secondary">Se generará una contraseña temporal que el usuario deberá cambiar en su primer inicio de sesión.</p>{% endif %}
-<form method="post" class="card max-w-lg space-y-4" novalidate>
+{% if not target %}<p class="muted">Se generará una contraseña temporal que el usuario deberá cambiar en su primer inicio de sesión.</p>{% endif %}
+<form method="post" class="card flex max-w-lg flex-col gap-4" novalidate>
   {% csrf_token %}
   {% include "registration/_form_fields.html" %}
   <div class="flex gap-2">
     <button type="submit" class="btn-primary">{% if target %}Guardar cambios{% else %}Crear usuario{% endif %}</button>
-    <a href="{% if target %}{% url 'users:detail' target.pk %}{% else %}{% url 'users:list' %}{% endif %}" class="btn-secondary hover:no-underline">Cancelar</a>
+    <a href="{% if target %}{% url 'users:detail' target.pk %}{% else %}{% url 'users:list' %}{% endif %}" class="btn-secondary">Cancelar</a>
   </div>
 </form>
 {% endblock %}

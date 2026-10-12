@@ -28,15 +28,6 @@ QR_DARK = "#0f172a"
 QR_LIGHT = "#ffffff"
 
 
-class AccountSectionMixin:
-    section = ""
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context["section"] = self.section
-        return context
-
-
 class UserFormKwargsMixin:
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
@@ -44,9 +35,8 @@ class UserFormKwargsMixin:
         return kwargs
 
 
-class OverviewView(AccountSectionMixin, TemplateView):
+class OverviewView(TemplateView):
     template_name = "accounts/me/overview.html"
-    section = "overview"
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -62,10 +52,9 @@ class OverviewView(AccountSectionMixin, TemplateView):
 
 
 @method_decorator(sensitive_post_parameters("current_password"), name="dispatch")
-class ProfileView(AccountSectionMixin, UserFormKwargsMixin, UpdateView):
+class ProfileView(UserFormKwargsMixin, UpdateView):
     form_class = ProfileForm
     template_name = "accounts/me/profile.html"
-    section = "profile"
     success_url = reverse_lazy("accounts:me")
 
     def get_object(self, queryset=None):
@@ -81,10 +70,9 @@ class ProfileView(AccountSectionMixin, UserFormKwargsMixin, UpdateView):
         return response
 
 
-class PasswordChangeView(AccountSectionMixin, auth_views.PasswordChangeView):
+class PasswordChangeView(auth_views.PasswordChangeView):
     form_class = StyledPasswordChangeForm
     template_name = "accounts/me/password.html"
-    section = "password"
     success_url = reverse_lazy("accounts:me")
 
     def get_context_data(self, **kwargs):
@@ -111,9 +99,8 @@ class PasswordChangeView(AccountSectionMixin, auth_views.PasswordChangeView):
         return response
 
 
-class SecurityView(AccountSectionMixin, TemplateView):
+class SecurityView(TemplateView):
     template_name = "accounts/me/security.html"
-    section = "security"
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -129,12 +116,11 @@ class SecurityView(AccountSectionMixin, TemplateView):
 
 
 @method_decorator(never_cache, name="dispatch")
-class MFASetupView(AccountSectionMixin, FormView):
+class MFASetupView(FormView):
     """Enrolamiento TOTP: QR + secreto, confirmación con un código."""
 
     form_class = MFACodeForm
     template_name = "accounts/me/mfa_setup.html"
-    section = "security"
 
     def dispatch(self, request, *args, **kwargs):
         if mfa.has_mfa(request.user):
@@ -167,15 +153,14 @@ class MFASetupView(AccountSectionMixin, FormView):
         return render(
             self.request,
             "accounts/me/backup_codes.html",
-            {"codes": codes, "section": self.section, "just_enabled": True},
+            {"codes": codes, "just_enabled": True},
         )
 
 
 @method_decorator(sensitive_post_parameters("current_password", "code"), name="dispatch")
-class MFADisableView(AccountSectionMixin, UserFormKwargsMixin, FormView):
+class MFADisableView(UserFormKwargsMixin, FormView):
     form_class = MFADisableForm
     template_name = "accounts/me/mfa_disable.html"
-    section = "security"
     success_url = reverse_lazy("accounts:security")
 
     def dispatch(self, request, *args, **kwargs):
@@ -196,10 +181,9 @@ class MFADisableView(AccountSectionMixin, UserFormKwargsMixin, FormView):
 
 
 @method_decorator([never_cache, sensitive_post_parameters("current_password")], name="dispatch")
-class BackupCodesView(AccountSectionMixin, UserFormKwargsMixin, FormView):
+class BackupCodesView(UserFormKwargsMixin, FormView):
     form_class = PasswordConfirmForm
     template_name = "accounts/me/backup_codes_regenerate.html"
-    section = "security"
 
     def dispatch(self, request, *args, **kwargs):
         if not mfa.has_mfa(request.user):
@@ -211,7 +195,7 @@ class BackupCodesView(AccountSectionMixin, UserFormKwargsMixin, FormView):
         return render(
             self.request,
             "accounts/me/backup_codes.html",
-            {"codes": codes, "section": self.section, "just_enabled": False},
+            {"codes": codes, "just_enabled": False},
         )
 
 
@@ -237,9 +221,8 @@ class SessionRevokeView(View):
         return redirect("accounts:security")
 
 
-class ActivityView(AccountSectionMixin, ListView):
+class ActivityView(ListView):
     template_name = "accounts/me/activity.html"
-    section = "activity"
     context_object_name = "entries"
     paginate_by = 25
 

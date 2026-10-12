@@ -1,15 +1,19 @@
 {% extends "base.html" %}
 {% block title %}{{ title }}{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <h2>{{ title }}</h2>
+  <a href="{% url 'users:detail' target.pk %}" class="btn-secondary btn-sm">← {{ target.username }}</a>
+</div>
+{% endblock %}
 {% block content %}
-<p class="mb-2 text-xs"><a href="{% url 'users:detail' target.pk %}">← {{ target.username }}</a></p>
-<div class="card max-w-lg space-y-4">
-  <h1>{{ title }}</h1>
-  <p>Usuario: <span class="font-mono">{{ target.username }}</span></p>
-  <p class="text-text-secondary">{{ description }}</p>
+<section class="card flex max-w-lg flex-col gap-4">
+  <dl><dt class="kv-label">Usuario</dt><dd class="kv-value font-mono">{{ target.username }}</dd></dl>
+  <p class="muted">{{ description }}</p>
   <form method="post" class="flex gap-2">
     {% csrf_token %}
-    <button type="submit" class="{% if danger %}btn-primary bg-danger hover:bg-danger/80 focus:ring-danger{% else %}btn-primary{% endif %}">{{ confirm_label }}</button>
-    <a href="{% url 'users:detail' target.pk %}" class="btn-secondary hover:no-underline">Cancelar</a>
+    <button type="submit" class="{% if danger %}btn-danger{% else %}btn-primary{% endif %}">{{ confirm_label }}</button>
+    <a href="{% url 'users:detail' target.pk %}" class="btn-secondary">Cancelar</a>
   </form>
-</div>
+</section>
 {% endblock %}

@@ -1,7 +1,7 @@
 # ADR-003: Identidad de marca y sistema visual
 
 **Fecha:** 2026-10-11
-**Estado:** Aceptado
+**Estado:** Reemplazado por [ADR-007](007-visual-system-pearl-navy.md) (2026-10-11)
 
 ## Contexto
 

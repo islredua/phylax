@@ -5,7 +5,7 @@
 <div>
   <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
   {{ field }}
-  {% if field.help_text %}<p class="mt-1 text-xs text-text-muted">{{ field.help_text|safe }}</p>{% endif %}
-  {% for error in field.errors %}<p class="mt-1 text-xs text-danger">{{ error }}</p>{% endfor %}
+  {% if field.help_text %}<div class="form-help">{{ field.help_text|safe }}</div>{% endif %}
+  {% for error in field.errors %}<p class="form-error">{{ error }}</p>{% endfor %}
 </div>
 {% endfor %}

@@ -1,25 +1,28 @@
 {% extends "accounts/me/_layout.html" %}
 {% block title %}Activar verificación en dos pasos{% endblock %}
 {% block account_content %}
-<h1>Activar verificación en dos pasos</h1>
 {% if mfa_required %}<div class="alert-info">Tu rol exige verificación en dos pasos. Actívala para continuar usando Phylax.</div>{% endif %}
-<div class="card grid grid-cols-1 gap-6 md:grid-cols-[auto_1fr]">
-  <div class="mx-auto w-fit rounded-md bg-text-primary p-2" aria-label="Código QR de enrolamiento">{{ qr_svg|safe }}</div>
-  <div class="space-y-4">
-    <ol class="list-decimal space-y-2 pl-5 text-text-secondary">
+<section class="card grid grid-cols-1 gap-6 md:grid-cols-[auto_1fr]">
+  <div class="mx-auto h-fit w-fit rounded border border-line bg-white p-2" aria-label="Código QR de enrolamiento">{{ qr_svg|safe }}</div>
+  <div class="flex flex-col gap-4">
+    <div>
+      <p class="eyebrow">Configuración</p>
+      <h2>Activar verificación en dos pasos</h2>
+    </div>
+    <ol class="list-decimal space-y-1.5 pl-5 text-ink-soft">
       <li>Abre tu app autenticadora (Aegis, Google Authenticator, 1Password, …).</li>
       <li>Escanea el código QR o captura el secreto manualmente.</li>
       <li>Escribe el código de 6 dígitos que muestra la app.</li>
     </ol>
     <div>
-      <p class="form-label">Secreto</p>
-      <p class="font-mono text-text-primary select-all">{{ secret_groups|join:" " }}</p>
+      <p class="kv-label">Secreto</p>
+      <p class="mt-1 font-mono text-[15px] tracking-wide text-ink select-all">{{ secret_groups|join:" " }}</p>
     </div>
-    <form method="post" class="max-w-xs space-y-4" novalidate>
+    <form method="post" class="flex max-w-xs flex-col gap-4" novalidate>
       {% csrf_token %}
       {% include "registration/_form_fields.html" %}
-      <button type="submit" class="btn-primary">Confirmar y activar</button>
+      <div><button type="submit" class="btn-primary">Confirmar y activar</button></div>
     </form>
   </div>
-</div>
+</section>
 {% endblock %}

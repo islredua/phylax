@@ -55,11 +55,11 @@ def test_auditor_is_read_only(client, auditor_user, target):
     assert target.is_active
 
 
-def test_nav_link_only_for_permitted_roles(client, auditor_user, operator_user):
+def test_users_tab_only_for_permitted_roles(client, auditor_user, operator_user):
     client.force_login(auditor_user)
-    assert 'href="/users/"' in client.get("/").content.decode()
+    assert 'href="/users/"' in client.get("/administration/").content.decode()
     client.force_login(operator_user)
-    assert 'href="/users/"' not in client.get("/").content.decode()
+    assert "/administration/" not in client.get("/").content.decode()
 
 
 def test_unknown_user_is_404(admin_client):

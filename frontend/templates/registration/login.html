@@ -1,8 +1,8 @@
 {% extends "registration/_auth_base.html" %}
 {% block title %}Iniciar sesión{% endblock %}
 {% block auth_content %}
-<h1 class="text-xl">Iniciar sesión</h1>
-<form method="post" class="space-y-4" novalidate>
+<h1>Iniciar sesión</h1>
+<form method="post" class="flex flex-col gap-4" novalidate>
   {% csrf_token %}
   {% include "registration/_form_fields.html" %}
   <input type="hidden" name="next" value="{{ next }}">

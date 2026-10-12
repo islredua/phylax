@@ -1,12 +1,38 @@
 {% extends "base.html" %}
 {% block title %}Inicio{% endblock %}
 {% block content %}
-<div class="card">
-  <h1>Bienvenido, {{ user.get_username }}</h1>
-  <p class="mt-2 text-text-secondary">
-    Rol:
-    {% for group in user.groups.all %}<span class="font-mono text-text-primary">{{ group.name }}</span>{% if not forloop.last %}, {% endif %}{% empty %}<span class="text-text-muted">sin rol asignado</span>{% endfor %}
-  </p>
-  <p class="mt-4 text-text-muted">Las vistas técnica y ejecutiva llegarán con el módulo de presentación (M5).</p>
+<p class="muted">Bienvenido, <span class="font-medium text-ink">{{ user.get_full_name|default:user.get_username }}</span>.</p>
+
+<div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+  <div class="card">
+    <p class="stat-label">Tu rol</p>
+    <p class="mt-1 font-mono text-base font-semibold">{% if role %}{{ role.name }}{% else %}<span class="text-muted">sin rol asignado</span>{% endif %}</p>
+  </div>
+  <div class="card">
+    <p class="stat-label">Verificación en dos pasos</p>
+    <p class="mt-1">{% if has_mfa %}<span class="badge-low">activa</span>{% else %}<a href="{% url 'accounts:security' %}" class="badge-medium hover:no-underline">inactiva · activar</a>{% endif %}</p>
+  </div>
+  <div class="card">
+    <p class="stat-label">Sesiones activas</p>
+    <p class="stat-value">{{ session_count }}</p>
+  </div>
 </div>
+
+<section class="card flex flex-col gap-3">
+  <p class="eyebrow">Módulos del MVP</p>
+  <div class="table-wrap border-0">
+    <table class="data-table">
+      <thead><tr><th>Módulo</th><th>Descripción</th><th>Estado</th></tr></thead>
+      <tbody>
+        {% for code, name, detail in modules %}
+        <tr>
+          <td class="whitespace-nowrap"><span class="font-mono text-muted">{{ code }}</span> <span class="font-medium">{{ name }}</span></td>
+          <td class="muted">{{ detail }}</td>
+          <td><span class="badge-neutral">en desarrollo</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 {% endblock %}

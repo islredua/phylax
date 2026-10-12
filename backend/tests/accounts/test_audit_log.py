@@ -182,11 +182,11 @@ def test_audit_log_forbidden_for_operator_and_roleless(client, request, fixture)
     assert client.get(AUDIT_URL).status_code == 403
 
 
-def test_audit_log_nav_link_only_for_permitted_roles(client, auditor_user, operator_user):
+def test_audit_log_tab_only_for_permitted_roles(client, auditor_user, operator_user):
     client.force_login(auditor_user)
-    assert AUDIT_URL in client.get("/").content.decode()
+    assert AUDIT_URL in client.get("/administration/").content.decode()
     client.force_login(operator_user)
-    assert AUDIT_URL not in client.get("/").content.decode()
+    assert "/administration/" not in client.get("/").content.decode()
 
 
 def test_audit_log_filters_by_event_type(client, auditor_user, user):

@@ -27,8 +27,11 @@ Tailwind y el CSS resultante se versiona en `frontend/static/css/phylax.css`, de
 modo que un despliegue on-premise no necesita compilar nada ni salir a internet.
 
 - Fuente: `frontend/tailwind/input.css` (configuración CSS-first con `@theme`;
-  los tokens replican la paleta de ADR-003). Tailwind 4 no usa
-  `tailwind.config.js`.
+  tokens y componentes del sistema "Gris perla + marino", ADR-007). La paleta
+  por defecto de Tailwind está deshabilitada: usa solo los tokens definidos.
+  Tailwind 4 no usa `tailwind.config.js`.
+- Fuentes IBM Plex en `frontend/static/fonts/` y logo oficial en
+  `frontend/static/brand/` (no editar: llevan manifiesto C2PA).
 - Tailwind escanea `frontend/templates/` y `backend/apps/` (clases declaradas en
   formularios de Python).
 
@@ -57,6 +60,25 @@ Desde la raíz del repo, después de cambiar templates, formularios o `input.css
 
 Durante desarrollo se puede añadir `--watch`. Commitear siempre el CSS
 recompilado junto con el cambio que lo motivó.
+
+## Navegación (secciones + pestañas)
+
+Toda pantalla nueva pertenece a una **sección** (barra lateral) y a una
+**pestaña** (menú superior). Para agregarla, registra la sección o la pestaña en
+`backend/apps/presentation/navigation.py` (`SECTIONS`); no escribas menús en las
+plantillas. En la plantilla de la vista usa `{% block toolbar %}` para el título
+de la vista y sus acciones. Ver ADR-007.
+
+```python
+Section(
+    key="assets",
+    label="Activos",
+    tabs=(
+        Tab("inventory", "Inventario", "assets:list", ("assets.view_asset",), ("assets:*",)),
+        Tab("import", "Importar", "assets:import", ("assets.add_asset",)),
+    ),
+)
+```
 
 ## Roles
 
