@@ -556,4 +556,6 @@ def test_beat_schedule_and_routes_are_configured():
 
     tasks = {entry["task"] for entry in settings.CELERY_BEAT_SCHEDULE.values()}
     assert "apps.assets.tasks.mark_stale_assets" in tasks
-    assert settings.CELERY_TASK_ROUTES["apps.llm.tasks.*"]["queue"] == "llm"
+    routes = settings.CELERY_TASK_ROUTES
+    assert routes["apps.assets.tasks.suggest_criticality"]["queue"] == "llm"
+    assert routes["apps.discovery.tasks.run_discovery"]["queue"] == "discovery"

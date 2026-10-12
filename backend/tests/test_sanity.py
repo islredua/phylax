@@ -22,7 +22,8 @@ def test_all_apps_registered():
         "apps.cti",
         "apps.scoring",
         "apps.presentation",
-        "apps.llm_client",
+        "apps.llm",
+        "apps.discovery",
     }
     installed = set(settings.INSTALLED_APPS)
     missing = expected - installed
@@ -40,14 +41,22 @@ def test_asset_model_importable():
     assert "exposure" in field_names
 
 
-def test_llm_client_mock_mode():
-    """El cliente LLM en modo mock funciona sin red."""
-    from apps.llm_client.client import OllamaClient
+def test_llm_mock_mode_returns_valid_structured_output(db, settings):
+    """El cliente LLM en modo simulado produce JSON válido sin red."""
+    from apps.llm.client import run_structured
+    from apps.llm.schemas import CRITICALITY_SCHEMA, CriticalityOutput
 
-    client = OllamaClient(mock_mode=True)
-    response = client.generate("Clasifica la criticidad del siguiente activo")
-    assert response.mocked is True
-    assert response.content  # devuelve algo
+    settings.LLM_MOCK_MODE = True
+    log = run_structured(
+        task="ASSET_CRITICALITY",
+        messages=[{"role": "user", "content": "x"}],
+        schema=CRITICALITY_SCHEMA,
+        validator=CriticalityOutput,
+        model="mock",
+        prompt_version="v1",
+        request_payload={"asset": {"environment": "PROD"}},
+    )
+    assert log.parsed_ok and log.accelerator == "mock"
 
 
 def test_scoring_weights_sum_approximately_one():

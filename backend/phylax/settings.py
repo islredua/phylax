@@ -34,7 +34,6 @@ INSTALLED_APPS = [
     "apps.cti",
     "apps.scoring",
     "apps.presentation",
-    "apps.llm_client",
 ]
 
 MIDDLEWARE = [
@@ -177,15 +176,20 @@ CELERY_TASK_ACKS_LATE = True
 CELERY_TASK_REJECT_ON_WORKER_LOST = True
 CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_TASK_DEFAULT_QUEUE = "default"
+# Rutas por nombre exacto: solo la inferencia va a "llm" y solo nmap a "discovery".
 CELERY_TASK_ROUTES = {
-    "apps.llm.tasks.*": {"queue": "llm"},
-    "apps.discovery.tasks.*": {"queue": "discovery"},
+    "apps.assets.tasks.suggest_criticality": {"queue": "llm"},
+    "apps.discovery.tasks.run_discovery": {"queue": "discovery"},
 }
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_BEAT_SCHEDULE = {
     "mark-stale-assets": {
         "task": "apps.assets.tasks.mark_stale_assets",
         "schedule": crontab(hour=3, minute=0),
+    },
+    "refresh-llm-status": {
+        "task": "apps.llm.tasks.refresh_llm_status",
+        "schedule": 60.0,
     },
 }
 
@@ -200,20 +204,28 @@ STATICFILES_DIRS = [BASE_DIR.parent / "frontend" / "static"]
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# --- LLM (Ollama) ---
-OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
-OLLAMA_DEFAULT_MODEL = os.environ.get("OLLAMA_DEFAULT_MODEL", "qwen2.5:3b-instruct-q4_K_M")
-OLLAMA_TIMEOUT_SECONDS = int(os.environ.get("OLLAMA_TIMEOUT_SECONDS", "180"))
-OLLAMA_EVAL_MODELS = [
+# --- LLM local (Ollama) ---
+# Ollama corre en compose (servicio "ollama"). Con GPU NVIDIA, scripts/compose.sh añade
+# docker-compose.gpu.yml, que expone la GPU y fija LLM_ACCELERATOR=gpu.
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://ollama:11434")
+LLM_DEFAULT_MODEL = os.environ.get("LLM_DEFAULT_MODEL", "qwen2.5:7b-instruct-q4_K_M")
+LLM_AVAILABLE_MODELS = [
     m.strip()
     for m in os.environ.get(
-        "OLLAMA_EVAL_MODELS",
+        "LLM_AVAILABLE_MODELS",
         "llama3.1:8b-instruct-q4_K_M,mistral:7b-instruct-q4_K_M,qwen2.5:7b-instruct-q4_K_M",
     ).split(",")
     if m.strip()
 ]
-
-# Modo mock: cuando esté activo el cliente devuelve respuestas sintéticas.
+# Timeout por inferencia: con GPU (LLM_TIMEOUT_S) o con CPU/desconocido (LLM_TIMEOUT_CPU_S).
+LLM_TIMEOUT_S = int(os.environ.get("LLM_TIMEOUT_S", "180"))
+LLM_TIMEOUT_CPU_S = int(os.environ.get("LLM_TIMEOUT_CPU_S", "900"))
+LLM_ACCELERATOR = os.environ.get("LLM_ACCELERATOR", "auto")  # auto | gpu | cpu
+LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0"))
+LLM_SEED = int(os.environ.get("LLM_SEED", "42"))
+LLM_NUM_CTX = int(os.environ.get("LLM_NUM_CTX", "4096"))
+LLM_RATE_LIMIT_PER_MIN = int(os.environ.get("LLM_RATE_LIMIT_PER_MIN", "30"))
+# Modo simulado: respuestas JSON válidas y deterministas, sin Ollama (desarrollo/pruebas).
 LLM_MOCK_MODE = os.environ.get("LLM_MOCK_MODE", "0") == "1"
 
 # --- Scanners ---

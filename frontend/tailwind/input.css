@@ -295,6 +295,12 @@
   .pill-warn {
     @apply pill bg-medium-soft text-medium;
   }
+  .pill-error {
+    @apply pill bg-critical-soft text-critical;
+  }
+  .pill-neutral {
+    @apply pill bg-line-soft text-ink-soft;
+  }
 
   /* --- Avisos --- */
   .alert-error {

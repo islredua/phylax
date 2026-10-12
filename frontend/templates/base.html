@@ -40,11 +40,7 @@
       <div class="page-header">
         <h1>{% block page_title %}{{ nav.section.label }}{% endblock %}</h1>
         <div class="page-actions">
-          {% if llm_mock_mode %}
-          <span class="pill-warn" title="LLM_MOCK_MODE=1: las respuestas del LLM son sintéticas">● LLM simulado</span>
-          {% else %}
-          <span class="pill-ok" title="Inferencia con Ollama en el mismo host; ningún dato sale de la organización">● LLM local · on-prem</span>
-          {% endif %}
+          {% if llm_pill %}<span class="{{ llm_pill.style }}" title="{{ llm_pill.title }}">● {{ llm_pill.label }}</span>{% endif %}
         </div>
       </div>
       {% if nav.tabs %}

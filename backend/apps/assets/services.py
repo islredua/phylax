@@ -13,6 +13,7 @@ from collections.abc import Iterable
 from datetime import timedelta
 
 from django.conf import settings
+from django.core.cache import cache
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Q
@@ -47,6 +48,7 @@ from .normalization import ip_kind, normalize_identifier
 logger = logging.getLogger(__name__)
 
 SCANNABLE_STATUSES = (AssetStatus.ACTIVE, AssetStatus.STALE)
+PROMPT_VERSION = "v1"
 # Campos mínimos para confirmar un activo descubierto (sección 6).
 CONFIRM_REQUIRED_FIELDS = ("name", "asset_type", "environment", "business_role")
 # Campos de contexto que una persona puede fijar al crear/editar/confirmar.
@@ -881,9 +883,104 @@ def assets_matching(identifiers: Iterable[tuple[str, str]]):
 # --------------------------------------------------------------------------
 
 
+class RateLimitError(ValidationError):
+    pass
+
+
+def _check_rate_limit(user):
+    key = f"llm-rate:{user.pk}:{timezone.now():%Y%m%d%H%M}"
+    cache.add(key, 0, 60)
+    count = cache.incr(key)
+    if count > settings.LLM_RATE_LIMIT_PER_MIN:
+        raise RateLimitError(
+            f"Límite de {settings.LLM_RATE_LIMIT_PER_MIN} solicitudes al LLM por minuto alcanzado. "
+            "Intenta de nuevo en un momento."
+        )
+
+
 def request_criticality_suggestion(asset_id, *, user=None, model=None, requested_by=None):
-    """Encola una sugerencia en segundo plano. Implementación completa en la etapa del LLM."""
-    raise NotImplementedError  # pragma: no cover - se completa con la app llm
+    """Encola una sugerencia de criticidad en la cola ``llm`` (segundo plano).
+
+    Marca como ``SUPERSEDED`` las ``PENDING`` previas del activo y devuelve la
+    nueva sugerencia en estado ``PENDING`` sin respuesta (``is_processing``); la
+    UI la consulta hasta que el worker la completa. ``user`` (persona) exige
+    ``assets.decide_criticality`` y aplica el límite de tasa; ``user=None`` es
+    un disparo del sistema (p. ej. al confirmar).
+    """
+    if user is not None:
+        _require(user, "assets.decide_criticality")
+        _check_rate_limit(user)
+    model = model or settings.LLM_DEFAULT_MODEL
+    if model not in settings.LLM_AVAILABLE_MODELS and model != settings.LLM_DEFAULT_MODEL:
+        raise ValidationError(f"Modelo no permitido: {model}.")
+    with transaction.atomic():
+        asset = _locked(Asset.objects.get(pk=asset_id))
+        CriticalitySuggestion.objects.filter(asset=asset, state=SuggestionState.PENDING).update(
+            state=SuggestionState.SUPERSEDED, updated_at=timezone.now()
+        )
+        suggestion = CriticalitySuggestion.objects.create(
+            asset=asset, model=model, requested_by=user or requested_by
+        )
+        suggestion_id = suggestion.pk
+
+        def enqueue():
+            from .tasks import suggest_criticality
+
+            suggest_criticality.delay(str(suggestion_id))
+
+        transaction.on_commit(enqueue)
+    return suggestion
+
+
+def fail_suggestion(suggestion_id):
+    """Marca como FAILED una sugerencia pendiente sin respuesta (error inesperado del worker)."""
+    return CriticalitySuggestion.objects.filter(
+        pk=suggestion_id, state=SuggestionState.PENDING, inference__isnull=True
+    ).update(state=SuggestionState.FAILED, updated_at=timezone.now())
+
+
+def complete_suggestion(suggestion_id):
+    """Ejecuta la inferencia de una sugerencia (worker de la cola ``llm``).
+
+    Idempotente: si la sugerencia ya tiene respuesta o dejó de estar pendiente
+    (p. ej. reemplazada), no hace nada.
+    """
+    from apps.llm.client import run_structured
+    from apps.llm.prompts import load_prompt
+    from apps.llm.schemas import CRITICALITY_SCHEMA, CriticalityOutput
+
+    from .llm_input import build_input, render_user_message
+
+    suggestion = CriticalitySuggestion.objects.select_related("asset").get(pk=suggestion_id)
+    if suggestion.state != SuggestionState.PENDING or suggestion.inference_id:
+        return suggestion
+    data = build_input(suggestion.asset)
+    log = run_structured(
+        task="ASSET_CRITICALITY",
+        messages=[
+            {"role": "system", "content": load_prompt("asset_criticality", PROMPT_VERSION)},
+            {"role": "user", "content": render_user_message(data)},
+        ],
+        schema=CRITICALITY_SCHEMA,
+        validator=CriticalityOutput,
+        model=suggestion.model or settings.LLM_DEFAULT_MODEL,
+        prompt_version=PROMPT_VERSION,
+        request_payload={"asset": data},
+        object_ref=f"assets.Asset:{suggestion.asset_id}",
+        requested_by=suggestion.requested_by,
+    )
+    with transaction.atomic():
+        suggestion = CriticalitySuggestion.objects.select_for_update().get(pk=suggestion_id)
+        suggestion.inference = log
+        if log.parsed_ok:
+            suggestion.suggested = log.parsed["criticality"]
+            suggestion.confidence = log.parsed["confidence"]
+            suggestion.rationale = log.parsed["rationale"]
+            suggestion.signals = log.parsed.get("signals", [])
+        elif suggestion.state == SuggestionState.PENDING:
+            suggestion.state = SuggestionState.FAILED
+        suggestion.save()
+    return suggestion
 
 
 @transaction.atomic

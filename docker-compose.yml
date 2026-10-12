@@ -1,7 +1,7 @@
 # Phylax — despliegue on-premise.
 #
 #   scripts/compose.sh up -d      # detecta GPU NVIDIA y añade docker-compose.gpu.yml
-#   docker compose up -d          # equivalente sin GPU
+#   docker compose up -d          # equivalente sin GPU (Ollama en CPU)
 #
 # Ningún servicio interno (Redis, Ollama, workers) publica puertos: solo la red
 # phylax-net los alcanza (STRIDE Information Disclosure).
@@ -22,6 +22,9 @@ x-backend: &backend
     # Templates y estáticos viven fuera de backend/ (settings: BASE_DIR.parent / "frontend").
     - ./frontend:/frontend:ro
     - media:/data/media
+    # Datasets y resultados de la evaluación de LLMs (eval_criticality).
+    - ./datasets:/datasets:ro
+    - ./experiments:/experiments
     - scan_results:/data/scan-results
     - cti_cache:/data/cti-cache
   depends_on:
@@ -70,6 +73,23 @@ services:
       timeout: 5s
       retries: 5
 
+  # LLM local. Sin puertos publicados: solo los workers lo alcanzan por la red interna.
+  # Modelos en el volumen ollama_models: docker compose exec ollama ollama pull <modelo>
+  ollama:
+    image: ollama/ollama:0.5.7
+    container_name: phylax-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_models:/root/.ollama
+    environment:
+      OLLAMA_KEEP_ALIVE: 10m
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
   backend:
     <<: *backend
     build:
@@ -111,6 +131,7 @@ services:
 
 volumes:
   postgres_data:
+  ollama_models:
   media:
   scan_results:
   cti_cache:

@@ -124,10 +124,26 @@ def test_llm_pill_reports_mock_mode(client, user):
     assert "LLM simulado" in client.get("/").content.decode()
 
 
+@pytest.mark.parametrize(
+    ("status", "label"),
+    [
+        (None, "LLM local · verificando"),
+        ({"available": True, "accelerator": "gpu"}, "LLM local · GPU"),
+        ({"available": True, "accelerator": "cpu"}, "LLM local · CPU"),
+        ({"available": True, "accelerator": "unknown"}, "LLM local"),
+        ({"available": False, "accelerator": "unknown"}, "LLM no disponible"),
+    ],
+)
 @override_settings(LLM_MOCK_MODE=False)
-def test_llm_pill_reports_local_inference(client, user):
+def test_llm_pill_reflects_cached_status(client, user, status, label):
+    from django.core.cache import cache
+
+    from apps.llm.status import CACHE_KEY
+
+    if status:
+        cache.set(CACHE_KEY, status)
     client.force_login(user)
-    assert "LLM local · on-prem" in client.get("/").content.decode()
+    assert f"● {label}<" in client.get("/").content.decode()
 
 
 def test_brand_assets_and_local_fonts(client):

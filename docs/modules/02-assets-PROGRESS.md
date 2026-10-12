@@ -27,7 +27,7 @@ con LLM local). Se actualiza en cada etapa.
 | 3 | Modelos, enums, migraciones, admin, factories, normalización | ✅ |
 | 4 | Services, contracts y ciclo de vida | ✅ |
 | 5 | Celery + Redis + Beat + compose | ✅ |
-| 6 | App `llm` + Ollama + `eval_criticality` | ⏳ |
+| 6 | App `llm` + Ollama + `eval_criticality` | ✅ |
 | 7 | App `discovery` | ⏳ |
 | 8 | Registries, imágenes, SBOM | ⏳ |
 | 9 | UI y permisos | ⏳ |
@@ -57,3 +57,18 @@ Se documentan aquí conforme aparezcan.
   (`pull_policy: never`). Construirla en paralelo desde cada servicio falla.
 - **Pruebas**: Celery lee los settings de Django en vivo (namespace `CELERY`), por lo que el modo
   síncrono se activa sobrescribiendo `CELERY_TASK_ALWAYS_EAGER` en `tests/conftest.py`, no `app.conf`.
+- **GPU/CPU adaptable**: `scripts/compose.sh` añade `docker-compose.gpu.yml` si detecta una GPU NVIDIA
+  (o `PHYLAX_GPU=0/1`). `apps/llm/status.py` observa el acelerador en `/api/ps` (pista
+  `LLM_ACCELERATOR` mientras no haya modelo cargado) y elige `LLM_TIMEOUT_S` (GPU) o
+  `LLM_TIMEOUT_CPU_S` (CPU/desconocido, default 900 s). La píldora del encabezado muestra
+  GPU/CPU/no disponible leyendo la caché que refresca Beat cada minuto: ninguna vista consulta Ollama.
+- **Modo simulado** (`LLM_MOCK_MODE=1`) conservado del cliente anterior: JSON válido y determinista,
+  `InferenceLog.accelerator="mock"`.
+- **Rutas Celery por nombre exacto** (no comodines): solo `suggest_criticality` va a `llm`;
+  `refresh_llm_status` va a `default` para no esperar detrás de inferencias largas.
+- **Anti-inyección adicional**: `<` y `>` se escapan (`<`, `>`) dentro de `<datos_activo>`,
+  de modo que un banner con `</datos_activo>` no puede cerrar el delimitador.
+- **Tareas que fallan** (límite de tiempo, error inesperado) marcan la sugerencia `FAILED`; nunca
+  queda "procesando" indefinidamente.
+- **Rutas del dataset**: `datasets/` y `experiments/` se montan en el contenedor; el comando usa
+  `BASE_DIR.parent` como raíz (igual que `frontend/`).
