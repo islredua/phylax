@@ -7,17 +7,15 @@ import logging
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
-from . import services
+from . import catalogs, services
 from .enums import (
     AssetOrigin,
     AssetType,
-    BusinessRole,
     ConflictSource,
     Criticality,
     CriticalitySource,
     DataCategory,
     DataClassification,
-    Environment,
     Exposure,
     IdentifierKind,
 )
@@ -51,10 +49,12 @@ IDENTIFIER_COLUMNS = {
     "mac": IdentifierKind.MAC,
     "image_ref": IdentifierKind.IMAGE_REF,
 }
+CATALOG_COLUMNS = {
+    "asset_type": catalogs.ASSET_TYPE,
+    "business_role": catalogs.BUSINESS_ROLE,
+    "environment": catalogs.ENVIRONMENT,
+}
 ENUM_COLUMNS = {
-    "asset_type": AssetType,
-    "business_role": BusinessRole,
-    "environment": Environment,
     "criticality": Criticality,
     "exposure": Exposure,
     "data_classification": DataClassification,
@@ -100,6 +100,14 @@ def read_rows(raw):
 def parse_row(row):
     """Valida y normaliza una fila. Devuelve ``(datos, identificadores)``."""
     data = {}
+    for column, kind in CATALOG_COLUMNS.items():
+        value = row.get(column, "").upper()
+        if value:
+            try:
+                catalogs.validate(kind, value)
+            except ValidationError as exc:
+                raise ValidationError(f"{column}: {' '.join(exc.messages)}") from exc
+        data[column] = value or None
     for column, enum in ENUM_COLUMNS.items():
         value = row.get(column, "").upper()
         if value and value not in enum.values:
@@ -124,6 +132,7 @@ def parse_row(row):
                 raise ValidationError(f"{column}: {' '.join(exc.messages)}") from exc
     if not identifiers:
         raise ValidationError("La fila no tiene ningún identificador.")
+    catalogs.check_identifiers(data["asset_type"], [kind for kind, _ in identifiers])
     data.update(
         name=row["name"][:200],
         description=row.get("description", ""),

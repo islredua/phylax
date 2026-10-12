@@ -7,6 +7,7 @@ La exposición se excluye: es otra dimensión del scoring y duplicaría su peso.
 import json
 import unicodedata
 
+from . import catalogs
 from .enums import IdentifierKind, ServiceState
 
 DESCRIPTION_MAX = 1500
@@ -44,12 +45,13 @@ def _service_entry(svc):
 def build_input_from_dict(data):
     """Normaliza un dict con los campos de ``build_input`` (adaptador del dataset)."""
     services = [_service_entry(s) for s in (data.get("services") or [])][:TOP_SERVICES]
+    # Etiquetas legibles de los catálogos (los códigos de entradas nuevas no le dicen nada al modelo).
     return {
         "name": clean_text(data.get("name"), 200),
-        "asset_type": data.get("asset_type"),
+        "asset_type": catalogs.label(catalogs.ASSET_TYPE, data.get("asset_type")) or None,
         "hostnames": [clean_text(h, 253) for h in data.get("hostnames") or []],
-        "business_role": data.get("business_role"),
-        "environment": data.get("environment"),
+        "business_role": catalogs.label(catalogs.BUSINESS_ROLE, data.get("business_role")) or None,
+        "environment": catalogs.label(catalogs.ENVIRONMENT, data.get("environment")) or None,
         "data_classification": data.get("data_classification"),
         "data_categories": list(data.get("data_categories") or []),
         "tags": [clean_text(t, 50) for t in data.get("tags") or []],

@@ -21,7 +21,7 @@
         <td class="font-mono text-[11px] text-muted">{{ img.digest|truncatechars:24|default:"—" }}</td>
         <td class="text-ink-soft">{{ img.registry.name|default:"—" }}</td>
         <td>{% criticality_badge img.asset.criticality img.asset.criticality_source %}</td>
-        <td class="text-ink-soft">{{ img.asset.environment|choice_label:"Environment" }}</td>
+        <td class="text-ink-soft">{{ img.asset.environment|catalog:"ENVIRONMENT" }}</td>
         <td>{% status_badge img.asset.status %}</td>
       </tr>
       {% empty %}<tr><td colspan="6" class="table-empty">Sin imágenes registradas.</td></tr>{% endfor %}

@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views, views_images, views_io, views_scope
+from . import views, views_catalogs, views_images, views_io, views_scope
 
 app_name = "assets"
 
@@ -42,6 +42,9 @@ urlpatterns = [
     path("ranges/<uuid:pk>/delete/", views_scope.RangeDeleteView.as_view(), name="range_delete"),
     path("images/", views_images.ImageListView.as_view(), name="images"),
     path("images/new/", views_images.ImageCreateView.as_view(), name="image_create"),
+    path("catalogs/", views_catalogs.CatalogListView.as_view(), name="catalogs"),
+    path("catalogs/new/", views_catalogs.CatalogFormView.as_view(), name="catalog_create"),
+    path("catalogs/<uuid:pk>/edit/", views_catalogs.CatalogFormView.as_view(), name="catalog_edit"),
     path("registries/", views_images.RegistryListView.as_view(), name="registries"),
     path("registries/new/", views_images.RegistryFormView.as_view(), name="registry_create"),
     path(

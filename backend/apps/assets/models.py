@@ -9,6 +9,7 @@ import ipaddress
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
+from django.core.validators import RegexValidator
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
@@ -20,8 +21,6 @@ from apps.core.models import TimeStampedModel, UUIDModel
 from .enums import (
     AssetOrigin,
     AssetStatus,
-    AssetType,
-    BusinessRole,
     ConflictResolution,
     ConflictSource,
     Criticality,
@@ -49,9 +48,7 @@ class NetworkRange(UUIDModel):
     name = models.CharField("nombre", max_length=100, unique=True)
     cidr = models.CharField("CIDR", max_length=43, unique=True)
     zone = models.CharField("zona", max_length=10, choices=Exposure.choices)
-    environment = models.CharField(
-        "entorno", max_length=10, choices=Environment.choices, default=Environment.PROD
-    )
+    environment = models.CharField("entorno", max_length=30, default="PROD")
     description = models.TextField("descripción", blank=True)
 
     in_scope = models.BooleanField("dentro del alcance", default=False)
@@ -117,6 +114,57 @@ class NetworkRange(UUIDModel):
             )
 
 
+class CatalogEntry(UUIDModel):
+    """Entrada de catálogo administrable (tipo de activo, entorno, función de negocio)."""
+
+    KIND_CHOICES = [
+        ("ASSET_TYPE", "Tipo de activo"),
+        ("ENVIRONMENT", "Entorno"),
+        ("BUSINESS_ROLE", "Función de negocio"),
+    ]
+
+    kind = models.CharField("catálogo", max_length=15, choices=KIND_CHOICES)
+    code = models.CharField(
+        "código",
+        max_length=30,
+        validators=[RegexValidator(r"^[A-Z][A-Z0-9_]*$", "Usa MAYÚSCULAS, dígitos y _.")],
+    )
+    label = models.CharField("etiqueta", max_length=60)
+    description = models.CharField(
+        "descripción", max_length=255, blank=True, help_text="Ayuda para quien clasifica."
+    )
+    order = models.PositiveSmallIntegerField("orden", default=100)
+    is_active = models.BooleanField("activa", default=True)
+    is_system = models.BooleanField("de sistema", default=False, editable=False)
+    required_identifier_kinds = ArrayField(
+        models.CharField(max_length=12, choices=IdentifierKind.choices),
+        verbose_name="identificadores requeridos",
+        default=list,
+        blank=True,
+        help_text="Solo tipos de activo: al menos uno de estos identificadores (vacío = cualquiera).",
+    )
+    is_production = models.BooleanField(
+        "entorno productivo", default=False, help_text="Solo entornos."
+    )
+    is_identity_control = models.BooleanField(
+        "componente de identidad o control",
+        default=False,
+        help_text="Solo funciones de negocio (p. ej. autenticación, IAM, PKI).",
+    )
+
+    history = HistoricalRecords()
+
+    class Meta:
+        ordering = ["kind", "order", "label"]
+        verbose_name = "entrada de catálogo"
+        verbose_name_plural = "catálogos"
+        permissions = [("manage_catalogs", "Gestionar catálogos (tipos, entornos, funciones)")]
+        constraints = [models.UniqueConstraint(fields=["kind", "code"], name="unique_catalog_code")]
+
+    def __str__(self):
+        return f"{self.get_kind_display()}: {self.label}"
+
+
 class Tag(models.Model):
     name = models.SlugField("etiqueta", max_length=50, unique=True, allow_unicode=True)
 
@@ -130,18 +178,13 @@ class Tag(models.Model):
 
 class Asset(UUIDModel):
     name = models.CharField("nombre", max_length=200)
-    asset_type = models.CharField(
-        "tipo", max_length=20, choices=AssetType.choices, default=AssetType.HOST
-    )
+    # Tipo, función y entorno: códigos de los catálogos administrables (apps/assets/catalogs.py).
+    asset_type = models.CharField("tipo", max_length=30, default="HOST")
     description = models.TextField(
         "descripción", blank=True, help_text="Función, datos que maneja, usuarios. Insumo del LLM."
     )
-    business_role = models.CharField(
-        "función de negocio", max_length=20, choices=BusinessRole.choices, null=True, blank=True
-    )
-    environment = models.CharField(
-        "entorno", max_length=10, choices=Environment.choices, null=True, blank=True
-    )
+    business_role = models.CharField("función de negocio", max_length=30, null=True, blank=True)
+    environment = models.CharField("entorno", max_length=30, null=True, blank=True)
     network_range = models.ForeignKey(
         NetworkRange,
         verbose_name="rango de red",
@@ -339,9 +382,7 @@ class ContainerRegistry(UUIDModel):
 
     name = models.CharField("nombre", max_length=100, unique=True)
     url = models.URLField("URL")
-    environment = models.CharField(
-        "entorno", max_length=10, choices=Environment.choices, default=Environment.PROD
-    )
+    environment = models.CharField("entorno", max_length=30, default="PROD")
     username = models.CharField("usuario", max_length=200, blank=True)
     token = EncryptedTextField("token de solo lectura", blank=True)
     verify_tls = models.BooleanField("verificar TLS", default=True)

@@ -91,7 +91,12 @@ def test_dry_run_plans_every_row_without_writing(operator_client):
     content = make_csv(
         row(name="nuevo", asset_type="HOST", ipv4="10.1.0.9"),
         row(name="db01", asset_type="DATABASE", ipv4="10.1.0.5", criticality="ALTO"),
-        row(name="choque", asset_type="HOST", mac="aa:bb:cc:dd:ee:01", fqdn="dup.phylax.local"),
+        row(
+            name="choque",
+            asset_type="NETWORK_DEVICE",
+            mac="aa:bb:cc:dd:ee:01",
+            fqdn="dup.phylax.local",
+        ),
         row(name="mala", asset_type="HOST", ipv4="999.1.1.1"),
         row(name="enum", asset_type="SERVIDOR", ipv4="10.1.0.10"),
         row(name="otra-vez", asset_type="HOST", ipv4="10.1.0.9"),
@@ -254,3 +259,19 @@ def test_template_download(client, make_user):
     assert rows[0] == csv_io.COLUMNS and len(rows) == 2
     # La plantilla se puede importar tal cual.
     assert csv_io.plan_import(csv_io.read_rows(response.content))[0]["action"] == "create"
+
+
+def test_import_enforces_catalog_and_required_identifiers():
+    plan = csv_io.plan_import(
+        csv_io.read_rows(
+            make_csv(
+                row(name="sin-ip", asset_type="HOST", fqdn="solo-fqdn.phylax.local"),
+                row(
+                    name="rol-raro", asset_type="HOST", ipv4="10.12.0.1", business_role="NO_EXISTE"
+                ),
+                row(name="ok", asset_type="DATABASE", fqdn="db.phylax.local", environment="prod"),
+            )
+        )
+    )
+    assert [e["action"] for e in plan] == ["error", "error", "create"]
+    assert "IPv4" in plan[0]["detail"] and "business_role" in plan[1]["detail"]

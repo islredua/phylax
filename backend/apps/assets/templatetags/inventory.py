@@ -83,3 +83,11 @@ def choice_label(value, enum_name):
         return getattr(enums, enum_name)(value).label
     except ValueError:
         return value
+
+
+@register.filter
+def catalog(value, kind):
+    """Etiqueta de un código de catálogo (``{{ a.asset_type|catalog:"ASSET_TYPE" }}``)."""
+    from apps.assets.catalogs import label
+
+    return label(kind, value) if value else "—"

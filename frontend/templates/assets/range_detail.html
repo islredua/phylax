@@ -17,7 +17,7 @@
     <h3 class="card-title">Rango y autorización</h3>
     <dl class="kv-grid">
       <div><dt class="kv-label">Zona (exposición heredada)</dt><dd class="kv-value"><span class="badge-primary">{{ range.get_zone_display }}</span></dd></div>
-      <div><dt class="kv-label">Entorno</dt><dd class="kv-value">{{ range.get_environment_display }}</dd></div>
+      <div><dt class="kv-label">Entorno</dt><dd class="kv-value">{{ range.environment|catalog:"ENVIRONMENT" }}</dd></div>
       <div><dt class="kv-label">Alcance</dt><dd class="kv-value">{% if range.is_authorized %}<span class="badge-low">autorizado</span>{% elif range.in_scope %}<span class="badge-critical">autorización expirada</span>{% else %}<span class="badge-neutral">fuera del alcance</span>{% endif %}</dd></div>
       <div><dt class="kv-label">Referencia de autorización</dt><dd class="kv-value">{{ range.authorization_reference|default:"—" }}</dd></div>
       <div><dt class="kv-label">Autorizado por</dt><dd class="kv-value font-mono text-xs">{{ range.authorized_by.get_username|default:"—" }} · {{ range.authorized_at|date:"Y-m-d H:i"|default:"—" }}</dd></div>

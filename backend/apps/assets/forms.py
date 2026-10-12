@@ -4,16 +4,14 @@ from django import forms
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 
+from . import catalogs
 from .enums import (
     AssetOrigin,
     AssetStatus,
-    AssetType,
-    BusinessRole,
     ConflictResolution,
     Criticality,
     DataCategory,
     DataClassification,
-    Environment,
     Exposure,
     IdentifierKind,
     SuggestionState,
@@ -24,6 +22,16 @@ from .normalization import normalize_identifier
 
 def _blank(label, choices):
     return [("", label), *choices]
+
+
+def catalog_choices(kind, blank=None):
+    """Opciones de un catálogo, evaluadas al instanciar el formulario (siempre vigentes)."""
+
+    def _choices():
+        options = catalogs.choices(kind)
+        return [("", blank), *options] if blank is not None else options
+
+    return _choices
 
 
 class StyledMixin:
@@ -44,7 +52,7 @@ class AssetFilterForm(StyledMixin, forms.Form):
         widget=forms.TextInput(attrs={"placeholder": "Nombre, IP, FQDN o imagen"}),
     )
     asset_type = forms.ChoiceField(
-        label="Tipo", required=False, choices=_blank("Todos", AssetType.choices)
+        label="Tipo", required=False, choices=catalog_choices(catalogs.ASSET_TYPE, "Todos")
     )
     criticality = forms.ChoiceField(
         label="Criticidad",
@@ -55,7 +63,7 @@ class AssetFilterForm(StyledMixin, forms.Form):
         label="Exposición", required=False, choices=_blank("Todas", Exposure.choices)
     )
     environment = forms.ChoiceField(
-        label="Entorno", required=False, choices=_blank("Todos", Environment.choices)
+        label="Entorno", required=False, choices=catalog_choices(catalogs.ENVIRONMENT, "Todos")
     )
     status = forms.ChoiceField(
         label="Estado",
@@ -81,18 +89,19 @@ class AssetForm(StyledMixin, forms.Form):
     """Alta y edición. ``criticality``/``exposure`` vacíos = sin clasificar / heredar del rango."""
 
     name = forms.CharField(label="Nombre", max_length=200)
-    asset_type = forms.ChoiceField(label="Tipo", choices=AssetType.choices)
+    asset_type = forms.ChoiceField(label="Tipo", choices=catalog_choices(catalogs.ASSET_TYPE, "—"))
     environment = forms.ChoiceField(
-        label="Entorno", choices=_blank("—", Environment.choices), required=False
+        label="Entorno", choices=catalog_choices(catalogs.ENVIRONMENT, "—")
     )
     business_role = forms.ChoiceField(
-        label="Función de negocio", choices=_blank("—", BusinessRole.choices), required=False
+        label="Función de negocio", choices=catalog_choices(catalogs.BUSINESS_ROLE, "—")
     )
     description = forms.CharField(
         label="Descripción",
         required=False,
         widget=forms.Textarea(attrs={"rows": 4}),
-        help_text="Qué hace, qué datos maneja y quién lo usa. Es el insumo principal del LLM.",
+        help_text="Qué hace, qué datos maneja y quién lo usa. Sin descripción no se sugiere "
+        "criticidad con IA (contexto insuficiente).",
     )
     criticality = forms.ChoiceField(
         label="Criticidad", required=False, choices=_blank("Sin clasificar", Criticality.choices)
@@ -174,9 +183,13 @@ IdentifierFormSet = forms.formset_factory(IdentifierForm, extra=3)
 
 class ConfirmForm(StyledMixin, forms.Form):
     name = forms.CharField(label="Nombre", max_length=200)
-    asset_type = forms.ChoiceField(label="Tipo", choices=AssetType.choices)
-    environment = forms.ChoiceField(label="Entorno", choices=Environment.choices)
-    business_role = forms.ChoiceField(label="Función de negocio", choices=BusinessRole.choices)
+    asset_type = forms.ChoiceField(label="Tipo", choices=catalog_choices(catalogs.ASSET_TYPE))
+    environment = forms.ChoiceField(
+        label="Entorno", choices=catalog_choices(catalogs.ENVIRONMENT, "—")
+    )
+    business_role = forms.ChoiceField(
+        label="Función de negocio", choices=catalog_choices(catalogs.BUSINESS_ROLE, "—")
+    )
     description = forms.CharField(
         label="Descripción", required=False, widget=forms.Textarea(attrs={"rows": 3})
     )
@@ -219,6 +232,8 @@ class ConflictResolveForm(forms.Form):
 
 
 class NetworkRangeForm(StyledMixin, forms.ModelForm):
+    environment = forms.ChoiceField(label="Entorno", choices=catalog_choices(catalogs.ENVIRONMENT))
+
     class Meta:
         model = NetworkRange
         fields = [
@@ -265,10 +280,10 @@ class ImageForm(StyledMixin, forms.Form):
         empty_label="Detectar por host",
     )
     environment = forms.ChoiceField(
-        label="Entorno", choices=_blank("—", Environment.choices), required=False
+        label="Entorno", choices=catalog_choices(catalogs.ENVIRONMENT, "—")
     )
     business_role = forms.ChoiceField(
-        label="Función de negocio", required=False, choices=_blank("—", BusinessRole.choices)
+        label="Función de negocio", choices=catalog_choices(catalogs.BUSINESS_ROLE, "—")
     )
     description = forms.CharField(
         label="Descripción", required=False, widget=forms.Textarea(attrs={"rows": 3})
@@ -278,6 +293,7 @@ class ImageForm(StyledMixin, forms.Form):
 class RegistryForm(StyledMixin, forms.ModelForm):
     # Sin esquema se asume https (el registry exige https salvo en LAB).
     url = forms.URLField(label="URL", assume_scheme="https")
+    environment = forms.ChoiceField(label="Entorno", choices=catalog_choices(catalogs.ENVIRONMENT))
     token = forms.CharField(
         label="Token de solo lectura",
         required=False,
@@ -299,3 +315,40 @@ class SbomConfirmForm(StyledMixin, forms.Form):
     asset = forms.ModelChoiceField(
         required=False, queryset=Asset.objects.exclude(status=AssetStatus.RETIRED)
     )
+
+
+class CatalogEntryForm(StyledMixin, forms.Form):
+    code = forms.CharField(
+        label="Código",
+        max_length=30,
+        help_text="MAYÚSCULAS, dígitos y _. No se puede cambiar en entradas de sistema.",
+    )
+    label = forms.CharField(label="Etiqueta", max_length=60)
+    description = forms.CharField(label="Descripción", max_length=255, required=False)
+    order = forms.IntegerField(label="Orden", min_value=0, max_value=1000, initial=100)
+    is_active = forms.BooleanField(label="Activa", required=False, initial=True)
+    required_identifier_kinds = forms.MultipleChoiceField(
+        label="Identificadores requeridos (al menos uno)",
+        required=False,
+        choices=IdentifierKind.choices,
+        widget=forms.CheckboxSelectMultiple,
+    )
+    is_production = forms.BooleanField(label="Entorno productivo", required=False)
+    is_identity_control = forms.BooleanField(
+        label="Componente de identidad o control", required=False
+    )
+
+    KIND_FIELDS = {
+        catalogs.ASSET_TYPE: {"required_identifier_kinds"},
+        catalogs.ENVIRONMENT: {"is_production"},
+        catalogs.BUSINESS_ROLE: {"is_identity_control"},
+    }
+
+    def __init__(self, *args, kind, entry=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        hidden = set().union(*self.KIND_FIELDS.values()) - self.KIND_FIELDS[kind]
+        for name in hidden:
+            del self.fields[name]
+        if entry is not None and entry.is_system:
+            self.fields["code"].disabled = True
+            self.fields["is_active"].disabled = True

@@ -36,9 +36,9 @@
   <section class="card">
     <h3 class="card-title">Contexto de negocio</h3>
     <dl class="kv-grid">
-      <div><dt class="kv-label">Tipo</dt><dd class="kv-value">{{ asset.get_asset_type_display }}</dd></div>
-      <div><dt class="kv-label">Función de negocio</dt><dd class="kv-value">{{ asset.business_role|choice_label:"BusinessRole" }}</dd></div>
-      <div><dt class="kv-label">Entorno</dt><dd class="kv-value">{{ asset.environment|choice_label:"Environment" }}</dd></div>
+      <div><dt class="kv-label">Tipo</dt><dd class="kv-value">{{ asset.asset_type|catalog:"ASSET_TYPE" }}</dd></div>
+      <div><dt class="kv-label">Función de negocio</dt><dd class="kv-value">{{ asset.business_role|catalog:"BUSINESS_ROLE" }}</dd></div>
+      <div><dt class="kv-label">Entorno</dt><dd class="kv-value">{{ asset.environment|catalog:"ENVIRONMENT" }}</dd></div>
       <div><dt class="kv-label">Criticidad</dt><dd class="kv-value">{% criticality_badge asset.criticality asset.criticality_source %}{% if asset.criticality_source %} <span class="text-xs text-muted">{{ asset.get_criticality_source_display }}</span>{% endif %}</dd></div>
       <div><dt class="kv-label">Exposición</dt><dd class="kv-value">{% exposure_badge asset.exposure asset.exposure_source %} <span class="text-xs text-muted">{{ asset.get_exposure_source_display }}</span></dd></div>
       <div><dt class="kv-label">Rango de red</dt><dd class="kv-value">{% if asset.network_range %}<a href="{% url 'assets:range_detail' asset.network_range_id %}">{{ asset.network_range.name }}</a> <span class="font-mono text-xs text-muted">{{ asset.network_range.cidr }}</span>{% else %}—{% endif %}</dd></div>

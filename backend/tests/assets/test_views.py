@@ -152,11 +152,14 @@ def test_detail_tabs_render(client, as_role, tab):
 def test_history_tab_shows_author_and_changes(client, as_role):
     operator = as_role(OPERATOR)
     asset = AssetFactory(criticality="BAJO")
+    AssetIdentifierFactory(asset=asset, kind=IdentifierKind.IPV4, value="10.76.0.1")
     client.post(
         f"/inventory/{asset.pk}/edit/",
         {
             "name": asset.name,
             "asset_type": "HOST",
+            "environment": "PROD",
+            "business_role": "API",
             "criticality": "ALTO",
             "in_scope": "on",
             "ident-TOTAL_FORMS": "0",
@@ -165,9 +168,6 @@ def test_history_tab_shows_author_and_changes(client, as_role):
     )
     body = client.get(f"/inventory/{asset.pk}/", {"tab": "historial"}).content.decode()
     assert operator.username in body and "Alto" in body
-
-
-# --- Alta, edición, confirmación ------------------------------------------------------------
 
 
 def test_create_asset_with_inline_identifiers(client, as_role):
@@ -219,25 +219,50 @@ def test_edit_adds_and_removes_identifiers(client, as_role):
     as_role(OPERATOR)
     asset = AssetFactory()
     old = AssetIdentifierFactory(asset=asset, kind=IdentifierKind.IPV4, value="10.78.0.1")
-    client.post(
+    base = {
+        "name": asset.name,
+        "asset_type": "HOST",
+        "in_scope": "on",
+        "environment": "PROD",
+        "business_role": "API",
+        "remove_identifier": [str(old.pk)],
+    }
+    # Quitar la única IP de un host sin poner otra no se permite (y no se aplica nada).
+    response = client.post(
         f"/inventory/{asset.pk}/edit/",
         {
-            "name": asset.name,
-            "asset_type": "HOST",
-            "in_scope": "on",
-            "remove_identifier": [str(old.pk)],
+            **base,
             "ident-TOTAL_FORMS": "1",
             "ident-INITIAL_FORMS": "0",
             "ident-0-kind": "MAC",
             "ident-0-value": "AA-BB-CC-00-11-22",
         },
     )
-    assert list(asset.identifiers.values_list("value", flat=True)) == ["aa:bb:cc:00:11:22"]
+    assert response.status_code == 200 and "IPv4" in response.content.decode()
+    assert list(asset.identifiers.values_list("value", flat=True)) == ["10.78.0.1"]
+    # Reemplazarla por otra IP sí.
+    client.post(
+        f"/inventory/{asset.pk}/edit/",
+        {
+            **base,
+            "ident-TOTAL_FORMS": "2",
+            "ident-INITIAL_FORMS": "0",
+            "ident-0-kind": "IPV4",
+            "ident-0-value": "10.78.0.2",
+            "ident-1-kind": "MAC",
+            "ident-1-value": "AA-BB-CC-00-11-22",
+        },
+    )
+    assert sorted(asset.identifiers.values_list("value", flat=True)) == [
+        "10.78.0.2",
+        "aa:bb:cc:00:11:22",
+    ]
 
 
 def test_confirm_flow_requests_llm_suggestion(client, as_role):
     as_role(OPERATOR)
     asset = AssetFactory(status=AssetStatus.UNCONFIRMED, criticality=None)
+    AssetIdentifierFactory(asset=asset, kind=IdentifierKind.IPV4, value="10.79.0.1")
     response = client.post(
         f"/inventory/{asset.pk}/confirm/",
         {
@@ -476,7 +501,10 @@ def test_registry_connection_view(client, as_role, respx_mock):
 
 def test_register_image_view(client, as_role):
     as_role(OPERATOR)
-    response = client.post("/inventory/images/new/", {"ref": "nginx:1.27", "environment": "PROD"})
+    response = client.post(
+        "/inventory/images/new/",
+        {"ref": "nginx:1.27", "environment": "PROD", "business_role": "WEB_PUBLICA"},
+    )
     asset = Asset.objects.get(asset_type="CONTAINER_IMAGE")
     assert response.url == f"/inventory/{asset.pk}/"
     assert "docker.io/library/nginx" in client.get("/inventory/images/").content.decode()
@@ -581,3 +609,65 @@ def test_run_detail_shows_nmap_output_escaped(client, as_role, settings):
     body = client.get(f"/discovery/runs/{run.pk}/").content.decode()
     assert "Salida de nmap" in body and "80/tcp open http" in body
     assert "<script>alert(1)</script>" not in body
+
+
+def test_host_registration_requires_ip_and_context(client, as_role):
+    as_role(OPERATOR)
+    response = client.post(
+        "/inventory/new/",
+        {
+            "name": "sin-ip",
+            "asset_type": "HOST",
+            "in_scope": "on",
+            "ident-TOTAL_FORMS": "1",
+            "ident-INITIAL_FORMS": "0",
+            "ident-0-kind": "FQDN",
+            "ident-0-value": "sin-ip.phylax.local",
+        },
+    )
+    body = response.content.decode()
+    assert response.status_code == 200 and not Asset.objects.filter(name="sin-ip").exists()
+    form = response.context["form"]
+    assert "environment" in form.errors and "business_role" in form.errors
+    response = client.post(
+        "/inventory/new/",
+        {
+            "name": "sin-ip",
+            "asset_type": "HOST",
+            "environment": "PROD",
+            "business_role": "API",
+            "in_scope": "on",
+            "ident-TOTAL_FORMS": "1",
+            "ident-INITIAL_FORMS": "0",
+            "ident-0-kind": "FQDN",
+            "ident-0-value": "sin-ip.phylax.local",
+        },
+    )
+    assert "IPv4" in response.content.decode()
+    assert not Asset.objects.filter(name="sin-ip").exists()
+    assert body
+
+
+def test_catalog_admin(client, as_role):
+    from apps.assets.models import CatalogEntry
+
+    as_role(OPERATOR)
+    assert client.get("/inventory/catalogs/").status_code == 403
+    as_role(ADMIN)
+    assert "Producción" in client.get("/inventory/catalogs/?kind=ENVIRONMENT").content.decode()
+    client.post(
+        "/inventory/catalogs/new/",
+        {"kind": "ENVIRONMENT", "code": "qa", "label": "QA", "order": "50", "is_active": "on"},
+    )
+    qa = CatalogEntry.objects.get(kind="ENVIRONMENT", code="QA")
+    assert not qa.is_production
+    # La nueva entrada aparece en los formularios de activos.
+    assert 'value="QA"' in client.get("/inventory/new/").content.decode()
+    prod = CatalogEntry.objects.get(kind="ENVIRONMENT", code="PROD")
+    response = client.post(
+        f"/inventory/catalogs/{prod.pk}/edit/",
+        {"code": "PRODUCCION", "label": "Productivo", "order": "0", "is_production": "on"},
+    )
+    prod.refresh_from_db()
+    assert prod.code == "PROD" and prod.label == "Productivo" and prod.is_active
+    assert response.status_code == 302

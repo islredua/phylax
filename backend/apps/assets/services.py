@@ -20,6 +20,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
+from . import catalogs
 from .contracts import AssetContext, DiscoveredHost, ScanTarget, UpsertResult
 from .enums import (
     IDENTITY_PRECEDENCE,
@@ -491,8 +492,14 @@ def _apply_fields(asset, fields):
     unknown = set(fields) - set(EDITABLE_FIELDS)
     if unknown:
         raise ValueError(f"Campos no editables: {sorted(unknown)}")
+    catalogs.validate_fields(fields)
     for name, value in fields.items():
         setattr(asset, name, value)
+
+
+def check_asset_identifiers(asset):
+    """El activo cumple los identificadores requeridos por su tipo (catálogo)."""
+    catalogs.check_identifiers(asset.asset_type, asset.identifiers.values_list("kind", flat=True))
 
 
 def set_criticality(asset, value, *, source=CriticalitySource.MANUAL):
@@ -528,6 +535,7 @@ def create_asset(
     """Alta manual (o por importación) de un activo ``ACTIVE``."""
     _require(user, "assets.add_asset")
     normalized = _normalize_all(identifiers)
+    catalogs.check_identifiers(fields.get("asset_type"), [kind for kind, _ in normalized])
     existing = resolve_asset(normalized, source=ConflictSource.MANUAL, persist=False)
     if existing is not None:
         raise ValidationError(
@@ -593,6 +601,7 @@ def remove_identifier(identifier, *, user):
     asset = identifier.asset
     _attribute(identifier, user)
     identifier.delete()
+    check_asset_identifiers(asset)
     assign_network_range(asset)
     _attribute(asset, user)
     asset.save()
@@ -618,6 +627,7 @@ def confirm_asset(asset, *, user, fields=None, criticality=None):
     if asset.status not in (AssetStatus.UNCONFIRMED, AssetStatus.IGNORED):
         raise ValidationError("Solo se confirman activos por confirmar o ignorados.")
     _apply_fields(asset, fields or {})
+    check_asset_identifiers(asset)
     missing = [f for f in CONFIRM_REQUIRED_FIELDS if not getattr(asset, f)]
     if missing:
         raise ValidationError(

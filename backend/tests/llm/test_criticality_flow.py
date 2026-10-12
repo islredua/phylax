@@ -106,6 +106,7 @@ def test_disallowed_model_is_rejected(operator):
 def test_confirming_without_criticality_triggers_suggestion(ollama, operator):
     ollama.post(f"{BASE}/api/chat").respond(json=chat_response(VALID))
     asset = AssetFactory(status=AssetStatus.UNCONFIRMED, criticality=None)
+    AssetIdentifierFactory(asset=asset, kind=IdentifierKind.IPV4, value="10.88.0.1")
     services.confirm_asset(asset, user=operator)
     assert CriticalitySuggestion.objects.filter(asset=asset).exists()
 

@@ -14,7 +14,7 @@ from django.views import View
 from django.views.generic import ListView
 
 from . import services
-from .enums import AssetOrigin, AssetType
+from .enums import AssetOrigin, AssetType, IdentifierKind
 from .forms import ImageForm, RegistryForm, SbomConfirmForm, SbomUploadForm
 from .models import (
     Asset,
@@ -25,7 +25,7 @@ from .models import (
     UploadKind,
 )
 from .registry_services import check_registry_connection, save_registry
-from .sbom import SbomInfo, attach_sbom, inspect_sbom, suggest_asset
+from .sbom import SbomInfo, attach_sbom, inspect_sbom, subject_identifiers, suggest_asset
 from .views import Perm, _messages_from
 
 PENDING_TTL = timedelta(hours=1)
@@ -254,6 +254,13 @@ class SbomConfirmView(Perm, View):
         try:
             if form.cleaned_data["action"] == "create":
                 looks_like_image = "/" in subject or ":" in subject
+                wanted = IdentifierKind.IMAGE_REF if looks_like_image else IdentifierKind.FQDN
+                identifiers = [i for i in subject_identifiers(subject) if i[0] == wanted][:1]
+                if not identifiers:
+                    raise ValidationError(
+                        "No se pudo derivar un identificador (imagen o FQDN) del sujeto del SBOM; "
+                        "da de alta el activo manualmente y asocia el SBOM desde su detalle."
+                    )
                 asset = services.create_asset(
                     user=request.user,
                     fields={
@@ -262,6 +269,7 @@ class SbomConfirmView(Perm, View):
                             AssetType.CONTAINER_IMAGE if looks_like_image else AssetType.OTHER
                         ),
                     },
+                    identifiers=identifiers,
                     origin=AssetOrigin.SBOM,
                 )
             else:

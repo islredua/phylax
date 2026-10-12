@@ -310,6 +310,7 @@ def test_get_scan_targets_excludes_non_scannable_and_out_of_scope():
 
 def test_confirm_requires_minimum_fields(operator):
     asset = AssetFactory(status=AssetStatus.UNCONFIRMED, environment=None, business_role=None)
+    ident(asset, IdentifierKind.IPV4, "10.150.0.1")
     with pytest.raises(ValidationError, match="faltan"):
         services.confirm_asset(asset, user=operator)
     services.confirm_asset(
@@ -325,6 +326,7 @@ def test_confirm_requires_minimum_fields(operator):
 
 def test_confirm_records_history_user(operator):
     asset = AssetFactory(status=AssetStatus.UNCONFIRMED)
+    ident(asset, IdentifierKind.IPV4, "10.150.0.2")
     services.confirm_asset(asset, user=operator, criticality="BAJO")
     assert asset.history.first().history_user == operator
 
@@ -559,3 +561,35 @@ def test_beat_schedule_and_routes_are_configured():
     routes = settings.CELERY_TASK_ROUTES
     assert routes["apps.assets.tasks.suggest_criticality"]["queue"] == "llm"
     assert routes["apps.discovery.tasks.run_discovery"]["queue"] == "discovery"
+
+
+def test_confirm_requires_identifiers_of_the_type(operator):
+    asset = AssetFactory(status=AssetStatus.UNCONFIRMED)
+    ident(asset, IdentifierKind.FQDN, "solo-nombre.phylax.local")
+    with pytest.raises(ValidationError, match="IPv4"):
+        services.confirm_asset(asset, user=operator, criticality="BAJO")
+
+
+def test_create_asset_requires_identifier_for_type(operator):
+    fields = {"name": "x", "asset_type": "HOST", "environment": "PROD", "business_role": "API"}
+    with pytest.raises(ValidationError, match="al menos un identificador"):
+        services.create_asset(user=operator, fields=fields, identifiers=[])
+    with pytest.raises(ValidationError, match="IPv4"):
+        services.create_asset(
+            user=operator, fields=fields, identifiers=[(IdentifierKind.FQDN, "host.phylax.local")]
+        )
+    with pytest.raises(ValidationError, match="catálogo"):
+        services.create_asset(
+            user=operator,
+            fields={**fields, "environment": "MARTE"},
+            identifiers=[(IdentifierKind.IPV4, "10.151.0.1")],
+        )
+
+
+def test_cannot_remove_last_required_identifier(operator):
+    asset = AssetFactory(asset_type="HOST")
+    only_ip = ident(asset, IdentifierKind.IPV4, "10.152.0.1")
+    pk = only_ip.pk
+    with pytest.raises(ValidationError, match="identificador"):
+        services.remove_identifier(only_ip, user=operator)
+    assert asset.identifiers.filter(pk=pk).exists()

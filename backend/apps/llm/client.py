@@ -99,7 +99,7 @@ def _mock_content(task, request_payload):
         "CLINICO",
         "CREDENCIALES",
     }
-    if environment in ("DEV", "TEST", "LAB"):
+    if str(environment).upper() in ("DEV", "TEST", "LAB", "DESARROLLO", "PRUEBAS", "LABORATORIO"):
         criticality = "BAJO"
     elif sensitive:
         criticality = "ALTO" if len(sensitive) == 1 else "CRITICO"

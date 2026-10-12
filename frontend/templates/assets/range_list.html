@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load inventory %}
 {% block title %}Rangos de red{% endblock %}
 {% block toolbar %}
 <div class="toolbar">
@@ -17,7 +18,7 @@
         <td><a href="{% url 'assets:range_detail' r.pk %}" class="font-medium">{{ r.name }}</a></td>
         <td class="font-mono text-xs">{{ r.cidr }}</td>
         <td><span class="badge-primary">{{ r.get_zone_display }}</span></td>
-        <td class="text-ink-soft">{{ r.get_environment_display }}</td>
+        <td class="text-ink-soft">{{ r.environment|catalog:"ENVIRONMENT" }}</td>
         <td>{% if r.is_authorized %}<span class="badge-low">autorizado</span>{% elif r.in_scope %}<span class="badge-critical">autorización expirada</span>{% else %}<span class="badge-neutral">fuera</span>{% endif %}</td>
         <td class="text-ink-soft">{{ r.get_discovery_schedule_display }}</td>
         <td class="font-mono text-xs">{{ r.last_discovery_at|date:"Y-m-d H:i"|default:"—" }}</td>

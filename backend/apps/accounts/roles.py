@@ -39,7 +39,11 @@ IMMUTABLE_MODELS = {
     ("discovery", "discoveryrun"),
 }
 # Configuración que solo admin modifica; el operador solo la consulta.
-ADMIN_MANAGED_MODELS = {("assets", "networkrange"), ("assets", "containerregistry")}
+ADMIN_MANAGED_MODELS = {
+    ("assets", "networkrange"),
+    ("assets", "containerregistry"),
+    ("assets", "catalogentry"),
+}
 # (app_label, model) con secretos: ningún rol recibe permisos sobre ellos.
 SECRET_MODELS = {
     ("accounts", "mfadevice"),

@@ -3,6 +3,7 @@
 from django.contrib import messages
 from django.contrib.auth.mixins import PermissionRequiredMixin
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db import transaction
 from django.db.models import Count, Exists, OuterRef, Q
 from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect, render
@@ -311,20 +312,24 @@ class AssetEditView(Perm, View):
         formset = IdentifierFormSet(request.POST, prefix="ident")
         if form.is_valid() and formset.is_valid():
             try:
-                services.update_asset(
-                    asset,
-                    user=request.user,
-                    fields=form.context_fields(),
-                    criticality=form.cleaned_data["criticality"] or None,
-                    exposure=form.cleaned_data["exposure"] or None,
-                    tags=services.get_or_create_tags(form.cleaned_data["tags"]),
-                )
-                for identifier in asset.identifiers.filter(
-                    pk__in=request.POST.getlist("remove_identifier")
-                ):
-                    services.remove_identifier(identifier, user=request.user)
-                for kind, value in _identifiers_from(formset):
-                    services.add_identifier(asset, kind, value, user=request.user)
+                # Todo o nada: primero se agregan identificadores, luego se quitan y al final
+                # se valida que el tipo conserve los identificadores que exige su catálogo.
+                with transaction.atomic():
+                    services.update_asset(
+                        asset,
+                        user=request.user,
+                        fields=form.context_fields(),
+                        criticality=form.cleaned_data["criticality"] or None,
+                        exposure=form.cleaned_data["exposure"] or None,
+                        tags=services.get_or_create_tags(form.cleaned_data["tags"]),
+                    )
+                    for kind, value in _identifiers_from(formset):
+                        services.add_identifier(asset, kind, value, user=request.user)
+                    for identifier in asset.identifiers.filter(
+                        pk__in=request.POST.getlist("remove_identifier")
+                    ):
+                        services.remove_identifier(identifier, user=request.user)
+                    services.check_asset_identifiers(Asset.objects.get(pk=asset.pk))
             except ValidationError as error:
                 form.add_error(None, error)
             else:
