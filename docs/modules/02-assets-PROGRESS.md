@@ -24,7 +24,7 @@ con LLM local). Se actualiza en cada etapa.
 |---|---|---|
 | 1 | Reconocimiento y este documento | ✅ |
 | 2 | `core` + cifrado de campos + dependencias | ✅ |
-| 3 | Modelos, enums, migraciones, admin, factories, normalización | ⏳ |
+| 3 | Modelos, enums, migraciones, admin, factories, normalización | ✅ |
 | 4 | Services, contracts y ciclo de vida | ⏳ |
 | 5 | Celery + Redis + Beat + compose | ⏳ |
 | 6 | App `llm` + Ollama + `eval_criticality` | ⏳ |
@@ -38,3 +38,10 @@ con LLM local). Se actualiza en cada etapa.
 ## Desviaciones respecto a la especificación
 
 Se documentan aquí conforme aparezcan.
+
+- **Matriz de roles** (`apps/accounts/roles.py`): los permisos custom ahora se asignan explícitamente.
+  `admin` recibe todos; `operador` recibe `assets.decide_criticality` y `discovery.run_discovery`.
+  Antes ningún rol recibía permisos custom (no existían); era un hueco latente.
+- **`ContainerRegistry.environment`**: campo añadido para poder aplicar la regla "https obligatorio salvo en LAB".
+- **`ContainerRegistry.last_check_detail`**, **`DiscoveryRun.scan_mode`**, **`InferenceLog.accelerator`/`attempts`**,
+  **`CriticalitySuggestion.model`/`requested_by`**: campos de trazabilidad añadidos.

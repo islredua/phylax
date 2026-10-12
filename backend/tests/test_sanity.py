@@ -34,7 +34,8 @@ def test_asset_model_importable():
     from apps.assets.models import Asset
 
     field_names = {f.name for f in Asset._meta.get_fields()}
-    assert "hostname" in field_names
+    assert "name" in field_names
+    assert "identifiers" in field_names
     assert "criticality" in field_names
     assert "exposure" in field_names
 

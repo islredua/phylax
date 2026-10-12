@@ -18,6 +18,7 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django.contrib.postgres",
     "rest_framework",
     "simple_history",
     "django_htmx",
@@ -25,6 +26,8 @@ INSTALLED_APPS = [
     "apps.core",
     "apps.accounts",
     "apps.assets",
+    "apps.discovery",
+    "apps.llm",
     "apps.scanners",
     "apps.cti",
     "apps.scoring",
@@ -140,6 +143,10 @@ LANGUAGE_CODE = "es-mx"
 TIME_ZONE = "America/Mexico_City"
 USE_I18N = True
 USE_TZ = True
+
+# --- Archivos subidos (SBOM, XML de discovery, cargas temporales) ---
+# Nunca se sirven directamente: solo vía vistas que verifican permisos.
+MEDIA_ROOT = os.environ.get("PHYLAX_MEDIA_ROOT", "/data/media")
 
 # --- Archivos estáticos ---
 STATIC_URL = "static/"

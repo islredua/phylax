@@ -12,8 +12,13 @@ Matriz (ver ADR-004):
             No puede borrar (STRIDE Tampering: evitar pérdida de evidencia).
 - auditor:  solo view en las apps del proyecto, incluida la bitácora.
 
-Los modelos inmutables (bitácora de auditoría) solo admiten ``view`` para
-cualquier rol.
+Los modelos inmutables (bitácora de auditoría, inferencias LLM, ejecuciones
+de descubrimiento, historial) solo admiten ``view`` para cualquier rol.
+
+Permisos custom (``Meta.permissions``): por defecto solo ``admin``. Las
+excepciones se listan en ``ROLE_CUSTOM_PERMISSIONS`` (Módulo 2: el operador
+—Analista— decide sugerencias de criticidad y lanza descubrimiento sobre rangos
+existentes; gestionar alcance y registries queda solo para ``admin``).
 """
 
 from django.apps import apps as django_apps
@@ -28,7 +33,13 @@ PROJECT_PACKAGE = "apps."
 # Apps cuya administración equivale a gestionar usuarios y roles.
 USER_MANAGEMENT_APPS = {"accounts", "auth"}
 # (app_label, model) que nunca deben modificarse ni borrarse desde la aplicación.
-IMMUTABLE_MODELS = {("accounts", "auditlogentry")}
+IMMUTABLE_MODELS = {
+    ("accounts", "auditlogentry"),
+    ("llm", "inferencelog"),
+    ("discovery", "discoveryrun"),
+}
+# Configuración que solo admin modifica; el operador solo la consulta.
+ADMIN_MANAGED_MODELS = {("assets", "networkrange"), ("assets", "containerregistry")}
 # (app_label, model) con secretos: ningún rol recibe permisos sobre ellos.
 SECRET_MODELS = {
     ("accounts", "mfadevice"),
@@ -36,11 +47,16 @@ SECRET_MODELS = {
     ("accounts", "usersession"),
 }
 
-ALL_ACTIONS = {"view", "add", "change", "delete"}
+STANDARD_ACTIONS = ALL_ACTIONS = {"view", "add", "change", "delete"}
 ROLE_ACTIONS = {
     ADMIN: ALL_ACTIONS,
     OPERATOR: {"view", "add", "change"},
     AUDITOR: {"view"},
+}
+# Permisos custom ("app_label.codename") que reciben roles distintos de admin.
+ROLE_CUSTOM_PERMISSIONS = {
+    OPERATOR: {"assets.decide_criticality", "discovery.run_discovery"},
+    AUDITOR: set(),
 }
 
 
@@ -65,11 +81,21 @@ def permissions_for_role(role, using="default"):
     perms = perms.filter(content_type__app_label__in=_role_app_labels(role))
     allowed = []
     for perm in perms:
+        app_label, model = perm.content_type.app_label, perm.content_type.model
         action = perm.codename.split("_", 1)[0]
-        model_key = (perm.content_type.app_label, perm.content_type.model)
-        if model_key in SECRET_MODELS:
+        is_standard = perm.codename == f"{action}_{model}" and action in STANDARD_ACTIONS
+        if (app_label, model) in SECRET_MODELS:
             continue
-        if model_key in IMMUTABLE_MODELS and action != "view":
+        if not is_standard:
+            # Permiso custom: admin siempre; otros roles solo si están listados.
+            label = f"{app_label}.{perm.codename}"
+            if role == ADMIN or label in ROLE_CUSTOM_PERMISSIONS.get(role, ()):
+                allowed.append(perm)
+            continue
+        immutable = (app_label, model) in IMMUTABLE_MODELS or model.startswith("historical")
+        if immutable and action != "view":
+            continue
+        if role != ADMIN and (app_label, model) in ADMIN_MANAGED_MODELS and action != "view":
             continue
         if action in actions:
             allowed.append(perm)
