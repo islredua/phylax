@@ -1,8 +1,7 @@
 {% extends "accounts/me/_layout.html" %}
 {% block title %}Desactivar verificación en dos pasos{% endblock %}
 {% block account_content %}
-<h1>Desactivar verificación en dos pasos</h1>
-<p class="text-text-secondary">Tu cuenta quedará protegida solo por tu contraseña. Confirma con tu contraseña y un código vigente.</p>
+<div class="alert-warning">Tu cuenta quedará protegida solo por tu contraseña. Confirma con tu contraseña y un código vigente.</div>
 {% url 'accounts:security' as security_url %}
 {% include "accounts/me/_form.html" with submit_label="Desactivar" cancel_url=security_url %}
 {% endblock %}

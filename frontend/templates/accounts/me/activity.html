@@ -1,32 +1,23 @@
 {% extends "accounts/me/_layout.html" %}
 {% block title %}Mi actividad{% endblock %}
 {% block account_content %}
-<h1>Mi actividad</h1>
-<p class="text-text-secondary">Eventos de seguridad de tu cuenta. Si ves algo que no reconoces, cambia tu contraseña y cierra tus otras sesiones.</p>
-<div class="overflow-x-auto rounded-lg border border-border">
-  <table class="w-full text-left">
-    <thead class="bg-surface-elevated text-xs uppercase tracking-wide text-text-muted">
-      <tr><th class="px-3 py-2">Fecha</th><th class="px-3 py-2">Evento</th><th class="px-3 py-2">IP</th><th class="px-3 py-2">Dispositivo</th></tr>
-    </thead>
-    <tbody class="divide-y divide-surface-muted">
+<p class="muted">Eventos de seguridad de tu cuenta. Si ves algo que no reconoces, cambia tu contraseña y cierra tus otras sesiones.</p>
+<div class="table-wrap">
+  <table class="data-table">
+    <thead><tr><th>Fecha</th><th>Evento</th><th>IP</th><th>Dispositivo</th></tr></thead>
+    <tbody>
       {% for entry in entries %}
       <tr>
-        <td class="whitespace-nowrap px-3 py-2 font-mono text-xs text-text-secondary">{{ entry.timestamp|date:"Y-m-d H:i:s" }}</td>
-        <td class="px-3 py-2"><span class="rounded px-2 py-0.5 text-xs {% if entry.event_type == 'login_failed' or entry.event_type == 'mfa_failed' %}bg-danger/15 text-danger{% else %}bg-surface-muted text-text-secondary{% endif %}">{{ entry.get_event_type_display }}</span></td>
-        <td class="px-3 py-2 font-mono text-xs">{{ entry.ip_address|default:"—" }}</td>
-        <td class="max-w-xs truncate px-3 py-2 text-xs text-text-muted" title="{{ entry.user_agent }}">{{ entry.user_agent|default:"—" }}</td>
+        <td class="font-mono text-xs whitespace-nowrap text-ink-soft">{{ entry.timestamp|date:"Y-m-d H:i:s" }}</td>
+        <td>{% include "accounts/_event_badge.html" %}</td>
+        <td class="font-mono text-xs">{{ entry.ip_address|default:"—" }}</td>
+        <td class="max-w-xs truncate text-xs text-muted" title="{{ entry.user_agent }}">{{ entry.user_agent|default:"—" }}</td>
       </tr>
       {% empty %}
-      <tr><td colspan="4" class="px-3 py-6 text-center text-text-muted">Sin eventos.</td></tr>
+      <tr><td colspan="4" class="table-empty">Sin eventos.</td></tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
-{% if is_paginated %}
-<nav class="flex items-center justify-between text-text-secondary" aria-label="Paginación">
-  {% if page_obj.has_previous %}<a class="btn-secondary hover:no-underline" href="{% querystring page=page_obj.previous_page_number %}">Anterior</a>{% else %}<span></span>{% endif %}
-  <span class="text-xs">Página {{ page_obj.number }} de {{ paginator.num_pages }}</span>
-  {% if page_obj.has_next %}<a class="btn-secondary hover:no-underline" href="{% querystring page=page_obj.next_page_number %}">Siguiente</a>{% else %}<span></span>{% endif %}
-</nav>
-{% endif %}
+{% include "_pagination.html" %}
 {% endblock %}

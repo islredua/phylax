@@ -1,76 +1,320 @@
 /*
- * Fuente de estilos de Phylax (Tailwind CSS 4, configuración CSS-first).
- * Compilar con el binario standalone; ver docs/development-guide.md.
- * Los tokens replican la paleta Phylax Dark de ADR-003.
+ * Sistema visual de Phylax: "Gris perla + marino" (ADR-007).
+ * Tailwind CSS 4 (configuración CSS-first). Compilar con el binario standalone;
+ * ver docs/development-guide.md.
+ *
+ * Reglas:
+ * - Marino (--color-primary) es el único color de acento: navegación activa,
+ *   acciones y etiquetas.
+ * - Los colores de severidad (critical/high/medium/low) solo comunican riesgo o
+ *   estado; nunca decoran.
+ * - La paleta por defecto de Tailwind está deshabilitada: solo existen estos tokens.
  */
 @import "tailwindcss";
 
 @source "../templates";
 @source "../../backend/apps";
 
-@theme {
-  --color-surface: #0f172a;
-  --color-surface-elevated: #1e293b;
-  --color-surface-muted: #334155;
-  --color-border: #475569;
-  --color-text-primary: #f8fafc;
-  --color-text-secondary: #cbd5e1;
-  --color-text-muted: #94a3b8;
-  --color-accent: #10b981;
-  --color-accent-hover: #059669;
-  --color-danger: #ef4444;
-  --color-warning: #f59e0b;
-  --color-info: #3b82f6;
+/* --- Tipografía local (sin CDN): IBM Plex, OFL-1.1, en static/fonts/ --- */
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../fonts/ibm-plex-sans-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("../fonts/ibm-plex-sans-latin-500-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("../fonts/ibm-plex-sans-latin-600-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("../fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("../fonts/ibm-plex-mono-latin-600-normal.woff2") format("woff2");
+}
 
-  /* Sin fuentes remotas (on-premise): Inter/JetBrains Mono solo si están instaladas. */
-  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-mono: "JetBrains Mono", "Fira Code", Consolas, monospace;
+@theme {
+  --color-*: initial;
+  --color-white: #ffffff;
+
+  /* Marca y acento */
+  --color-primary: #1e3a6e;
+  --color-primary-hover: #172f59;
+  --color-primary-soft: #e3e8f1;
+  --color-brand-ink: #002466;
+
+  /* Superficies y líneas */
+  --color-canvas: #f4f6fa;
+  --color-sidebar: #eef0f3;
+  --color-sidebar-line: #dde1e7;
+  --color-surface: #ffffff;
+  --color-line: #e2e8f0;
+  --color-line-soft: #f1f5f9;
+  --color-line-strong: #cbd5e1;
+
+  /* Texto */
+  --color-ink: #0f172a;
+  --color-ink-soft: #475569;
+  --color-muted: #64748b;
+
+  /* Severidad / estado */
+  --color-critical: #b91c1c;
+  --color-critical-strong: #991b1b;
+  --color-critical-soft: #fee2e2;
+  --color-high: #c2410c;
+  --color-high-soft: #ffedd5;
+  --color-medium: #a16207;
+  --color-medium-soft: #fef3c7;
+  --color-low: #15803d;
+  --color-low-soft: #dcfce7;
+
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+
+
+/* Bases reutilizables con @apply (en Tailwind 4 solo las utilidades se pueden aplicar). */
+@utility btn {
+  @apply inline-flex cursor-pointer items-center justify-center gap-1.5 rounded px-3.5 py-2
+    text-sm font-medium whitespace-nowrap hover:no-underline focus:ring-2
+    focus:ring-primary/40 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50;
+}
+@utility badge {
+  @apply inline-flex items-center rounded-[3px] px-1.5 py-0.5 font-mono text-[11px]
+    font-semibold whitespace-nowrap;
+}
+@utility pill {
+  @apply inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-mono text-[10px]
+    font-medium whitespace-nowrap;
+}
+@utility alert {
+  @apply rounded border px-3 py-2 text-sm;
 }
 
 @layer base {
   html {
-    color-scheme: dark;
+    color-scheme: light;
   }
   body {
-    @apply bg-surface text-text-primary font-sans text-sm antialiased;
+    @apply bg-canvas font-sans text-sm text-ink antialiased;
   }
   h1 {
-    @apply text-2xl font-semibold;
+    @apply text-lg font-semibold tracking-tight text-ink;
   }
   h2 {
-    @apply text-xl font-semibold;
+    @apply text-[15px] font-semibold text-ink;
   }
   a {
-    @apply text-info hover:underline;
+    @apply text-primary underline-offset-2 hover:underline;
+  }
+  ::selection {
+    @apply bg-primary-soft;
   }
 }
 
 @layer components {
-  .card {
-    @apply bg-surface-elevated border border-border rounded-lg p-6;
+  /* --- Estructura --- */
+  .app-shell {
+    @apply min-h-screen md:grid md:grid-cols-[232px_minmax(0,1fr)];
   }
+  /* La columna pinta el fondo a toda la altura; la barra interior es sticky. */
+  .sidebar-col {
+    @apply border-b border-sidebar-line bg-sidebar md:border-r md:border-b-0;
+  }
+  /* Móvil: barra horizontal compacta. Escritorio: columna fija a la izquierda. */
+  .sidebar {
+    @apply flex flex-wrap items-center gap-1 px-3 py-2.5 text-primary
+      md:sticky md:top-0 md:h-screen md:flex-col md:flex-nowrap md:items-stretch md:py-4;
+  }
+  .sidebar-group {
+    @apply flex flex-wrap gap-0.5 md:flex-col;
+  }
+  .brand {
+    @apply mr-2 flex items-center gap-2.5 px-2 text-brand-ink hover:no-underline md:mr-0 md:pb-4;
+  }
+  .brand-name {
+    @apply text-[17px] font-semibold tracking-tight;
+  }
+  .nav-section {
+    @apply hidden px-2.5 pt-4 pb-1 md:block font-mono text-[10px] font-medium tracking-wider text-muted uppercase;
+  }
+  .nav-link {
+    @apply block cursor-pointer md:w-full rounded px-2.5 py-1.5 text-left text-[13px] text-primary
+      hover:bg-primary-soft hover:no-underline;
+  }
+  .nav-link-active {
+    @apply bg-primary font-semibold text-white hover:bg-primary;
+  }
+  .page {
+    @apply mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-5 md:px-6;
+  }
+  .page-header {
+    @apply flex flex-wrap items-center justify-between gap-3;
+  }
+  .page-actions {
+    @apply flex flex-wrap items-center gap-2;
+  }
+
+  /* --- Contenedores --- */
+  .card {
+    @apply rounded border border-line bg-surface p-4;
+  }
+  .card-title {
+    @apply mb-3 text-[15px] font-semibold text-ink;
+  }
+  .eyebrow {
+    @apply font-mono text-[10px] font-medium tracking-wider text-primary uppercase;
+  }
+  .stat-label {
+    @apply text-[11px] text-muted;
+  }
+  .stat-value {
+    @apply font-mono text-[22px] leading-tight font-semibold text-ink;
+  }
+  .kv-grid {
+    @apply grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2;
+  }
+  .kv-label {
+    @apply text-[11px] text-muted;
+  }
+  .kv-value {
+    @apply mt-0.5 text-ink;
+  }
+  .muted {
+    @apply text-ink-soft;
+  }
+
+  /* --- Tablas --- */
+  .table-wrap {
+    @apply overflow-x-auto rounded border border-line bg-surface;
+  }
+  .data-table {
+    @apply w-full border-collapse text-left text-[13px];
+  }
+  .data-table th {
+    @apply border-b border-line px-3 py-2 text-[11px] font-medium whitespace-nowrap text-muted;
+  }
+  .data-table td {
+    @apply border-b border-line-soft px-3 py-2 align-middle;
+  }
+  .data-table tbody tr:last-child td {
+    @apply border-b-0;
+  }
+  .data-table tbody tr:hover td {
+    @apply bg-canvas;
+  }
+  .table-empty {
+    @apply px-3 py-6 text-center text-muted;
+  }
+
+  /* --- Formularios --- */
   .form-label {
-    @apply block text-xs font-medium text-text-muted mb-1;
+    @apply mb-1 block text-xs font-medium text-ink-soft;
   }
   .form-input {
-    @apply w-full rounded-md border border-border bg-surface px-3 py-2 text-text-primary
-      placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-1
-      focus:ring-accent;
+    @apply w-full rounded border border-line-strong bg-white px-3 py-2 text-sm text-ink
+      placeholder:text-muted focus:border-primary focus:ring-1 focus:ring-primary
+      focus:outline-none;
   }
+  .form-help {
+    @apply mt-1 text-xs text-muted;
+  }
+  .form-error {
+    @apply mt-1 text-xs text-critical;
+  }
+  .form-help ul {
+    @apply list-disc pl-4;
+  }
+
+  /* --- Botones --- */
   .btn-primary {
-    @apply inline-flex items-center justify-center rounded-md bg-accent px-4 py-2 font-medium
-      text-surface hover:bg-accent-hover focus:outline-none focus:ring-2 focus:ring-accent
-      focus:ring-offset-2 focus:ring-offset-surface cursor-pointer;
+    @apply btn bg-primary text-white hover:bg-primary-hover;
   }
   .btn-secondary {
-    @apply inline-flex items-center justify-center rounded-md border border-border
-      bg-transparent px-4 py-2 font-medium text-text-secondary hover:bg-surface-muted
-      cursor-pointer;
+    @apply btn border border-line-strong bg-white text-primary hover:bg-canvas;
   }
+  .btn-danger {
+    @apply btn bg-critical text-white hover:bg-critical-strong focus:ring-critical/40;
+  }
+  .btn-sm {
+    @apply px-2.5 py-1 text-xs;
+  }
+
+  /* --- Etiquetas de severidad y estado --- */
+  .badge-critical {
+    @apply badge bg-critical-soft text-critical;
+  }
+  .badge-high {
+    @apply badge bg-high-soft text-high;
+  }
+  .badge-medium {
+    @apply badge bg-medium-soft text-medium;
+  }
+  .badge-low {
+    @apply badge bg-low-soft text-low;
+  }
+  .badge-neutral {
+    @apply badge bg-line-soft text-ink-soft;
+  }
+  .badge-primary {
+    @apply badge bg-primary-soft text-primary;
+  }
+  .pill-ok {
+    @apply pill bg-low-soft text-low;
+  }
+  .pill-warn {
+    @apply pill bg-medium-soft text-medium;
+  }
+
+  /* --- Avisos --- */
   .alert-error {
-    @apply rounded-md border border-danger/60 bg-danger/10 px-3 py-2 text-danger;
+    @apply alert border-critical/25 bg-critical-soft text-critical;
+  }
+  .alert-warning {
+    @apply alert border-medium/25 bg-medium-soft text-medium;
+  }
+  .alert-success {
+    @apply alert border-low/25 bg-low-soft text-low;
   }
   .alert-info {
-    @apply rounded-md border border-info/60 bg-info/10 px-3 py-2 text-text-secondary;
+    @apply alert border-primary/20 bg-primary-soft text-primary;
+  }
+
+  /* --- Pestañas (subnavegación de una sección) --- */
+  .tabs {
+    @apply flex flex-wrap gap-1 border-b border-line;
+  }
+  .tab {
+    @apply -mb-px border-b-2 border-transparent px-3 py-2 text-[13px] text-ink-soft
+      hover:text-primary hover:no-underline;
+  }
+  .tab-active {
+    @apply border-primary font-semibold text-primary;
   }
 }

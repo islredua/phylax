@@ -48,6 +48,24 @@ class AuditEvent(models.TextChoices):
     MFA_RESET = "mfa_reset", "MFA reseteado por administrador"
 
 
+# Relevancia visual de cada evento (badge-<nivel> en la interfaz, ADR-007).
+AUDIT_EVENT_SEVERITY = {
+    AuditEvent.LOGIN_FAILED: "critical",
+    AuditEvent.MFA_FAILED: "critical",
+    AuditEvent.USER_DEACTIVATED: "high",
+    AuditEvent.MFA_DISABLED: "high",
+    AuditEvent.MFA_RESET: "high",
+    AuditEvent.PASSWORD_RESET_BY_ADMIN: "high",
+    AuditEvent.SESSIONS_REVOKED: "high",
+    AuditEvent.ROLE_ASSIGNED: "medium",
+    AuditEvent.ROLE_REVOKED: "medium",
+    AuditEvent.PASSWORD_RESET_REQUESTED: "medium",
+    AuditEvent.EMAIL_CHANGED: "medium",
+    AuditEvent.BACKUP_CODES_REGENERATED: "medium",
+    AuditEvent.USER_UPDATED: "medium",
+}
+
+
 class AuditLogEntry(models.Model):
     """Entrada de la bitácora de seguridad (STRIDE Repudiation).
 
@@ -85,6 +103,10 @@ class AuditLogEntry(models.Model):
 
     def delete(self, *args, **kwargs):
         raise ValueError("Las entradas de la bitácora de auditoría no se pueden borrar.")
+
+    @property
+    def severity(self):
+        return AUDIT_EVENT_SEVERITY.get(self.event_type, "neutral")
 
 
 class MFADevice(models.Model):

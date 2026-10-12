@@ -1,12 +1,20 @@
 {% extends "base.html" %}
-{% block header %}{% endblock %}
-{% block content %}
-<div class="flex min-h-[80vh] items-center justify-center">
+{% block body %}
+<main class="flex min-h-screen items-center justify-center px-4 py-10">
   <div class="w-full max-w-sm">
-    <p class="mb-6 text-center text-2xl font-semibold">phylax <span class="text-accent">●</span></p>
-    <div class="card space-y-4">
+    <div class="mb-6 flex items-center justify-center gap-3 text-brand-ink">
+      {% include "_brand_mark.html" with class="h-8 w-8" %}
+      <span class="text-[28px] font-semibold tracking-tight">Phylax</span>
+    </div>
+    {% if messages %}
+    <div class="mb-3 flex flex-col gap-2">
+      {% for message in messages %}<div class="{% if message.level_tag == 'error' %}alert-error{% else %}alert-info{% endif %}" role="status">{{ message }}</div>{% endfor %}
+    </div>
+    {% endif %}
+    <div class="card flex flex-col gap-4 p-6">
       {% block auth_content %}{% endblock %}
     </div>
+    <p class="mt-4 text-center font-mono text-[10px] tracking-wider text-muted uppercase">Gestión de vulnerabilidades basada en riesgo · on-premise</p>
   </div>
-</div>
+</main>
 {% endblock %}

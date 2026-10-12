@@ -1,8 +1,8 @@
-<form method="post" class="card max-w-lg space-y-4" novalidate>
+<form method="post" class="card flex max-w-lg flex-col gap-4" novalidate>
   {% csrf_token %}
   {% include "registration/_form_fields.html" %}
   <div class="flex gap-2">
     <button type="submit" class="btn-primary">{{ submit_label|default:"Guardar" }}</button>
-    <a href="{{ cancel_url|default:'/accounts/me/' }}" class="btn-secondary hover:no-underline">Cancelar</a>
+    <a href="{{ cancel_url|default:'/accounts/me/' }}" class="btn-secondary">Cancelar</a>
   </div>
 </form>

@@ -1,13 +1,16 @@
 {% extends "accounts/me/_layout.html" %}
 {% block title %}Códigos de respaldo{% endblock %}
 {% block account_content %}
-<h1>Códigos de respaldo</h1>
-{% if just_enabled %}<div class="alert-info">Verificación en dos pasos activada. Se cerraron tus otras sesiones.</div>{% endif %}
-<div class="card space-y-4">
-  <p class="text-text-secondary">Guarda estos códigos en un lugar seguro. Cada uno sirve <strong>una sola vez</strong> si pierdes acceso a tu app autenticadora. <span class="text-warning">No se volverán a mostrar.</span></p>
-  <ul class="grid grid-cols-2 gap-2 font-mono text-text-primary sm:grid-cols-5">
-    {% for code in codes %}<li class="rounded border border-border bg-surface px-2 py-1 text-center select-all">{{ code }}</li>{% endfor %}
+{% if just_enabled %}<div class="alert-success">Verificación en dos pasos activada. Se cerraron tus otras sesiones.</div>{% endif %}
+<section class="card flex flex-col gap-4">
+  <div>
+    <p class="eyebrow">Guárdalos ahora</p>
+    <h2>Códigos de respaldo</h2>
+  </div>
+  <p class="muted">Cada código sirve <strong class="text-ink">una sola vez</strong> si pierdes acceso a tu app autenticadora. <span class="font-medium text-medium">No se volverán a mostrar.</span></p>
+  <ul class="grid grid-cols-2 gap-2 font-mono sm:grid-cols-5">
+    {% for code in codes %}<li class="rounded border border-line bg-canvas px-2 py-1.5 text-center text-ink select-all">{{ code }}</li>{% endfor %}
   </ul>
-  <a href="{% url 'accounts:security' %}" class="btn-primary hover:no-underline">Ya los guardé</a>
-</div>
+  <div><a href="{% url 'accounts:security' %}" class="btn-primary">Ya los guardé</a></div>
+</section>
 {% endblock %}

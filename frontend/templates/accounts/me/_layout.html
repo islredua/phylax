@@ -1,20 +1,12 @@
 {% extends "base.html" %}
+{% block page_title %}Mi cuenta{% endblock %}
 {% block content %}
-<div class="flex flex-col gap-6 md:flex-row">
-  <aside class="md:w-56 md:shrink-0">
-    <p class="mb-2 text-xs font-medium uppercase tracking-wide text-text-muted">Mi cuenta</p>
-    <nav class="flex flex-row flex-wrap gap-1 md:flex-col">
-      {% with base="block rounded-md px-3 py-2 hover:no-underline hover:bg-surface-muted" %}
-      <a href="{% url 'accounts:me' %}" class="{{ base }} {% if section == 'overview' %}bg-surface-elevated text-text-primary{% else %}text-text-secondary{% endif %}">Resumen</a>
-      <a href="{% url 'accounts:profile' %}" class="{{ base }} {% if section == 'profile' %}bg-surface-elevated text-text-primary{% else %}text-text-secondary{% endif %}">Perfil</a>
-      <a href="{% url 'accounts:password_change' %}" class="{{ base }} {% if section == 'password' %}bg-surface-elevated text-text-primary{% else %}text-text-secondary{% endif %}">Contraseña</a>
-      <a href="{% url 'accounts:security' %}" class="{{ base }} {% if section == 'security' %}bg-surface-elevated text-text-primary{% else %}text-text-secondary{% endif %}">Seguridad</a>
-      <a href="{% url 'accounts:activity' %}" class="{{ base }} {% if section == 'activity' %}bg-surface-elevated text-text-primary{% else %}text-text-secondary{% endif %}">Actividad</a>
-      {% endwith %}
-    </nav>
-  </aside>
-  <section class="min-w-0 flex-1 space-y-4">
-    {% block account_content %}{% endblock %}
-  </section>
-</div>
+<nav class="tabs" aria-label="Secciones de Mi cuenta">
+  <a href="{% url 'accounts:me' %}" class="tab {% if section == 'overview' %}tab-active{% endif %}">Resumen</a>
+  <a href="{% url 'accounts:profile' %}" class="tab {% if section == 'profile' %}tab-active{% endif %}">Perfil</a>
+  <a href="{% url 'accounts:password_change' %}" class="tab {% if section == 'password' %}tab-active{% endif %}">Contraseña</a>
+  <a href="{% url 'accounts:security' %}" class="tab {% if section == 'security' %}tab-active{% endif %}">Seguridad</a>
+  <a href="{% url 'accounts:activity' %}" class="tab {% if section == 'activity' %}tab-active{% endif %}">Actividad</a>
+</nav>
+{% block account_content %}{% endblock %}
 {% endblock %}
