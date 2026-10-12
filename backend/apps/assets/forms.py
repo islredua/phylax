@@ -100,8 +100,7 @@ class AssetForm(StyledMixin, forms.Form):
         label="Descripción",
         required=False,
         widget=forms.Textarea(attrs={"rows": 4}),
-        help_text="Qué hace, qué datos maneja y quién lo usa. Sin descripción no se sugiere "
-        "criticidad con IA (contexto insuficiente).",
+        help_text="Qué hace, qué datos maneja y quién lo usa.",
     )
     criticality = forms.ChoiceField(
         label="Criticidad", required=False, choices=_blank("Sin clasificar", Criticality.choices)

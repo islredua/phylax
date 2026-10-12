@@ -376,7 +376,7 @@ def test_queued_suggestion_is_visible_and_refreshes(client, as_role, monkeypatch
     assert "animate-spin" not in cell and "hx-trigger" not in cell
 
 
-def test_create_message_explains_automatic_suggestion(client, as_role):
+def test_create_message_flags_insufficient_context(client, as_role):
     as_role(OPERATOR)
     response = client.post(
         "/inventory/new/",
@@ -385,7 +385,6 @@ def test_create_message_explains_automatic_suggestion(client, as_role):
             "asset_type": "HOST",
             "environment": "PROD",
             "business_role": "API",
-            "description": "API de pagos",
             "criticality": "ALTO",
             "in_scope": "on",
             "ident-TOTAL_FORMS": "1",
@@ -395,10 +394,7 @@ def test_create_message_explains_automatic_suggestion(client, as_role):
         },
         follow=True,
     )
-    assert "contrastará la criticidad" in response.content.decode()
-
-
-# --- Sugerencias LLM: segundo plano, polling y salida escapada ----------------------------
+    assert "Falta descripción o función de negocio" in response.content.decode()
 
 
 def test_suggest_via_htmx_returns_card_and_decision(client, as_role):
@@ -855,7 +851,7 @@ def test_manual_create_launches_scan_and_defers_suggestion(client, as_role, monk
     )
     asset = Asset.objects.get(name="nuevo-escaneado")
     assert DiscoveryRun.objects.filter(target_asset=asset, profile="SERVICE_SCAN").exists()
-    assert "Se lanzó un escaneo de servicios" in response.content.decode()
+    assert "Escaneo de servicios en curso" in response.content.decode()
     assert not CriticalitySuggestion.objects.filter(asset=asset).exists()  # llega tras el escaneo
 
 

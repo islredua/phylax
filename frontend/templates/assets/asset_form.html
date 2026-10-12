@@ -31,7 +31,7 @@
 
   <section class="card flex flex-col gap-3">
     <h3 class="card-title mb-0">Identificadores</h3>
-    <p class="text-xs text-muted">IP, MAC, FQDN, referencia o digest de imagen, URL. Se normalizan y no pueden pertenecer a otro activo.</p>
+    <p class="text-xs text-muted">IP, MAC, FQDN, referencia o digest de imagen, URL.</p>
     {% if identifiers %}
     <ul class="flex flex-col gap-1">
       {% for i in identifiers %}<li class="flex items-center gap-2 text-sm"><label class="flex items-center gap-2"><input type="checkbox" name="remove_identifier" value="{{ i.pk }}" class="checkbox"> Quitar</label><span class="badge-neutral">{{ i.get_kind_display }}</span><span class="font-mono text-xs">{{ i.value }}</span></li>{% endfor %}

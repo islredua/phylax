@@ -6,9 +6,9 @@
 <div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
   <section class="card flex flex-col gap-3">
     <h3 class="card-title mb-0">Modelo activo del sistema</h3>
-    <p class="muted text-sm">Se usa en todas las inferencias: sugerencias de criticidad (manuales, automáticas y barrido nocturno) y, en adelante, CTI y narrativa ejecutiva. Cambiarlo no altera las decisiones ya tomadas.</p>
+    <p class="muted text-sm">Se usa en todas las inferencias del sistema.</p>
     {% if not active_ready %}<div class="alert-warning text-sm">El modelo activo <span class="font-mono">{{ active }}</span> no está descargado.</div>{% endif %}
-    {% if active_small %}<div class="alert-warning text-sm">El modelo activo <span class="font-mono">{{ active }}</span> tiene menos de {{ small_threshold|floatformat:0 }} mil millones de parámetros: sirve para probar el flujo, pero sus sugerencias no son confiables (suele copiar la rúbrica y dar explicaciones que contradicen su propia clase). Para uso real elige un modelo de 7B o más.</div>{% endif %}
+    {% if active_small %}<div class="alert-warning text-sm">El modelo activo <span class="font-mono">{{ active }}</span> tiene menos de {{ small_threshold|floatformat:0 }} mil millones de parámetros: úsalo solo para pruebas.</div>{% endif %}
     {% if models %}
     <form method="post" class="flex flex-wrap items-end gap-2">
       {% csrf_token %}

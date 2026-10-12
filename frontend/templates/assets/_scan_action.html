@@ -7,6 +7,6 @@
     <button class="{% if has_scan %}btn-secondary{% else %}btn-primary{% endif %} {{ extra_class }}" type="submit">{% if has_scan %}Re-escanear servicios{% else %}Escanear servicios{% endif %}</button>
   </form>
 {% else %}
-  <p class="text-xs text-muted">Para escanear servicios, el activo necesita una IP dentro de un rango de red autorizado.</p>
+  <p class="text-xs text-muted">Requiere una IP en un rango autorizado.</p>
 {% endif %}
 {% endif %}

@@ -5,17 +5,16 @@
 {% if not llm_ready %}{% include "assets/_model_missing.html" %}
 {% elif not asset.has_minimum_context %}
 <div class="alert-warning text-sm">
-  <strong>Contexto insuficiente.</strong> Sin descripción y función de negocio el LLM no puede sugerir la criticidad.
-  {% if perms.assets.change_asset %}<a href="{% url 'assets:edit' asset.pk %}">Completar los campos</a>.{% endif %}
+  <strong>Contexto insuficiente:</strong> falta descripción o función de negocio.
+  {% if perms.assets.change_asset %}<a href="{% url 'assets:edit' asset.pk %}">Completar</a>{% endif %}
 </div>
 {% elif in_flight %}
   <button class="btn-primary" type="button" disabled>Sugerencia en curso…</button>
-  <p class="text-xs text-muted">El LLM está analizando este activo en segundo plano; no se encola otra solicitud. Esta sección se actualiza sola.</p>
 {% elif perms.assets.decide_criticality and asset.status != 'RETIRED' %}
 <form method="post" action="{% url 'assets:suggest' asset.pk %}"{% if htmx_target %} hx-post="{% url 'assets:suggest' asset.pk %}" hx-target="{{ htmx_target }}" hx-swap="afterbegin" hx-on::after-request="if(event.detail.successful){const b=this.querySelector('button');b.disabled=true;b.textContent='Sugerencia en curso…'}"{% endif %} class="flex flex-wrap items-center gap-2">
   {% csrf_token %}<input type="hidden" name="next" value="{% url 'assets:detail' asset.pk %}?tab=sugerencias">
   <button class="btn-primary" type="submit">Sugerir criticidad con IA</button>
-  <span class="text-xs text-muted">Se calcula sola al dar de alta, confirmar, escanear o cambiar el contexto. Modelo: <span class="font-mono">{{ llm_model }}</span></span>
+  <span class="text-xs text-muted">Modelo: <span class="font-mono">{{ llm_model }}</span></span>
 </form>
 {% endif %}
 </div>

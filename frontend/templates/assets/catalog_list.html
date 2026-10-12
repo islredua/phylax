@@ -7,7 +7,7 @@
 </div>
 {% endblock %}
 {% block content %}
-<p class="muted">Valores que se eligen al registrar activos. Las entradas de <span class="badge-primary">sistema</span> las usa Phylax internamente: su etiqueta se puede cambiar, pero no su código ni su estado. Las entradas no se borran: se desactivan para no afectar a los activos que ya las usan.</p>
+<p class="muted">En las entradas de <span class="badge-primary">sistema</span> solo se puede cambiar la etiqueta. Las entradas no se borran: se desactivan.</p>
 <nav class="subtabs" aria-label="Catálogo">
   {% for code, label in kinds %}<a href="?kind={{ code }}" class="subtab {% if code == kind %}subtab-active{% endif %}"{% if code == kind %} aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}
 </nav>

@@ -61,13 +61,11 @@
     <form method="post" action="{% url 'assets:ignore' asset.pk %}">{% csrf_token %}<button class="btn-secondary w-full" type="submit">Ignorar</button></form>
     {% endif %}
     {% if asset.status == 'IGNORED' %}
-    <div class="alert-info text-sm">Este activo está <strong>ignorado</strong>: no se escanea ni aparece en la lista por defecto.</div>
+    <div class="alert-info text-sm">Activo ignorado.</div>
     {% if perms.assets.change_asset %}
     <form method="post" action="{% url 'assets:restore' asset.pk %}">{% csrf_token %}<button class="btn-primary w-full" type="submit">Restaurar</button></form>
-    <p class="text-xs text-muted">Vuelve al inventario si tiene sus datos completos; si no, a «Por confirmar».</p>
     {% endif %}
     {% endif %}
-    <p class="text-xs text-muted">Ninguna sugerencia del LLM cambia la criticidad sin tu decisión.</p>
   </section>
 </div>
 
@@ -191,6 +189,5 @@
     </tbody>
   </table>
 </div>
-{% if scan_active %}<p class="text-xs text-muted">Al terminar se actualizan los servicios e identificadores (MAC, hostname) y se recalcula la criticidad sugerida.</p>{% endif %}
 {% endif %}
 {% endblock %}

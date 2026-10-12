@@ -2,7 +2,7 @@
 {% block title %}Por confirmar{% endblock %}
 {% block toolbar %}<div class="toolbar"><h2>Por confirmar <span class="ml-1 font-mono text-xs font-normal text-muted">{{ paginator.count }}</span></h2></div>{% endblock %}
 {% block content %}
-<p class="muted">Hosts observados por el descubrimiento que aún no forman parte del inventario. No se escanean ni se puntúan hasta confirmarlos. {% if ignored_count %}<a href="{% url 'assets:list' %}?status=IGNORED">Ver ignorados ({{ ignored_count }})</a> para restaurarlos.{% endif %}</p>
+<p class="muted">Hosts descubiertos pendientes de confirmar. {% if ignored_count %}<a href="{% url 'assets:list' %}?status=IGNORED">Ver ignorados ({{ ignored_count }})</a>{% endif %}</p>
 <div class="flex flex-col gap-3">
   {% for a in assets %}
   <article class="card flex flex-col gap-3">

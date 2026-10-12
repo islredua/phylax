@@ -3,7 +3,6 @@
 {% block title %}Clasificación{% endblock %}
 {% block toolbar %}<div class="toolbar"><h2>Pendientes de clasificación</h2></div>{% endblock %}
 {% block content %}
-<p class="muted">El LLM local propone una criticidad sola al dar de alta, importar o confirmar un activo, cuando cambia su contexto y en un barrido nocturno; tú decides. Ninguna sugerencia sobrescribe una decisión humana: si difiere, el activo queda en «revisión sugerida».</p>
 {% if not llm_ready %}{% include "assets/_model_missing.html" %}{% else %}<p class="text-xs text-muted">Modelo del sistema: <span class="font-mono">{{ llm_model }}</span></p>{% endif %}
 
 <section class="flex flex-col gap-3">

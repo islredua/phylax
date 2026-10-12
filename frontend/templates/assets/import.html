@@ -10,14 +10,12 @@
     <h3 class="card-title mb-0">Importar CSV</h3>
     <p class="text-sm text-ink-soft">Primero verás una vista previa con la acción de cada fila (crear, actualizar, conflicto o error); nada se escribe hasta confirmar. Máximo 5 MB y 5 000 filas.</p>
     <input type="file" name="file" accept=".csv,text/csv" class="form-input" required aria-label="Archivo CSV">
-    <p class="text-xs text-muted">Los activos sin criticidad reciben una sugerencia del LLM automáticamente (si tienen descripción y función de negocio).</p>
     <div class="flex flex-wrap gap-2"><button class="btn-primary" type="submit">Ver vista previa</button><a href="{% url 'assets:import_template' %}" class="btn-secondary">Descargar plantilla</a></div>
   </form>
   {% endif %}
   <section class="card flex flex-col gap-3">
     <h3 class="card-title mb-0">Exportar CSV</h3>
     <p class="text-sm text-ink-soft">Exporta los activos vigentes. Para exportar una selección, usa los filtros de <a href="{% url 'assets:list' %}">Activos</a> y el botón «Exportar CSV» de esa vista.</p>
-    <p class="text-xs text-muted">UTF-8 con BOM (Excel). Las celdas que empiezan con = + - @ se prefijan con ' para evitar fórmulas.</p>
     <div><a href="{% url 'assets:export' %}" class="btn-secondary">Exportar todo</a></div>
   </section>
 </div>

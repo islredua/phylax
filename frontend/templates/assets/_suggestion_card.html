@@ -32,17 +32,16 @@
   {% if errors %}{% include "assets/_inline_error.html" %}{% endif %}
 
   {% if s.is_processing %}
-    <p class="muted">El modelo local está analizando el activo en segundo plano. Puedes seguir trabajando: esta tarjeta se actualizará sola.</p>
+    <p class="muted">Analizando el activo…</p>
   {% elif s.state == 'FAILED' %}
     <p class="text-critical">{{ s.inference.error|default:"La inferencia no se completó." }}</p>
   {% else %}
     {% if s.state == 'PENDING' and s.asset.criticality %}
-    <p class="alert-warning text-sm">Tras cambiar el contexto, el modelo sugiere <strong>{{ s.get_suggested_display|lower }}</strong>, distinta de la criticidad vigente (<strong>{{ s.asset.get_criticality_display|lower }}</strong>, decisión humana). No se cambió nada: decide si la actualizas.</p>
+    <p class="alert-warning text-sm">Sugiere <strong>{{ s.get_suggested_display|lower }}</strong>; la criticidad vigente es <strong>{{ s.asset.get_criticality_display|lower }}</strong>.</p>
     {% endif %}
     {% if s.policy_adjusted %}<p class="text-xs text-ink-soft">El modelo propuso <strong>{{ s.get_llm_class_display|lower }}</strong>; la política lo ajustó a <strong>{{ s.get_suggested_display|lower }}</strong> ({{ s.policy_rule }}).</p>{% endif %}
-    {% if s.reused_from_id %}<p class="text-xs text-muted">Mismo contexto, modelo y prompt que una respuesta anterior: se reutilizó sin volver a inferir.</p>{% endif %}
     {% with other=s.rationale_mismatch %}{% if other %}
-    <p class="alert-warning text-sm" role="note"><strong>Explicación incoherente:</strong> el modelo eligió <strong>{{ s.get_llm_class_display|lower }}</strong>, pero su explicación habla de {% for c in other %}<span class="font-mono">{{ c }}</span>{% if not forloop.last %}, {% endif %}{% endfor %}. No te fíes del texto; revisa el activo antes de decidir. Es frecuente en modelos pequeños: un administrador puede elegir uno mayor en Administración › LLM.</p>
+    <p class="alert-warning text-sm" role="note"><strong>Explicación incoherente:</strong> el modelo eligió <strong>{{ s.get_llm_class_display|lower }}</strong>, pero el texto menciona {% for c in other %}<span class="font-mono">{{ c }}</span>{% if not forloop.last %}, {% endif %}{% endfor %}. Revisa el activo antes de decidir.</p>
     {% endif %}{% endwith %}
     {% if s.rationale %}<p class="text-ink-soft">{{ s.rationale|linebreaksbr }}</p>{% endif %}
     {% if s.signals %}<ul class="flex flex-wrap gap-1">{% for signal in s.signals %}<li class="badge-neutral">{{ signal }}</li>{% endfor %}</ul>{% endif %}
@@ -51,7 +50,6 @@
   {% if s.state == 'AUTO' and s.asset.criticality_source == 'LLM_AUTO' and s.asset.criticality == s.final_value %}
   {% if perms.assets.decide_criticality %}
   <div class="flex flex-wrap items-end gap-2 border-t border-line-soft pt-3">
-    <p class="w-full text-xs text-muted">Se aplicó sola porque el activo no tenía criticidad. Confírmala para dejarla como decisión humana, o cámbiala.</p>
     <form method="post" action="{% url 'assets:decide' s.pk %}" hx-post="{% url 'assets:decide' s.pk %}" hx-target="#suggestion-{{ s.pk }}" hx-swap="outerHTML">
       {% csrf_token %}<input type="hidden" name="decision" value="ACCEPTED">
       <button class="btn-primary btn-sm" type="submit">Confirmar {{ s.get_final_value_display|lower }}</button>

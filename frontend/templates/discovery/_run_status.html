@@ -34,7 +34,6 @@
       <h3 class="card-title mb-0">Hosts observados</h3>
       {% if open_conflicts %}<a href="{% url 'assets:conflicts' %}" class="badge-high hover:no-underline">{{ open_conflicts }} conflicto(s) de identidad sin resolver</a>{% endif %}
     </div>
-    <p class="text-xs text-muted">Los que están «por confirmar» aún no forman parte del inventario: confírmalos para agregarlos (o ignóralos). No se escanean ni se puntúan hasta entonces.</p>
     <nav class="subtabs" aria-label="Filtrar hosts">
       {% for key, label, statuses in host_filters %}{% for k, n in host_counts.items %}{% if k == key %}<a href="?show={{ key }}#observed-hosts" class="subtab {% if key == show %}subtab-active{% endif %}"{% if key == show %} aria-current="true"{% endif %}>{{ label }} <span class="font-mono text-xs">{{ n }}</span></a>{% endif %}{% endfor %}{% endfor %}
     </nav>

@@ -3,7 +3,6 @@
 {% block breadcrumb_tail %}<li><a href="{% url 'assets:detail' asset.pk %}">{{ asset.name }}</a></li><li>Confirmar</li>{% endblock %}
 {% block toolbar %}<div class="toolbar"><h2>Confirmar «{{ asset.name }}»</h2><a href="{{ back }}" class="btn-secondary btn-sm">← Volver</a></div>{% endblock %}
 {% block content %}
-<p class="muted">Completa el contexto mínimo. Con descripción y función de negocio, el LLM local sugerirá la criticidad en segundo plano (si ya la eliges, la contrasta).</p>
 <form method="post" class="card grid max-w-3xl grid-cols-1 gap-4 md:grid-cols-2" novalidate>
   {% csrf_token %}
   <input type="hidden" name="next" value="{{ back }}">

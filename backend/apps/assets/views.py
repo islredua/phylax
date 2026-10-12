@@ -80,29 +80,15 @@ def _auto_scan(request, asset, *, fallback_trigger):
         except ValidationError:
             pass
         else:
-            return (
-                "Se lanzó un escaneo de servicios para completar MAC, hostname y servicios; "
-                "al terminar, el LLM calculará la criticidad."
-            )
+            return "Escaneo de servicios en curso."
     services.schedule_suggestion(asset.pk, trigger=fallback_trigger, requested_by=request.user)
     return _suggestion_note(asset)
 
 
 def _suggestion_note(asset):
     if not asset.has_minimum_context:
-        return (
-            "No se pidió sugerencia de criticidad al LLM: falta la descripción o la función "
-            "de negocio (contexto insuficiente)."
-        )
-    if asset.criticality and asset.criticality_source != "LLM_AUTO":
-        return (
-            "El LLM contrastará la criticidad en segundo plano; si sugiere otra, el activo "
-            "quedará en «revisión sugerida»."
-        )
-    return (
-        "El LLM está calculando la criticidad en segundo plano; se aplicará sola al terminar "
-        "y podrás confirmarla o cambiarla."
-    )
+        return "Falta descripción o función de negocio para sugerir la criticidad."
+    return ""
 
 
 def _safe_next(request, default):
@@ -391,7 +377,7 @@ class AssetCreateView(Perm, View):
                     if will_scan
                     else _suggestion_note(asset)
                 )
-                messages.success(request, f"Activo creado. {note}")
+                messages.success(request, f"Activo creado. {note}".strip())
                 return redirect("assets:detail", pk=asset.pk)
         return render(
             request, self.template_name, {"form": form, "formset": formset, "asset": None}
@@ -504,7 +490,7 @@ class TransitionView(Perm, View):
                 message = (
                     "Activo restaurado al inventario."
                     if result.status == AssetStatus.ACTIVE
-                    else "Activo devuelto a «Por confirmar»: completa sus datos para confirmarlo."
+                    else "Activo devuelto a «Por confirmar»."
                 )
             messages.success(request, message)
         except ValidationError as error:
@@ -570,7 +556,7 @@ class SuggestView(Perm, View):
             return HttpResponseRedirect(_safe_next(request, reverse("assets:detail", args=[pk])))
         if request.htmx:
             return _card(request, suggestion)
-        messages.info(request, "Sugerencia solicitada: se procesa en segundo plano.")
+        messages.info(request, "Sugerencia solicitada.")
         return HttpResponseRedirect(
             _safe_next(request, f"{reverse('assets:detail', args=[pk])}?tab=sugerencias")
         )
@@ -749,7 +735,7 @@ class ConfirmView(Perm, View):
                     if will_scan
                     else _suggestion_note(asset)
                 )
-                messages.success(request, f"Activo confirmado. {note}")
+                messages.success(request, f"Activo confirmado. {note}".strip())
                 return HttpResponseRedirect(_safe_next(request, reverse("assets:unconfirmed")))
         back = _safe_next(request, reverse("assets:unconfirmed"))
         return render(request, self.template_name, {"asset": asset, "form": form, "back": back})

@@ -128,7 +128,7 @@ class RescanView(Perm, View):
             return redirect(reverse("assets:detail", args=[asset.pk]))
         messages.success(
             request,
-            f"{'Escaneo' if first else 'Re-escaneo'} de servicios en cola; aquí ves su avance.",
+            f"{'Escaneo' if first else 'Re-escaneo'} de servicios en cola.",
         )
         # Se queda en el activo: su pestaña Descubrimientos muestra la ejecución en vivo.
         return redirect(f"{reverse('assets:detail', args=[asset.pk])}?tab=descubrimientos")
