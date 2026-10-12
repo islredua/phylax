@@ -39,6 +39,14 @@
   </div>
   <div class="min-w-0">
     <main class="page">
+      {% if nav.breadcrumbs %}
+      <nav class="breadcrumbs" aria-label="Ruta de navegación">
+        <ol>
+          {% for crumb in nav.breadcrumbs %}<li><a href="{% url crumb.url_name %}">{{ crumb.label }}</a></li>{% endfor %}
+          {% block breadcrumb_tail %}{% endblock %}
+        </ol>
+      </nav>
+      {% endif %}
       <div class="page-header">
         <h1>{% block page_title %}{{ nav.section.label }}{% endblock %}</h1>
         <div class="page-actions">

@@ -1,5 +1,6 @@
 {% extends "accounts/me/_layout.html" %}
 {% block title %}Activar verificación en dos pasos{% endblock %}
+{% block breadcrumb_tail %}<li>Activar verificación en dos pasos</li>{% endblock %}
 {% block account_content %}
 {% if mfa_required %}<div class="alert-info">Tu rol exige verificación en dos pasos. Actívala para continuar usando Phylax.</div>{% endif %}
 <section class="card grid grid-cols-1 gap-6 md:grid-cols-[auto_1fr]">

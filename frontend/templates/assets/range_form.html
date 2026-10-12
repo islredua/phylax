@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{% if range %}Editar {{ range.name }}{% else %}Nuevo rango{% endif %}{% endblock %}
+{% block breadcrumb_tail %}{% if range %}<li><a href="{% url 'assets:range_detail' range.pk %}">{{ range.name }}</a></li><li>Editar</li>{% else %}<li>Nuevo rango</li>{% endif %}{% endblock %}
 {% block toolbar %}<div class="toolbar"><h2>{% if range %}Editar {{ range.name }}{% else %}Nuevo rango de red{% endif %}</h2></div>{% endblock %}
 {% block content %}
 <div class="alert-info max-w-2xl">Marcar un rango <strong>dentro del alcance</strong> autoriza escanearlo: registra la referencia del oficio, ticket o carta que lo permite. Quedarás registrado como quien autorizó.</div>

@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% load inventory %}
 {% block title %}{{ asset.name }}{% endblock %}
+{% block breadcrumb_tail %}<li>{{ asset.name }}</li>{% endblock %}
 {% block toolbar %}
 <div class="toolbar">
   <div class="flex flex-wrap items-center gap-2">

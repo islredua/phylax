@@ -185,3 +185,34 @@ def test_audit_log_renders_severity_badges(client, auditor_user):
     client.force_login(auditor_user)
     body = client.get("/accounts/audit-log/").content.decode()
     assert 'class="badge-critical"' in body
+
+
+@pytest.mark.parametrize(
+    ("path", "crumbs"),
+    [
+        ("/users/", ["Inicio", "Administración", "Usuarios"]),
+        ("/accounts/me/security/", ["Inicio", "Mi cuenta", "Seguridad"]),
+        ("/inventory/", ["Inicio", "Inventario", "Activos"]),
+        ("/inventory/ranges/", ["Inicio", "Descubrimiento", "Rangos de red"]),
+    ],
+)
+def test_breadcrumbs_follow_navigation(client, admin_user, path, crumbs):
+    client.force_login(admin_user)
+    response = client.get(path)
+    assert [c.label for c in response.context["nav"].breadcrumbs] == crumbs
+    assert 'aria-label="Ruta de navegación"' in response.content.decode()
+
+
+def test_breadcrumbs_include_page_tail(client, admin_user, make_user):
+    client.force_login(admin_user)
+    target = make_user(username="olga")
+    body = client.get(f"/users/{target.pk}/edit/").content.decode()
+    nav = body[
+        body.index('aria-label="Ruta de navegación"') : body.index("</nav>", body.index("Ruta de"))
+    ]
+    assert "Usuarios" in nav and "olga" in nav and "<li>Editar</li>" in nav
+
+
+def test_home_has_no_breadcrumbs(client, user):
+    client.force_login(user)
+    assert 'aria-label="Ruta de navegación"' not in client.get("/").content.decode()

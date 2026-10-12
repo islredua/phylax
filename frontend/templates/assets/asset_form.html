@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{% if asset %}Editar {{ asset.name }}{% else %}Nuevo activo{% endif %}{% endblock %}
+{% block breadcrumb_tail %}{% if asset %}<li><a href="{% url 'assets:detail' asset.pk %}">{{ asset.name }}</a></li><li>Editar</li>{% else %}<li>Nuevo activo</li>{% endif %}{% endblock %}
 {% block toolbar %}
 <div class="toolbar">
   <h2>{% if asset %}Editar {{ asset.name }}{% else %}Nuevo activo{% endif %}</h2>

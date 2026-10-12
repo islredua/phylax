@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% load inventory %}
 {% block title %}{{ range.name }}{% endblock %}
+{% block breadcrumb_tail %}<li>{{ range.name }}</li>{% endblock %}
 {% block toolbar %}
 <div class="toolbar">
   <div class="flex items-center gap-2"><h2>{{ range.name }}</h2><span class="font-mono text-xs text-muted">{{ range.cidr }}</span></div>

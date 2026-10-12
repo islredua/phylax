@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Confirmar {{ asset.name }}{% endblock %}
+{% block breadcrumb_tail %}<li><a href="{% url 'assets:detail' asset.pk %}">{{ asset.name }}</a></li><li>Confirmar</li>{% endblock %}
 {% block toolbar %}<div class="toolbar"><h2>Confirmar «{{ asset.name }}»</h2><a href="{% url 'assets:unconfirmed' %}" class="btn-secondary btn-sm">← Por confirmar</a></div>{% endblock %}
 {% block content %}
 <p class="muted">Completa el contexto mínimo. Si no eliges criticidad, se pedirá una sugerencia al LLM local en segundo plano.</p>

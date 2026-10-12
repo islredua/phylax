@@ -547,3 +547,21 @@ def test_selector_disables_models_not_downloaded(client, as_role, settings):
     body = client.get(f"/inventory/{asset.pk}/").content.decode()
     assert "No hay modelos descargados" in body and "ollama pull grande:7b" in body
     assert "Sugerir criticidad con IA" not in body
+
+
+def test_edit_is_two_step_and_same_class_counts_as_accept(client, as_role):
+    as_role(OPERATOR)
+    log = InferenceLog.objects.create(
+        task="ASSET_CRITICALITY", model="m", prompt_version="v1", parsed_ok=True
+    )
+    suggestion = CriticalitySuggestion.objects.create(
+        asset=AssetFactory(criticality=None), inference=log, suggested="ALTO", rationale="r"
+    )
+    card = client.get(f"/inventory/suggestions/{suggestion.pk}/").content.decode()
+    assert "<summary" in card and "Editar…" in card and "Guardar" in card
+    client.post(
+        f"/inventory/suggestions/{suggestion.pk}/decide/", {"decision": "EDITED", "value": "ALTO"}
+    )
+    suggestion.refresh_from_db()
+    assert suggestion.state == "ACCEPTED"
+    assert suggestion.asset.criticality_source == "LLM_ACCEPTED"

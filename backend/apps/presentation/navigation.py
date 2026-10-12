@@ -175,6 +175,9 @@ class Navigation:
     section: NavItem | None = None
     # Pestañas de la sección actual; vacío si tiene una sola.
     tabs: list[NavItem] = field(default_factory=list)
+    # Migas de pan automáticas: Inicio › sección › pestaña. Cada plantilla añade el resto
+    # con {% block breadcrumb_tail %} (detalle, edición, etc.).
+    breadcrumbs: list[NavItem] = field(default_factory=list)
 
 
 def build_navigation(user, view_name):
@@ -194,4 +197,10 @@ def build_navigation(user, view_name):
                 nav.tabs = [
                     NavItem(t.key, t.label, t.url_name, active=t is active_tab) for t in tabs
                 ]
+            if section.key != "home":
+                nav.breadcrumbs = [NavItem("home", "Inicio", "home"), item]
+                if len(tabs) > 1:
+                    nav.breadcrumbs.append(
+                        NavItem(active_tab.key, active_tab.label, active_tab.url_name)
+                    )
     return nav

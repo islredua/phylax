@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ title }}{% endblock %}
+{% block breadcrumb_tail %}<li><a href="{% url 'users:detail' target.pk %}">{{ target.username }}</a></li><li>{{ title }}</li>{% endblock %}
 {% block toolbar %}
 <div class="toolbar">
   <h2>{{ title }}</h2>

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Vista previa de importación{% endblock %}
+{% block breadcrumb_tail %}<li>Vista previa</li>{% endblock %}
 {% block toolbar %}<div class="toolbar"><h2>Vista previa · {{ upload.original_filename }}</h2><a href="{% url 'assets:import' %}" class="btn-secondary btn-sm">← Importar</a></div>{% endblock %}
 {% block content %}
 <div class="grid grid-cols-2 gap-3 md:grid-cols-4">

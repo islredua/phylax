@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{% if target %}Editar {{ target.username }}{% else %}Nuevo usuario{% endif %}{% endblock %}
+{% block breadcrumb_tail %}{% if target %}<li><a href="{% url 'users:detail' target.pk %}">{{ target.username }}</a></li><li>Editar</li>{% else %}<li>Nuevo usuario</li>{% endif %}{% endblock %}
 {% block toolbar %}
 <div class="toolbar">
   <h2>{% if target %}Editar <span class="font-mono">{{ target.username }}</span>{% else %}Nuevo usuario{% endif %}</h2>

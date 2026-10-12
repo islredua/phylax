@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Eliminar {{ range.name }}{% endblock %}
+{% block breadcrumb_tail %}<li><a href="{% url 'assets:range_detail' range.pk %}">{{ range.name }}</a></li><li>Eliminar</li>{% endblock %}
 {% block toolbar %}<div class="toolbar"><h2>Eliminar rango «{{ range.name }}»</h2></div>{% endblock %}
 {% block content %}
 <section class="card flex max-w-xl flex-col gap-3">

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{% if registry %}Editar {{ registry.name }}{% else %}Nuevo registry{% endif %}{% endblock %}
+{% block breadcrumb_tail %}{% if registry %}<li>{{ registry.name }}</li><li>Editar</li>{% else %}<li>Nuevo registry</li>{% endif %}{% endblock %}
 {% block toolbar %}<div class="toolbar"><h2>{% if registry %}Editar {{ registry.name }}{% else %}Nuevo registry{% endif %}</h2></div>{% endblock %}
 {% block content %}
 {% url 'assets:registries' as cancel %}
