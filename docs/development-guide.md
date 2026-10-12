@@ -98,6 +98,13 @@ Section(
   `is_identity_control`, `required_identifier_kinds`) vía `apps/assets/catalogs.py`;
   no compares contra códigos fijos salvo las entradas de sistema.
 
+## Migraciones y servicios
+
+Después de `migrate`, reinicia **todos** los servicios que cargan Django (`backend`, `worker`,
+`worker-llm`, `worker-discovery`, `beat`): un worker con código anterior a una columna nueva
+falla al insertar. Las columnas nuevas con valor por defecto usan además `db_default` para
+tolerar ese desfase.
+
 ## Roles
 
 Los grupos `admin`, `operador` y `auditor` se crean/actualizan automáticamente en

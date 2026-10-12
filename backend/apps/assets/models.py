@@ -216,7 +216,8 @@ class Asset(UUIDModel):
         default=ExposureSource.RANGE,
     )
     # La IA sugirió una clase distinta de la decisión humana vigente tras un cambio de contexto.
-    review_suggested = models.BooleanField("revisión sugerida", default=False)
+    # db_default: un proceso con código anterior a la columna (worker sin reiniciar) no rompe inserciones.
+    review_suggested = models.BooleanField("revisión sugerida", default=False, db_default=False)
     data_classification = models.CharField(
         "clasificación de datos",
         max_length=12,
