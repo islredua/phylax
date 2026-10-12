@@ -117,7 +117,7 @@ stateDiagram-v2
     RETIRED --> [*]
 ```
 
-- Confirmar sin criticidad encola una sugerencia del LLM.
+- Confirmar sin criticidad programa una sugerencia automática del LLM (ver abajo).
 - `IGNORED`: el descubrimiento actualiza `last_seen` pero no lo devuelve a la cola ni a objetivos.
 - `STALE` solo aplica a activos observados alguna vez (`last_seen` no nulo); `PHYLAX_ASSET_STALE_DAYS`.
 - `RETIRED` nunca se borra físicamente. Fusionar mueve identificadores, servicios (conservando el
@@ -148,16 +148,66 @@ Programado por Beat cada 15 min según `discovery_schedule`.
 ## Sugerencia de criticidad (LLM local)
 
 Ver [`02-interfaces.md`](02-interfaces.md) para el flujo y el contrato. Resumen:
-`build_input` (sin exposición, truncado, sin caracteres de control) → prompt versionado
-`asset_criticality/v1` → `POST /api/chat` con JSON Schema → validación Pydantic (1 reintento) →
-`InferenceLog` siempre → `CriticalitySuggestion` `PENDING` → decisión humana (aceptar, editar,
-rechazar). Todo en segundo plano en la cola `llm` (concurrencia 1); la UI se actualiza sola.
+`build_input` (sin exposición, truncado, sin caracteres de control, etiquetas de catálogo) →
+prompt versionado `asset_criticality/v1` → `POST /api/chat` con JSON Schema → validación
+Pydantic (1 reintento) → `InferenceLog` siempre → **política determinista** →
+`CriticalitySuggestion` → decisión humana (aceptar, editar, rechazar). Todo en segundo plano
+en la cola `llm` (concurrencia 1); la UI se actualiza sola. El modelo es único para el
+sistema y lo elige un administrador en **Administración › LLM**.
+
+**Disparo automático** (el botón queda como respaldo):
+
+| Disparador | Cuándo |
+|---|---|
+| `CREATE` / `IMPORT` | Alta manual o por CSV sin criticidad |
+| `CONFIRM` | Confirmar un activo sin criticidad |
+| `CONTEXT_CHANGE` | Cambian descripción, función, entorno, clasificación o categorías de datos, o los servicios abiertos relevantes (descubrimiento) de un activo `ACTIVE` |
+| `NIGHTLY` | Beat 02:00: activos sin criticidad, en serie, con `keep_alive=30m` |
+
+- **Espera de 60 s** tras la última edición (testigo en caché + `countdown`): solo la tarea
+  con el testigo vigente solicita la sugerencia.
+- **Huella** = sha256(`build_input()` + modelo + versión del prompt). Si ya existe una
+  respuesta con la misma huella se reutiliza sin inferir (`reused_from`); un disparo
+  automático cuya huella coincide con la última sugerencia del activo no hace nada.
+- **Una a la vez**: con una sugerencia en curso no se encola otra y el botón se deshabilita.
+- **Contexto mínimo**: sin descripción y función de negocio no se llama al LLM; el activo
+  muestra «contexto insuficiente» y pide completarlos.
+- **Nunca sobrescribe una decisión humana**: si el activo ya tiene criticidad y la sugerencia
+  coincide, queda `CONSISTENT`; si difiere, queda `PENDING` y el activo se marca
+  **«revisión sugerida»** hasta que una persona decide.
+- **Política** (`apps/assets/criticality_policy.py`, de la rúbrica v1, sobre atributos del
+  catálogo): identidad/control en producción → mínimo Crítico; producción con datos
+  restringidos o sensibles → mínimo Alto; no productivo con datos reales → máximo Medio;
+  no productivo sin datos reales → máximo Bajo. Se guardan la clase del LLM (`llm_class`),
+  la final (`suggested`) y la regla aplicada.
+- **UI sin confianza numérica**: cada sugerencia muestra la completitud del contexto
+  (*completo*: además del mínimo, entorno y clasificación de datos; si no, *parcial*) y si
+  coincide con la política o fue *ajustada por política* (con la regla).
+  `confidence` se conserva en BD para la evaluación.
+- `eval_criticality` reporta exactitud y F1 con y sin política.
+
+## Catálogos y campos obligatorios
+
+Tipo de activo, entorno y función de negocio son **catálogos** (`CatalogEntry`) editables en
+Administración › Catálogos (solo admin). Las entradas no se borran: se desactivan. Las de
+sistema (`HOST`, `CONTAINER_IMAGE`, `OTHER`, `PROD`, `LAB`) conservan su código y no se
+desactivan. Atributos: tipos → identificadores requeridos (al menos uno); entornos →
+productivo; funciones → identidad/control.
+
+Registrar un activo exige nombre, tipo, entorno, función de negocio y al menos un
+identificador del tipo requerido (Host → IPv4/IPv6; Base de datos → IP o FQDN; Aplicación
+web → URL, FQDN o IP; Imagen → referencia o digest; Dispositivo de red → IP o MAC; Otro →
+cualquiera). Se valida en formulario, CSV, confirmación y SBOM; quitar el último identificador
+requerido se rechaza y la edición es atómica. Los activos descubiertos (`UNCONFIRMED`) pueden
+carecer de entorno y función hasta confirmarse.
 
 ## Interfaz
 
 Sección **Inventario** (Activos · Por confirmar · Clasificación · Conflictos · Imágenes ·
-Importar/Exportar), sección **Descubrimiento** (Rangos de red · Ejecuciones) y pestaña
-**Registries** en Administración. Detalle de activo con subpestañas Resumen, Identificadores,
+Importar/Exportar), sección **Descubrimiento** (Rangos de red · Ejecuciones) y pestañas
+**LLM**, **Catálogos** y **Registries** en Administración. Migas de pan en todas las
+pantallas (ADR-007). El detalle de una ejecución de descubrimiento muestra la salida legible
+de nmap (`-oN`) en vivo. Detalle de activo con subpestañas Resumen, Identificadores,
 Servicios, SBOM, Sugerencias LLM, Historial y Descubrimientos (Hallazgos y Riesgo reservados).
 
 ## Autorización
@@ -172,6 +222,8 @@ Servicios, SBOM, Sugerencias LLM, Historial y Descubrimientos (Hallazgos y Riesg
 | Lanzar descubrimiento (`discovery.run_discovery`) | ✔ | ✔ | — |
 | Rangos y alcance (`assets.manage_scope`) | ✔ | — | — |
 | Registries y tokens (`assets.manage_registries`) | ✔ | — | — |
+| Catálogos (`assets.manage_catalogs`) | ✔ | — | — |
+| Modelo LLM del sistema (`llm.manage_llm`) | ✔ | — | — |
 
 Se verifica en vistas **y** en services. Los permisos se asignan en `apps/accounts/roles.py`.
 
@@ -187,3 +239,8 @@ Se verifica en vistas **y** en services. Los permisos se asignan en `apps/accoun
 | Mock de `subprocess.run` | Mock de `subprocess.Popen` | Cancelación del proceso en curso |
 | Dataset en `experiments/datasets/` | `datasets/criticality-*.jsonl` | Convención previa del repositorio |
 | — | `ContainerRegistry.environment`, `PendingUpload`, `DiscoveryRun.assets_touched` | Regla https/LAB, cargas en dos pasos, pestaña Descubrimientos |
+| Enums `AssetType`/`Environment`/`BusinessRole` | Catálogos administrables (`CatalogEntry`) | Revisión del autor: deben poder modificarse |
+| Modelo elegible por solicitud | Modelo único del sistema (`LLMSettings`), solo admin | Revisión del autor |
+| Sugerencia bajo demanda (+ al confirmar) | Automática con espera, huella, política y «revisión sugerida»; botón como respaldo | Revisión del autor |
+| Confianza numérica en la UI | Completitud del contexto + concordancia con la política | La confianza autodeclarada del LLM no está calibrada |
+| Casilla «solicitar sugerencia» al importar | Disparo automático `IMPORT` | Revisión del autor |

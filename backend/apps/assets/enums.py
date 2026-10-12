@@ -111,6 +111,22 @@ class SuggestionState(models.TextChoices):
     REJECTED = "REJECTED", "Rechazada"
     SUPERSEDED = "SUPERSEDED", "Reemplazada"
     FAILED = "FAILED", "Fallida"
+    # Revisión tras un cambio de contexto que confirma la decisión humana vigente.
+    CONSISTENT = "CONSISTENT", "Coincide con la decisión vigente"
+
+
+class SuggestionTrigger(models.TextChoices):
+    MANUAL = "MANUAL", "Solicitud manual"
+    CREATE = "CREATE", "Alta sin criticidad"
+    IMPORT = "IMPORT", "Importación sin criticidad"
+    CONFIRM = "CONFIRM", "Confirmación"
+    CONTEXT_CHANGE = "CONTEXT_CHANGE", "Cambio de contexto"
+    NIGHTLY = "NIGHTLY", "Barrido nocturno"
+
+
+class ContextCompleteness(models.TextChoices):
+    COMPLETE = "COMPLETE", "Completo"
+    PARTIAL = "PARTIAL", "Parcial"
 
 
 class DiscoverySchedule(models.TextChoices):

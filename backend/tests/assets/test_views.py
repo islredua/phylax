@@ -270,6 +270,7 @@ def test_confirm_flow_requests_llm_suggestion(client, as_role):
             "asset_type": "HOST",
             "environment": "PROD",
             "business_role": "API",
+            "description": "API de pagos para clientes.",
         },
     )
     assert response.url == "/inventory/unconfirmed/"
@@ -568,7 +569,9 @@ def test_no_model_selector_outside_admin_and_missing_model_warning(client, as_ro
     asset = AssetFactory()
     cache.set(CACHE_KEY, {"available": True, "accelerator": "cpu", "installed": ["grande:7b"]})
     body = client.get(f"/inventory/{asset.pk}/").content.decode()
-    assert 'name="model"' not in body and "Modelo del sistema" in body and "grande:7b" in body
+    assert (
+        'name="model"' not in body and "Sugerir criticidad con IA" in body and "grande:7b" in body
+    )
     cache.set(CACHE_KEY, {"available": True, "accelerator": "cpu", "installed": []})
     body = client.get(f"/inventory/{asset.pk}/").content.decode()
     assert "no está descargado" in body and "Sugerir criticidad con IA" not in body

@@ -61,7 +61,6 @@ class ImportExportView(Perm, View):
                 "plan": plan,
                 "counts": csv_io.summarize(plan),
                 "rows": len(rows),
-                "request_llm": bool(request.POST.get("request_llm")),
             },
         )
         pending.file.save(f"{pending.pk}.csv", ContentFile(raw), save=False)
@@ -93,16 +92,15 @@ class ImportPreviewView(Perm, View):
         upload = _own_upload(request, token)
         if upload.status != UploadStatus.PREVIEW:
             return redirect("assets:import_status", token=upload.pk)
-        request_llm = upload.meta.get("request_llm", False)
         upload.status = UploadStatus.PROCESSING
         upload.save(update_fields=["status", "updated_at"])
         if upload.meta["rows"] > csv_io.ASYNC_THRESHOLD:
-            import_assets_csv.delay(str(upload.pk), request_llm)
+            import_assets_csv.delay(str(upload.pk))
             messages.info(request, "Importación en segundo plano; esta página se actualizará sola.")
         else:
             with upload.file.open("rb") as fh:
                 rows = csv_io.read_rows(fh.read())
-            upload.result = csv_io.execute_import(rows, user=request.user, request_llm=request_llm)
+            upload.result = csv_io.execute_import(rows, user=request.user)
             upload.status = UploadStatus.DONE
             upload.save(update_fields=["status", "result", "updated_at"])
         return redirect("assets:import_status", token=upload.pk)

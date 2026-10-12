@@ -68,14 +68,21 @@ def test_request_and_complete_suggestion(ollama, operator):
     assert asset.criticality is None  # nada cambia sin decisión humana
 
 
-def test_new_request_supersedes_pending(ollama, operator, settings):
+def test_in_flight_guard_and_supersede_on_context_change(ollama, operator):
     ollama.post(f"{BASE}/api/chat").respond(json=chat_response(VALID))
-    asset = AssetFactory()
-    first = services.request_criticality_suggestion(asset.pk, user=operator)
-    second = services.request_criticality_suggestion(asset.pk, user=operator)
+    asset = AssetFactory(criticality=None)
+    first = services.request_criticality_suggestion(asset.pk, user=operator, enqueue=False)
+    assert first.is_processing
+    with pytest.raises(ValidationError, match="en curso"):
+        services.request_criticality_suggestion(asset.pk, user=operator)
+    # Automático con una en curso: devuelve la misma, sin encolar otra.
+    assert services.request_criticality_suggestion(asset.pk, trigger="CONFIRM") == first
+    services.complete_suggestion(first.pk)
+    asset.description = "Otro contexto"
+    asset.save()
+    second = services.request_criticality_suggestion(asset.pk, user=operator, enqueue=False)
     first.refresh_from_db()
-    assert first.state == SuggestionState.SUPERSEDED
-    assert CriticalitySuggestion.objects.get(pk=second.pk).state == SuggestionState.PENDING
+    assert first.state == SuggestionState.SUPERSEDED and second.is_processing
 
 
 def test_failed_inference_marks_suggestion_failed(ollama, operator):
@@ -91,11 +98,10 @@ def test_permission_and_rate_limit(ollama, operator, make_user, settings):
     with pytest.raises(PermissionDenied):
         services.request_criticality_suggestion(AssetFactory().pk, user=make_user(AUDITOR))
     settings.LLM_RATE_LIMIT_PER_MIN = 2
-    asset = AssetFactory()
-    services.request_criticality_suggestion(asset.pk, user=operator)
-    services.request_criticality_suggestion(asset.pk, user=operator)
+    services.request_criticality_suggestion(AssetFactory().pk, user=operator)
+    services.request_criticality_suggestion(AssetFactory().pk, user=operator)
     with pytest.raises(ValidationError, match="Límite"):
-        services.request_criticality_suggestion(asset.pk, user=operator)
+        services.request_criticality_suggestion(AssetFactory().pk, user=operator)
 
 
 def test_confirming_without_criticality_triggers_suggestion(ollama, operator):
@@ -173,3 +179,130 @@ def test_suggestions_use_the_system_model_and_reject_missing(operator):
     set_active_model("llama3.1:8b-instruct-q4_K_M", user=None)
     suggestion = services.request_criticality_suggestion(asset.pk, user=operator)
     assert suggestion.model == "llama3.1:8b-instruct-q4_K_M"
+
+
+# --- Automatización (huella, espera, política, revisión sugerida, barrido) ---------------
+
+
+def test_fingerprint_reuses_previous_answer_without_inferring(ollama, operator):
+    route = ollama.post(f"{BASE}/api/chat").respond(json=chat_response(VALID))
+    asset = AssetFactory(criticality=None)
+    first = services.request_criticality_suggestion(asset.pk, user=operator)
+    first.refresh_from_db()
+    services.decide_suggestion(first.pk, user=operator, decision=SuggestionState.REJECTED)
+    calls = route.call_count
+    again = services.request_criticality_suggestion(asset.pk, user=operator)
+    assert route.call_count == calls  # sin nueva inferencia
+    assert again.reused_from == first and again.fingerprint == first.fingerprint
+    assert again.suggested == first.suggested and not again.is_processing
+    # Automático con la misma huella que la última: no crea nada.
+    assert services.request_criticality_suggestion(asset.pk, trigger="CONTEXT_CHANGE") == again
+
+
+def test_minimum_context_required(operator):
+    asset = AssetFactory(criticality=None, description="  ")
+    assert not asset.has_minimum_context
+    with pytest.raises(ValidationError, match="Contexto insuficiente"):
+        services.request_criticality_suggestion(asset.pk, user=operator)
+    asset = AssetFactory(criticality=None, business_role=None)
+    with pytest.raises(ValidationError, match="Contexto insuficiente"):
+        services.request_criticality_suggestion(asset.pk, user=operator)
+
+
+def test_debounce_only_last_edit_fires(operator, monkeypatch):
+    from django.core.cache import cache
+
+    from apps.assets import tasks
+
+    calls = []
+    monkeypatch.setattr(
+        tasks.auto_suggest_criticality,
+        "apply_async",
+        lambda args, countdown: calls.append((args, countdown)),
+    )
+    asset = AssetFactory(criticality=None)
+    services.schedule_suggestion(asset.pk, trigger="CREATE")
+    services.schedule_suggestion(asset.pk, trigger="CONTEXT_CHANGE")
+    assert [c[1] for c in calls] == [60, 60]
+    (old, _), (new, _) = calls
+    assert services.run_scheduled_suggestion(*old) is None  # hubo una edición posterior
+    suggestion = services.run_scheduled_suggestion(*new)
+    assert suggestion.trigger == "CONTEXT_CHANGE"
+    assert cache.get(services._debounce_key(asset.pk)) is None
+
+
+def test_context_change_schedules_and_never_overwrites_human_decision(
+    ollama, operator, monkeypatch
+):
+    scheduled = []
+    monkeypatch.setattr(
+        services, "schedule_suggestion", lambda asset_id, **kw: scheduled.append(kw["trigger"])
+    )
+    asset = AssetFactory(criticality="BAJO", environment="PROD", business_role="AUTENTICACION")
+    services.update_asset(asset, user=operator, fields={"business_owner": "Finanzas"})
+    assert scheduled == []  # no es un campo de contexto del LLM
+    services.update_asset(
+        asset, user=operator, fields={"description": "Directorio activo corporativo"}
+    )
+    assert scheduled == ["CONTEXT_CHANGE"]
+    # La IA sugiere otra clase: el activo queda en revisión sugerida, sin cambiar la criticidad.
+    ollama.post(f"{BASE}/api/chat").respond(json=chat_response(VALID))
+    suggestion = services.request_criticality_suggestion(asset.pk, trigger="CONTEXT_CHANGE")
+    suggestion.refresh_from_db()
+    asset.refresh_from_db()
+    assert asset.criticality == "BAJO"
+    assert suggestion.state == SuggestionState.PENDING and asset.review_suggested
+    # Identidad en producción: la política fuerza mínimo Crítico.
+    assert suggestion.suggested == "CRITICO" and suggestion.policy_adjusted
+    services.decide_suggestion(suggestion.pk, user=operator, decision=SuggestionState.REJECTED)
+    asset.refresh_from_db()
+    assert asset.criticality == "BAJO" and not asset.review_suggested
+
+
+def test_same_class_after_context_change_is_consistent(ollama, operator):
+    ollama.post(f"{BASE}/api/chat").respond(json=chat_response(VALID))
+    asset = AssetFactory(
+        criticality=json.loads(VALID)["criticality"],
+        environment="PROD",
+        business_role="API",
+        data_classification="INTERNA",
+        data_categories=[],
+    )
+    suggestion = services.request_criticality_suggestion(asset.pk, trigger="CONTEXT_CHANGE")
+    suggestion.refresh_from_db()
+    asset.refresh_from_db()
+    assert suggestion.state == SuggestionState.CONSISTENT and not asset.review_suggested
+    assert suggestion.context_completeness == "COMPLETE" and not suggestion.policy_adjusted
+
+
+def test_policy_bounds():
+    from apps.assets.criticality_policy import apply
+
+    prod = {
+        "environment": "PROD",
+        "business_role": "API",
+        "data_classification": None,
+        "data_categories": [],
+    }
+    assert apply("BAJO", **{**prod, "business_role": "AUTENTICACION"}).final == "CRITICO"
+    assert apply("BAJO", **{**prod, "data_categories": ["PII"]}).final == "ALTO"
+    assert apply("CRITICO", **{**prod, "environment": "DEV"}).final == "BAJO"
+    assert (
+        apply("CRITICO", **{**prod, "environment": "DEV", "data_categories": ["PII"]}).final
+        == "MEDIO"
+    )
+    result = apply("MEDIO", **prod)
+    assert result.final == "MEDIO" and not result.adjusted and result.rule == ""
+
+
+def test_nightly_sweep_is_serial_and_keeps_model_loaded(ollama, operator):
+    route = ollama.post(f"{BASE}/api/chat").respond(json=chat_response(VALID))
+    pending = AssetFactory(criticality=None)
+    AssetFactory(criticality=None, description="")  # contexto insuficiente: se omite
+    AssetFactory(criticality="ALTO")
+    from apps.assets.tasks import sweep_unclassified_criticality
+
+    assert sweep_unclassified_criticality() == 1
+    suggestion = CriticalitySuggestion.objects.get(asset=pending)
+    assert suggestion.trigger == "NIGHTLY" and suggestion.llm_class
+    assert json.loads(route.calls.last.request.content)["keep_alive"] == "30m"

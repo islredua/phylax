@@ -18,6 +18,7 @@ from .enums import (
     DataClassification,
     Exposure,
     IdentifierKind,
+    SuggestionTrigger,
 )
 from .models import AssetConflict
 from .normalization import normalize_identifier
@@ -225,6 +226,7 @@ def _apply_row(data, identifiers, *, user):
                 tags=tags,
                 origin=AssetOrigin.IMPORT,
                 criticality_source=CriticalitySource.IMPORT,
+                suggestion_trigger=None,  # execute_import la programa
             )
         action = CREATE
     else:
@@ -251,7 +253,7 @@ def _apply_row(data, identifiers, *, user):
     return action, asset
 
 
-def execute_import(rows, *, user, request_llm=False):
+def execute_import(rows, *, user):
     """Aplica la importación fila por fila (cada fila en su propia transacción)."""
     counts = {CREATE: 0, UPDATE: 0, CONFLICT: 0, ERROR: 0}
     errors, needs_suggestion = [], []
@@ -267,14 +269,10 @@ def execute_import(rows, *, user, request_llm=False):
         counts[action] += 1
         if asset is not None and asset.criticality is None:
             needs_suggestion.append(asset.pk)
-    if request_llm:
-        for asset_id in dict.fromkeys(needs_suggestion):
-            services.request_criticality_suggestion(asset_id, user=None, requested_by=user)
-    return {
-        "counts": counts,
-        "errors": errors[:200],
-        "llm_requested": len(needs_suggestion) if request_llm else 0,
-    }
+    # Sugerencia automática para los activos sin criticidad (con espera y huella).
+    for asset_id in dict.fromkeys(needs_suggestion):
+        services.schedule_suggestion(asset_id, trigger=SuggestionTrigger.IMPORT, requested_by=user)
+    return {"counts": counts, "errors": errors[:200], "llm_scheduled": len(set(needs_suggestion))}
 
 
 # --- Exportación -------------------------------------------------------------------

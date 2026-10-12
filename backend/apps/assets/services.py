@@ -7,9 +7,12 @@ permisos aquí, además de en las vistas. Las que alimentan procesos del sistema
 
 from __future__ import annotations
 
+import hashlib
 import ipaddress
+import json
 import logging
 import re
+import uuid
 from collections.abc import Iterable
 from datetime import timedelta
 
@@ -29,12 +32,14 @@ from .enums import (
     AssetType,
     ConflictResolution,
     ConflictSource,
+    ContextCompleteness,
     Criticality,
     CriticalitySource,
     ExposureSource,
     IdentifierKind,
     ServiceState,
     SuggestionState,
+    SuggestionTrigger,
 )
 from .models import (
     Asset,
@@ -53,6 +58,19 @@ SCANNABLE_STATUSES = (AssetStatus.ACTIVE, AssetStatus.STALE)
 PROMPT_VERSION = "v1"
 # Campos mínimos para confirmar un activo descubierto (sección 6).
 CONFIRM_REQUIRED_FIELDS = ("name", "asset_type", "environment", "business_role")
+# Campos del activo que alimentan al LLM: si cambian, se reevalúa la criticidad sugerida.
+CONTEXT_FIELDS = (
+    "description",
+    "business_role",
+    "environment",
+    "data_classification",
+    "data_categories",
+)
+SUGGEST_DEBOUNCE_S = 60
+INSUFFICIENT_CONTEXT = (
+    "Contexto insuficiente: completa la descripción y la función de negocio del activo "
+    "para que el LLM pueda sugerir su criticidad."
+)
 # Campos de contexto que una persona puede fijar al crear/editar/confirmar.
 EDITABLE_FIELDS = (
     "name",
@@ -409,6 +427,15 @@ def _upsert_services(asset, host: DiscoveredHost):
     return seen
 
 
+def _service_signature(asset):
+    """Servicios abiertos tal como los ve el LLM (puerto, protocolo, servicio, producto, versión)."""
+    return sorted(
+        asset.services.filter(state=ServiceState.OPEN).values_list(
+            "port", "protocol", "service_name", "product", "version"
+        )
+    )
+
+
 def mark_services_not_seen(asset, scan_started_at):
     """Tras un escaneo completo, los servicios no observados pasan a ``closed`` (nunca se borran)."""
     return (
@@ -470,7 +497,14 @@ def _upsert_locked(host, identifiers, payload, run):
         created = False
 
     _add_identifiers(asset, identifiers, host.observed_at)
+    services_before = None if created else _service_signature(asset)
     _upsert_services(asset, host)
+    if (
+        not created
+        and asset.status == AssetStatus.ACTIVE
+        and _service_signature(asset) != services_before
+    ):
+        schedule_suggestion(asset.pk, trigger=SuggestionTrigger.CONTEXT_CHANGE)
     if not created:
         asset.first_seen = asset.first_seen or host.observed_at
         asset.last_seen = max(filter(None, (asset.last_seen, host.observed_at)))
@@ -531,8 +565,12 @@ def create_asset(
     tags=(),
     origin=AssetOrigin.MANUAL,
     criticality_source=CriticalitySource.MANUAL,
+    suggestion_trigger=SuggestionTrigger.CREATE,
 ):
-    """Alta manual (o por importación) de un activo ``ACTIVE``."""
+    """Alta manual (o por importación) de un activo ``ACTIVE``.
+
+    Sin criticidad, programa una sugerencia automática (``suggestion_trigger=None`` la omite).
+    """
     _require(user, "assets.add_asset")
     normalized = _normalize_all(identifiers)
     catalogs.check_identifiers(fields.get("asset_type"), [kind for kind, _ in normalized])
@@ -553,7 +591,13 @@ def create_asset(
     asset.save()
     if tags:
         asset.tags.set(tags)
+    if asset.criticality is None and suggestion_trigger:
+        schedule_suggestion(asset.pk, trigger=suggestion_trigger, requested_by=user)
     return asset
+
+
+def _context_snapshot(asset):
+    return {f: getattr(asset, f) for f in CONTEXT_FIELDS}
 
 
 @transaction.atomic
@@ -561,15 +605,19 @@ def update_asset(asset, *, user, fields=None, criticality=..., exposure=..., tag
     """Edición humana. ``criticality``/``exposure`` con ``...`` = sin cambio."""
     _require(user, "assets.change_asset")
     asset = Asset.objects.select_for_update().get(pk=asset.pk)
+    before = _context_snapshot(asset)
     _apply_fields(asset, fields or {})
     if criticality is not ... and criticality != asset.criticality:
         set_criticality(asset, criticality, source=CriticalitySource.MANUAL)
+        asset.review_suggested = False  # la persona acaba de decidir
     if exposure is not ...:
         set_exposure(asset, exposure)
     _attribute(asset, user)
     asset.save()
     if tags is not None:
         asset.tags.set(tags)
+    if asset.status == AssetStatus.ACTIVE and _context_snapshot(asset) != before:
+        schedule_suggestion(asset.pk, trigger=SuggestionTrigger.CONTEXT_CHANGE, requested_by=user)
     return asset
 
 
@@ -640,17 +688,8 @@ def confirm_asset(asset, *, user, fields=None, criticality=None):
     _attribute(asset, user)
     asset.save()
     if asset.criticality is None:
-        asset_id = asset.pk
-        transaction.on_commit(lambda: _auto_suggest(asset_id, user))
+        schedule_suggestion(asset.pk, trigger=SuggestionTrigger.CONFIRM, requested_by=user)
     return asset
-
-
-def _auto_suggest(asset_id, user):
-    # Disparo automático al confirmar: sin límite de tasa del usuario ni permiso de decisión.
-    try:
-        request_criticality_suggestion(asset_id, user=None, requested_by=user)
-    except Exception:  # pragma: no cover - nunca debe romper la confirmación
-        logger.exception("No se pudo encolar la sugerencia de criticidad")
 
 
 @transaction.atomic
@@ -911,20 +950,105 @@ def _check_rate_limit(user):
         )
 
 
-def request_criticality_suggestion(asset_id, *, user=None, model=None, requested_by=None):
-    """Encola una sugerencia de criticidad en la cola ``llm`` (segundo plano).
+def suggestion_fingerprint(data, model):
+    """sha256 de la entrada del LLM + modelo + versión del prompt."""
+    raw = json.dumps(
+        {"input": data, "model": model, "prompt": PROMPT_VERSION},
+        sort_keys=True,
+        ensure_ascii=False,
+        default=str,
+    )
+    return hashlib.sha256(raw.encode()).hexdigest()
 
-    Marca como ``SUPERSEDED`` las ``PENDING`` previas del activo y devuelve la
-    nueva sugerencia en estado ``PENDING`` sin respuesta (``is_processing``); la
-    UI la consulta hasta que el worker la completa. ``user`` (persona) exige
-    ``assets.decide_criticality`` y aplica el límite de tasa; ``user=None`` es
-    un disparo del sistema (p. ej. al confirmar).
+
+def context_completeness(asset):
+    """Completo: además del mínimo (descripción y función), entorno y clasificación de datos."""
+    if asset.has_minimum_context and asset.environment and asset.data_classification:
+        return ContextCompleteness.COMPLETE
+    return ContextCompleteness.PARTIAL
+
+
+def _debounce_key(asset_id):
+    return f"assets:suggest-due:{asset_id}"
+
+
+def schedule_suggestion(asset_id, *, trigger, requested_by=None):
+    """Programa una sugerencia automática ``SUGGEST_DEBOUNCE_S`` después de la última edición.
+
+    Cada llamada renueva un testigo en caché; al vencer, solo la tarea con el
+    testigo vigente solicita la sugerencia (las ediciones intermedias no generan
+    inferencias).
     """
-    if user is not None:
-        _require(user, "assets.decide_criticality")
-        _check_rate_limit(user)
+    token = uuid.uuid4().hex
+    cache.set(_debounce_key(asset_id), token, SUGGEST_DEBOUNCE_S * 10)
+    user_id = getattr(requested_by, "pk", None)
+
+    def enqueue():
+        from .tasks import auto_suggest_criticality
+
+        auto_suggest_criticality.apply_async(
+            (str(asset_id), str(trigger), token, user_id), countdown=SUGGEST_DEBOUNCE_S
+        )
+
+    transaction.on_commit(enqueue)
+
+
+def run_scheduled_suggestion(asset_id, trigger, token, user_id=None):
+    """Tarea al vencer la espera: solicita la sugerencia si nadie editó después."""
+    if cache.get(_debounce_key(asset_id)) != token:
+        return None  # una edición posterior programó otra
+    cache.delete(_debounce_key(asset_id))
+    asset = Asset.objects.filter(pk=asset_id).first()
+    if asset is None or asset.status != AssetStatus.ACTIVE:
+        return None
+    from django.contrib.auth import get_user_model
+
+    requested_by = get_user_model().objects.filter(pk=user_id).first() if user_id else None
+    try:
+        return request_criticality_suggestion(asset_id, requested_by=requested_by, trigger=trigger)
+    except ValidationError as exc:
+        # Contexto insuficiente o modelo no descargado: la UI ya lo señala en el activo.
+        logger.info("Sugerencia automática omitida para %s: %s", asset_id, " ".join(exc.messages))
+        return None
+
+
+def processing_suggestion(asset):
+    """Sugerencia del activo en curso (sin respuesta del LLM), o ``None``."""
+    return CriticalitySuggestion.objects.filter(
+        asset=asset,
+        state=SuggestionState.PENDING,
+        inference__isnull=True,
+        reused_from__isnull=True,
+    ).first()
+
+
+def request_criticality_suggestion(
+    asset_id,
+    *,
+    user=None,
+    model=None,
+    requested_by=None,
+    trigger=SuggestionTrigger.MANUAL,
+    enqueue=True,
+):
+    """Solicita una sugerencia de criticidad (cola ``llm``, segundo plano).
+
+    - Sin contexto mínimo (descripción y función de negocio) no se llama al LLM.
+    - Si ya hay una en curso para el activo, no se encola otra.
+    - Huella (entrada + modelo + prompt): si ya existe una respuesta con la misma
+      huella se reutiliza sin inferir. En disparos automáticos, si la última
+      sugerencia del activo tiene la misma huella no se hace nada.
+    - Nunca cambia la criticidad: la decisión es humana (ver ``_settle``).
+
+    ``user`` (persona) exige ``assets.decide_criticality`` y aplica el límite de
+    tasa; ``user=None`` es un disparo del sistema.
+    """
     from apps.llm.status import active_model, installed_models
 
+    from .llm_input import build_input
+
+    if user is not None:
+        _require(user, "assets.decide_criticality")
     # El modelo lo elige un administrador para todo el sistema (Administración › LLM).
     model = model or active_model()
     installed = installed_models()
@@ -937,31 +1061,108 @@ def request_criticality_suggestion(asset_id, *, user=None, model=None, requested
         )
     with transaction.atomic():
         asset = _locked(Asset.objects.get(pk=asset_id))
+        if not asset.has_minimum_context:
+            raise ValidationError(INSUFFICIENT_CONTEXT)
+        in_flight = processing_suggestion(asset)
+        if in_flight is not None:
+            if user is not None:
+                raise ValidationError(
+                    "Ya hay una sugerencia en curso para este activo; espera a que termine."
+                )
+            return in_flight
+        fingerprint = suggestion_fingerprint(build_input(asset), model)
+        if trigger != SuggestionTrigger.MANUAL:
+            latest = (
+                CriticalitySuggestion.objects.filter(asset=asset)
+                .exclude(state__in=(SuggestionState.SUPERSEDED, SuggestionState.FAILED))
+                .order_by("-created_at")
+                .first()
+            )
+            if latest is not None and latest.fingerprint == fingerprint:
+                return latest
+        if user is not None:
+            _check_rate_limit(user)
+        previous = (
+            CriticalitySuggestion.objects.filter(fingerprint=fingerprint, llm_class__isnull=False)
+            .order_by("-created_at")
+            .first()
+        )
         CriticalitySuggestion.objects.filter(asset=asset, state=SuggestionState.PENDING).update(
             state=SuggestionState.SUPERSEDED, updated_at=timezone.now()
         )
-        suggestion = CriticalitySuggestion.objects.create(
-            asset=asset, model=model, requested_by=user or requested_by
+        suggestion = CriticalitySuggestion(
+            asset=asset,
+            model=model,
+            requested_by=user or requested_by,
+            fingerprint=fingerprint,
+            trigger=trigger,
+            context_completeness=context_completeness(asset),
         )
+        if previous is not None:
+            # Misma entrada, mismo modelo y prompt: se reutiliza la respuesta.
+            suggestion.reused_from = previous  # la inferencia (1:1) queda en la original
+            suggestion.rationale = previous.rationale
+            suggestion.signals = previous.signals
+            suggestion.confidence = previous.confidence
+            _apply_policy(suggestion, asset, previous.llm_class)
+            _settle(suggestion, asset)
+            suggestion.save()
+            return suggestion
+        suggestion.save()
         suggestion_id = suggestion.pk
+        if enqueue:
 
-        def enqueue():
-            from .tasks import suggest_criticality
+            def _enqueue():
+                from .tasks import suggest_criticality
 
-            suggest_criticality.delay(str(suggestion_id))
+                suggest_criticality.delay(str(suggestion_id))
 
-        transaction.on_commit(enqueue)
+            transaction.on_commit(_enqueue)
     return suggestion
+
+
+def _apply_policy(suggestion, asset, llm_class):
+    from .criticality_policy import apply, context_of
+
+    result = apply(llm_class, **context_of(asset))
+    suggestion.llm_class = llm_class
+    suggestion.suggested = result.final
+    suggestion.policy_adjusted = result.adjusted
+    suggestion.policy_rule = result.rule
+
+
+def _settle(suggestion, asset):
+    """Tras la respuesta: nunca sobrescribe una decisión humana.
+
+    - Activo sin criticidad → queda ``PENDING`` para que una persona decida.
+    - Con criticidad y misma clase → ``CONSISTENT`` (sin acción).
+    - Con criticidad y clase distinta → ``PENDING`` y el activo se marca
+      «revisión sugerida».
+    """
+    if not suggestion.suggested or asset.criticality is None:
+        return
+    if suggestion.suggested == asset.criticality:
+        suggestion.state = SuggestionState.CONSISTENT
+        suggestion.final_value = asset.criticality
+        review = False
+    else:
+        review = True
+    if asset.review_suggested != review:
+        asset.review_suggested = review
+        asset.save(update_fields=["review_suggested", "updated_at"])
 
 
 def fail_suggestion(suggestion_id):
     """Marca como FAILED una sugerencia pendiente sin respuesta (error inesperado del worker)."""
     return CriticalitySuggestion.objects.filter(
-        pk=suggestion_id, state=SuggestionState.PENDING, inference__isnull=True
+        pk=suggestion_id,
+        state=SuggestionState.PENDING,
+        inference__isnull=True,
+        reused_from__isnull=True,
     ).update(state=SuggestionState.FAILED, updated_at=timezone.now())
 
 
-def complete_suggestion(suggestion_id):
+def complete_suggestion(suggestion_id, *, keep_alive=None):
     """Ejecuta la inferencia de una sugerencia (worker de la cola ``llm``).
 
     Idempotente: si la sugerencia ya tiene respuesta o dejó de estar pendiente
@@ -974,7 +1175,11 @@ def complete_suggestion(suggestion_id):
     from .llm_input import build_input, render_user_message
 
     suggestion = CriticalitySuggestion.objects.select_related("asset").get(pk=suggestion_id)
-    if suggestion.state != SuggestionState.PENDING or suggestion.inference_id:
+    if (
+        suggestion.state != SuggestionState.PENDING
+        or suggestion.inference_id
+        or suggestion.reused_from_id
+    ):
         return suggestion
     data = build_input(suggestion.asset)
     log = run_structured(
@@ -990,19 +1195,55 @@ def complete_suggestion(suggestion_id):
         request_payload={"asset": data},
         object_ref=f"assets.Asset:{suggestion.asset_id}",
         requested_by=suggestion.requested_by,
+        keep_alive=keep_alive,
     )
     with transaction.atomic():
         suggestion = CriticalitySuggestion.objects.select_for_update().get(pk=suggestion_id)
+        asset = _locked(suggestion.asset)
         suggestion.inference = log
         if log.parsed_ok:
-            suggestion.suggested = log.parsed["criticality"]
+            _apply_policy(suggestion, asset, log.parsed["criticality"])
             suggestion.confidence = log.parsed["confidence"]
             suggestion.rationale = log.parsed["rationale"]
             suggestion.signals = log.parsed.get("signals", [])
+            if suggestion.state == SuggestionState.PENDING:
+                _settle(suggestion, asset)
         elif suggestion.state == SuggestionState.PENDING:
             suggestion.state = SuggestionState.FAILED
         suggestion.save()
     return suggestion
+
+
+def assets_for_sweep(limit):
+    """Activos activos sin criticidad, con contexto mínimo y sin sugerencia pendiente."""
+    pending = CriticalitySuggestion.objects.filter(state=SuggestionState.PENDING)
+    candidates = (
+        Asset.objects.filter(status=AssetStatus.ACTIVE, criticality__isnull=True)
+        .exclude(business_role__isnull=True)
+        .exclude(business_role="")
+        .exclude(description="")
+        .exclude(pk__in=pending.values("asset_id"))
+        .order_by("created_at")
+    )
+    return [a.pk for a in candidates[:limit] if a.has_minimum_context]
+
+
+def sweep_unclassified(*, limit=None, keep_alive="30m"):
+    """Barrido nocturno: en serie, con el modelo cargado entre inferencias (``keep_alive``)."""
+    limit = limit or settings.LLM_SWEEP_MAX_ASSETS
+    done = 0
+    for asset_id in assets_for_sweep(limit):
+        try:
+            suggestion = request_criticality_suggestion(
+                asset_id, trigger=SuggestionTrigger.NIGHTLY, enqueue=False
+            )
+        except ValidationError as exc:
+            logger.info("Barrido: %s omitido (%s)", asset_id, " ".join(exc.messages))
+            continue
+        if suggestion.is_processing:
+            complete_suggestion(suggestion.pk, keep_alive=keep_alive)
+        done += 1
+    return done
 
 
 @transaction.atomic
@@ -1037,9 +1278,10 @@ def decide_suggestion(suggestion_id, *, user, decision, value=None):
         final = asset.criticality
     else:
         raise ValidationError("Decisión desconocida.")
-    if decision != SuggestionState.REJECTED:
-        _attribute(asset, user)
-        asset.save()
+    # Una persona revisó la sugerencia: deja de estar «revisión sugerida».
+    asset.review_suggested = False
+    _attribute(asset, user)
+    asset.save()
     suggestion.state = decision
     suggestion.final_value = final
     suggestion.decided_by = user

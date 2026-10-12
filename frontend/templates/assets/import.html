@@ -10,7 +10,7 @@
     <h3 class="card-title mb-0">Importar CSV</h3>
     <p class="text-sm text-ink-soft">Primero verás una vista previa con la acción de cada fila (crear, actualizar, conflicto o error); nada se escribe hasta confirmar. Máximo 5 MB y 5 000 filas.</p>
     <input type="file" name="file" accept=".csv,text/csv" class="form-input" required aria-label="Archivo CSV">
-    <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="request_llm" class="checkbox"> Solicitar sugerencia LLM para activos sin criticidad</label>
+    <p class="text-xs text-muted">Los activos sin criticidad reciben una sugerencia del LLM automáticamente (si tienen descripción y función de negocio).</p>
     <div class="flex flex-wrap gap-2"><button class="btn-primary" type="submit">Ver vista previa</button><a href="{% url 'assets:import_template' %}" class="btn-secondary">Descargar plantilla</a></div>
   </form>
   {% endif %}

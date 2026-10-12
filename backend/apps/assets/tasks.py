@@ -31,8 +31,24 @@ def suggest_criticality(suggestion_id):
     return str(suggestion.state)
 
 
+@shared_task(acks_late=True, soft_time_limit=60, time_limit=90)
+def auto_suggest_criticality(asset_id, trigger, token, user_id=None):
+    """Cola ``default``: vence la espera tras la última edición y encola la sugerencia."""
+    suggestion = services.run_scheduled_suggestion(asset_id, trigger, token, user_id)
+    return str(suggestion.pk) if suggestion else None
+
+
+# Serie de inferencias en la cola ``llm`` (concurrencia 1); el modelo queda cargado entre ellas.
+@shared_task(acks_late=True, soft_time_limit=6 * 3600, time_limit=6 * 3600 + 300)
+def sweep_unclassified_criticality():
+    """Nocturna (Beat): sugerencias para activos sin criticidad con contexto mínimo."""
+    count = services.sweep_unclassified()
+    logger.info("Barrido nocturno de criticidad: %d activo(s)", count)
+    return count
+
+
 @shared_task(acks_late=True, soft_time_limit=1800, time_limit=1900)
-def import_assets_csv(upload_id, request_llm=False):
+def import_assets_csv(upload_id):
     """Importaciones grandes (más de 200 filas) en segundo plano."""
     from .csv_io import execute_import, read_rows
     from .models import PendingUpload, UploadStatus
@@ -41,7 +57,7 @@ def import_assets_csv(upload_id, request_llm=False):
     try:
         with upload.file.open("rb") as fh:
             rows = read_rows(fh.read())
-        upload.result = execute_import(rows, user=upload.user, request_llm=request_llm)
+        upload.result = execute_import(rows, user=upload.user)
         upload.status = UploadStatus.DONE
     except Exception as exc:
         logger.exception("Importación %s fallida", upload_id)

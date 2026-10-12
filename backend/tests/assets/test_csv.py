@@ -164,14 +164,30 @@ def test_confirm_applies_import(operator_client):
     assert "Creados" in operator_client.get(status).content.decode()
 
 
-def test_import_can_request_llm_suggestions(operator_client):
+def test_import_schedules_suggestions_for_assets_without_criticality(operator_client):
     content = make_csv(
-        row(name="sin", asset_type="HOST", ipv4="10.3.0.1"),
-        row(name="con", asset_type="HOST", ipv4="10.3.0.2", criticality="BAJO"),
+        row(
+            name="sin",
+            asset_type="HOST",
+            ipv4="10.3.0.1",
+            business_role="API",
+            description="API interna de pagos.",
+        ),
+        row(
+            name="con",
+            asset_type="HOST",
+            ipv4="10.3.0.2",
+            criticality="BAJO",
+            business_role="API",
+            description="API interna.",
+        ),
+        row(name="sin-contexto", asset_type="HOST", ipv4="10.3.0.3"),
     )
-    preview = upload(operator_client, content, request_llm="on").url
+    preview = upload(operator_client, content).url
     operator_client.post(preview)
+    # Automática (sin casilla): solo el activo sin criticidad y con contexto mínimo.
     assert list(CriticalitySuggestion.objects.values_list("asset__name", flat=True)) == ["sin"]
+    assert CriticalitySuggestion.objects.get().trigger == "IMPORT"
 
 
 def test_large_import_runs_in_background(operator_client, monkeypatch):

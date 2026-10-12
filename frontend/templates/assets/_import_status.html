@@ -10,7 +10,7 @@
       <div class="card"><p class="stat-label">Conflictos</p><p class="stat-value">{{ upload.result.counts.conflict }}</p></div>
       <div class="card"><p class="stat-label">Errores</p><p class="stat-value">{{ upload.result.counts.error }}</p></div>
     </div>
-    {% if upload.result.llm_requested %}<div class="alert-info">Se solicitaron {{ upload.result.llm_requested }} sugerencias de criticidad: revísalas en <a href="{% url 'assets:classification' %}">Clasificación</a>.</div>{% endif %}
+    {% if upload.result.llm_scheduled %}<div class="alert-info">Se programaron {{ upload.result.llm_scheduled }} sugerencias de criticidad: revísalas en <a href="{% url 'assets:classification' %}">Clasificación</a>.</div>{% endif %}
     {% if upload.result.counts.conflict %}<div class="alert-warning">Hay conflictos de identidad por revisar en <a href="{% url 'assets:conflicts' %}">Conflictos</a>.</div>{% endif %}
     {% if upload.result.errors %}
     <div class="table-wrap"><table class="data-table"><thead><tr><th>Fila</th><th>Error</th></tr></thead><tbody>

@@ -39,7 +39,7 @@
       <div><dt class="kv-label">Tipo</dt><dd class="kv-value">{{ asset.asset_type|catalog:"ASSET_TYPE" }}</dd></div>
       <div><dt class="kv-label">Función de negocio</dt><dd class="kv-value">{{ asset.business_role|catalog:"BUSINESS_ROLE" }}</dd></div>
       <div><dt class="kv-label">Entorno</dt><dd class="kv-value">{{ asset.environment|catalog:"ENVIRONMENT" }}</dd></div>
-      <div><dt class="kv-label">Criticidad</dt><dd class="kv-value">{% criticality_badge asset.criticality asset.criticality_source %}{% if asset.criticality_source %} <span class="text-xs text-muted">{{ asset.get_criticality_source_display }}</span>{% endif %}</dd></div>
+      <div><dt class="kv-label">Criticidad</dt><dd class="kv-value">{% criticality_badge asset.criticality asset.criticality_source %}{% if asset.criticality_source %} <span class="text-xs text-muted">{{ asset.get_criticality_source_display }}</span>{% endif %}{% if asset.review_suggested %} <a href="?tab=sugerencias" class="badge-medium">revisión sugerida</a>{% endif %}{% if not asset.has_minimum_context %} <span class="badge-neutral" title="Falta descripción o función de negocio">contexto insuficiente</span>{% endif %}</dd></div>
       <div><dt class="kv-label">Exposición</dt><dd class="kv-value">{% exposure_badge asset.exposure asset.exposure_source %} <span class="text-xs text-muted">{{ asset.get_exposure_source_display }}</span></dd></div>
       <div><dt class="kv-label">Rango de red</dt><dd class="kv-value">{% if asset.network_range %}<a href="{% url 'assets:range_detail' asset.network_range_id %}">{{ asset.network_range.name }}</a> <span class="font-mono text-xs text-muted">{{ asset.network_range.cidr }}</span>{% else %}—{% endif %}</dd></div>
       <div><dt class="kv-label">Clasificación de datos</dt><dd class="kv-value">{{ asset.data_classification|choice_label:"DataClassification" }}</dd></div>
@@ -56,13 +56,7 @@
   <section class="card flex flex-col gap-3">
     <h3 class="card-title mb-0">Acciones</h3>
     {% if perms.assets.decide_criticality and asset.status != 'RETIRED' %}
-    {% if llm_ready %}
-    <form method="post" action="{% url 'assets:suggest' asset.pk %}" class="flex flex-col gap-2">
-      {% csrf_token %}<input type="hidden" name="next" value="{% url 'assets:detail' asset.pk %}?tab=sugerencias">
-      <button class="btn-primary" type="submit">Sugerir criticidad con IA</button>
-      <p class="text-xs text-muted">Modelo del sistema: <span class="font-mono">{{ llm_model }}</span></p>
-    </form>
-    {% else %}{% include "assets/_model_missing.html" %}{% endif %}
+    {% include "assets/_suggest_action.html" %}
     {% endif %}
     {% if perms.discovery.run_discovery and has_ip and asset.status != 'RETIRED' %}
     <form method="post" action="{% url 'discovery:rescan' asset.pk %}">{% csrf_token %}<button class="btn-secondary w-full" type="submit">Re-escanear servicios</button></form>
@@ -152,13 +146,7 @@
 
 {% elif tab == "sugerencias" %}
 {% if perms.assets.decide_criticality and asset.status != 'RETIRED' %}
-{% if llm_ready %}
-<form method="post" action="{% url 'assets:suggest' asset.pk %}" hx-post="{% url 'assets:suggest' asset.pk %}" hx-target="#suggestions" hx-swap="afterbegin" class="flex flex-wrap items-center gap-2">
-  {% csrf_token %}<input type="hidden" name="next" value="{% url 'assets:detail' asset.pk %}?tab=sugerencias">
-  <button class="btn-primary" type="submit">Sugerir criticidad con IA</button>
-  <span class="text-xs text-muted">Modelo del sistema: <span class="font-mono">{{ llm_model }}</span></span>
-</form>
-{% else %}{% include "assets/_model_missing.html" %}{% endif %}
+{% include "assets/_suggest_action.html" with htmx_target="#suggestions" %}
 {% endif %}
 <div id="suggestions" class="flex flex-col gap-3">
   {% for s in suggestions %}{% include "assets/_suggestion_card.html" with show_asset=False %}{% empty %}<p class="muted">Aún no hay sugerencias para este activo.</p>{% endfor %}

@@ -213,6 +213,7 @@ class AssetDetailView(Perm, TemplateView):
             criticality_choices=Criticality.choices,
             llm_model=active_model(),
             llm_ready=active_model_ready(),
+            in_flight=services.processing_suggestion(asset) is not None,
         )
         if tab == "resumen":
             context["has_ip"] = asset.identifiers.filter(kind__in=("IPV4", "IPV6")).exists()
@@ -486,9 +487,11 @@ class ClassificationView(Perm, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        pending = CriticalitySuggestion.objects.filter(
-            state=SuggestionState.PENDING
-        ).select_related("asset", "inference")
+        pending = (
+            CriticalitySuggestion.objects.filter(state=SuggestionState.PENDING)
+            .select_related("asset", "inference")
+            .order_by("-created_at")
+        )
         has_pending = CriticalitySuggestion.objects.filter(
             asset=OuterRef("pk"), state=SuggestionState.PENDING
         )
@@ -496,7 +499,7 @@ class ClassificationView(Perm, TemplateView):
             Asset.objects.filter(
                 criticality__isnull=True, status__in=(AssetStatus.ACTIVE, AssetStatus.STALE)
             )
-            .exclude(Exists(has_pending))
+            .exclude(Exists(has_pending))  # las en curso ya aparecen como tarjeta arriba
             .order_by("name")[:100]
         )
         recent_failed = CriticalitySuggestion.objects.filter(

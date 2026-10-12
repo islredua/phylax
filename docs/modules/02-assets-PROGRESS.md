@@ -114,3 +114,22 @@ Se documentan aquí conforme aparezcan.
   worker en la red del laboratorio, ambos como `UNCONFIRMED`; se ignoran desde la cola.
 - `seed_lab_assets --reset` borra físicamente lo sembrado (solo laboratorio; en operación los
   activos se retiran).
+
+## Revisión del autor (PR #5)
+
+| # | Cambio | Estado |
+|---|---|---|
+| 1 | Modelo LLM único, elegido por admin en Administración › LLM | ✅ |
+| 2 | Re-escaneo: salida legible de nmap (`-oN`) visible en vivo | ✅ |
+| 3 | «Editar» en Clasificación: selector + Guardar; editar sin cambiar = aceptar | ✅ |
+| 4 | Migas de pan en todas las pantallas (obligatorio, ADR-007) | ✅ |
+| 5 | Tipo, entorno y función de negocio como catálogos administrables | ✅ |
+| 6 | Campos obligatorios y al menos un identificador según el tipo | ✅ |
+| 7 | Sugerencia automática: disparadores, espera 60 s, huella, una a la vez, contexto mínimo, «revisión sugerida», barrido nocturno con `keep_alive`, política determinista, UI sin confianza numérica | ✅ |
+
+- La huella incluye el nombre del activo y sus FQDN (son parte de `build_input`), así que la
+  reutilización entre activos distintos es rara; dentro de un mismo activo evita reinferir
+  cuando se revierte una edición o se pulsa el botón sin cambios.
+- La espera usa un testigo en Redis; si Redis se reinicia durante la espera, la tarea
+  programada no encuentra testigo y no hace nada (el barrido nocturno lo recupera).
+- `INSUFFICIENT_CONTEXT` se calcula al vuelo (`Asset.has_minimum_context`), no se almacena.

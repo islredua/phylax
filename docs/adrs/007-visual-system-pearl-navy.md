@@ -74,6 +74,12 @@ Patrón **obligatorio para todo el proyecto**:
 - Las subsecciones **nunca** van en la barra lateral.
 - Bajo las pestañas, cada vista usa una **toolbar** (`{% block toolbar %}`): su
   título (h2) a la izquierda y sus acciones a la derecha.
+- **Migas de pan obligatorias** en toda pantalla salvo Inicio:
+  `Inicio › Sección › Pestaña` (la pestaña solo si la sección tiene varias) se
+  generan desde el registro; las subpáginas (detalle, edición, confirmación)
+  añaden sus eslabones con `{% block breadcrumb_tail %}` (`<li>` por eslabón; el
+  último sin enlace). Toda pantalla nueva debe definirlo si no es la vista
+  principal de su pestaña.
 
 Todo se define en un único registro, `apps/presentation/navigation.py`
 (`SECTIONS`): cada `Section` tiene sus `Tab` con el nombre de URL, los permisos

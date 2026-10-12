@@ -193,10 +193,15 @@ CELERY_TASK_DEFAULT_QUEUE = "default"
 # Rutas por nombre exacto: solo la inferencia va a "llm" y solo nmap a "discovery".
 CELERY_TASK_ROUTES = {
     "apps.assets.tasks.suggest_criticality": {"queue": "llm"},
+    "apps.assets.tasks.sweep_unclassified_criticality": {"queue": "llm"},
     "apps.discovery.tasks.run_discovery": {"queue": "discovery"},
 }
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_BEAT_SCHEDULE = {
+    "sweep-unclassified-criticality": {
+        "task": "apps.assets.tasks.sweep_unclassified_criticality",
+        "schedule": crontab(hour=2, minute=0),
+    },
     "mark-stale-assets": {
         "task": "apps.assets.tasks.mark_stale_assets",
         "schedule": crontab(hour=3, minute=0),
@@ -247,6 +252,8 @@ LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0"))
 LLM_SEED = int(os.environ.get("LLM_SEED", "42"))
 LLM_NUM_CTX = int(os.environ.get("LLM_NUM_CTX", "4096"))
 LLM_RATE_LIMIT_PER_MIN = int(os.environ.get("LLM_RATE_LIMIT_PER_MIN", "30"))
+# Barrido nocturno de activos sin criticidad (en serie, cola llm).
+LLM_SWEEP_MAX_ASSETS = int(os.environ.get("LLM_SWEEP_MAX_ASSETS", "200"))
 # Modo simulado: respuestas JSON válidas y deterministas, sin Ollama (desarrollo/pruebas).
 LLM_MOCK_MODE = os.environ.get("LLM_MOCK_MODE", "0") == "1"
 

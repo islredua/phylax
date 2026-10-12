@@ -14,6 +14,7 @@ from pathlib import Path
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
+from apps.assets.criticality_policy import apply as apply_policy
 from apps.assets.llm_input import build_input_from_dict, render_user_message
 from apps.llm.client import run_structured
 from apps.llm.prompts import load_prompt
@@ -30,6 +31,15 @@ def _percentile(values, pct):
 
 def _median(values):
     return statistics.median(values) if values else None
+
+
+def policy_context(asset):
+    return {
+        "environment": asset.get("environment"),
+        "business_role": asset.get("business_role"),
+        "data_classification": asset.get("data_classification"),
+        "data_categories": asset.get("data_categories") or [],
+    }
 
 
 def load_dataset(path):
@@ -59,6 +69,7 @@ def compute_metrics(rows):
     labels = list(CRITICALITY_CLASSES)
     y_true = [r["label"] for r in rows]
     y_pred = [r["predicted"] or "INVALIDA" for r in rows]
+    y_policy = [r["predicted_policy"] or "INVALIDA" for r in rows]
     durations = [r["total_duration_ms"] for r in rows if r["total_duration_ms"] is not None]
     tps = [r["tokens_per_second"] for r in rows if r["tokens_per_second"] is not None]
     loads = [r["load_duration_ms"] for r in rows if r["load_duration_ms"] is not None]
@@ -67,6 +78,12 @@ def compute_metrics(rows):
         "accuracy": accuracy_score(y_true, y_pred),
         "f1_macro": f1_score(y_true, y_pred, labels=labels, average="macro", zero_division=0),
         "f1_weighted": f1_score(y_true, y_pred, labels=labels, average="weighted", zero_division=0),
+        # Con la capa determinista de política aplicada (criticality_policy), como en la UI.
+        "accuracy_policy": accuracy_score(y_true, y_policy),
+        "f1_macro_policy": f1_score(
+            y_true, y_policy, labels=labels, average="macro", zero_division=0
+        ),
+        "policy_adjusted_pct": 100 * sum(1 for r in rows if r["policy_adjusted"]) / len(rows),
         "invalid_pct": 100 * sum(1 for r in rows if not r["parsed_ok"]) / len(rows),
         "latency_median_ms": _median(durations),
         "latency_p95_ms": _percentile(durations, 95),
@@ -117,15 +134,22 @@ class Command(BaseCommand):
                     prompt_version=version,
                     request_payload={"asset": data},
                     object_ref=f"eval:{record.get('id', '')}",
+                    keep_alive="30m",  # evaluación en serie: el modelo queda cargado
+                )
+                predicted = (log.parsed or {}).get("criticality") if log.parsed_ok else None
+                policy = (
+                    apply_policy(predicted, **policy_context(record["asset"]))
+                    if predicted
+                    else None
                 )
                 rows.append(
                     {
                         "model": model,
                         "id": record.get("id", ""),
                         "label": record["label"],
-                        "predicted": (
-                            (log.parsed or {}).get("criticality") if log.parsed_ok else None
-                        ),
+                        "predicted": predicted,
+                        "predicted_policy": policy.final if policy else None,
+                        "policy_adjusted": bool(policy and policy.adjusted),
                         "parsed_ok": log.parsed_ok,
                         "confidence": (log.parsed or {}).get("confidence"),
                         "total_duration_ms": log.total_duration_ms,
@@ -140,6 +164,8 @@ class Command(BaseCommand):
             m = report[model]
             self.stdout.write(
                 f"{model}: exactitud={m['accuracy']:.3f} f1_macro={m['f1_macro']:.3f} "
+                f"(con política: {m['accuracy_policy']:.3f} / {m['f1_macro_policy']:.3f}, "
+                f"ajustadas {m['policy_adjusted_pct']:.1f}%) "
                 f"f1_ponderado={m['f1_weighted']:.3f} inválidas={m['invalid_pct']:.1f}% "
                 f"latencia_mediana={m['latency_median_ms']} ms p95={m['latency_p95_ms']} ms "
                 f"tokens/s={m['tokens_per_second_median']}"

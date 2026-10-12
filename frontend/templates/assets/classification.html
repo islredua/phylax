@@ -3,11 +3,11 @@
 {% block title %}Clasificación{% endblock %}
 {% block toolbar %}<div class="toolbar"><h2>Pendientes de clasificación</h2></div>{% endblock %}
 {% block content %}
-<p class="muted">El LLM local propone una criticidad; tú decides. Las sugerencias en proceso se actualizan solas.</p>
+<p class="muted">El LLM local propone una criticidad sola al dar de alta, importar o confirmar un activo, cuando cambia su contexto y en un barrido nocturno; tú decides. Ninguna sugerencia sobrescribe una decisión humana: si difiere, el activo queda en «revisión sugerida».</p>
 {% if not llm_ready %}{% include "assets/_model_missing.html" %}{% else %}<p class="text-xs text-muted">Modelo del sistema: <span class="font-mono">{{ llm_model }}</span></p>{% endif %}
 
 <section class="flex flex-col gap-3">
-  <h3 class="eyebrow">Sugerencias por decidir</h3>
+  <h3 class="eyebrow">Sugerencias por decidir y revisiones sugeridas</h3>
   <div id="pending" class="flex flex-col gap-3">
     {% for s in pending %}{% include "assets/_suggestion_card.html" %}{% endfor %}
     {# Visible solo cuando no hay tarjetas (también tras insertar una con HTMX). #}
@@ -28,7 +28,9 @@
           <td class="text-ink-soft">{{ a.environment|catalog:"ENVIRONMENT" }}</td>
           <td class="text-ink-soft">{{ a.business_role|catalog:"BUSINESS_ROLE" }}</td>
           <td class="text-right">
-            {% if perms.assets.decide_criticality and llm_ready %}
+            {% if not a.has_minimum_context %}
+              <a href="{% url 'assets:edit' a.pk %}" class="badge-neutral" title="Falta descripción o función de negocio">contexto insuficiente</a>
+            {% elif perms.assets.decide_criticality and llm_ready %}
             <form method="post" action="{% url 'assets:suggest' a.pk %}" hx-post="{% url 'assets:suggest' a.pk %}" hx-target="#pending" hx-swap="afterbegin" hx-on::after-request="if(event.detail.successful){document.getElementById('unclassified-{{ a.pk }}').remove()}" class="flex justify-end gap-2">
               {% csrf_token %}<input type="hidden" name="next" value="{% url 'assets:classification' %}">
               <button class="btn-secondary btn-sm" type="submit">Sugerir</button>

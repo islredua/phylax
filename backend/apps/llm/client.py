@@ -61,7 +61,7 @@ class OllamaClient:
             cache.set(TAGS_CACHE_KEY, models, TAGS_CACHE_TTL)
         return models
 
-    def chat(self, model, messages, schema, options):
+    def chat(self, model, messages, schema, options, keep_alive=None):
         payload = {
             "model": model,
             "messages": messages,
@@ -69,6 +69,9 @@ class OllamaClient:
             "format": schema,
             "options": options,
         }
+        if keep_alive is not None:
+            # Mantiene el modelo cargado en memoria entre inferencias (barrido nocturno).
+            payload["keep_alive"] = keep_alive
         with httpx.Client(timeout=self.timeout) as http:
             response = http.post(f"{self.base_url}/api/chat", json=payload)
             response.raise_for_status()
@@ -128,6 +131,7 @@ def run_structured(
     requested_by=None,
     options=None,
     client=None,
+    keep_alive=None,
 ):
     """Ejecuta una inferencia con salida estructurada y devuelve el ``InferenceLog`` guardado."""
     options = options or default_options()
@@ -161,7 +165,8 @@ def run_structured(
         log.model_digest = installed[model]
         for attempt in range(1, MAX_ATTEMPTS + 1):
             log.attempts = attempt
-            data = client.chat(model, messages, schema, options)
+            extra = {"keep_alive": keep_alive} if keep_alive is not None else {}
+            data = client.chat(model, messages, schema, options, **extra)
             _apply_metrics(log, data)
             log.response_raw = (data.get("message") or {}).get("content", "")
             try:

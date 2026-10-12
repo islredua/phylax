@@ -23,6 +23,7 @@ from .enums import (
     AssetStatus,
     ConflictResolution,
     ConflictSource,
+    ContextCompleteness,
     Criticality,
     CriticalitySource,
     DataCategory,
@@ -36,6 +37,7 @@ from .enums import (
     ServiceProtocol,
     ServiceState,
     SuggestionState,
+    SuggestionTrigger,
 )
 from .normalization import normalize_cidr
 
@@ -213,6 +215,8 @@ class Asset(UUIDModel):
         choices=ExposureSource.choices,
         default=ExposureSource.RANGE,
     )
+    # La IA sugirió una clase distinta de la decisión humana vigente tras un cambio de contexto.
+    review_suggested = models.BooleanField("revisión sugerida", default=False)
     data_classification = models.CharField(
         "clasificación de datos",
         max_length=12,
@@ -285,6 +289,11 @@ class Asset(UUIDModel):
 
     def __str__(self):
         return self.name
+
+    @property
+    def has_minimum_context(self):
+        """Contexto mínimo para pedir criticidad al LLM: descripción y función de negocio."""
+        return bool((self.description or "").strip() and self.business_role)
 
     @property
     def display_identifier(self):
@@ -470,8 +479,25 @@ class CriticalitySuggestion(UUIDModel):
         related_name="criticality_suggestion",
     )
     model = models.CharField("modelo solicitado", max_length=100, blank=True)
+    # Huella: sha256 de build_input() + modelo + versión del prompt (reutilización sin inferir).
+    fingerprint = models.CharField(max_length=64, blank=True, db_index=True)
+    trigger = models.CharField(
+        max_length=15, choices=SuggestionTrigger.choices, default=SuggestionTrigger.MANUAL
+    )
+    reused_from = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    context_completeness = models.CharField(
+        max_length=10, choices=ContextCompleteness.choices, blank=True
+    )
+    # Clase final (tras la política) y clase propuesta por el LLM.
     suggested = models.CharField(max_length=12, choices=Criticality.choices, null=True, blank=True)
-    confidence = models.FloatField(null=True, blank=True)
+    llm_class = models.CharField(max_length=12, choices=Criticality.choices, null=True, blank=True)
+    policy_adjusted = models.BooleanField(default=False)
+    policy_rule = models.CharField(max_length=200, blank=True)
+    confidence = models.FloatField(
+        null=True, blank=True
+    )  # se conserva para la tesis; no se muestra
     rationale = models.TextField(blank=True)
     signals = models.JSONField(default=list, blank=True)
     state = models.CharField(
@@ -499,8 +525,12 @@ class CriticalitySuggestion(UUIDModel):
 
     @property
     def is_processing(self):
-        """Pendiente y todavía sin respuesta del LLM."""
-        return self.state == SuggestionState.PENDING and self.inference_id is None
+        """Pendiente y todavía sin respuesta del LLM (las reutilizadas nacen respondidas)."""
+        return (
+            self.state == SuggestionState.PENDING
+            and self.inference_id is None
+            and self.reused_from_id is None
+        )
 
 
 class UploadKind(models.TextChoices):
