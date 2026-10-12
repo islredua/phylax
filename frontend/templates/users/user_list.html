@@ -1,9 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Usuarios{% endblock %}
-{% block page_title %}Usuarios{% endblock %}
-{% block page_actions %}
-<span class="font-mono text-xs text-muted">{{ paginator.count }} usuario{{ paginator.count|pluralize }}</span>
-{% if perms.accounts.add_user %}<a href="{% url 'users:create' %}" class="btn-primary">Nuevo usuario</a>{% endif %}
+{% block toolbar %}
+<div class="toolbar">
+  <h2>Usuarios <span class="ml-1 font-mono text-xs font-normal text-muted">{{ paginator.count }}</span></h2>
+  {% if perms.accounts.add_user %}<a href="{% url 'users:create' %}" class="btn-primary">Nuevo usuario</a>{% endif %}
+</div>
 {% endblock %}
 {% block content %}
 <form method="get" class="card grid grid-cols-1 gap-3 md:grid-cols-5 md:items-end">

@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Administración{% endblock %}
+{% block content %}
+{% if user_stats %}
+<section class="flex flex-col gap-2">
+  <div class="toolbar">
+    <h2>Cuentas</h2>
+    {% if perms.accounts.view_user %}<a href="{% url 'users:list' %}" class="text-xs">Ver usuarios →</a>{% endif %}
+  </div>
+  <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <a href="{% url 'users:list' %}?status=active" class="card hover:no-underline"><p class="stat-label">Usuarios activos</p><p class="stat-value">{{ user_stats.active }}</p></a>
+    <a href="{% url 'users:list' %}?status=active&amp;mfa=no" class="card hover:no-underline"><p class="stat-label">Activos sin MFA</p><p class="stat-value {% if user_stats.without_mfa %}text-medium{% endif %}">{{ user_stats.without_mfa }}</p></a>
+    <a href="{% url 'users:list' %}?status=active" class="card hover:no-underline"><p class="stat-label">Contraseñas temporales pendientes</p><p class="stat-value {% if user_stats.temp_passwords %}text-medium{% endif %}">{{ user_stats.temp_passwords }}</p></a>
+    <a href="{% url 'users:list' %}?status=inactive" class="card hover:no-underline"><p class="stat-label">Usuarios inactivos</p><p class="stat-value">{{ user_stats.inactive }}</p></a>
+  </div>
+</section>
+{% endif %}
+
+{% if event_stats %}
+<section class="flex flex-col gap-2">
+  <div class="toolbar">
+    <h2>Seguridad · últimos {{ window_days }} días</h2>
+    <a href="{% url 'accounts:audit_log' %}" class="text-xs">Ver bitácora completa →</a>
+  </div>
+  <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <a href="{% url 'accounts:audit_log' %}?event_type=login_failed" class="card hover:no-underline"><p class="stat-label">Inicios de sesión fallidos</p><p class="stat-value {% if event_stats.login_failed %}text-critical{% endif %}">{{ event_stats.login_failed }}</p></a>
+    <a href="{% url 'accounts:audit_log' %}?event_type=mfa_failed" class="card hover:no-underline"><p class="stat-label">Códigos MFA inválidos</p><p class="stat-value {% if event_stats.mfa_failed %}text-critical{% endif %}">{{ event_stats.mfa_failed }}</p></a>
+  </div>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th>Fecha</th><th>Evento</th><th>Usuario</th><th>IP</th></tr></thead>
+      <tbody>
+        {% for entry in notable_events %}
+        <tr>
+          <td class="font-mono text-xs whitespace-nowrap text-ink-soft">{{ entry.timestamp|date:"Y-m-d H:i:s" }}</td>
+          <td>{% include "accounts/_event_badge.html" %}</td>
+          <td class="font-mono text-xs">{% if entry.user %}{{ entry.user.get_username }}{% else %}{{ entry.metadata.username|default:"—" }}{% endif %}</td>
+          <td class="font-mono text-xs">{{ entry.ip_address|default:"—" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4" class="table-empty">Sin eventos críticos ni de alta relevancia en este periodo.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

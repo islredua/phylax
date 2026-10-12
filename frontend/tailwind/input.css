@@ -180,6 +180,10 @@
   .page-actions {
     @apply flex flex-wrap items-center gap-2;
   }
+  /* Fila bajo las pestañas: título de la vista (h2) a la izquierda, acciones a la derecha. */
+  .toolbar {
+    @apply flex flex-wrap items-center justify-between gap-3;
+  }
 
   /* --- Contenedores --- */
   .card {

@@ -1,6 +1,5 @@
 {% extends "base.html" %}
 {% block title %}Inicio{% endblock %}
-{% block page_title %}Inicio{% endblock %}
 {% block content %}
 <p class="muted">Bienvenido, <span class="font-medium text-ink">{{ user.get_full_name|default:user.get_username }}</span>.</p>
 

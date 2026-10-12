@@ -1,7 +1,11 @@
 {% extends "base.html" %}
 {% block title %}{% if target %}Editar {{ target.username }}{% else %}Nuevo usuario{% endif %}{% endblock %}
-{% block page_title %}{% if target %}Editar <span class="font-mono">{{ target.username }}</span>{% else %}Nuevo usuario{% endif %}{% endblock %}
-{% block page_actions %}<a href="{% if target %}{% url 'users:detail' target.pk %}{% else %}{% url 'users:list' %}{% endif %}" class="btn-secondary btn-sm">← Volver</a>{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <h2>{% if target %}Editar <span class="font-mono">{{ target.username }}</span>{% else %}Nuevo usuario{% endif %}</h2>
+  <a href="{% if target %}{% url 'users:detail' target.pk %}{% else %}{% url 'users:list' %}{% endif %}" class="btn-secondary btn-sm">← Volver</a>
+</div>
+{% endblock %}
 {% block content %}
 {% if not target %}<p class="muted">Se generará una contraseña temporal que el usuario deberá cambiar en su primer inicio de sesión.</p>{% endif %}
 <form method="post" class="card flex max-w-lg flex-col gap-4" novalidate>

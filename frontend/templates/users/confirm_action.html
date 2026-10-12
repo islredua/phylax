@@ -1,7 +1,11 @@
 {% extends "base.html" %}
 {% block title %}{{ title }}{% endblock %}
-{% block page_title %}{{ title }}{% endblock %}
-{% block page_actions %}<a href="{% url 'users:detail' target.pk %}" class="btn-secondary btn-sm">← {{ target.username }}</a>{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <h2>{{ title }}</h2>
+  <a href="{% url 'users:detail' target.pk %}" class="btn-secondary btn-sm">← {{ target.username }}</a>
+</div>
+{% endblock %}
 {% block content %}
 <section class="card flex max-w-lg flex-col gap-4">
   <dl><dt class="kv-label">Usuario</dt><dd class="kv-value font-mono">{{ target.username }}</dd></dl>

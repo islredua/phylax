@@ -1,7 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Bitácora de auditoría{% endblock %}
-{% block page_title %}Bitácora de auditoría{% endblock %}
-{% block page_actions %}<span class="font-mono text-xs text-muted">{{ paginator.count }} evento{{ paginator.count|pluralize }} · solo lectura</span>{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <h2>Bitácora de auditoría</h2>
+  <span class="font-mono text-xs text-muted">{{ paginator.count }} evento{{ paginator.count|pluralize }} · solo lectura</span>
+</div>
+{% endblock %}
 {% block content %}
 <form method="get" class="card grid grid-cols-1 gap-3 md:grid-cols-5 md:items-end">
   {% for field in filter_form %}

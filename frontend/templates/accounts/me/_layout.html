@@ -1,12 +1,3 @@
 {% extends "base.html" %}
-{% block page_title %}Mi cuenta{% endblock %}
-{% block content %}
-<nav class="tabs" aria-label="Secciones de Mi cuenta">
-  <a href="{% url 'accounts:me' %}" class="tab {% if section == 'overview' %}tab-active{% endif %}">Resumen</a>
-  <a href="{% url 'accounts:profile' %}" class="tab {% if section == 'profile' %}tab-active{% endif %}">Perfil</a>
-  <a href="{% url 'accounts:password_change' %}" class="tab {% if section == 'password' %}tab-active{% endif %}">Contraseña</a>
-  <a href="{% url 'accounts:security' %}" class="tab {% if section == 'security' %}tab-active{% endif %}">Seguridad</a>
-  <a href="{% url 'accounts:activity' %}" class="tab {% if section == 'activity' %}tab-active{% endif %}">Actividad</a>
-</nav>
-{% block account_content %}{% endblock %}
-{% endblock %}
+{# Las pestañas de Mi cuenta las genera base.html desde el registro de navegación. #}
+{% block content %}{% block account_content %}{% endblock %}{% endblock %}

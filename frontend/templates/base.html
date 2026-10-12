@@ -10,6 +10,7 @@
 </head>
 <body>
 {% block body %}
+{# Navegación: secciones en la barra lateral, subsecciones como pestañas (apps/presentation/navigation.py). #}
 <div class="app-shell">
   <div class="sidebar-col">
   <aside class="sidebar" aria-label="Navegación principal">
@@ -18,16 +19,15 @@
       <span class="brand-name">Phylax</span>
     </a>
     <nav class="sidebar-group">
-      <a href="{% url 'home' %}" class="nav-link {% if nav_section == 'home' %}nav-link-active{% endif %}">Inicio</a>
-      {% if perms.accounts.view_user or perms.accounts.view_auditlogentry %}
-      <p class="nav-section">Administración</p>
-      {% if perms.accounts.view_user %}<a href="{% url 'users:list' %}" class="nav-link {% if nav_section == 'users' %}nav-link-active{% endif %}">Usuarios</a>{% endif %}
-      {% if perms.accounts.view_auditlogentry %}<a href="{% url 'accounts:audit_log' %}" class="nav-link {% if nav_section == 'audit' %}nav-link-active{% endif %}">Bitácora</a>{% endif %}
-      {% endif %}
+      {% for item in nav.main %}
+      <a href="{% url item.url_name %}" class="nav-link {% if item.active %}nav-link-active{% endif %}"{% if item.active %} aria-current="page"{% endif %}>{{ item.label }}</a>
+      {% endfor %}
     </nav>
     <div class="sidebar-group md:mt-auto md:border-t md:border-sidebar-line md:pt-3">
       <p class="hidden truncate px-2.5 pb-1 text-xs text-muted md:block" title="{{ user.get_username }}">Sesión: <span class="font-mono text-ink-soft">{{ user.get_username }}</span></p>
-      <a href="{% url 'accounts:me' %}" class="nav-link {% if nav_section == 'account' %}nav-link-active{% endif %}">Mi cuenta</a>
+      {% for item in nav.footer %}
+      <a href="{% url item.url_name %}" class="nav-link {% if item.active %}nav-link-active{% endif %}"{% if item.active %} aria-current="page"{% endif %}>{{ item.label }}</a>
+      {% endfor %}
       <form method="post" action="{% url 'accounts:logout' %}">
         {% csrf_token %}
         <button type="submit" class="nav-link">Cerrar sesión</button>
@@ -38,9 +38,8 @@
   <div class="min-w-0">
     <main class="page">
       <div class="page-header">
-        <h1>{% block page_title %}{% endblock %}</h1>
+        <h1>{% block page_title %}{{ nav.section.label }}{% endblock %}</h1>
         <div class="page-actions">
-          {% block page_actions %}{% endblock %}
           {% if llm_mock_mode %}
           <span class="pill-warn" title="LLM_MOCK_MODE=1: las respuestas del LLM son sintéticas">● LLM simulado</span>
           {% else %}
@@ -48,6 +47,14 @@
           {% endif %}
         </div>
       </div>
+      {% if nav.tabs %}
+      <nav class="tabs" aria-label="{{ nav.section.label }}">
+        {% for tab in nav.tabs %}
+        <a href="{% url tab.url_name %}" class="tab {% if tab.active %}tab-active{% endif %}"{% if tab.active %} aria-current="page"{% endif %}>{{ tab.label }}</a>
+        {% endfor %}
+      </nav>
+      {% endif %}
+      {% block toolbar %}{% endblock %}
       {% if messages %}
       <div class="flex flex-col gap-2">
         {% for message in messages %}

@@ -1,9 +1,13 @@
 {% extends "base.html" %}
 {% block title %}{{ target.username }}{% endblock %}
-{% block page_title %}<span class="font-mono">{{ target.username }}</span>{% if is_self %} <span class="text-sm font-normal text-muted">(tú)</span>{% endif %}{% endblock %}
-{% block page_actions %}
-<a href="{% url 'users:list' %}" class="btn-secondary btn-sm">← Usuarios</a>
-{% if can_manage %}<a href="{% url 'users:edit' target.pk %}" class="btn-primary btn-sm">Editar</a>{% endif %}
+{% block toolbar %}
+<div class="toolbar">
+  <h2><span class="font-mono">{{ target.username }}</span>{% if is_self %} <span class="text-sm font-normal text-muted">(tú)</span>{% endif %}</h2>
+  <div class="page-actions">
+    <a href="{% url 'users:list' %}" class="btn-secondary btn-sm">← Usuarios</a>
+    {% if can_manage %}<a href="{% url 'users:edit' target.pk %}" class="btn-primary btn-sm">Editar</a>{% endif %}
+  </div>
+</div>
 {% endblock %}
 {% block content %}
 <div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
