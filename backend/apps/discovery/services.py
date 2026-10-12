@@ -5,6 +5,7 @@
 """
 
 import logging
+import os
 from datetime import timedelta
 
 from django.conf import settings
@@ -112,8 +113,18 @@ def _targets_for(run):
     return None, ips
 
 
+def _text_output_path(run):
+    """Archivo de salida legible del run (lo crea nmap con -oN --append-output)."""
+    directory = os.path.join(settings.MEDIA_ROOT, "discovery")
+    os.makedirs(directory, exist_ok=True)
+    if not run.text_output:
+        run.text_output.name = f"discovery/{run.pk}.txt"
+        run.save(update_fields=["text_output", "updated_at"])
+    return os.path.join(directory, f"{run.pk}.txt")
+
+
 def _execute(run, profile, targets, mode):
-    argv = build_argv(profile, targets, mode=mode)
+    argv = build_argv(profile, targets, mode=mode, text_output=_text_output_path(run))
     # Guardar el argv antes de ejecutar: queda evidencia aunque nmap falle.
     run.command = [*run.command, argv]
     run.save(update_fields=["command", "updated_at"])

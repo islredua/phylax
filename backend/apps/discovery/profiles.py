@@ -6,6 +6,8 @@ detección de SO.
 """
 
 import ipaddress
+import re
+from pathlib import Path
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -39,10 +41,27 @@ def validate_host_ip(ip):
         raise ValidationError(f"«{ip}» no es una IP válida.") from exc
 
 
-def build_argv(profile, targets, *, mode):
+_OUTPUT_NAME = re.compile(r"^[0-9a-f-]{36}\.txt$")
+
+
+def _output_flags(text_output):
+    """Salida legible (-oN) en el archivo del run, además del XML por stdout.
+
+    La ruta la genera Phylax (``MEDIA_ROOT/discovery/<uuid>.txt``), nunca el usuario.
+    """
+    if text_output is None:
+        return []
+    path = Path(text_output)
+    if path.parent != Path(settings.MEDIA_ROOT) / "discovery" or not _OUTPUT_NAME.match(path.name):
+        raise ValidationError("Ruta de salida de nmap no permitida.")
+    return ["-v", "-oN", str(path), "--append-output"]
+
+
+def build_argv(profile, targets, *, mode, text_output=None):
     """argv completo (lista, sin shell) para un perfil y objetivos ya validados."""
     nmap = settings.DISCOVERY_NMAP_BIN
     privileged = mode == PRIVILEGED
+    output = _output_flags(text_output)
     if profile == DiscoveryProfile.HOST_SWEEP:
         (cidr,) = targets
         argv = [nmap]
@@ -60,6 +79,7 @@ def build_argv(profile, targets, *, mode):
         return argv + [
             "--host-timeout",
             settings.DISCOVERY_SWEEP_HOST_TIMEOUT,
+            *output,
             "-oX",
             "-",
             validate_sweep_cidr(cidr),
@@ -79,5 +99,12 @@ def build_argv(profile, targets, *, mode):
         ]
         if privileged:
             argv += ["-O", "--osscan-limit"]
-        return argv + ["--host-timeout", settings.DISCOVERY_SERVICE_HOST_TIMEOUT, "-oX", "-", *ips]
+        return argv + [
+            "--host-timeout",
+            settings.DISCOVERY_SERVICE_HOST_TIMEOUT,
+            *output,
+            "-oX",
+            "-",
+            *ips,
+        ]
     raise ValidationError(f"Perfil desconocido: {profile}.")

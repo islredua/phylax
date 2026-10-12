@@ -59,6 +59,8 @@ class DiscoveryRun(UUIDModel):
     conflicts = models.PositiveIntegerField(default=0)
     services_seen = models.PositiveIntegerField(default=0)
     raw_output = models.FileField(upload_to="discovery/", blank=True)
+    # Salida legible de nmap (-oN), escrita en vivo durante la ejecución.
+    text_output = models.FileField(upload_to="discovery/", blank=True)
     assets_touched = models.ManyToManyField(
         "assets.Asset", blank=True, related_name="discovery_runs_seen"
     )
@@ -85,3 +87,15 @@ class DiscoveryRun(UUIDModel):
     @property
     def is_active(self):
         return self.status in ACTIVE_STATUSES
+
+    def output_tail(self, max_bytes=200_000):
+        """Últimos ``max_bytes`` de la salida legible: ``(texto, truncado)``. Dato no confiable."""
+        if not self.text_output:
+            return "", False
+        try:
+            with self.text_output.open("rb") as fh:
+                size = fh.seek(0, 2)
+                fh.seek(max(0, size - max_bytes))
+                return fh.read().decode(errors="replace"), size > max_bytes
+        except FileNotFoundError:
+            return "", False

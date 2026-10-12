@@ -565,3 +565,19 @@ def test_edit_is_two_step_and_same_class_counts_as_accept(client, as_role):
     suggestion.refresh_from_db()
     assert suggestion.state == "ACCEPTED"
     assert suggestion.asset.criticality_source == "LLM_ACCEPTED"
+
+
+def test_run_detail_shows_nmap_output_escaped(client, as_role, settings):
+    import os
+
+    run = DiscoveryRun.objects.create(
+        network_range=NetworkRangeFactory(), profile="HOST_SWEEP", status="SUCCEEDED"
+    )
+    os.makedirs(os.path.join(settings.MEDIA_ROOT, "discovery"), exist_ok=True)
+    with open(os.path.join(settings.MEDIA_ROOT, "discovery", f"{run.pk}.txt"), "w") as fh:
+        fh.write("80/tcp open http\n|_banner: <script>alert(1)</script>\n")
+    DiscoveryRun.objects.filter(pk=run.pk).update(text_output=f"discovery/{run.pk}.txt")
+    as_role(AUDITOR)
+    body = client.get(f"/discovery/runs/{run.pk}/").content.decode()
+    assert "Salida de nmap" in body and "80/tcp open http" in body
+    assert "<script>alert(1)</script>" not in body

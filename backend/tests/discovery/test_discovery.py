@@ -168,6 +168,11 @@ class FakePopen:
     def __init__(self, argv, stdout, stderr, shell):
         assert shell is False and isinstance(argv, list)
         FakePopen.calls.append(argv)
+        if "-oN" in argv:  # nmap escribe la salida legible en el archivo del run
+            with open(argv[argv.index("-oN") + 1], "a") as fh:
+                fh.write(
+                    "Nmap scan report for 172.30.10.11\nPORT   STATE SERVICE\n80/tcp open  http\n"
+                )
         self.returncode = None
         self._stdout = stdout
         self._stderr = stderr
@@ -331,3 +336,27 @@ def test_scheduled_discovery_launches_due_ranges(lab_range, fake_nmap, monkeypat
     assert DiscoveryRun.objects.get().requested_by is None
     # Con un run activo no se lanza otro.
     assert services.launch_scheduled() == 0
+
+
+def test_run_records_live_text_output(lab_range, operator, fake_nmap, settings):
+    fake_nmap.outputs = [SWEEP, SERVICE]
+    run = _run(lab_range, "SERVICE_SCAN", operator)
+    sweep_argv, service_argv = fake_nmap.calls
+    for argv in (sweep_argv, service_argv):
+        assert argv[argv.index("-oN") - 1 : argv.index("-oN") + 1] == ["-v", "-oN"]
+        assert "--append-output" in argv
+        assert argv[argv.index("-oN") + 1].endswith(f"discovery/{run.pk}.txt")
+    output, truncated = run.output_tail()
+    assert output.count("Nmap scan report") == 2 and not truncated
+    output, truncated = run.output_tail(max_bytes=10)
+    assert truncated and len(output) == 10
+
+
+def test_text_output_path_must_be_generated_by_phylax(settings):
+    with pytest.raises(ValidationError):
+        build_argv(
+            DiscoveryProfile.HOST_SWEEP,
+            ["172.30.10.0/24"],
+            mode=PRIVILEGED,
+            text_output="/etc/cron.d/x.txt",
+        )

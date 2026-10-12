@@ -36,7 +36,13 @@ class RunDetailView(Perm, View):
             DiscoveryRun.objects.select_related("network_range", "target_asset", "requested_by"),
             pk=pk,
         )
-        context = {"run": run, "assets": run.assets_touched.order_by("name")[:100]}
+        output, truncated = run.output_tail()
+        context = {
+            "run": run,
+            "assets": run.assets_touched.order_by("name")[:100],
+            "output": output,
+            "output_truncated": truncated,
+        }
         if request.htmx:
             return render(request, "discovery/_run_status.html", context)
         return render(request, "discovery/run_detail.html", context)

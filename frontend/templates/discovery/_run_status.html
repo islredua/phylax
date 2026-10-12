@@ -22,6 +22,13 @@
     <p class="kv-label mt-2">Comandos ejecutados (argv exacto)</p>
     {% for argv in run.command %}<pre class="code-block">{{ argv|join:" " }}</pre>{% empty %}<p class="text-muted">—</p>{% endfor %}
   </section>
+  <section class="card flex flex-col gap-2">
+    <div class="flex flex-wrap items-baseline justify-between gap-2">
+      <h3 class="card-title mb-0">Salida de nmap</h3>
+      <span class="text-xs text-muted">{% if run.is_active %}en vivo · {% endif %}{% if output_truncated %}últimas líneas · {% endif %}incluye banners de terceros (no confiables)</span>
+    </div>
+    {% if output %}<pre class="code-block max-h-[32rem]" id="nmap-output">{{ output }}</pre>{% else %}<p class="text-sm text-muted">{% if run.is_active %}Esperando la salida de nmap…{% else %}Sin salida registrada.{% endif %}</p>{% endif %}
+  </section>
   {% if assets %}
   <section class="flex flex-col gap-2">
     <h3 class="eyebrow">Activos observados</h3>
