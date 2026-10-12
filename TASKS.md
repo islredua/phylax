@@ -24,8 +24,8 @@ Estructura por fases alineada al cronograma del documento (Capítulo 4). Marca c
 - [x] Nombre elegido: **Phylax** — griego Φύλαξ, "guardián de muros y templos" (ADR-003)
   - Alternativas consideradas y descartadas: Argos (uso comercial saturado), Vigía, Centinela, Baluarte, Vulcano, Panoptes, Phanes, Lamassu.
 - [x] Slug técnico: `phylax`/ como paquete Python
-- [x] Logo/mark: wordmark tipográfico (ADR-003); logo gráfico post-MVP
-- [x] Favicon y color primario definidos en ADR-003 (`#10B981` acento verde mint)
+- [x] Logo/mark: logo oficial (marca + wordmark) en `frontend/static/brand/` (ADR-007)
+- [x] Favicon y color primario: marino `#1E3A6E` (ADR-007, reemplaza ADR-003)
 
 ### 0.2 Convenciones de código
 
@@ -38,10 +38,10 @@ Estructura por fases alineada al cronograma del documento (Capítulo 4). Marca c
 ### 0.3 Convenciones de UX
 
 - [x] Idioma: español mexicano
-- [x] Estilo visual: diseño propio independiente del Tec, paleta Phylax Dark (ADR-003)
-- [x] Framework CSS: Tailwind 4 (ADR-003)
-- [x] Pattern library: componentes propios sobre Tailwind (ADR-003)
-- [x] Modo oscuro: default único en MVP (modo claro = trabajo futuro) (ADR-003)
+- [x] Estilo visual: "Gris perla + marino" con IBM Plex servida localmente (ADR-007)
+- [x] Framework CSS: Tailwind 4, binario standalone (ADR-007)
+- [x] Pattern library: componentes propios sobre Tailwind (`frontend/tailwind/input.css`, ADR-007)
+- [x] Tema claro único en MVP; modo oscuro = trabajo futuro (ADR-007)
 
 ### 0.4 Convenciones de arquitectura
 

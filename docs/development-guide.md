@@ -27,8 +27,11 @@ Tailwind y el CSS resultante se versiona en `frontend/static/css/phylax.css`, de
 modo que un despliegue on-premise no necesita compilar nada ni salir a internet.
 
 - Fuente: `frontend/tailwind/input.css` (configuración CSS-first con `@theme`;
-  los tokens replican la paleta de ADR-003). Tailwind 4 no usa
-  `tailwind.config.js`.
+  tokens y componentes del sistema "Gris perla + marino", ADR-007). La paleta
+  por defecto de Tailwind está deshabilitada: usa solo los tokens definidos.
+  Tailwind 4 no usa `tailwind.config.js`.
+- Fuentes IBM Plex en `frontend/static/fonts/` y logo oficial en
+  `frontend/static/brand/` (no editar: llevan manifiesto C2PA).
 - Tailwind escanea `frontend/templates/` y `backend/apps/` (clases declaradas en
   formularios de Python).
 
