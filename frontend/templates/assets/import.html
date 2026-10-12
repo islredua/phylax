@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Importar / Exportar{% endblock %}
+{% block toolbar %}<div class="toolbar"><h2>Importar / Exportar</h2></div>{% endblock %}
+{% block content %}
+{% if error %}<div class="alert-error" role="alert">{{ error }}</div>{% endif %}
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+  {% if perms.assets.add_asset and perms.assets.change_asset %}
+  <form method="post" enctype="multipart/form-data" class="card flex flex-col gap-3">
+    {% csrf_token %}
+    <h3 class="card-title mb-0">Importar CSV</h3>
+    <p class="text-sm text-ink-soft">Primero verás una vista previa con la acción de cada fila (crear, actualizar, conflicto o error); nada se escribe hasta confirmar. Máximo 5 MB y 5 000 filas.</p>
+    <input type="file" name="file" accept=".csv,text/csv" class="form-input" required aria-label="Archivo CSV">
+    <div class="flex flex-wrap gap-2"><button class="btn-primary" type="submit">Ver vista previa</button><a href="{% url 'assets:import_template' %}" class="btn-secondary">Descargar plantilla</a></div>
+  </form>
+  {% endif %}
+  <section class="card flex flex-col gap-3">
+    <h3 class="card-title mb-0">Exportar CSV</h3>
+    <p class="text-sm text-ink-soft">Exporta los activos vigentes. Para exportar una selección, usa los filtros de <a href="{% url 'assets:list' %}">Activos</a> y el botón «Exportar CSV» de esa vista.</p>
+    <div><a href="{% url 'assets:export' %}" class="btn-secondary">Exportar todo</a></div>
+  </section>
+</div>
+<section class="card">
+  <h3 class="card-title">Formato</h3>
+  <pre class="code-block">name,asset_type,ipv4,ipv6,fqdn,mac,image_ref,description,business_role,environment,criticality,exposure,data_classification,data_categories,tags,business_owner</pre>
+  <ul class="mt-3 list-disc space-y-1 pl-5 text-sm text-ink-soft">
+    <li>Obligatorios: <span class="font-mono">name</span>, <span class="font-mono">asset_type</span> y al menos un identificador.</li>
+    <li><span class="font-mono">data_categories</span> y <span class="font-mono">tags</span> se separan con <span class="font-mono">|</span>.</li>
+    <li>Si viene <span class="font-mono">criticality</span>, su origen queda como «Importación»; si viene <span class="font-mono">exposure</span>, se fija manualmente.</li>
+    <li>Las filas que coinciden con un activo existente lo actualizan (resolución por identificadores).</li>
+  </ul>
+</section>
+{% if recent %}
+<section class="flex flex-col gap-2">
+  <h3 class="eyebrow">Tus importaciones recientes</h3>
+  <ul class="flex flex-col gap-1 text-sm">{% for u in recent %}<li><a href="{% url 'assets:import_status' u.pk %}">{{ u.original_filename }}</a> <span class="badge-neutral">{{ u.get_status_display }}</span> <span class="font-mono text-xs text-muted">{{ u.created_at|date:"Y-m-d H:i" }}</span></li>{% endfor %}</ul>
+</section>
+{% endif %}
+{% endblock %}

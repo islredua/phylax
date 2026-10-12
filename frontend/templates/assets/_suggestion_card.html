@@ -1,0 +1,95 @@
+{% load inventory %}
+{# Mientras el LLM procesa, el fragmento se consulta cada 3 s y se reemplaza solo al terminar. #}
+<article id="suggestion-{{ s.pk }}" class="card flex flex-col gap-3"
+  {% if s.is_processing %}hx-get="{% url 'assets:suggestion_card' s.pk %}" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+  <div class="flex flex-wrap items-center justify-between gap-2">
+    <div class="flex flex-wrap items-center gap-2">
+      {% if show_asset|default:True %}<a href="{% url 'assets:detail' s.asset_id %}" class="font-medium">{{ s.asset.name }}</a>{% endif %}
+      {% if s.is_processing %}
+        <span class="badge-primary">procesando…</span>
+      {% elif s.state == 'PENDING' %}
+        {% criticality_badge s.suggested %}
+        {% if s.asset.criticality %}<span class="badge-medium">revisión sugerida</span>{% endif %}
+      {% elif s.state == 'FAILED' %}
+        <span class="badge-critical">falló</span>
+      {% elif s.state == 'AUTO' %}
+        {% criticality_badge s.final_value "LLM_AUTO" %}
+        <span class="badge-primary" title="El activo no tenía criticidad: se aplicó sin intervención humana">calculada por IA</span>
+      {% else %}
+        <span class="badge-neutral">{{ s.get_state_display|lower }}</span>
+        {% if s.final_value %}{% criticality_badge s.final_value %}{% endif %}
+      {% endif %}
+      {% if s.llm_class %}
+        {% if s.context_completeness == 'COMPLETE' %}<span class="pill-ok" title="Descripción, función, entorno y clasificación de datos">contexto completo</span>{% elif s.context_completeness %}<span class="pill-warn" title="Falta entorno o clasificación de datos">contexto parcial</span>{% endif %}
+        {% if s.policy_adjusted %}<span class="pill-warn" title="{{ s.policy_rule }}">ajustada por política</span>{% else %}<span class="pill-ok" title="La clase del modelo está dentro de los límites de la política">coincide con la política</span>{% endif %}
+      {% endif %}
+    </div>
+    <p class="font-mono text-[11px] text-muted">
+      {{ s.get_trigger_display|lower }} · {{ s.model|default:"—" }}{% if s.reused_from_id %} · respuesta reutilizada{% endif %}{% if s.reused_from_id %}{% elif s.inference and s.inference.total_duration_ms %} · {{ s.inference.total_duration_ms|floatformat:0 }} ms{% endif %}{% if s.inference.tokens_per_second %} · {{ s.inference.tokens_per_second|floatformat:1 }} tok/s{% endif %}{% if s.inference.accelerator and s.inference.accelerator != 'unknown' %} · {{ s.inference.accelerator|upper }}{% endif %}
+    </p>
+  </div>
+
+  {% if errors %}{% include "assets/_inline_error.html" %}{% endif %}
+
+  {% if s.is_processing %}
+    <p class="muted">Analizando el activo…</p>
+  {% elif s.state == 'FAILED' %}
+    <p class="text-critical">{{ s.inference.error|default:"La inferencia no se completó." }}</p>
+  {% else %}
+    {% if s.state == 'PENDING' and s.asset.criticality %}
+    <p class="alert-warning text-sm">Sugiere <strong>{{ s.get_suggested_display|lower }}</strong>; la criticidad vigente es <strong>{{ s.asset.get_criticality_display|lower }}</strong>.</p>
+    {% endif %}
+    {% if s.policy_adjusted %}<p class="text-xs text-ink-soft">El modelo propuso <strong>{{ s.get_llm_class_display|lower }}</strong>; la política lo ajustó a <strong>{{ s.get_suggested_display|lower }}</strong> ({{ s.policy_rule }}).</p>{% endif %}
+    {% with other=s.rationale_mismatch %}{% if other %}
+    <p class="alert-warning text-sm" role="note"><strong>Explicación incoherente:</strong> el modelo eligió <strong>{{ s.get_llm_class_display|lower }}</strong>, pero el texto menciona {% for c in other %}<span class="font-mono">{{ c }}</span>{% if not forloop.last %}, {% endif %}{% endfor %}. Revisa el activo antes de decidir.</p>
+    {% endif %}{% endwith %}
+    {% if s.rationale %}<p class="text-ink-soft">{{ s.rationale|linebreaksbr }}</p>{% endif %}
+    {% if s.signals %}<ul class="flex flex-wrap gap-1">{% for signal in s.signals %}<li class="badge-neutral">{{ signal }}</li>{% endfor %}</ul>{% endif %}
+  {% endif %}
+
+  {% if s.state == 'AUTO' and s.asset.criticality_source == 'LLM_AUTO' and s.asset.criticality == s.final_value %}
+  {% if perms.assets.decide_criticality %}
+  <div class="flex flex-wrap items-end gap-2 border-t border-line-soft pt-3">
+    <form method="post" action="{% url 'assets:decide' s.pk %}" hx-post="{% url 'assets:decide' s.pk %}" hx-target="#suggestion-{{ s.pk }}" hx-swap="outerHTML">
+      {% csrf_token %}<input type="hidden" name="decision" value="ACCEPTED">
+      <button class="btn-primary btn-sm" type="submit">Confirmar {{ s.get_final_value_display|lower }}</button>
+    </form>
+    <details class="group">
+      <summary class="btn-secondary btn-sm list-none">Cambiar…</summary>
+      <form method="post" action="{% url 'assets:decide' s.pk %}" hx-post="{% url 'assets:decide' s.pk %}" hx-target="#suggestion-{{ s.pk }}" hx-swap="outerHTML" class="mt-2 flex items-end gap-2">
+        {% csrf_token %}<input type="hidden" name="decision" value="EDITED">
+        <label class="sr-only" for="edit-{{ s.pk }}">Criticidad</label>
+        <select id="edit-{{ s.pk }}" name="value" class="form-input py-1 text-xs">
+          {% for value, label in criticality_choices %}<option value="{{ value }}"{% if value == s.final_value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+        <button class="btn-primary btn-sm" type="submit">Guardar</button>
+      </form>
+    </details>
+  </div>
+  {% endif %}
+  {% elif s.state == 'PENDING' and not s.is_processing and perms.assets.decide_criticality %}
+  <div class="flex flex-wrap items-end gap-2 border-t border-line-soft pt-3">
+    <form method="post" action="{% url 'assets:decide' s.pk %}" hx-post="{% url 'assets:decide' s.pk %}" hx-target="#suggestion-{{ s.pk }}" hx-swap="outerHTML">
+      {% csrf_token %}<input type="hidden" name="decision" value="ACCEPTED">
+      <button class="btn-primary btn-sm" type="submit">Aceptar {{ s.get_suggested_display|lower }}</button>
+    </form>
+    <details class="group">
+      <summary class="btn-secondary btn-sm list-none">Editar…</summary>
+      <form method="post" action="{% url 'assets:decide' s.pk %}" hx-post="{% url 'assets:decide' s.pk %}" hx-target="#suggestion-{{ s.pk }}" hx-swap="outerHTML" class="mt-2 flex items-end gap-2">
+        {% csrf_token %}<input type="hidden" name="decision" value="EDITED">
+        <label class="sr-only" for="edit-{{ s.pk }}">Criticidad</label>
+        <select id="edit-{{ s.pk }}" name="value" class="form-input py-1 text-xs">
+          {% for value, label in criticality_choices %}<option value="{{ value }}"{% if value == s.suggested %} selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+        <button class="btn-primary btn-sm" type="submit">Guardar</button>
+      </form>
+    </details>
+    <form method="post" action="{% url 'assets:decide' s.pk %}" hx-post="{% url 'assets:decide' s.pk %}" hx-target="#suggestion-{{ s.pk }}" hx-swap="outerHTML">
+      {% csrf_token %}<input type="hidden" name="decision" value="REJECTED">
+      <button class="btn-secondary btn-sm" type="submit">Rechazar</button>
+    </form>
+  </div>
+  {% elif s.decided_by %}
+  <p class="text-xs text-muted">Decidió <span class="font-mono">{{ s.decided_by.get_username }}</span> el {{ s.decided_at|date:"Y-m-d H:i" }}{% if s.final_value %}: criticidad <strong class="text-ink">{{ s.get_final_value_display|lower }}</strong>{% endif %}. <a href="{% url 'assets:detail' s.asset_id %}">Ver activo</a></p>
+  {% endif %}
+</article>

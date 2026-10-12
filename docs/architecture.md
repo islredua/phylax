@@ -16,12 +16,13 @@ Plataforma RBVM on-premise con cinco módulos integrados sobre un stack FOSS, in
                                    (Ollama)
 ```
 
-Backend: Django 5 + PostgreSQL 16. Despliegue: Docker Compose. Inferencia: Ollama en host.
+Backend: Django 5 + PostgreSQL 16 + Celery/Redis. Despliegue: Docker Compose. Inferencia: Ollama en compose, GPU opcional (ADR-008).
 
 ## Decisiones de diseño
 
 - **Monolito modular, no microservicios.** Equipo unipersonal, 12 semanas. La separación lógica entre módulos preserva la opción de extracción futura.
-- **Ollama en el host, Django en Docker.** La GPU se expone directamente al servicio Ollama de Windows; el backend Django consume vía HTTP (`host.docker.internal:11434`).
+- **Ollama en Docker Compose, con o sin GPU (ADR-008).** `scripts/compose.sh` habilita la GPU NVIDIA si existe; Phylax detecta GPU/CPU y ajusta timeouts. Toda inferencia corre en segundo plano (cola Celery `llm`).
+- **Tareas en segundo plano con Celery + Redis + Beat** (colas `default`, `llm`, `discovery`).
 - **Datos en PostgreSQL.** JSONB para hallazgos semiestructurados, full-text search para CTI.
 - **Scanners como subprocesos.** nmap, nuclei y Grype corren como binarios dentro del contenedor backend (Dockerfile ya los instala).
 
@@ -38,9 +39,9 @@ Orquesta tres herramientas FOSS como subprocesos y normaliza su salida al modelo
 Entradas: lista de targets (IPs, hostnames, imágenes).
 Salidas: `Finding` persistido con referencia al `Asset`.
 
-### M2. Inventario de activos (`apps.assets`)
+### M2. Inventario de activos (`apps.assets`, `apps.discovery`, `apps.llm`)
 
-Modelo central (ver `apps/assets/models.py`). Cada activo tiene criticidad, exposición y sensibilidad de datos. La criticidad puede ser sugerida por LLM a partir de hostname + descripción + servicios, pero siempre debe confirmarse por un humano antes de persistir.
+Hub del sistema. Enrolamiento sin agentes por cinco canales (manual, CSV, descubrimiento nmap, imágenes de contenedor, SBOM), resolución de identidad con conflictos, alcance autorizado por rangos de red y criticidad sugerida por LLM local con humano en el ciclo. Expone `get_scan_targets()` y `get_asset_context()` a los demás módulos. Ver [`modules/02-inventario-activos.md`](modules/02-inventario-activos.md) e [`modules/02-interfaces.md`](modules/02-interfaces.md).
 
 ### M3. Enriquecimiento CTI (`apps.cti`)
 

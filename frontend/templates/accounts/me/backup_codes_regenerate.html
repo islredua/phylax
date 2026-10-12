@@ -1,5 +1,6 @@
 {% extends "accounts/me/_layout.html" %}
 {% block title %}Regenerar códigos de respaldo{% endblock %}
+{% block breadcrumb_tail %}<li>Regenerar códigos</li>{% endblock %}
 {% block account_content %}
 <p class="muted">Se generarán 10 códigos nuevos y los anteriores dejarán de funcionar.</p>
 {% url 'accounts:security' as security_url %}

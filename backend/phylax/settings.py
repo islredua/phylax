@@ -3,6 +3,8 @@
 import os
 from pathlib import Path
 
+from celery.schedules import crontab
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # --- Seguridad ---
@@ -18,16 +20,20 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django.contrib.postgres",
     "rest_framework",
+    "simple_history",
     "django_htmx",
     # apps del proyecto
+    "apps.core",
     "apps.accounts",
     "apps.assets",
+    "apps.discovery",
+    "apps.llm",
     "apps.scanners",
     "apps.cti",
     "apps.scoring",
     "apps.presentation",
-    "apps.llm_client",
 ]
 
 MIDDLEWARE = [
@@ -46,6 +52,8 @@ MIDDLEWARE = [
     # Superusuarios y roles en MFA_REQUIRED_ROLES deben enrolar MFA antes de continuar.
     "apps.accounts.middleware.MFAEnforcementMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
+    # Registra el usuario autor de cada cambio en simple-history.
+    "simple_history.middleware.HistoryRequestMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "django_htmx.middleware.HtmxMiddleware",
 ]
@@ -117,6 +125,12 @@ EMAIL_BACKEND = os.environ.get(
 )
 DEFAULT_FROM_EMAIL = os.environ.get("DJANGO_DEFAULT_FROM_EMAIL", "phylax@localhost")
 
+# --- Cifrado de campos (tokens de registry) ---
+# Lista separada por comas; la primera cifra, todas descifran (rotación).
+PHYLAX_FIELD_ENCRYPTION_KEYS = [
+    k.strip() for k in os.environ.get("PHYLAX_FIELD_ENCRYPTION_KEYS", "").split(",") if k.strip()
+]
+
 # --- Validadores de contraseñas ---
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
@@ -131,6 +145,85 @@ TIME_ZONE = "America/Mexico_City"
 USE_I18N = True
 USE_TZ = True
 
+# --- Inventario de activos (Módulo 2) ---
+PHYLAX_ASSET_STALE_DAYS = int(os.environ.get("PHYLAX_ASSET_STALE_DAYS", "14"))
+# Prefijo IPv4 más amplio permitido para descubrimiento (16 = /16).
+PHYLAX_MAX_DISCOVERY_PREFIX = int(os.environ.get("PHYLAX_MAX_DISCOVERY_PREFIX", "16"))
+PHYLAX_SBOM_MAX_MB = int(os.environ.get("PHYLAX_SBOM_MAX_MB", "50"))
+
+# --- Descubrimiento de red (nmap) ---
+DISCOVERY_NMAP_BIN = os.environ.get("NMAP_BIN", "/usr/bin/nmap")
+# auto: sonda de capabilities; privileged (raw sockets, -sS/-O) | unprivileged (-sT).
+DISCOVERY_SCAN_MODE = os.environ.get("DISCOVERY_SCAN_MODE", "auto")
+DISCOVERY_SWEEP_SYN_PORTS = "22,80,443,445,3389"
+DISCOVERY_SWEEP_ACK_PORTS = "80,443"
+DISCOVERY_SWEEP_HOST_TIMEOUT = os.environ.get("DISCOVERY_SWEEP_HOST_TIMEOUT", "2m")
+DISCOVERY_SERVICE_HOST_TIMEOUT = os.environ.get("DISCOVERY_SERVICE_HOST_TIMEOUT", "10m")
+DISCOVERY_TOP_PORTS = int(os.environ.get("DISCOVERY_TOP_PORTS", "1000"))
+DISCOVERY_TIMING = os.environ.get("DISCOVERY_TIMING", "T4")
+DISCOVERY_RUN_TIMEOUT_S = int(os.environ.get("DISCOVERY_RUN_TIMEOUT_S", "3600"))
+DISCOVERY_MAX_XML_MB = int(os.environ.get("DISCOVERY_MAX_XML_MB", "20"))
+DISCOVERY_SCHEDULED_PROFILE = "SERVICE_SCAN"
+
+# --- Redis: broker de Celery y caché ---
+REDIS_URL = os.environ.get("REDIS_URL", "")
+if REDIS_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": os.environ.get("REDIS_CACHE_URL", REDIS_URL),
+            "KEY_PREFIX": "phylax",
+        }
+    }
+else:
+    CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
+
+# --- Celery (tareas en segundo plano) ---
+CELERY_BROKER_URL = REDIS_URL or "memory://"
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_TASK_ALWAYS_EAGER = os.environ.get("CELERY_TASK_ALWAYS_EAGER", "0") == "1"
+CELERY_TASK_EAGER_PROPAGATES = True
+CELERY_TASK_SERIALIZER = "json"
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_IGNORE_RESULT = True
+CELERY_TASK_ACKS_LATE = True
+CELERY_TASK_REJECT_ON_WORKER_LOST = True
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_TASK_DEFAULT_QUEUE = "default"
+# Rutas por nombre exacto: solo la inferencia va a "llm" y solo nmap a "discovery".
+CELERY_TASK_ROUTES = {
+    "apps.assets.tasks.suggest_criticality": {"queue": "llm"},
+    "apps.assets.tasks.sweep_unclassified_criticality": {"queue": "llm"},
+    "apps.discovery.tasks.run_discovery": {"queue": "discovery"},
+}
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_BEAT_SCHEDULE = {
+    "sweep-unclassified-criticality": {
+        "task": "apps.assets.tasks.sweep_unclassified_criticality",
+        "schedule": crontab(hour=2, minute=0),
+    },
+    "mark-stale-assets": {
+        "task": "apps.assets.tasks.mark_stale_assets",
+        "schedule": crontab(hour=3, minute=0),
+    },
+    "run-scheduled-discoveries": {
+        "task": "apps.discovery.tasks.run_scheduled_discoveries",
+        "schedule": crontab(minute="*/15"),
+    },
+    "expire-import-previews": {
+        "task": "apps.assets.tasks.expire_import_previews",
+        "schedule": crontab(minute=5),
+    },
+    "refresh-llm-status": {
+        "task": "apps.llm.tasks.refresh_llm_status",
+        "schedule": 60.0,
+    },
+}
+
+# --- Archivos subidos (SBOM, XML de discovery, cargas temporales) ---
+# Nunca se sirven directamente: solo vía vistas que verifican permisos.
+MEDIA_ROOT = os.environ.get("PHYLAX_MEDIA_ROOT", "/data/media")
+
 # --- Archivos estáticos ---
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
@@ -138,20 +231,30 @@ STATICFILES_DIRS = [BASE_DIR.parent / "frontend" / "static"]
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-# --- LLM (Ollama) ---
-OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
-OLLAMA_DEFAULT_MODEL = os.environ.get("OLLAMA_DEFAULT_MODEL", "qwen2.5:3b-instruct-q4_K_M")
-OLLAMA_TIMEOUT_SECONDS = int(os.environ.get("OLLAMA_TIMEOUT_SECONDS", "180"))
-OLLAMA_EVAL_MODELS = [
+# --- LLM local (Ollama) ---
+# Ollama corre en compose (servicio "ollama"). Con GPU NVIDIA, scripts/compose.sh añade
+# docker-compose.gpu.yml, que expone la GPU y fija LLM_ACCELERATOR=gpu.
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://ollama:11434")
+LLM_DEFAULT_MODEL = os.environ.get("LLM_DEFAULT_MODEL", "qwen2.5:7b-instruct-q4_K_M")
+LLM_AVAILABLE_MODELS = [
     m.strip()
     for m in os.environ.get(
-        "OLLAMA_EVAL_MODELS",
+        "LLM_AVAILABLE_MODELS",
         "llama3.1:8b-instruct-q4_K_M,mistral:7b-instruct-q4_K_M,qwen2.5:7b-instruct-q4_K_M",
     ).split(",")
     if m.strip()
 ]
-
-# Modo mock: cuando esté activo el cliente devuelve respuestas sintéticas.
+# Timeout por inferencia: con GPU (LLM_TIMEOUT_S) o con CPU/desconocido (LLM_TIMEOUT_CPU_S).
+LLM_TIMEOUT_S = int(os.environ.get("LLM_TIMEOUT_S", "180"))
+LLM_TIMEOUT_CPU_S = int(os.environ.get("LLM_TIMEOUT_CPU_S", "900"))
+LLM_ACCELERATOR = os.environ.get("LLM_ACCELERATOR", "auto")  # auto | gpu | cpu
+LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0"))
+LLM_SEED = int(os.environ.get("LLM_SEED", "42"))
+LLM_NUM_CTX = int(os.environ.get("LLM_NUM_CTX", "4096"))
+LLM_RATE_LIMIT_PER_MIN = int(os.environ.get("LLM_RATE_LIMIT_PER_MIN", "30"))
+# Barrido nocturno de activos sin criticidad (en serie, cola llm).
+LLM_SWEEP_MAX_ASSETS = int(os.environ.get("LLM_SWEEP_MAX_ASSETS", "200"))
+# Modo simulado: respuestas JSON válidas y deterministas, sin Ollama (desarrollo/pruebas).
 LLM_MOCK_MODE = os.environ.get("LLM_MOCK_MODE", "0") == "1"
 
 # --- Scanners ---
@@ -194,5 +297,12 @@ LOGGING = {
     "root": {
         "handlers": ["console"],
         "level": "INFO" if not DEBUG else "DEBUG",
+    },
+    # Celery es muy verboso en DEBUG (introspección de tareas en cada arranque).
+    "loggers": {
+        "celery": {"level": "INFO"},
+        "kombu": {"level": "INFO"},
+        "amqp": {"level": "INFO"},
+        "factory": {"level": "INFO"},
     },
 }

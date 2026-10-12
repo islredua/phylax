@@ -295,6 +295,12 @@
   .pill-warn {
     @apply pill bg-medium-soft text-medium;
   }
+  .pill-error {
+    @apply pill bg-critical-soft text-critical;
+  }
+  .pill-neutral {
+    @apply pill bg-line-soft text-ink-soft;
+  }
 
   /* --- Avisos --- */
   .alert-error {
@@ -320,5 +326,43 @@
   }
   .tab-active {
     @apply border-primary font-semibold text-primary;
+  }
+  /* Migas de pan: Inicio › Sección › Pestaña › página. La última no es enlace. */
+  .breadcrumbs ol {
+    @apply flex flex-wrap items-center gap-1 text-xs text-muted;
+  }
+  .breadcrumbs li {
+    @apply flex items-center gap-1;
+  }
+  .breadcrumbs li + li::before {
+    content: "›";
+    @apply text-line-strong;
+  }
+  .breadcrumbs li:last-child a {
+    @apply pointer-events-none text-ink-soft no-underline;
+  }
+  .breadcrumbs li:last-child {
+    @apply text-ink-soft;
+  }
+  /* Subpestañas dentro de una vista (p. ej. detalle de activo). */
+  .subtabs {
+    @apply flex flex-wrap gap-1;
+  }
+  .subtab {
+    @apply rounded px-2.5 py-1 text-[13px] text-ink-soft hover:bg-primary-soft hover:text-primary
+      hover:no-underline;
+  }
+  .subtab-active {
+    @apply bg-primary-soft font-semibold text-primary;
+  }
+  .subtab-disabled {
+    @apply cursor-not-allowed rounded px-2.5 py-1 text-[13px] text-muted opacity-60;
+  }
+  .code-block {
+    @apply max-h-80 overflow-auto rounded border border-line bg-canvas p-3 font-mono text-xs
+      whitespace-pre-wrap text-ink-soft;
+  }
+  .checkbox {
+    @apply h-4 w-4 rounded border-line-strong text-primary accent-primary;
   }
 }

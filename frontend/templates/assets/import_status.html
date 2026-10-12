@@ -1,0 +1,5 @@
+{% extends "base.html" %}
+{% block title %}Importación{% endblock %}
+{% block breadcrumb_tail %}<li>{{ upload.original_filename }}</li>{% endblock %}
+{% block toolbar %}<div class="toolbar"><h2>Importación · {{ upload.original_filename }}</h2><div class="page-actions"><a href="{% url 'assets:import' %}" class="btn-secondary btn-sm">← Importar</a><a href="{% url 'assets:list' %}" class="btn-secondary btn-sm">Ver activos</a></div></div>{% endblock %}
+{% block content %}{% include "assets/_import_status.html" %}{% endblock %}

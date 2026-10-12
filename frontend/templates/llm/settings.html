@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% load humanize_bytes %}
+{% block title %}LLM{% endblock %}
+{% block toolbar %}<div class="toolbar"><h2>LLM local</h2><a href="?refresh=1" class="btn-secondary btn-sm">Actualizar estado</a></div>{% endblock %}
+{% block content %}
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+  <section class="card flex flex-col gap-3">
+    <h3 class="card-title mb-0">Modelo activo del sistema</h3>
+    <p class="muted text-sm">Se usa en todas las inferencias del sistema.</p>
+    {% if not active_ready %}<div class="alert-warning text-sm">El modelo activo <span class="font-mono">{{ active }}</span> no está descargado.</div>{% endif %}
+    {% if active_small %}<div class="alert-warning text-sm">El modelo activo <span class="font-mono">{{ active }}</span> tiene menos de {{ small_threshold|floatformat:0 }} mil millones de parámetros: úsalo solo para pruebas.</div>{% endif %}
+    {% if models %}
+    <form method="post" class="flex flex-wrap items-end gap-2">
+      {% csrf_token %}
+      <div class="min-w-64 flex-1"><label class="form-label" for="{{ form.model.id_for_label }}">{{ form.model.label }}</label>{{ form.model }}{% for e in form.model.errors %}<p class="form-error">{{ e }}</p>{% endfor %}</div>
+      <button class="btn-primary" type="submit">Usar este modelo</button>
+    </form>
+    {% else %}
+    <div class="alert-warning text-sm">No hay modelos descargados (o aún no se consulta Ollama). Descarga uno y actualiza el estado.</div>
+    {% endif %}
+  </section>
+  <section class="card">
+    <h3 class="card-title">Servidor</h3>
+    <dl class="kv-grid">
+      <div><dt class="kv-label">Estado</dt><dd class="kv-value">{% if state.available %}<span class="badge-low">disponible</span>{% elif state.available is False %}<span class="badge-critical">no disponible</span>{% else %}<span class="badge-neutral">sin consultar</span>{% endif %}</dd></div>
+      <div><dt class="kv-label">Acelerador</dt><dd class="kv-value font-mono">{{ state.accelerator|upper|default:"—" }}</dd></div>
+      <div><dt class="kv-label">Versión de Ollama</dt><dd class="kv-value font-mono text-xs">{{ state.version|default:"—" }}</dd></div>
+      <div><dt class="kv-label">Timeout por inferencia</dt><dd class="kv-value font-mono text-xs">GPU {{ timeout_gpu }} s · CPU {{ timeout_cpu }} s</dd></div>
+    </dl>
+  </section>
+</div>
+
+<section class="flex flex-col gap-2">
+  <h3 class="eyebrow">Modelos descargados</h3>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th>Modelo</th><th>Parámetros</th><th>Cuantización</th><th>Tamaño</th><th></th></tr></thead>
+      <tbody>
+        {% for m in models %}
+        <tr>
+          <td class="font-mono text-xs">{{ m.name }}</td>
+          <td class="font-mono text-xs">{{ m.parameter_size|default:"—" }}</td>
+          <td class="font-mono text-xs">{{ m.quantization|default:"—" }}</td>
+          <td class="font-mono text-xs">{{ m.size|bytes_gb }}</td>
+          <td>{% if m.name == active %}<span class="badge-primary">activo</span>{% endif %} {% if m.small %}<span class="badge-medium" title="Menos de {{ small_threshold|floatformat:0 }}B parámetros">solo pruebas</span>{% endif %}</td>
+        </tr>
+        {% empty %}<tr><td colspan="5" class="table-empty">Sin modelos descargados.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if missing %}
+  <p class="text-xs text-muted">Modelos de evaluación aún no descargados:</p>
+  <pre class="code-block">{% for m in missing %}docker compose exec ollama ollama pull {{ m }}
+{% endfor %}</pre>
+  {% endif %}
+</section>
+
+<section class="flex flex-col gap-2">
+  <h3 class="eyebrow">Inferencias recientes</h3>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th>Fecha</th><th>Tarea</th><th>Modelo</th><th>Resultado</th><th>Duración</th><th>tok/s</th><th>Acelerador</th></tr></thead>
+      <tbody>
+        {% for log in recent %}
+        <tr>
+          <td class="font-mono text-xs whitespace-nowrap">{{ log.created_at|date:"Y-m-d H:i:s" }}</td>
+          <td class="text-xs">{{ log.get_task_display }}</td>
+          <td class="font-mono text-xs">{{ log.model }}</td>
+          <td>{% if log.parsed_ok %}<span class="badge-low">válida</span>{% else %}<span class="badge-critical" title="{{ log.error }}">error</span>{% endif %}</td>
+          <td class="font-mono text-xs">{% if log.total_duration_ms %}{{ log.total_duration_ms|floatformat:0 }} ms{% else %}—{% endif %}</td>
+          <td class="font-mono text-xs">{{ log.tokens_per_second|floatformat:1|default:"—" }}</td>
+          <td class="font-mono text-xs">{{ log.accelerator|upper|default:"—" }}</td>
+        </tr>
+        {% empty %}<tr><td colspan="7" class="table-empty">Sin inferencias.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

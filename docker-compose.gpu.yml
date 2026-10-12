@@ -1,0 +1,25 @@
+# Override para equipos con GPU NVIDIA (requiere NVIDIA Container Toolkit / Docker Desktop con WSL2).
+# scripts/compose.sh lo añade automáticamente si detecta la GPU:
+#   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+  # Pista para Phylax: timeouts de GPU y estado "GPU" mientras no haya modelo cargado.
+  backend:
+    environment:
+      LLM_ACCELERATOR: gpu
+  worker:
+    environment:
+      LLM_ACCELERATOR: gpu
+  worker-llm:
+    environment:
+      LLM_ACCELERATOR: gpu
+  beat:
+    environment:
+      LLM_ACCELERATOR: gpu

@@ -1,0 +1,12 @@
+{# Escanear (o re-escanear) servicios del activo. Requiere asset, can_scan, has_scan, scan_active. #}
+{% if perms.discovery.run_discovery and asset.status != 'RETIRED' %}
+{% if scan_active %}
+  <a href="{% url 'assets:detail' asset.pk %}?tab=descubrimientos" class="btn-secondary {{ extra_class }}">Escaneo en curso… ver avance</a>
+{% elif can_scan %}
+  <form method="post" action="{% url 'discovery:rescan' asset.pk %}">{% csrf_token %}
+    <button class="{% if has_scan %}btn-secondary{% else %}btn-primary{% endif %} {{ extra_class }}" type="submit">{% if has_scan %}Re-escanear servicios{% else %}Escanear servicios{% endif %}</button>
+  </form>
+{% else %}
+  <p class="text-xs text-muted">Requiere una IP en un rango autorizado.</p>
+{% endif %}
+{% endif %}

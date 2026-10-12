@@ -1,0 +1,57 @@
+# Laboratorio sintético para el descubrimiento (Módulo 2).
+#
+#   docker compose -f docker-compose.yml -f lab/docker-compose.lab.yml up -d
+#   docker compose exec backend python manage.py seed_lab_assets
+#
+# Dos redes con subred fija que coinciden con los rangos que crea seed_lab_assets.
+# worker-discovery se conecta a ambas: nmap alcanza los contenedores y, al estar en el
+# mismo segmento L2, también ve sus MAC (en una red real solo se ve la MAC del mismo segmento).
+#
+# TODO(tesis): sustituir los placeholders por las imágenes intencionalmente vulnerables
+# definitivas del entorno sintético (DVWA, WebGoat, Apache 2.4.49, ...), con versión fija.
+
+services:
+  lab-web01:
+    image: nginx:1.27.3-alpine
+    container_name: lab-web01
+    hostname: web01
+    networks:
+      lab-dmz:
+        ipv4_address: 172.30.10.11
+
+  lab-web02:
+    image: nginx:1.27.3-alpine
+    container_name: lab-web02
+    hostname: web02
+    networks:
+      lab-dmz:
+        ipv4_address: 172.30.10.12
+
+  lab-db01:
+    image: postgres:16.4-alpine
+    container_name: lab-db01
+    hostname: db01
+    environment:
+      # Credencial de laboratorio sin datos reales; no reutilizar.
+      POSTGRES_PASSWORD: lab-solo-pruebas
+    networks:
+      lab-internal:
+        ipv4_address: 172.30.20.21
+
+  worker-discovery:
+    networks:
+      - default
+      - lab-dmz
+      - lab-internal
+
+networks:
+  lab-dmz:
+    name: phylax-lab-dmz
+    ipam:
+      config:
+        - subnet: 172.30.10.0/24
+  lab-internal:
+    name: phylax-lab-internal
+    ipam:
+      config:
+        - subnet: 172.30.20.0/24

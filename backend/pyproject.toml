@@ -10,6 +10,9 @@ ignore = ["E501"]  # Line length se maneja por black
 [tool.ruff.lint.per-file-ignores]
 "*/migrations/*" = ["E", "F", "N"]
 "settings.py" = ["F401", "F403"]
+# Enums del inventario nullable por especificación: NULL = "sin clasificar/desconocido",
+# distinto de cualquier valor (p. ej. criticality_defaulted en el scoring).
+"apps/assets/models.py" = ["DJ001"]
 
 [tool.black]
 line-length = 100

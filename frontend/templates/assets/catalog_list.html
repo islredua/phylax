@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Catálogos{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <h2>Catálogos</h2>
+  <a href="{% url 'assets:catalog_create' %}?kind={{ kind }}" class="btn-primary">Nueva entrada</a>
+</div>
+{% endblock %}
+{% block content %}
+<p class="muted">En las entradas de <span class="badge-primary">sistema</span> solo se puede cambiar la etiqueta. Las entradas no se borran: se desactivan.</p>
+<nav class="subtabs" aria-label="Catálogo">
+  {% for code, label in kinds %}<a href="?kind={{ code }}" class="subtab {% if code == kind %}subtab-active{% endif %}"{% if code == kind %} aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}
+</nav>
+<div class="table-wrap">
+  <table class="data-table">
+    <thead><tr><th>Etiqueta</th><th>Código</th><th>Descripción</th>
+      {% if kind == 'ASSET_TYPE' %}<th>Identificadores requeridos</th>{% elif kind == 'ENVIRONMENT' %}<th>Productivo</th>{% else %}<th>Identidad / control</th>{% endif %}
+      <th>Activos</th><th>Estado</th><th></th></tr></thead>
+    <tbody>
+      {% for e in entries %}
+      <tr>
+        <td class="font-medium">{{ e.label }}{% if e.is_system %} <span class="badge-primary">sistema</span>{% endif %}</td>
+        <td class="font-mono text-xs">{{ e.code }}</td>
+        <td class="text-xs text-ink-soft">{{ e.description|default:"—" }}</td>
+        {% if kind == 'ASSET_TYPE' %}<td class="text-xs">{% for k in e.required_identifier_kinds %}<span class="badge-neutral">{{ k }}</span> {% empty %}<span class="text-muted">cualquiera</span>{% endfor %}</td>
+        {% elif kind == 'ENVIRONMENT' %}<td>{% if e.is_production %}<span class="badge-high">sí</span>{% else %}<span class="text-muted">no</span>{% endif %}</td>
+        {% else %}<td>{% if e.is_identity_control %}<span class="badge-high">sí</span>{% else %}<span class="text-muted">no</span>{% endif %}</td>{% endif %}
+        <td class="font-mono">{% for code, n in usage.items %}{% if code == e.code %}{{ n }}{% endif %}{% endfor %}</td>
+        <td>{% if e.is_active %}<span class="badge-low">activa</span>{% else %}<span class="badge-neutral">inactiva</span>{% endif %}</td>
+        <td class="text-right"><a href="{% url 'assets:catalog_edit' e.pk %}" class="btn-secondary btn-sm">Editar</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

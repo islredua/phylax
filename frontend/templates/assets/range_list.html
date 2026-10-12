@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% load inventory %}
+{% block title %}Rangos de red{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <h2>Rangos de red <span class="ml-1 font-mono text-xs font-normal text-muted">{{ ranges|length }}</span></h2>
+  {% if perms.assets.manage_scope %}<a href="{% url 'assets:range_create' %}" class="btn-primary">Nuevo rango</a>{% endif %}
+</div>
+{% endblock %}
+{% block content %}
+<p class="muted">Cada rango define la exposición heredada de sus activos y el <strong class="text-ink">alcance autorizado</strong>: nada se escanea fuera de un rango con autorización vigente.</p>
+<div class="table-wrap">
+  <table class="data-table">
+    <thead><tr><th>Nombre</th><th>CIDR</th><th>Zona</th><th>Entorno</th><th>Alcance</th><th>Programación</th><th>Último descubrimiento</th><th>Activos</th></tr></thead>
+    <tbody>
+      {% for r in ranges %}
+      <tr>
+        <td><a href="{% url 'assets:range_detail' r.pk %}" class="font-medium">{{ r.name }}</a></td>
+        <td class="font-mono text-xs">{{ r.cidr }}</td>
+        <td><span class="badge-primary">{{ r.get_zone_display }}</span></td>
+        <td class="text-ink-soft">{{ r.environment|catalog:"ENVIRONMENT" }}</td>
+        <td>{% if r.is_authorized %}<span class="badge-low">autorizado</span>{% elif r.in_scope %}<span class="badge-critical">autorización expirada</span>{% else %}<span class="badge-neutral">fuera</span>{% endif %}</td>
+        <td class="text-ink-soft">{{ r.get_discovery_schedule_display }}</td>
+        <td class="font-mono text-xs">{{ r.last_discovery_at|date:"Y-m-d H:i"|default:"—" }}</td>
+        <td class="font-mono">{{ r.asset_count }}</td>
+      </tr>
+      {% empty %}<tr><td colspan="8" class="table-empty">Sin rangos de red.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

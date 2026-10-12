@@ -67,7 +67,15 @@ Toda pantalla nueva pertenece a una **sección** (barra lateral) y a una
 **pestaña** (menú superior). Para agregarla, registra la sección o la pestaña en
 `backend/apps/presentation/navigation.py` (`SECTIONS`); no escribas menús en las
 plantillas. En la plantilla de la vista usa `{% block toolbar %}` para el título
-de la vista y sus acciones. Ver ADR-007.
+de la vista y sus acciones. Las migas de pan (`Inicio › Sección › Pestaña`) salen
+del registro; si la vista es una subpágina (detalle, formulario, confirmación),
+agrega sus eslabones con `{% block breadcrumb_tail %}`:
+
+```django
+{% block breadcrumb_tail %}<li><a href="{% url 'assets:detail' asset.pk %}">{{ asset.name }}</a></li><li>Editar</li>{% endblock %}
+```
+
+Ver ADR-007.
 
 ```python
 Section(
@@ -79,6 +87,23 @@ Section(
     ),
 )
 ```
+
+## LLM y catálogos (Administración)
+
+- **Administración › LLM** (`llm.manage_llm`, solo admin): elige el modelo activo del
+  sistema (`LLMSettings`); todas las inferencias lo usan. No hay selectores de modelo en
+  otras pantallas. `eval_criticality --model` sigue aceptando modelos para experimentos.
+- **Administración › Catálogos** (`assets.manage_catalogs`): tipos de activo, entornos y
+  funciones de negocio. El código lee atributos de la entrada (`is_production`,
+  `is_identity_control`, `required_identifier_kinds`) vía `apps/assets/catalogs.py`;
+  no compares contra códigos fijos salvo las entradas de sistema.
+
+## Migraciones y servicios
+
+Después de `migrate`, reinicia **todos** los servicios que cargan Django (`backend`, `worker`,
+`worker-llm`, `worker-discovery`, `beat`): un worker con código anterior a una columna nueva
+falla al insertar. Las columnas nuevas con valor por defecto usan además `db_default` para
+tolerar ese desfase.
 
 ## Roles
 

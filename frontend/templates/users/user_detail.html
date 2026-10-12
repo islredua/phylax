@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ target.username }}{% endblock %}
+{% block breadcrumb_tail %}<li>{{ target.username }}</li>{% endblock %}
 {% block toolbar %}
 <div class="toolbar">
   <h2><span class="font-mono">{{ target.username }}</span>{% if is_self %} <span class="text-sm font-normal text-muted">(tú)</span>{% endif %}</h2>

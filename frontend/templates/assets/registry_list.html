@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% load inventory %}
+{% block title %}Registries{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <h2>Registries de contenedores</h2>
+  <a href="{% url 'assets:registry_create' %}" class="btn-primary">Nuevo registry</a>
+</div>
+{% endblock %}
+{% block content %}
+<p class="muted">Phylax solo guarda tokens <strong class="text-ink">de solo lectura</strong>, cifrados. Nunca se muestran: para cambiarlo, escribe uno nuevo.</p>
+<div class="table-wrap">
+  <table class="data-table">
+    <thead><tr><th>Nombre</th><th>URL</th><th>Entorno</th><th>Usuario</th><th>Token</th><th>Última prueba</th><th></th></tr></thead>
+    <tbody>
+      {% for r in registries %}
+      <tr>
+        <td class="font-medium">{{ r.name }}</td>
+        <td class="font-mono text-xs">{{ r.url }}</td>
+        <td class="text-ink-soft">{{ r.environment|catalog:"ENVIRONMENT" }}</td>
+        <td class="font-mono text-xs">{{ r.username|default:"—" }}</td>
+        <td>{% if r.token %}<span class="badge-neutral">configurado</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
+        <td>{% if r.last_check_at %}{% if r.last_check_ok %}<span class="badge-low">{{ r.last_check_detail }}</span>{% else %}<span class="badge-critical">{{ r.last_check_detail }}</span>{% endif %}<div class="font-mono text-[11px] text-muted">{{ r.last_check_at|date:"Y-m-d H:i" }}</div>{% else %}<span class="text-muted">sin probar</span>{% endif %}</td>
+        <td class="text-right">
+          <div class="flex justify-end gap-1">
+            <form method="post" action="{% url 'assets:registry_test' r.pk %}">{% csrf_token %}<button class="btn-secondary btn-sm" type="submit">Probar conexión</button></form>
+            <a href="{% url 'assets:registry_edit' r.pk %}" class="btn-secondary btn-sm">Editar</a>
+            <form method="post" action="{% url 'assets:registry_delete' r.pk %}">{% csrf_token %}<button class="btn-secondary btn-sm" type="submit">Eliminar</button></form>
+          </div>
+        </td>
+      </tr>
+      {% empty %}<tr><td colspan="7" class="table-empty">Sin registries.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

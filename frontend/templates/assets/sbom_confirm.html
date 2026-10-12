@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Asociar SBOM{% endblock %}
+{% block breadcrumb_tail %}<li>Asociar SBOM</li>{% endblock %}
+{% block toolbar %}<div class="toolbar"><h2>Asociar SBOM</h2></div>{% endblock %}
+{% block content %}
+<section class="card max-w-3xl">
+  <dl class="kv-grid">
+    <div><dt class="kv-label">Archivo</dt><dd class="kv-value">{{ pending.original_filename }}</dd></div>
+    <div><dt class="kv-label">Formato</dt><dd class="kv-value">{{ pending.meta.format }} <span class="font-mono text-xs text-muted">{{ pending.meta.spec_version }}</span></dd></div>
+    <div><dt class="kv-label">Generador</dt><dd class="kv-value">{{ pending.meta.generator|default:"—" }}</dd></div>
+    <div><dt class="kv-label">Componentes</dt><dd class="kv-value font-mono">{{ pending.meta.component_count }}</dd></div>
+    <div><dt class="kv-label">Sujeto</dt><dd class="kv-value font-mono text-xs">{{ pending.meta.subject_name|default:"—" }}</dd></div>
+    <div><dt class="kv-label">SHA-256</dt><dd class="kv-value font-mono text-[11px]">{{ pending.meta.sha256 }}</dd></div>
+  </dl>
+</section>
+{% if suggested %}<div class="alert-info max-w-3xl">El sujeto coincide con el activo <a href="{% url 'assets:detail' suggested.pk %}" class="font-semibold">{{ suggested.name }}</a>.</div>{% endif %}
+<div class="grid max-w-3xl grid-cols-1 gap-4 md:grid-cols-2">
+  <form method="post" class="card flex flex-col gap-3">
+    {% csrf_token %}<input type="hidden" name="action" value="attach">
+    <h3 class="card-title mb-0">Asociar a un activo existente</h3>
+    {{ form.asset }}
+    <button class="btn-primary" type="submit">Asociar</button>
+  </form>
+  <form method="post" class="card flex flex-col gap-3">
+    {% csrf_token %}<input type="hidden" name="action" value="create">
+    <h3 class="card-title mb-0">Crear activo nuevo</h3>
+    <p class="text-sm text-ink-soft">Se creará «{{ pending.meta.subject_name|default:pending.original_filename }}» con origen SBOM.</p>
+    <button class="btn-secondary" type="submit">Crear y asociar</button>
+  </form>
+</div>
+{% endblock %}

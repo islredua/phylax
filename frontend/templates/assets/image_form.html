@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Registrar imagen{% endblock %}
+{% block breadcrumb_tail %}<li>Registrar imagen</li>{% endblock %}
+{% block toolbar %}<div class="toolbar"><h2>Registrar imagen de contenedor</h2></div>{% endblock %}
+{% block content %}
+{% url 'assets:images' as cancel %}
+{% include "assets/_simple_form.html" with cancel_url=cancel submit_label="Registrar" %}
+{% endblock %}

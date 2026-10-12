@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Subir SBOM{% endblock %}
+{% block breadcrumb_tail %}<li>Subir SBOM</li>{% endblock %}
+{% block toolbar %}<div class="toolbar"><h2>Subir SBOM</h2></div>{% endblock %}
+{% block content %}
+<p class="muted">CycloneDX JSON o SPDX JSON.</p>
+{% url 'assets:list' as cancel %}
+{% include "assets/_simple_form.html" with cancel_url=cancel submit_label="Analizar" multipart=True %}
+{% endblock %}

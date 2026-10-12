@@ -1,7 +1,7 @@
 # ADR-001: Selección de stack tecnológico
 
 **Fecha:** 2026-10-11
-**Estado:** Aceptado
+**Estado:** Aceptado · la ubicación de Ollama fue actualizada por [ADR-008](008-inventory-agentless-celery-local-llm.md)
 
 ## Contexto
 

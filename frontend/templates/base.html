@@ -7,8 +7,11 @@
   <link rel="icon" type="image/svg+xml" href="{% static 'brand/favicon.svg' %}">
   <link rel="preload" href="{% static 'fonts/ibm-plex-sans-latin-400-normal.woff2' %}" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="{% static 'css/phylax.css' %}">
+  {# HTMX servido localmente: actualizaciones en vivo (LLM, descubrimientos) sin recargar. #}
+  <script src="{% static 'vendor/htmx-2.0.3.min.js' %}" defer></script>
+  <script src="{% static 'js/phylax.js' %}" defer></script>
 </head>
-<body>
+<body hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
 {% block body %}
 {# Navegación: secciones en la barra lateral, subsecciones como pestañas (apps/presentation/navigation.py). #}
 <div class="app-shell">
@@ -37,14 +40,18 @@
   </div>
   <div class="min-w-0">
     <main class="page">
+      {% if nav.breadcrumbs %}
+      <nav class="breadcrumbs" aria-label="Ruta de navegación">
+        <ol>
+          {% for crumb in nav.breadcrumbs %}<li><a href="{% url crumb.url_name %}">{{ crumb.label }}</a></li>{% endfor %}
+          {% block breadcrumb_tail %}{% endblock %}
+        </ol>
+      </nav>
+      {% endif %}
       <div class="page-header">
         <h1>{% block page_title %}{{ nav.section.label }}{% endblock %}</h1>
         <div class="page-actions">
-          {% if llm_mock_mode %}
-          <span class="pill-warn" title="LLM_MOCK_MODE=1: las respuestas del LLM son sintéticas">● LLM simulado</span>
-          {% else %}
-          <span class="pill-ok" title="Inferencia con Ollama en el mismo host; ningún dato sale de la organización">● LLM local · on-prem</span>
-          {% endif %}
+          {% if llm_pill %}<span class="{{ llm_pill.style }}" title="{{ llm_pill.title }}">● {{ llm_pill.label }}</span>{% endif %}
         </div>
       </div>
       {% if nav.tabs %}

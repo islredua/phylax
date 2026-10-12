@@ -51,6 +51,8 @@ jobs:
         working-directory: backend
         env:
           DJANGO_SECRET_KEY: ci-test-key
+          # Llave Fernet solo para CI (no protege ningún dato real).
+          PHYLAX_FIELD_ENCRYPTION_KEYS: Y2ktb25seS1rZXktZm9yLXRlc3RzLW5vdC1zZWNyZXQ=
           DJANGO_DEBUG: "0"
           POSTGRES_DB: phylax_test
           POSTGRES_USER: phylax

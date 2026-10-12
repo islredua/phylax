@@ -1,0 +1,16 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "serialNumber": "urn:uuid:3e671687-395b-41f5-a30f-a58921a69b79",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-10-01T12:00:00Z",
+    "tools": {"components": [{"type": "application", "author": "anchore", "name": "syft", "version": "1.14.0"}]},
+    "component": {"type": "container", "name": "docker.io/library/nginx:1.27", "version": "sha256:4c0fdaa8b6341bfdeca5f18f7837462c80cff90527ee35ef185571e1c327beac"}
+  },
+  "components": [
+    {"type": "library", "name": "openssl", "version": "3.0.15-1~deb12u1", "purl": "pkg:deb/debian/openssl@3.0.15-1~deb12u1"},
+    {"type": "library", "name": "zlib1g", "version": "1:1.2.13.dfsg-1", "purl": "pkg:deb/debian/zlib1g@1:1.2.13.dfsg-1"},
+    {"type": "library", "name": "libc6", "version": "2.36-9+deb12u8", "purl": "pkg:deb/debian/libc6@2.36-9+deb12u8"}
+  ]
+}

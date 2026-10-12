@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% load inventory %}
+{% block title %}{{ range.name }}{% endblock %}
+{% block breadcrumb_tail %}<li>{{ range.name }}</li>{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <div class="flex items-center gap-2"><h2>{{ range.name }}</h2><span class="font-mono text-xs text-muted">{{ range.cidr }}</span></div>
+  <div class="page-actions">
+    <a href="{% url 'assets:ranges' %}" class="btn-secondary btn-sm">← Rangos</a>
+    {% if perms.assets.manage_scope %}<a href="{% url 'assets:range_edit' range.pk %}" class="btn-secondary btn-sm">Editar</a><a href="{% url 'assets:range_delete' range.pk %}" class="btn-secondary btn-sm">Eliminar</a>{% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block content %}
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+  <section class="card">
+    <h3 class="card-title">Rango y autorización</h3>
+    <dl class="kv-grid">
+      <div><dt class="kv-label">Zona (exposición heredada)</dt><dd class="kv-value"><span class="badge-primary">{{ range.get_zone_display }}</span></dd></div>
+      <div><dt class="kv-label">Entorno</dt><dd class="kv-value">{{ range.environment|catalog:"ENVIRONMENT" }}</dd></div>
+      <div><dt class="kv-label">Alcance</dt><dd class="kv-value">{% if range.is_authorized %}<span class="badge-low">autorizado</span>{% elif range.in_scope %}<span class="badge-critical">autorización expirada</span>{% else %}<span class="badge-neutral">fuera del alcance</span>{% endif %}</dd></div>
+      <div><dt class="kv-label">Referencia de autorización</dt><dd class="kv-value">{{ range.authorization_reference|default:"—" }}</dd></div>
+      <div><dt class="kv-label">Autorizado por</dt><dd class="kv-value font-mono text-xs">{{ range.authorized_by.get_username|default:"—" }} · {{ range.authorized_at|date:"Y-m-d H:i"|default:"—" }}</dd></div>
+      <div><dt class="kv-label">Vigente hasta</dt><dd class="kv-value font-mono text-xs">{{ range.authorization_expires_at|date:"Y-m-d H:i"|default:"sin caducidad" }}</dd></div>
+      <div><dt class="kv-label">Descubrimiento programado</dt><dd class="kv-value">{{ range.get_discovery_schedule_display }}</dd></div>
+      <div><dt class="kv-label">Activos en el rango</dt><dd class="kv-value"><a href="{% url 'assets:list' %}?network_range={{ range.pk }}&amp;status=all">{{ asset_count }}</a></dd></div>
+    </dl>
+    {% if range.description %}<p class="mt-4 text-ink-soft">{{ range.description|linebreaksbr }}</p>{% endif %}
+  </section>
+  <section class="card flex flex-col gap-3">
+    <h3 class="card-title mb-0">Descubrir ahora</h3>
+    {% if discoverable_error %}
+      <p class="text-sm text-medium">{{ discoverable_error }}</p>
+    {% elif perms.discovery.run_discovery %}
+    <form method="post" action="{% url 'discovery:launch' range.pk %}" class="flex flex-col gap-2">
+      {% csrf_token %}
+      <label class="form-label" for="profile">Perfil</label>
+      <select id="profile" name="profile" class="form-input">
+        <option value="HOST_SWEEP">Barrido de hosts (rápido)</option>
+        <option value="SERVICE_SCAN">Escaneo de servicios (barrido + top 1000 puertos)</option>
+      </select>
+      <button class="btn-primary" type="submit">Descubrir ahora</button>
+    </form>
+    {% else %}<p class="muted text-sm">Necesitas permiso para lanzar descubrimientos.</p>{% endif %}
+  </section>
+</div>
+<section class="flex flex-col gap-2">
+  <h3 class="eyebrow">Historial de descubrimientos</h3>
+  {% include "discovery/_run_table.html" with runs=runs %}
+</section>
+{% endblock %}

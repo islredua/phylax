@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% load inventory %}
+{% block title %}Activos{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <div class="flex flex-wrap items-center gap-2">
+    <h2>Activos <span class="ml-1 font-mono text-xs font-normal text-muted">{{ paginator.count }}</span></h2>
+    {% for status, label, count in status_counts %}
+    <a href="?status={{ status }}" class="badge-neutral hover:no-underline" title="{{ label }}">{{ label }} · {{ count }}</a>
+    {% endfor %}
+  </div>
+  <div class="page-actions">
+    <a href="{% url 'assets:export' %}?{{ request.GET.urlencode }}" class="btn-secondary">Exportar CSV</a>
+    {% if perms.assets.change_asset %}<a href="{% url 'assets:sbom_upload' %}" class="btn-secondary">Subir SBOM</a>{% endif %}
+    {% if perms.assets.add_asset %}<a href="{% url 'assets:create' %}" class="btn-primary">Nuevo activo</a>{% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block content %}
+<form method="get" class="card grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5 lg:items-end">
+  {% for field in filter_form %}
+  <div class="{% if field.name == 'q' %}lg:col-span-2{% endif %}">
+    <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+    {{ field }}
+  </div>
+  {% endfor %}
+  <div class="flex gap-2">
+    <button type="submit" class="btn-primary">Filtrar</button>
+    <a href="{% url 'assets:list' %}" class="btn-secondary">Limpiar</a>
+  </div>
+</form>
+
+<form method="post" action="{% url 'assets:bulk' %}" class="flex flex-col gap-2">
+  {% csrf_token %}
+  <input type="hidden" name="next" value="{{ request.get_full_path }}">
+  {% if perms.assets.change_asset %}
+  {# phylax.js muestra solo el parámetro de la acción elegida; sin JS se ven todos y el servidor valida. #}
+  <div class="card flex flex-wrap items-end gap-3 py-3" data-bulk>
+    <div>
+      <label class="form-label" for="bulk-action">Acción sobre los seleccionados</label>
+      <select id="bulk-action" name="action" class="form-input w-auto" data-bulk-action required>
+        <option value="">Elige una acción…</option>
+        {% for value, label, param, confirm in bulk_actions %}{% if value != 'suggest' or perms.assets.decide_criticality %}<option value="{{ value }}" data-param="{{ param }}" data-confirm="{{ confirm }}">{{ label }}</option>{% endif %}{% endfor %}
+      </select>
+    </div>
+    <div data-bulk-param="tags">
+      <label class="form-label" for="bulk-tags">Etiquetas</label>
+      <input id="bulk-tags" name="tags" class="form-input w-56" placeholder="p. ej. pci, sucursal-norte" autocomplete="off">
+    </div>
+    <div data-bulk-param="ENVIRONMENT">
+      <label class="form-label" for="bulk-env">Nuevo entorno</label>
+      <select id="bulk-env" name="value_ENVIRONMENT" class="form-input w-auto">
+        <option value="">Elige…</option>{% for value, label in environments %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+    <div data-bulk-param="BUSINESS_ROLE">
+      <label class="form-label" for="bulk-role">Nueva función de negocio</label>
+      <select id="bulk-role" name="value_BUSINESS_ROLE" class="form-input w-auto">
+        <option value="">Elige…</option>{% for value, label in business_roles %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="btn-secondary" data-bulk-submit>Aplicar a <span data-bulk-count>los</span> seleccionados</button>
+    <p class="w-full text-xs text-muted" data-bulk-hint>Selecciona activos y una acción.</p>
+  </div>
+  {% endif %}
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr>
+        {% if perms.assets.change_asset %}<th class="w-6"><input type="checkbox" class="checkbox" data-bulk-all aria-label="Seleccionar todos los de esta página"></th>{% endif %}
+        <th>Nombre</th><th>Tipo</th><th>Identificador</th><th>Criticidad</th><th>Exposición</th><th>Entorno</th><th>Estado</th><th>Visto</th>
+      </tr></thead>
+      <tbody>
+        {% for a in assets %}
+        <tr>
+          {% if perms.assets.change_asset %}<td><input type="checkbox" name="ids" value="{{ a.pk }}" class="checkbox" aria-label="Seleccionar {{ a.name }}"></td>{% endif %}
+          <td><a href="{% url 'assets:detail' a.pk %}" class="font-medium">{{ a.name }}</a>{% if a.review_suggested %} <span class="badge-medium">revisión sugerida</span>{% endif %}{% for t in a.tags.all %} <span class="badge-neutral">{{ t.name }}</span>{% endfor %}</td>
+          <td class="text-ink-soft">{{ a.asset_type|catalog:"ASSET_TYPE" }}</td>
+          <td class="font-mono text-xs">{{ a.display_identifier|truncatechars:40|default:"—" }}</td>
+          {% include "assets/_criticality_cell.html" %}
+          <td>{% exposure_badge a.exposure a.exposure_source %}</td>
+          <td class="text-ink-soft">{{ a.environment|catalog:"ENVIRONMENT" }}</td>
+          <td>{% status_badge a.status %}</td>
+          <td class="font-mono text-xs whitespace-nowrap text-ink-soft">{{ a.last_seen|date:"Y-m-d"|default:"—" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="9" class="table-empty">Sin activos para estos filtros.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</form>
+{% include "_pagination.html" %}
+{% endblock %}

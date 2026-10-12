@@ -54,6 +54,79 @@ class Section:
 SECTIONS = (
     Section(key="home", label="Inicio", tabs=(Tab("home", "Inicio", "home"),)),
     Section(
+        key="inventory",
+        label="Inventario",
+        tabs=(
+            Tab(
+                "assets",
+                "Activos",
+                "assets:list",
+                ("assets.view_asset",),
+                (
+                    "assets:detail",
+                    "assets:create",
+                    "assets:edit",
+                    "assets:bulk",
+                    "assets:sbom_upload",
+                    "assets:sbom_confirm",
+                ),
+            ),
+            Tab(
+                "unconfirmed",
+                "Por confirmar",
+                "assets:unconfirmed",
+                ("assets.view_asset",),
+                ("assets:confirm",),
+            ),
+            Tab(
+                "classification",
+                "Clasificación",
+                "assets:classification",
+                ("assets.view_criticalitysuggestion",),
+            ),
+            Tab("conflicts", "Conflictos", "assets:conflicts", ("assets.view_assetconflict",)),
+            Tab(
+                "images",
+                "Imágenes",
+                "assets:images",
+                ("assets.view_containerimage",),
+                ("assets:image_create",),
+            ),
+            Tab(
+                "import",
+                "Importar/Exportar",
+                "assets:import",
+                ("assets.add_asset", "assets.view_asset"),
+                ("assets:import_preview", "assets:import_status"),
+            ),
+        ),
+    ),
+    Section(
+        key="discovery",
+        label="Descubrimiento",
+        tabs=(
+            Tab(
+                "ranges",
+                "Rangos de red",
+                "assets:ranges",
+                ("assets.view_networkrange",),
+                (
+                    "assets:range_detail",
+                    "assets:range_create",
+                    "assets:range_edit",
+                    "assets:range_delete",
+                ),
+            ),
+            Tab(
+                "runs",
+                "Ejecuciones",
+                "discovery:runs",
+                ("discovery.view_discoveryrun",),
+                ("discovery:*",),
+            ),
+        ),
+    ),
+    Section(
         key="administration",
         label="Administración",
         tabs=(
@@ -65,6 +138,21 @@ SECTIONS = (
             ),
             Tab("users", "Usuarios", "users:list", ("accounts.view_user",), ("users:*",)),
             Tab("audit", "Bitácora", "accounts:audit_log", ("accounts.view_auditlogentry",)),
+            Tab("llm", "LLM", "llm:settings", ("llm.manage_llm",)),
+            Tab(
+                "catalogs",
+                "Catálogos",
+                "assets:catalogs",
+                ("assets.manage_catalogs",),
+                ("assets:catalog_create", "assets:catalog_edit"),
+            ),
+            Tab(
+                "registries",
+                "Registries",
+                "assets:registries",
+                ("assets.manage_registries",),
+                ("assets:registry_create", "assets:registry_edit", "assets:registry_delete"),
+            ),
         ),
     ),
     Section(
@@ -102,6 +190,9 @@ class Navigation:
     section: NavItem | None = None
     # Pestañas de la sección actual; vacío si tiene una sola.
     tabs: list[NavItem] = field(default_factory=list)
+    # Migas de pan automáticas: Inicio › sección › pestaña. Cada plantilla añade el resto
+    # con {% block breadcrumb_tail %} (detalle, edición, etc.).
+    breadcrumbs: list[NavItem] = field(default_factory=list)
 
 
 def build_navigation(user, view_name):
@@ -121,4 +212,10 @@ def build_navigation(user, view_name):
                 nav.tabs = [
                     NavItem(t.key, t.label, t.url_name, active=t is active_tab) for t in tabs
                 ]
+            if section.key != "home":
+                nav.breadcrumbs = [NavItem("home", "Inicio", "home"), item]
+                if len(tabs) > 1:
+                    nav.breadcrumbs.append(
+                        NavItem(active_tab.key, active_tab.label, active_tab.url_name)
+                    )
     return nav

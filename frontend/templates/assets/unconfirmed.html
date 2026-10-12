@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Por confirmar{% endblock %}
+{% block toolbar %}<div class="toolbar"><h2>Por confirmar <span class="ml-1 font-mono text-xs font-normal text-muted">{{ paginator.count }}</span></h2></div>{% endblock %}
+{% block content %}
+<p class="muted">Hosts descubiertos pendientes de confirmar. {% if ignored_count %}<a href="{% url 'assets:list' %}?status=IGNORED">Ver ignorados ({{ ignored_count }})</a>{% endif %}</p>
+<div class="flex flex-col gap-3">
+  {% for a in assets %}
+  <article class="card flex flex-col gap-3">
+    <div class="flex flex-wrap items-baseline justify-between gap-2">
+      <a href="{% url 'assets:detail' a.pk %}" class="font-medium">{{ a.name }}</a>
+      <span class="font-mono text-xs text-muted">visto {{ a.last_seen|date:"Y-m-d H:i"|default:"—" }}</span>
+    </div>
+    <div class="flex flex-wrap gap-1">{% for i in a.identifiers.all %}<span class="badge-neutral">{{ i.get_kind_display }} {{ i.value }}</span>{% endfor %}</div>
+    {% if a.os_guess %}<p class="text-xs text-ink-soft">SO estimado: {{ a.os_guess }}</p>{% endif %}
+    {% if a.services.all %}<p class="font-mono text-xs text-ink-soft">{% for s in a.services.all %}{% if s.state == 'open' %}{{ s.port }}/{{ s.protocol }} {{ s.service_name }} {{ s.product }}{% if not forloop.last %} · {% endif %}{% endif %}{% endfor %}</p>{% endif %}
+    {% if a.merge_targets %}<p class="text-xs text-medium">Parece el mismo equipo que {% for t in a.merge_targets %}<a href="{% url 'assets:detail' t.pk %}">{{ t.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}: si lo es, fusiónalo en lugar de confirmarlo.</p>{% endif %}
+    {% if perms.assets.change_asset %}
+    <div class="flex flex-wrap items-end gap-2 border-t border-line-soft pt-3">
+      <a href="{% url 'assets:confirm' a.pk %}" class="btn-primary btn-sm">Confirmar…</a>
+      {% if a.merge_targets %}
+      <form method="post" action="{% url 'assets:merge' a.pk %}" class="flex items-end gap-2">
+        {% csrf_token %}<input type="hidden" name="next" value="{% url 'assets:unconfirmed' %}">
+        <select name="target" class="form-input w-56 py-1 text-xs" aria-label="Fusionar en" required>
+          {% if a.merge_targets|length > 1 %}<option value="">Fusionar en…</option>{% endif %}
+          {% for t in a.merge_targets %}<option value="{{ t.pk }}">{{ t.name }}</option>{% endfor %}
+        </select>
+        <button class="btn-secondary btn-sm" type="submit" title="Parece el mismo equipo que un activo del inventario">Fusionar</button>
+      </form>
+      {% endif %}
+      <form method="post" action="{% url 'assets:ignore' a.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{% url 'assets:unconfirmed' %}"><button class="btn-secondary btn-sm" type="submit">Ignorar</button></form>
+    </div>
+    {% endif %}
+  </article>
+  {% empty %}
+  <p class="card muted">No hay activos por confirmar.</p>
+  {% endfor %}
+</div>
+{% include "_pagination.html" %}
+{% endblock %}

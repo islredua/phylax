@@ -1,3 +1,47 @@
+# Phylax — despliegue on-premise.
+#
+#   scripts/compose.sh up -d      # detecta GPU NVIDIA y añade docker-compose.gpu.yml
+#   docker compose up -d          # equivalente sin GPU (Ollama en CPU)
+#
+# Ningún servicio interno (Redis, Ollama, workers) publica puertos: solo la red
+# phylax-net los alcanza (STRIDE Information Disclosure).
+
+# Una sola imagen: la construye `backend`; los workers la reutilizan.
+x-backend: &backend
+  image: phylax-backend:dev
+  pull_policy: never
+  restart: unless-stopped
+  env_file:
+    - .env
+  environment: &backend-env
+    PYTHONUNBUFFERED: 1
+    REDIS_URL: redis://redis:6379/0
+    PHYLAX_MEDIA_ROOT: /data/media
+  volumes:
+    - ./backend:/app
+    # Templates y estáticos viven fuera de backend/ (settings: BASE_DIR.parent / "frontend").
+    - ./frontend:/frontend:ro
+    - media:/data/media
+    # Datasets y resultados de la evaluación de LLMs (eval_criticality).
+    - ./datasets:/datasets:ro
+    - ./experiments:/experiments
+    - scan_results:/data/scan-results
+    - cti_cache:/data/cti-cache
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+
+x-worker-healthcheck: &worker-healthcheck
+  test: ["CMD-SHELL", "celery -A phylax inspect ping -d celery@$$HOSTNAME --timeout 10 | grep -q pong"]
+  interval: 60s
+  timeout: 20s
+  retries: 3
+  start_period: 30s
+
 services:
   db:
     image: postgres:16-alpine
@@ -18,35 +62,82 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7.4.1-alpine
+    container_name: phylax-redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # LLM local. Sin puertos publicados: solo los workers lo alcanzan por la red interna.
+  # Modelos en el volumen ollama_models: docker compose exec ollama ollama pull <modelo>
+  ollama:
+    image: ollama/ollama:0.5.7
+    container_name: phylax-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_models:/root/.ollama
+    environment:
+      OLLAMA_KEEP_ALIVE: 10m
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
   backend:
+    <<: *backend
     build:
       context: ./backend
       dockerfile: Dockerfile
+    pull_policy: build
     container_name: phylax-backend
-    restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
-    env_file:
-      - .env
-    environment:
-      PYTHONUNBUFFERED: 1
-    volumes:
-      - ./backend:/app
-      # Templates y estáticos viven fuera de backend/ (settings: BASE_DIR.parent / "frontend").
-      - ./frontend:/frontend:ro
-      - scan_results:/data/scan-results
-      - cti_cache:/data/cti-cache
     ports:
       - "8000:8000"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     command: >
       sh -c "python manage.py migrate &&
              python manage.py runserver 0.0.0.0:8000"
 
+  # Inventario, importaciones CSV y tareas generales.
+  worker:
+    <<: *backend
+    container_name: phylax-worker
+    command: celery -A phylax worker -Q default -c 2 -n celery@%h --loglevel INFO
+    healthcheck: *worker-healthcheck
+
+  # Inferencia LLM: concurrencia 1 para no saturar la GPU (o la CPU).
+  worker-llm:
+    <<: *backend
+    container_name: phylax-worker-llm
+    command: celery -A phylax worker -Q llm -c 1 -n celery@%h --loglevel INFO
+    healthcheck: *worker-healthcheck
+
+  # Descubrimiento con nmap: concurrencia 1, usuario no root con capabilities de red
+  # (nmap --privileged usa las capabilities de archivo del binario). Solo alcanza los
+  # segmentos con ruta desde este host; la MAC solo se ve en el mismo segmento L2.
+  worker-discovery:
+    <<: *backend
+    container_name: phylax-worker-discovery
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    command: celery -A phylax worker -Q discovery -c 1 -n celery@%h --loglevel INFO
+    healthcheck: *worker-healthcheck
+
+  beat:
+    <<: *backend
+    container_name: phylax-beat
+    command: celery -A phylax beat --schedule /tmp/celerybeat-schedule --loglevel INFO
+
 volumes:
   postgres_data:
+  ollama_models:
+  media:
   scan_results:
   cti_cache:
 
