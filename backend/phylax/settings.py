@@ -144,6 +144,12 @@ TIME_ZONE = "America/Mexico_City"
 USE_I18N = True
 USE_TZ = True
 
+# --- Inventario de activos (Módulo 2) ---
+PHYLAX_ASSET_STALE_DAYS = int(os.environ.get("PHYLAX_ASSET_STALE_DAYS", "14"))
+# Prefijo IPv4 más amplio permitido para descubrimiento (16 = /16).
+PHYLAX_MAX_DISCOVERY_PREFIX = int(os.environ.get("PHYLAX_MAX_DISCOVERY_PREFIX", "16"))
+PHYLAX_SBOM_MAX_MB = int(os.environ.get("PHYLAX_SBOM_MAX_MB", "50"))
+
 # --- Archivos subidos (SBOM, XML de discovery, cargas temporales) ---
 # Nunca se sirven directamente: solo vía vistas que verifican permisos.
 MEDIA_ROOT = os.environ.get("PHYLAX_MEDIA_ROOT", "/data/media")

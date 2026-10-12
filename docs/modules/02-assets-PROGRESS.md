@@ -25,7 +25,7 @@ con LLM local). Se actualiza en cada etapa.
 | 1 | Reconocimiento y este documento | ✅ |
 | 2 | `core` + cifrado de campos + dependencias | ✅ |
 | 3 | Modelos, enums, migraciones, admin, factories, normalización | ✅ |
-| 4 | Services, contracts y ciclo de vida | ⏳ |
+| 4 | Services, contracts y ciclo de vida | ✅ |
 | 5 | Celery + Redis + Beat + compose | ⏳ |
 | 6 | App `llm` + Ollama + `eval_criticality` | ⏳ |
 | 7 | App `discovery` | ⏳ |
@@ -45,3 +45,9 @@ Se documentan aquí conforme aparezcan.
 - **`ContainerRegistry.environment`**: campo añadido para poder aplicar la regla "https obligatorio salvo en LAB".
 - **`ContainerRegistry.last_check_detail`**, **`DiscoveryRun.scan_mode`**, **`InferenceLog.accelerator`/`attempts`**,
   **`CriticalitySuggestion.model`/`requested_by`**: campos de trazabilidad añadidos.
+- **`resolve_asset(..., persist=False)`**: modo vista previa (dry-run de CSV) que no persiste conflictos.
+- **Identidad en conflicto**: `AssetConflict` guarda el identificador que contradice al de mayor
+  precedencia (p. ej. la FQDN que pertenece a otro activo distinto del dueño de la MAC).
+- **Activos retirados sin fusión** liberan sus identificadores si el host reaparece (si no, la
+  unicidad `(kind, value)` impediría registrar el nuevo activo).
+- **`is_in_scope`**: una IP de un activo con `in_scope=False` queda fuera aunque su rango esté autorizado.
