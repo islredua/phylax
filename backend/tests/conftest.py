@@ -13,13 +13,15 @@ PASSWORD = "Phylax-Pruebas-2026!"
 
 
 @pytest.fixture(autouse=True)
-def _isolated_infrastructure(settings):
-    """Pruebas sin Redis ni workers: caché en memoria y tareas Celery síncronas.
+def _isolated_infrastructure(settings, tmp_path):
+    """Pruebas sin Redis ni workers: caché en memoria, media temporal y tareas Celery síncronas.
 
     Celery (namespace CELERY) lee los settings de Django en vivo, así que se
     sobrescriben aquí y no en ``app.conf``.
     """
     settings.CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
+    # Archivos subidos (SBOM, XML de discovery) en un directorio temporal, nunca en el volumen real.
+    settings.MEDIA_ROOT = str(tmp_path / "media")
     settings.CELERY_TASK_ALWAYS_EAGER = True
     settings.CELERY_TASK_EAGER_PROPAGATES = True
     from django.core.cache import cache

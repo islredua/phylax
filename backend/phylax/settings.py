@@ -151,6 +151,20 @@ PHYLAX_ASSET_STALE_DAYS = int(os.environ.get("PHYLAX_ASSET_STALE_DAYS", "14"))
 PHYLAX_MAX_DISCOVERY_PREFIX = int(os.environ.get("PHYLAX_MAX_DISCOVERY_PREFIX", "16"))
 PHYLAX_SBOM_MAX_MB = int(os.environ.get("PHYLAX_SBOM_MAX_MB", "50"))
 
+# --- Descubrimiento de red (nmap) ---
+DISCOVERY_NMAP_BIN = os.environ.get("NMAP_BIN", "/usr/bin/nmap")
+# auto: sonda de capabilities; privileged (raw sockets, -sS/-O) | unprivileged (-sT).
+DISCOVERY_SCAN_MODE = os.environ.get("DISCOVERY_SCAN_MODE", "auto")
+DISCOVERY_SWEEP_SYN_PORTS = "22,80,443,445,3389"
+DISCOVERY_SWEEP_ACK_PORTS = "80,443"
+DISCOVERY_SWEEP_HOST_TIMEOUT = os.environ.get("DISCOVERY_SWEEP_HOST_TIMEOUT", "2m")
+DISCOVERY_SERVICE_HOST_TIMEOUT = os.environ.get("DISCOVERY_SERVICE_HOST_TIMEOUT", "10m")
+DISCOVERY_TOP_PORTS = int(os.environ.get("DISCOVERY_TOP_PORTS", "1000"))
+DISCOVERY_TIMING = os.environ.get("DISCOVERY_TIMING", "T4")
+DISCOVERY_RUN_TIMEOUT_S = int(os.environ.get("DISCOVERY_RUN_TIMEOUT_S", "3600"))
+DISCOVERY_MAX_XML_MB = int(os.environ.get("DISCOVERY_MAX_XML_MB", "20"))
+DISCOVERY_SCHEDULED_PROFILE = "SERVICE_SCAN"
+
 # --- Redis: broker de Celery y caché ---
 REDIS_URL = os.environ.get("REDIS_URL", "")
 if REDIS_URL:
@@ -186,6 +200,10 @@ CELERY_BEAT_SCHEDULE = {
     "mark-stale-assets": {
         "task": "apps.assets.tasks.mark_stale_assets",
         "schedule": crontab(hour=3, minute=0),
+    },
+    "run-scheduled-discoveries": {
+        "task": "apps.discovery.tasks.run_scheduled_discoveries",
+        "schedule": crontab(minute="*/15"),
     },
     "refresh-llm-status": {
         "task": "apps.llm.tasks.refresh_llm_status",

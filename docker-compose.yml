@@ -117,10 +117,15 @@ services:
     command: celery -A phylax worker -Q llm -c 1 -n celery@%h --loglevel INFO
     healthcheck: *worker-healthcheck
 
-  # Descubrimiento con nmap: concurrencia 1.
+  # Descubrimiento con nmap: concurrencia 1, usuario no root con capabilities de red
+  # (nmap --privileged usa las capabilities de archivo del binario). Solo alcanza los
+  # segmentos con ruta desde este host; la MAC solo se ve en el mismo segmento L2.
   worker-discovery:
     <<: *backend
     container_name: phylax-worker-discovery
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
     command: celery -A phylax worker -Q discovery -c 1 -n celery@%h --loglevel INFO
     healthcheck: *worker-healthcheck
 

@@ -28,7 +28,7 @@ con LLM local). Se actualiza en cada etapa.
 | 4 | Services, contracts y ciclo de vida | ✅ |
 | 5 | Celery + Redis + Beat + compose | ✅ |
 | 6 | App `llm` + Ollama + `eval_criticality` | ✅ |
-| 7 | App `discovery` | ⏳ |
+| 7 | App `discovery` | ✅ |
 | 8 | Registries, imágenes, SBOM | ⏳ |
 | 9 | UI y permisos | ⏳ |
 | 10 | Importación / exportación CSV | ⏳ |
@@ -72,3 +72,15 @@ Se documentan aquí conforme aparezcan.
   queda "procesando" indefinidamente.
 - **Rutas del dataset**: `datasets/` y `experiments/` se montan en el contenedor; el comando usa
   `BASE_DIR.parent` como raíz (igual que `frontend/`).
+- **`DiscoveryRun.command`** guarda una **lista de argv** (un `SERVICE_SCAN` sobre rango ejecuta primero
+  el barrido y luego el escaneo de servicios). `raw_output` conserva el XML del último paso.
+- **Cancelación**: el runner usa `subprocess.Popen` (no `subprocess.run`) para poder terminar nmap
+  cuando el run pasa a `CANCELLED`; las pruebas simulan `Popen`.
+- **Modo sin privilegios** detectado con una sonda local (`nmap --privileged -sS` a 127.0.0.1):
+  sin raw sockets se usa `-sT`, sin `-PE/-PA` ni `-O`. `DISCOVERY_SCAN_MODE` lo puede fijar.
+- **Descubrimiento programado** usa `SERVICE_SCAN` (`DISCOVERY_SCHEDULED_PROFILE`).
+- **Todos los contenedores corren como `phylax` (uid 1000)**; solo `worker-discovery` recibe
+  `NET_RAW`/`NET_ADMIN`. Verificado: nmap detecta modo `privileged` sin root.
+- **Pruebas** escriben archivos en un `MEDIA_ROOT` temporal (antes escribían en el volumen real).
+- **Verificación real** con Ollama en CPU (`qwen2.5:0.5b-instruct`): la solicitud vuelve en ~16 ms,
+  el worker infiere en ~15 s, salida estructurada válida al primer intento y el estado pasa a `cpu`.

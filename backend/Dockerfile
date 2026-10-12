@@ -16,7 +16,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       git \
       build-essential \
       libpq-dev \
+      libcap2-bin \
     && rm -rf /var/lib/apt/lists/*
+
+# nmap como usuario no root: capabilities de archivo para raw sockets (-sS, -O).
+# Solo el contenedor worker-discovery recibe NET_RAW/NET_ADMIN (cap_add); en los demás
+# nmap no se ejecuta. Sin capabilities, Phylax lo detecta y degrada a -sT.
+RUN setcap cap_net_raw,cap_net_admin,cap_net_bind_service+eip /usr/bin/nmap
 
 # nuclei: descarga del release oficial de ProjectDiscovery
 RUN NUCLEI_VERSION=3.3.5 && \
@@ -36,6 +42,13 @@ RUN pip install -r requirements.txt
 
 # Copiar el resto del código
 COPY . .
+
+# Usuario sin privilegios (uid 1000, coincide con el usuario típico de WSL/Linux para
+# los bind mounts). Los volúmenes de datos se crean con su propiedad.
+RUN useradd --uid 1000 --create-home --shell /usr/sbin/nologin phylax \
+    && mkdir -p /data/media /data/scan-results /data/cti-cache \
+    && chown -R phylax:phylax /data
+USER phylax
 
 EXPOSE 8000
 
