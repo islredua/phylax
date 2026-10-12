@@ -61,6 +61,25 @@ Desde la raíz del repo, después de cambiar templates, formularios o `input.css
 Durante desarrollo se puede añadir `--watch`. Commitear siempre el CSS
 recompilado junto con el cambio que lo motivó.
 
+## Navegación (secciones + pestañas)
+
+Toda pantalla nueva pertenece a una **sección** (barra lateral) y a una
+**pestaña** (menú superior). Para agregarla, registra la sección o la pestaña en
+`backend/apps/presentation/navigation.py` (`SECTIONS`); no escribas menús en las
+plantillas. En la plantilla de la vista usa `{% block toolbar %}` para el título
+de la vista y sus acciones. Ver ADR-007.
+
+```python
+Section(
+    key="assets",
+    label="Activos",
+    tabs=(
+        Tab("inventory", "Inventario", "assets:list", ("assets.view_asset",), ("assets:*",)),
+        Tab("import", "Importar", "assets:import", ("assets.add_asset",)),
+    ),
+)
+```
+
 ## Roles
 
 Los grupos `admin`, `operador` y `auditor` se crean/actualizan automáticamente en

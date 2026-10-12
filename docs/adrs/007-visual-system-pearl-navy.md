@@ -60,21 +60,38 @@ manifiesto C2PA, por eso están excluidos de los hooks de whitespace.
 - Variantes blancas e icono de app disponibles para usos futuros (reportes PDF,
   pantallas oscuras).
 
-### 4. Estructura
+### 4. Estructura y navegación: secciones + pestañas
 
-- **Barra lateral fija** a la izquierda: marca, navegación por rol (Inicio;
-  sección "Administración" con Usuarios y Bitácora solo si hay permiso), y abajo
-  la sesión, Mi cuenta y Cerrar sesión. La sección activa la calcula el context
-  processor `apps.presentation.context_processors.navigation`. En móvil se
-  convierte en una barra horizontal compacta.
-- **Encabezado de página**: título, acciones de la página y la píldora del
-  despliegue: `LLM local · on-prem` (verde) o `LLM simulado` (ámbar) si
-  `LLM_MOCK_MODE=1`. Es una propiedad del despliegue, **no** un health check de
-  Ollama.
-- Subsecciones (Mi cuenta) como pestañas.
-- Componentes en `frontend/tailwind/input.css`: `card`, `data-table`,
-  `btn-primary` / `btn-secondary` / `btn-danger`, `badge-<severidad>`, `pill-*`,
-  `alert-*`, `tabs`, `form-*`, `kv-*`, `stat-*`, `eyebrow`.
+Patrón **obligatorio para todo el proyecto**:
+
+- La **barra lateral** muestra solo **secciones** de primer nivel: Inicio,
+  Administración y (abajo) Mi cuenta. Los módulos M1–M5 se agregarán como nuevas
+  secciones (p. ej. Activos, Hallazgos, Inteligencia, Reportes).
+- Al abrir una sección se muestra su **primera pestaña** y sus subsecciones como
+  **pestañas superiores** (p. ej. Administración → Resumen · Usuarios · Bitácora;
+  Mi cuenta → Resumen · Perfil · Contraseña · Seguridad · Actividad). Una
+  sección con una sola pestaña no muestra barra de pestañas.
+- Las subsecciones **nunca** van en la barra lateral.
+- Bajo las pestañas, cada vista usa una **toolbar** (`{% block toolbar %}`): su
+  título (h2) a la izquierda y sus acciones a la derecha.
+
+Todo se define en un único registro, `apps/presentation/navigation.py`
+(`SECTIONS`): cada `Section` tiene sus `Tab` con el nombre de URL, los permisos
+(basta uno) y los nombres de vista adicionales que pertenecen a la pestaña
+(`"users:*"`, subpáginas de MFA en Seguridad, etc.). El context processor
+`navigation` calcula sección y pestaña activas y filtra por permisos; la sección
+enlaza a su primera pestaña visible y se oculta si el usuario no ve ninguna.
+`base.html` dibuja la barra lateral y las pestañas a partir de ese registro: las
+plantillas no escriben menús a mano.
+
+Encabezado de página: título de la sección y la píldora del despliegue:
+`LLM local · on-prem` (verde) o `LLM simulado` (ámbar) si `LLM_MOCK_MODE=1`. Es
+una propiedad del despliegue, **no** un health check de Ollama. En móvil la
+barra lateral se convierte en una barra horizontal compacta.
+
+Componentes en `frontend/tailwind/input.css`: `card`, `data-table`, `toolbar`,
+`tabs`, `btn-primary` / `btn-secondary` / `btn-danger`, `badge-<severidad>`,
+`pill-*`, `alert-*`, `form-*`, `kv-*`, `stat-*`, `eyebrow`.
 
 ### 5. Modo claro único
 
@@ -84,6 +101,10 @@ El tema es claro. El modo oscuro queda fuera del MVP.
 
 - ADR-003 queda reemplazado. Se conservan sus principios de densidad alta y de
   no usar colores hex en plantillas, solo tokens.
-- Los módulos M1–M5 deben usar `badge-critical/high/medium/low` para severidad y
+- Los módulos M1–M5 deben registrar su sección y pestañas en
+  `navigation.py`, usar `badge-critical/high/medium/low` para severidad y
   `font-mono` para datos técnicos.
+- Administración tiene una pestaña **Resumen** (`/administration/`) con métricas
+  de cuentas y eventos de seguridad de los últimos 7 días; cada bloque se
+  muestra según el permiso del usuario (`view_user` / `view_auditlogentry`).
 - Las fuentes añaden ~115 KB de assets estáticos versionados.
