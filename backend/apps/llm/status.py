@@ -21,21 +21,30 @@ def _hint():
 
 
 def probe():
-    """Consulta Ollama (``/api/version`` y ``/api/ps``). Usado solo desde tareas."""
+    """Consulta Ollama (``/api/version``, ``/api/ps`` y ``/api/tags``). Usado solo desde tareas."""
     if settings.LLM_MOCK_MODE:
-        return {"available": True, "accelerator": "mock", "version": "", "loaded": []}
+        return {
+            "available": True,
+            "accelerator": "mock",
+            "version": "",
+            "loaded": [],
+            "installed": None,
+        }
     base = settings.OLLAMA_BASE_URL.rstrip("/")
     try:
         with httpx.Client(timeout=5) as http:
             version = http.get(f"{base}/api/version").json().get("version", "")
             running = http.get(f"{base}/api/ps").json().get("models", [])
+            tags = http.get(f"{base}/api/tags").json().get("models", [])
     except (httpx.HTTPError, ValueError):
         return {
             "available": False,
             "accelerator": _hint() or "unknown",
             "version": "",
             "loaded": [],
+            "installed": None,
         }
+    installed = [m.get("name", "") for m in tags]
     if running:
         on_gpu = any((m.get("size_vram") or 0) > 0 for m in running)
         accelerator = "gpu" if on_gpu else "cpu"
@@ -47,6 +56,7 @@ def probe():
         "accelerator": accelerator,
         "version": version,
         "loaded": [m.get("name", "") for m in running],
+        "installed": installed,
     }
 
 
@@ -72,3 +82,29 @@ def effective_timeout():
     """Timeout por inferencia según el acelerador; desconocido = conservador (CPU)."""
     accelerator = get_status().get("accelerator")
     return settings.LLM_TIMEOUT_S if accelerator == "gpu" else settings.LLM_TIMEOUT_CPU_S
+
+
+def installed_models():
+    """Modelos descargados según el último sondeo, o ``None`` si se desconoce (no consulta Ollama)."""
+    if settings.LLM_MOCK_MODE:
+        return None
+    return get_status().get("installed")
+
+
+def model_choices():
+    """Modelos ofrecidos en la UI: ``[{"name", "installed"}]`` (``installed=None`` = desconocido)."""
+    installed = installed_models()
+    names = list(dict.fromkeys([settings.LLM_DEFAULT_MODEL, *settings.LLM_AVAILABLE_MODELS]))
+    return [
+        {"name": name, "installed": None if installed is None else name in installed}
+        for name in names
+    ]
+
+
+def preferred_model():
+    """El predeterminado si está descargado; si no, el primero descargado de la lista."""
+    choices = model_choices()
+    usable = [c["name"] for c in choices if c["installed"] is not False]
+    if settings.LLM_DEFAULT_MODEL in usable:
+        return settings.LLM_DEFAULT_MODEL
+    return usable[0] if usable else None

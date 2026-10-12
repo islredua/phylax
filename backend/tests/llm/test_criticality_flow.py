@@ -158,3 +158,23 @@ def test_eval_rejects_bad_dataset(tmp_path):
         call_command(
             "eval_criticality", "--model", "m", "--dataset", str(bad), "--out", str(tmp_path)
         )
+
+
+def test_missing_model_is_rejected_before_queuing(operator):
+    from django.core.cache import cache
+
+    from apps.llm.status import CACHE_KEY
+
+    cache.set(
+        CACHE_KEY,
+        {"available": True, "accelerator": "cpu", "installed": ["llama3.1:8b-instruct-q4_K_M"]},
+    )
+    asset = AssetFactory()
+    with pytest.raises(ValidationError, match="no está descargado"):
+        services.request_criticality_suggestion(
+            asset.pk, user=operator, model="qwen2.5:7b-instruct-q4_K_M"
+        )
+    assert not CriticalitySuggestion.objects.filter(asset=asset).exists()
+    # Sin modelo explícito se usa el primero descargado.
+    suggestion = services.request_criticality_suggestion(asset.pk, user=operator)
+    assert suggestion.model == "llama3.1:8b-instruct-q4_K_M"

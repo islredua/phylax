@@ -1,6 +1,5 @@
 """Vistas del inventario. Toda modificación pasa por ``services`` (que re-verifica permisos)."""
 
-from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.mixins import PermissionRequiredMixin
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -11,6 +10,8 @@ from django.urls import reverse
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views import View
 from django.views.generic import ListView, TemplateView
+
+from apps.llm.status import model_choices, preferred_model
 
 from . import services
 from .enums import AssetStatus, Criticality, Environment, SuggestionState
@@ -209,8 +210,8 @@ class AssetDetailView(Perm, TemplateView):
             tab=tab,
             tabs=DETAIL_TABS,
             criticality_choices=Criticality.choices,
-            llm_models=settings.LLM_AVAILABLE_MODELS,
-            default_model=settings.LLM_DEFAULT_MODEL,
+            llm_models=model_choices(),
+            default_model=preferred_model(),
         )
         if tab == "resumen":
             context["has_ip"] = asset.identifiers.filter(kind__in=("IPV4", "IPV6")).exists()
@@ -503,8 +504,8 @@ class ClassificationView(Perm, TemplateView):
             unclassified=unclassified,
             failed=recent_failed,
             criticality_choices=Criticality.choices,
-            llm_models=settings.LLM_AVAILABLE_MODELS,
-            default_model=settings.LLM_DEFAULT_MODEL,
+            llm_models=model_choices(),
+            default_model=preferred_model(),
         )
         return context
 

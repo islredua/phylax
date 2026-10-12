@@ -527,3 +527,23 @@ def test_list_shows_primary_identifier(client, as_role):
     as_role(AUDITOR)
     rows = client.get("/inventory/", {"q": "multi"}).context["assets"]
     assert rows[0].display_identifier == "10.94.0.9"
+
+
+def test_selector_disables_models_not_downloaded(client, as_role, settings):
+    from django.core.cache import cache
+
+    from apps.llm.status import CACHE_KEY
+
+    settings.LLM_MOCK_MODE = False
+    settings.LLM_DEFAULT_MODEL = "grande:7b"
+    settings.LLM_AVAILABLE_MODELS = ["grande:7b", "chico:0.5b"]
+    as_role(OPERATOR)
+    asset = AssetFactory()
+    cache.set(CACHE_KEY, {"available": True, "accelerator": "cpu", "installed": ["chico:0.5b"]})
+    body = client.get(f"/inventory/{asset.pk}/").content.decode()
+    assert 'value="grande:7b" disabled' in body and "(no descargado)" in body
+    assert 'value="chico:0.5b" selected' in body
+    cache.set(CACHE_KEY, {"available": True, "accelerator": "cpu", "installed": []})
+    body = client.get(f"/inventory/{asset.pk}/").content.decode()
+    assert "No hay modelos descargados" in body and "ollama pull grande:7b" in body
+    assert "Sugerir criticidad con IA" not in body

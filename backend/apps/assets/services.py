@@ -913,9 +913,18 @@ def request_criticality_suggestion(asset_id, *, user=None, model=None, requested
     if user is not None:
         _require(user, "assets.decide_criticality")
         _check_rate_limit(user)
-    model = model or settings.LLM_DEFAULT_MODEL
+    from apps.llm.status import installed_models, preferred_model
+
+    model = model or preferred_model() or settings.LLM_DEFAULT_MODEL
     if model not in settings.LLM_AVAILABLE_MODELS and model != settings.LLM_DEFAULT_MODEL:
         raise ValidationError(f"Modelo no permitido: {model}.")
+    installed = installed_models()
+    if installed is not None and model not in installed:
+        # Aviso inmediato en lugar de encolar una sugerencia que fallará en el worker.
+        raise ValidationError(
+            f"El modelo «{model}» no está descargado en Ollama. Descárgalo con: "
+            f"docker compose exec ollama ollama pull {model}"
+        )
     with transaction.atomic():
         asset = _locked(Asset.objects.get(pk=asset_id))
         CriticalitySuggestion.objects.filter(asset=asset, state=SuggestionState.PENDING).update(

@@ -3,6 +3,7 @@
 {% block toolbar %}<div class="toolbar"><h2>Pendientes de clasificación</h2></div>{% endblock %}
 {% block content %}
 <p class="muted">El LLM local propone una criticidad; tú decides. Las sugerencias en proceso se actualizan solas.</p>
+{% if not default_model %}{% include "assets/_no_models.html" %}{% endif %}
 
 <section class="flex flex-col gap-3">
   <h3 class="eyebrow">Sugerencias por decidir</h3>
@@ -26,10 +27,10 @@
           <td class="text-ink-soft">{{ a.get_environment_display|default:"—" }}</td>
           <td class="text-ink-soft">{{ a.get_business_role_display|default:"—" }}</td>
           <td class="text-right">
-            {% if perms.assets.decide_criticality %}
+            {% if perms.assets.decide_criticality and default_model %}
             <form method="post" action="{% url 'assets:suggest' a.pk %}" hx-post="{% url 'assets:suggest' a.pk %}" hx-target="#pending" hx-swap="afterbegin" hx-on::after-request="if(event.detail.successful){document.getElementById('unclassified-{{ a.pk }}').remove()}" class="flex justify-end gap-2">
               {% csrf_token %}<input type="hidden" name="next" value="{% url 'assets:classification' %}">
-              <select name="model" class="form-input w-auto py-1 text-xs" aria-label="Modelo">{% for m in llm_models %}<option value="{{ m }}"{% if m == default_model %} selected{% endif %}>{{ m }}</option>{% endfor %}</select>
+              {% include "assets/_model_select.html" with extra_class="w-auto py-1 text-xs" %}
               <button class="btn-secondary btn-sm" type="submit">Sugerir</button>
             </form>
             {% endif %}

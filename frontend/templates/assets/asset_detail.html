@@ -55,12 +55,14 @@
   <section class="card flex flex-col gap-3">
     <h3 class="card-title mb-0">Acciones</h3>
     {% if perms.assets.decide_criticality and asset.status != 'RETIRED' %}
+    {% if default_model %}
     <form method="post" action="{% url 'assets:suggest' asset.pk %}" class="flex flex-col gap-2">
       {% csrf_token %}<input type="hidden" name="next" value="{% url 'assets:detail' asset.pk %}?tab=sugerencias">
       <label class="form-label" for="model">Modelo local</label>
-      <select id="model" name="model" class="form-input">{% for m in llm_models %}<option value="{{ m }}"{% if m == default_model %} selected{% endif %}>{{ m }}</option>{% endfor %}</select>
+      {% include "assets/_model_select.html" with select_id="model" %}
       <button class="btn-primary" type="submit">Sugerir criticidad con IA</button>
     </form>
+    {% else %}{% include "assets/_no_models.html" %}{% endif %}
     {% endif %}
     {% if perms.discovery.run_discovery and has_ip and asset.status != 'RETIRED' %}
     <form method="post" action="{% url 'discovery:rescan' asset.pk %}">{% csrf_token %}<button class="btn-secondary w-full" type="submit">Re-escanear servicios</button></form>
@@ -150,11 +152,13 @@
 
 {% elif tab == "sugerencias" %}
 {% if perms.assets.decide_criticality and asset.status != 'RETIRED' %}
+{% if default_model %}
 <form method="post" action="{% url 'assets:suggest' asset.pk %}" hx-post="{% url 'assets:suggest' asset.pk %}" hx-target="#suggestions" hx-swap="afterbegin" class="flex flex-wrap items-end gap-2">
   {% csrf_token %}<input type="hidden" name="next" value="{% url 'assets:detail' asset.pk %}?tab=sugerencias">
-  <select name="model" class="form-input w-auto" aria-label="Modelo">{% for m in llm_models %}<option value="{{ m }}"{% if m == default_model %} selected{% endif %}>{{ m }}</option>{% endfor %}</select>
+  {% include "assets/_model_select.html" with extra_class="w-auto" %}
   <button class="btn-primary" type="submit">Sugerir criticidad con IA</button>
 </form>
+{% else %}{% include "assets/_no_models.html" %}{% endif %}
 {% endif %}
 <div id="suggestions" class="flex flex-col gap-3">
   {% for s in suggestions %}{% include "assets/_suggestion_card.html" with show_asset=False %}{% empty %}<p class="muted">Aún no hay sugerencias para este activo.</p>{% endfor %}

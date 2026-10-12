@@ -1,0 +1,8 @@
+{# Selector de modelo local: solo se eligen modelos descargados en Ollama. #}
+{% if default_model %}
+<select name="model" class="form-input {{ extra_class }}" aria-label="Modelo local"{% if select_id %} id="{{ select_id }}"{% endif %}>
+  {% for m in llm_models %}
+  <option value="{{ m.name }}"{% if m.name == default_model %} selected{% endif %}{% if m.installed is False %} disabled{% endif %}>{{ m.name }}{% if m.installed is False %} (no descargado){% endif %}</option>
+  {% endfor %}
+</select>
+{% endif %}
