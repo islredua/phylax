@@ -32,7 +32,7 @@ con LLM local). Se actualiza en cada etapa.
 | 8 | Registries, imágenes, SBOM | ✅ |
 | 9 | UI y permisos | ✅ |
 | 10 | Importación / exportación CSV | ✅ |
-| 11 | `seed_lab_assets` + compose del laboratorio | ⏳ |
+| 11 | `seed_lab_assets` + compose del laboratorio | ✅ |
 | 12 | Documentación y verificación final | ⏳ |
 
 ## Desviaciones respecto a la especificación
@@ -105,3 +105,12 @@ Se documentan aquí conforme aparezcan.
   ("Actualiza el activo de la fila N"). Las sugerencias LLM pedidas por una importación son disparos
   del sistema (sin el límite de tasa por usuario, que bloquearía importaciones grandes).
 - **Exportación** reutiliza exactamente los filtros de la lista de activos (`filter_assets`).
+- **Laboratorio**: `lab/docker-compose.lab.yml` se usa como override (`-f docker-compose.yml -f
+  lab/docker-compose.lab.yml`) y conecta `worker-discovery` a `lab-dmz`/`lab-internal`.
+  Verificación real: `SERVICE_SCAN` de `lab-dmz` en modo `privileged`, 4 hosts, nginx 1.27.3
+  detectado, el 443 declarado en la semilla se marcó cerrado, MAC visibles en el mismo segmento.
+- **Limitaciones observadas**: el descubrimiento también registra la puerta de enlace de Docker
+  (el host de Phylax, que en desarrollo publica PostgreSQL 5432 y Django 8000) y la propia IP del
+  worker en la red del laboratorio, ambos como `UNCONFIRMED`; se ignoran desde la cola.
+- `seed_lab_assets --reset` borra físicamente lo sembrado (solo laboratorio; en operación los
+  activos se retiran).
