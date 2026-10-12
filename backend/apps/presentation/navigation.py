@@ -92,6 +92,13 @@ SECTIONS = (
                 ("assets.view_containerimage",),
                 ("assets:image_create",),
             ),
+            Tab(
+                "import",
+                "Importar/Exportar",
+                "assets:import",
+                ("assets.add_asset", "assets.view_asset"),
+                ("assets:import_preview", "assets:import_status"),
+            ),
         ),
     ),
     Section(
@@ -131,6 +138,14 @@ SECTIONS = (
             ),
             Tab("users", "Usuarios", "users:list", ("accounts.view_user",), ("users:*",)),
             Tab("audit", "Bitácora", "accounts:audit_log", ("accounts.view_auditlogentry",)),
+            Tab("llm", "LLM", "llm:settings", ("llm.manage_llm",)),
+            Tab(
+                "catalogs",
+                "Catálogos",
+                "assets:catalogs",
+                ("assets.manage_catalogs",),
+                ("assets:catalog_create", "assets:catalog_edit"),
+            ),
             Tab(
                 "registries",
                 "Registries",

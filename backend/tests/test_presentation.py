@@ -37,7 +37,14 @@ def test_sidebar_shows_sections_not_subsections(client, admin_user):
     assert [i.key for i in nav.main] == ["home", "inventory", "discovery", "administration"]
     assert [i.key for i in nav.footer] == ["account"]
     # Las subsecciones viven en las pestañas superiores, no en la barra lateral.
-    assert [t.key for t in nav.tabs] == ["overview", "users", "audit", "registries"]
+    assert [t.key for t in nav.tabs] == [
+        "overview",
+        "users",
+        "audit",
+        "llm",
+        "catalogs",
+        "registries",
+    ]
     assert nav.main[3].url_name == "administration"
 
 
@@ -216,3 +223,39 @@ def test_breadcrumbs_include_page_tail(client, admin_user, make_user):
 def test_home_has_no_breadcrumbs(client, user):
     client.force_login(user)
     assert 'aria-label="Ruta de navegación"' not in client.get("/").content.decode()
+
+
+def _parameterless_pages():
+    from django.urls import get_resolver
+    from django.urls.resolvers import URLPattern, URLResolver
+
+    def walk(patterns, prefix="", namespace=None):
+        for p in patterns:
+            if isinstance(p, URLResolver):
+                yield from walk(p.url_patterns, prefix + str(p.pattern), p.namespace or namespace)
+            elif isinstance(p, URLPattern) and p.name and not p.pattern.converters:
+                route = prefix + str(p.pattern)
+                if "<" not in route and "(" not in route:
+                    yield (f"{namespace}:{p.name}" if namespace else p.name), "/" + route
+
+    return sorted(set(walk(get_resolver().url_patterns)))
+
+
+def test_every_page_belongs_to_a_tab_and_has_breadcrumbs(client, admin_user):
+    """ADR-007: toda pantalla con el layout (salvo Inicio) pertenece a una pestaña y tiene migas."""
+    client.force_login(admin_user)
+    checked = []
+    for name, path in _parameterless_pages():
+        if name in ("home", "accounts:logout") or name.startswith("admin"):
+            continue
+        response = client.get(path)
+        content_type = response.get("Content-Type", "")
+        if response.status_code != 200 or "text/html" not in content_type:
+            continue
+        body = response.content.decode()
+        if 'class="app-shell"' not in body:
+            continue  # páginas sin layout (login, restablecer contraseña...)
+        assert response.context["nav"].section is not None, f"{name} no pertenece a ninguna pestaña"
+        assert 'class="breadcrumbs"' in body, f"{name} sin migas de pan"
+        checked.append(name)
+    assert {"llm:settings", "assets:catalogs", "assets:import"} <= set(checked)
