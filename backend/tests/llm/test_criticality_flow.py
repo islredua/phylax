@@ -1,10 +1,12 @@
 """Sugerencia de criticidad de punta a punta (con Ollama simulado) y evaluación."""
 
 import json
+from datetime import timedelta
 
 import pytest
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.management import call_command
+from django.utils import timezone
 
 from apps.accounts.roles import AUDITOR, OPERATOR
 from apps.assets import services
@@ -416,3 +418,72 @@ def test_completing_a_discovered_asset_triggers_suggestion(ollama, operator):
     asset.status = AssetStatus.IGNORED
     asset.save()
     assert services.run_scheduled_suggestion(asset.pk, "CONTEXT_CHANGE") is None
+
+
+# --- Recuperación de sugerencias huérfanas -------------------------------------------------
+
+
+def test_task_records_start_and_attempts(ollama, operator):
+    ollama.post(f"{BASE}/api/chat").respond(json=chat_response(VALID))
+    suggestion = services.request_criticality_suggestion(AssetFactory().pk, user=operator)
+    suggestion.refresh_from_db()
+    assert suggestion.enqueued_at and suggestion.started_at and suggestion.attempts == 1
+
+
+def _orphan(**fields):
+    asset = AssetFactory(criticality=None)
+    suggestion = CriticalitySuggestion.objects.create(asset=asset, model="m", **fields)
+    return suggestion
+
+
+def test_llm_worker_start_requeues_interrupted_suggestions(ollama, monkeypatch):
+    from apps.assets import tasks
+
+    ollama.post(f"{BASE}/api/chat").respond(json=chat_response(VALID))
+    now = timezone.now()
+    interrupted = _orphan(enqueued_at=now, started_at=now, attempts=1)
+    waiting = _orphan(enqueued_at=now)  # aún en la cola: no se toca
+    requeued = []
+    monkeypatch.setattr(services, "enqueue_suggestion", requeued.append)
+
+    class Queue:
+        def __init__(self, name):
+            self.name = name
+
+    class Consumer:
+        def __init__(self, *names):
+            self.task_consumer = type("TC", (), {"queues": [Queue(n) for n in names]})()
+
+    tasks._recover_on_llm_worker_start(sender=Consumer("default", "discovery"))
+    assert requeued == []  # otro worker: no aplica
+    tasks._recover_on_llm_worker_start(sender=Consumer("llm"))
+    assert requeued == [interrupted.pk] and waiting.pk not in requeued
+
+
+def test_periodic_recovery_requeues_stale_and_fails_after_max_attempts(monkeypatch, settings):
+    settings.LLM_ORPHAN_QUEUE_GRACE_S = 1800
+    now = timezone.now()
+    old = now - timedelta(hours=2)
+    stuck_running = _orphan(enqueued_at=old, started_at=old, attempts=1)
+    stuck_queued = _orphan(enqueued_at=now - timedelta(minutes=40))
+    fresh = _orphan(enqueued_at=now - timedelta(minutes=5))
+    running_ok = _orphan(enqueued_at=now, started_at=now, attempts=1)
+    exhausted = _orphan(enqueued_at=old, started_at=old, attempts=3)
+    requeued = []
+    monkeypatch.setattr(services, "enqueue_suggestion", requeued.append)
+    assert services.recover_stale_suggestions(now) == {"requeued": 2, "failed": 1}
+    assert set(requeued) == {stuck_running.pk, stuck_queued.pk}
+    assert fresh.pk not in requeued and running_ok.pk not in requeued
+    exhausted.refresh_from_db()
+    assert exhausted.state == SuggestionState.FAILED and "3 veces" in exhausted.fail_reason
+
+
+def test_requeued_orphan_completes_once(ollama, operator):
+    route = ollama.post(f"{BASE}/api/chat").respond(json=chat_response(VALID))
+    asset = AssetFactory(criticality=None)
+    suggestion = services.request_criticality_suggestion(asset.pk, user=operator, enqueue=False)
+    services.enqueue_suggestion(suggestion.pk)  # la original
+    services.enqueue_suggestion(suggestion.pk)  # el reencolado: no repite la inferencia
+    assert route.call_count == 1
+    asset.refresh_from_db()
+    assert asset.criticality == "ALTO"

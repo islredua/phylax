@@ -173,6 +173,12 @@ sistema y lo elige un administrador en **Administración › LLM**.
   automático cuya huella coincide con la última sugerencia del activo no hace nada, y el
   botón explica que el contexto no cambió.
 - **Una a la vez** por persona: con una sugerencia en curso el botón se deshabilita.
+- **Recuperación de huérfanas**: cada sugerencia registra cuándo se encoló, cuándo la tomó
+  el worker y cuántos intentos lleva. Al arrancar el worker de la cola `llm` (señal
+  `worker_ready`) se reencolan las que estaban en ejecución; cada 5 min (Beat) se reencolan
+  las que llevan más que el límite de la tarea en ejecución o más de
+  `LLM_ORPHAN_QUEUE_GRACE_S` (30 min) en cola sin empezar. Tras 3 intentos quedan `FAILED`
+  con el motivo. Reencolar es seguro: la tarea es idempotente.
 - **Contexto mínimo**: sin descripción y función de negocio no se llama al LLM; el activo
   muestra «contexto insuficiente» y pide completarlos.
 - **Aplicación automática** (decisión del autor, revisión 3): si el activo **no tiene

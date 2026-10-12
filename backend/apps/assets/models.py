@@ -501,6 +501,11 @@ class CriticalitySuggestion(UUIDModel):
     )  # se conserva para la tesis; no se muestra
     rationale = models.TextField(blank=True)
     signals = models.JSONField(default=list, blank=True)
+    # Seguimiento de la tarea para recuperar sugerencias huérfanas (worker reiniciado a medias).
+    enqueued_at = models.DateTimeField(null=True, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    attempts = models.PositiveSmallIntegerField(default=0, db_default=0)
+    fail_reason = models.CharField(max_length=200, blank=True, db_default="")
     state = models.CharField(
         max_length=10, choices=SuggestionState.choices, default=SuggestionState.PENDING
     )

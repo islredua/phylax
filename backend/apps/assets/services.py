@@ -1195,14 +1195,87 @@ def request_criticality_suggestion(
         suggestion.save()
         suggestion_id = suggestion.pk
         if enqueue:
-
-            def _enqueue():
-                from .tasks import suggest_criticality
-
-                suggest_criticality.delay(str(suggestion_id))
-
-            transaction.on_commit(_enqueue)
+            transaction.on_commit(lambda: enqueue_suggestion(suggestion_id))
     return suggestion
+
+
+def enqueue_suggestion(suggestion_id):
+    """Encola la inferencia en la cola ``llm`` y anota cuándo (para detectar huérfanas)."""
+    from .tasks import suggest_criticality
+
+    CriticalitySuggestion.objects.filter(pk=suggestion_id).update(enqueued_at=timezone.now())
+    suggest_criticality.delay(str(suggestion_id))
+
+
+def mark_suggestion_started(suggestion_id):
+    """El worker toma la sugerencia: anota el inicio y cuenta el intento."""
+    from django.db.models import F
+
+    CriticalitySuggestion.objects.filter(
+        pk=suggestion_id, state=SuggestionState.PENDING, inference__isnull=True
+    ).update(started_at=timezone.now(), attempts=F("attempts") + 1)
+
+
+# Recuperación de sugerencias huérfanas: la tarea es idempotente (si ya tiene respuesta no
+# hace nada), así que volver a encolarla es seguro aunque la original siga en la cola.
+ORPHAN_MAX_ATTEMPTS = 3
+ORPHAN_RUN_LIMIT = timedelta(seconds=2000 + 120)  # time_limit de suggest_criticality + margen
+
+
+def _processing_suggestions():
+    return CriticalitySuggestion.objects.filter(
+        state=SuggestionState.PENDING, inference__isnull=True, reused_from__isnull=True
+    )
+
+
+def _is_running(suggestion):
+    """Iniciada después de su último encolado (la tarea llegó al worker)."""
+    return suggestion.started_at is not None and (
+        suggestion.enqueued_at is None or suggestion.started_at >= suggestion.enqueued_at
+    )
+
+
+def _recover(suggestion, reason):
+    if suggestion.attempts >= ORPHAN_MAX_ATTEMPTS:
+        CriticalitySuggestion.objects.filter(pk=suggestion.pk, inference__isnull=True).update(
+            state=SuggestionState.FAILED,
+            fail_reason=f"El worker del LLM se interrumpió {suggestion.attempts} veces.",
+            updated_at=timezone.now(),
+        )
+        logger.warning(
+            "Sugerencia %s marcada FAILED tras %s intentos", suggestion.pk, suggestion.attempts
+        )
+        return "failed"
+    logger.warning("Sugerencia huérfana %s reencolada (%s)", suggestion.pk, reason)
+    enqueue_suggestion(suggestion.pk)
+    return "requeued"
+
+
+def recover_interrupted_suggestions():
+    """Al arrancar el worker ``llm`` (concurrencia 1): lo que figuraba en ejecución quedó
+    interrumpido por el reinicio. Devuelve cuántas se recuperaron."""
+    recovered = 0
+    for suggestion in _processing_suggestions():
+        if _is_running(suggestion):
+            _recover(suggestion, "worker reiniciado")
+            recovered += 1
+    return recovered
+
+
+def recover_stale_suggestions(now=None):
+    """Revisión periódica: en ejecución más allá del límite de la tarea, o en cola
+    demasiado tiempo sin empezar. Devuelve ``{"requeued": n, "failed": m}``."""
+    now = now or timezone.now()
+    grace = timedelta(seconds=settings.LLM_ORPHAN_QUEUE_GRACE_S)
+    result = {"requeued": 0, "failed": 0}
+    for suggestion in _processing_suggestions():
+        if _is_running(suggestion):
+            stale = suggestion.started_at < now - ORPHAN_RUN_LIMIT
+        else:
+            stale = (suggestion.enqueued_at or suggestion.created_at) < now - grace
+        if stale:
+            result[_recover(suggestion, "sin avance")] += 1
+    return result
 
 
 def _apply_policy(suggestion, asset, llm_class):
