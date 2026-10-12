@@ -16,9 +16,10 @@ urlpatterns = [
     path("health/", health, name="health"),
     path("accounts/", include("apps.accounts.urls")),
     path("users/", include("apps.accounts.user_admin_urls")),
+    path("inventory/", include("apps.assets.urls")),
+    path("discovery/", include("apps.discovery.urls")),
     # Rutas por módulo (se incluirán conforme se desarrollen):
     # path("api/scanners/", include("apps.scanners.urls")),
-    # path("api/assets/", include("apps.assets.urls")),
     # path("api/cti/", include("apps.cti.urls")),
     # path("api/scoring/", include("apps.scoring.urls")),
     path("", include("apps.presentation.urls")),

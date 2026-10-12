@@ -1,0 +1,21 @@
+{% load inventory %}
+<div class="table-wrap">
+  <table class="data-table">
+    <thead><tr><th>Fecha</th><th>Perfil</th><th>Objetivo</th><th>Estado</th><th>Hosts</th><th>Nuevos</th><th>Actualizados</th><th>Conflictos</th><th>Solicitó</th></tr></thead>
+    <tbody>
+      {% for r in runs %}
+      <tr>
+        <td class="font-mono text-xs whitespace-nowrap"><a href="{% url 'discovery:run_detail' r.pk %}">{{ r.created_at|date:"Y-m-d H:i" }}</a></td>
+        <td>{{ r.get_profile_display }}</td>
+        <td>{% if r.network_range %}{{ r.network_range.name }}{% elif r.target_asset %}{{ r.target_asset.name }}{% else %}—{% endif %}</td>
+        <td>{% run_status_badge r %}</td>
+        <td class="font-mono">{{ r.hosts_up }}</td>
+        <td class="font-mono">{{ r.assets_created }}</td>
+        <td class="font-mono">{{ r.assets_updated }}</td>
+        <td class="font-mono">{% if r.conflicts %}<span class="text-high">{{ r.conflicts }}</span>{% else %}0{% endif %}</td>
+        <td class="font-mono text-xs">{{ r.requested_by.get_username|default:"programado" }}</td>
+      </tr>
+      {% empty %}<tr><td colspan="9" class="table-empty">Sin ejecuciones.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>

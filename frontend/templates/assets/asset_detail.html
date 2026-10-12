@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+{% load inventory %}
+{% block title %}{{ asset.name }}{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <div class="flex flex-wrap items-center gap-2">
+    <h2>{{ asset.name }}</h2>
+    {% status_badge asset.status %}
+    {% criticality_badge asset.criticality asset.criticality_source %}
+    {% exposure_badge asset.exposure asset.exposure_source %}
+  </div>
+  <div class="page-actions">
+    <a href="{% url 'assets:list' %}" class="btn-secondary btn-sm">← Activos</a>
+    {% if perms.assets.change_asset and asset.status != 'RETIRED' %}
+      {% if asset.status == 'UNCONFIRMED' %}<a href="{% url 'assets:confirm' asset.pk %}" class="btn-primary btn-sm">Confirmar</a>{% endif %}
+      <a href="{% url 'assets:edit' asset.pk %}" class="btn-secondary btn-sm">Editar</a>
+      <form method="post" action="{% url 'assets:retire' asset.pk %}">{% csrf_token %}<button class="btn-secondary btn-sm" type="submit">Retirar</button></form>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block content %}
+{% if asset.merged_into %}<div class="alert-info">Este activo se fusionó en <a href="{% url 'assets:detail' asset.merged_into_id %}">{{ asset.merged_into.name }}</a>.</div>{% endif %}
+
+<nav class="subtabs" aria-label="Secciones del activo">
+  {% for key, label in tabs %}
+  <a href="?tab={{ key }}" class="subtab {% if tab == key %}subtab-active{% endif %}"{% if tab == key %} aria-current="page"{% endif %}>{{ label }}</a>
+  {% endfor %}
+  <span class="subtab-disabled" title="Disponible con el módulo de vulnerabilidades">Hallazgos</span>
+  <span class="subtab-disabled" title="Disponible con el motor de scoring">Riesgo</span>
+</nav>
+
+{% if tab == "resumen" %}
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+  <section class="card">
+    <h3 class="card-title">Contexto de negocio</h3>
+    <dl class="kv-grid">
+      <div><dt class="kv-label">Tipo</dt><dd class="kv-value">{{ asset.get_asset_type_display }}</dd></div>
+      <div><dt class="kv-label">Función de negocio</dt><dd class="kv-value">{{ asset.business_role|choice_label:"BusinessRole" }}</dd></div>
+      <div><dt class="kv-label">Entorno</dt><dd class="kv-value">{{ asset.environment|choice_label:"Environment" }}</dd></div>
+      <div><dt class="kv-label">Criticidad</dt><dd class="kv-value">{% criticality_badge asset.criticality asset.criticality_source %}{% if asset.criticality_source %} <span class="text-xs text-muted">{{ asset.get_criticality_source_display }}</span>{% endif %}</dd></div>
+      <div><dt class="kv-label">Exposición</dt><dd class="kv-value">{% exposure_badge asset.exposure asset.exposure_source %} <span class="text-xs text-muted">{{ asset.get_exposure_source_display }}</span></dd></div>
+      <div><dt class="kv-label">Rango de red</dt><dd class="kv-value">{% if asset.network_range %}<a href="{% url 'assets:range_detail' asset.network_range_id %}">{{ asset.network_range.name }}</a> <span class="font-mono text-xs text-muted">{{ asset.network_range.cidr }}</span>{% else %}—{% endif %}</dd></div>
+      <div><dt class="kv-label">Clasificación de datos</dt><dd class="kv-value">{{ asset.data_classification|choice_label:"DataClassification" }}</dd></div>
+      <div><dt class="kv-label">Categorías de datos</dt><dd class="kv-value">{% for c in asset.data_categories %}<span class="badge-neutral">{{ c|choice_label:"DataCategory" }}</span> {% empty %}—{% endfor %}</dd></div>
+      <div><dt class="kv-label">Responsable técnico</dt><dd class="kv-value">{{ asset.technical_owner.get_username|default:"—" }}</dd></div>
+      <div><dt class="kv-label">Responsable de negocio</dt><dd class="kv-value">{{ asset.business_owner|default:"—" }}</dd></div>
+      <div><dt class="kv-label">Alcance de escaneo</dt><dd class="kv-value">{% if asset.in_scope %}<span class="badge-low">dentro</span>{% else %}<span class="badge-neutral">excluido</span>{% endif %}</dd></div>
+      <div><dt class="kv-label">Origen</dt><dd class="kv-value">{{ asset.get_origin_display }}</dd></div>
+      <div><dt class="kv-label">Primera / última vez visto</dt><dd class="kv-value font-mono text-xs">{{ asset.first_seen|date:"Y-m-d H:i"|default:"—" }} · {{ asset.last_seen|date:"Y-m-d H:i"|default:"—" }}</dd></div>
+      <div><dt class="kv-label">SO estimado</dt><dd class="kv-value">{{ asset.os_guess|default:"—" }}</dd></div>
+    </dl>
+    {% if asset.description %}<div class="mt-4"><p class="kv-label">Descripción</p><p class="mt-1 text-ink-soft">{{ asset.description|linebreaksbr }}</p></div>{% endif %}
+  </section>
+  <section class="card flex flex-col gap-3">
+    <h3 class="card-title mb-0">Acciones</h3>
+    {% if perms.assets.decide_criticality and asset.status != 'RETIRED' %}
+    <form method="post" action="{% url 'assets:suggest' asset.pk %}" class="flex flex-col gap-2">
+      {% csrf_token %}<input type="hidden" name="next" value="{% url 'assets:detail' asset.pk %}?tab=sugerencias">
+      <label class="form-label" for="model">Modelo local</label>
+      <select id="model" name="model" class="form-input">{% for m in llm_models %}<option value="{{ m }}">{{ m }}</option>{% endfor %}</select>
+      <button class="btn-primary" type="submit">Sugerir criticidad con IA</button>
+    </form>
+    {% endif %}
+    {% if perms.discovery.run_discovery and has_ip and asset.status != 'RETIRED' %}
+    <form method="post" action="{% url 'discovery:rescan' asset.pk %}">{% csrf_token %}<button class="btn-secondary w-full" type="submit">Re-escanear servicios</button></form>
+    {% endif %}
+    {% if perms.assets.change_asset and asset.status != 'IGNORED' and asset.status != 'RETIRED' %}
+    <form method="post" action="{% url 'assets:ignore' asset.pk %}">{% csrf_token %}<button class="btn-secondary w-full" type="submit">Ignorar</button></form>
+    {% endif %}
+    <p class="text-xs text-muted">Ninguna sugerencia del LLM cambia la criticidad sin tu decisión.</p>
+  </section>
+</div>
+
+{% elif tab == "identificadores" %}
+<div class="table-wrap">
+  <table class="data-table">
+    <thead><tr><th>Tipo</th><th>Valor</th><th>Principal</th><th>Primera vez</th><th>Última vez</th><th></th></tr></thead>
+    <tbody>
+      {% for i in identifiers %}
+      <tr>
+        <td>{{ i.get_kind_display }}</td>
+        <td class="font-mono text-xs">{{ i.value }}</td>
+        <td>{% if i.is_primary %}<span class="badge-primary">principal</span>{% endif %}</td>
+        <td class="font-mono text-xs">{{ i.first_seen|date:"Y-m-d H:i" }}</td>
+        <td class="font-mono text-xs">{{ i.last_seen|date:"Y-m-d H:i" }}</td>
+        <td class="text-right">{% if perms.assets.change_asset %}<form method="post" action="{% url 'assets:identifier_remove' asset.pk i.pk %}">{% csrf_token %}<button class="btn-secondary btn-sm" type="submit">Quitar</button></form>{% endif %}</td>
+      </tr>
+      {% empty %}<tr><td colspan="6" class="table-empty">Sin identificadores.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if perms.assets.change_asset %}
+<form method="post" action="{% url 'assets:identifier_add' asset.pk %}" class="card flex flex-col gap-3">
+  {% csrf_token %}{{ identifier_formset.management_form }}
+  <h3 class="card-title mb-0">Agregar identificadores</h3>
+  {% for f in identifier_formset %}<div class="grid grid-cols-1 gap-2 sm:grid-cols-[12rem_1fr]">{{ f.kind }}{{ f.value }}</div>{% endfor %}
+  <div><button class="btn-primary" type="submit">Agregar</button></div>
+</form>
+{% endif %}
+
+{% elif tab == "servicios" %}
+<div class="table-wrap">
+  <table class="data-table">
+    <thead><tr><th>Puerto</th><th>Estado</th><th>Servicio</th><th>Producto</th><th>Versión</th><th>CPE</th><th>Banner (no confiable)</th><th>Visto</th></tr></thead>
+    <tbody>
+      {% for s in services %}
+      <tr>
+        <td class="font-mono text-xs">{{ s.port }}/{{ s.protocol }}</td>
+        <td>{% if s.state == 'open' %}<span class="badge-low">abierto</span>{% elif s.state == 'filtered' %}<span class="badge-medium">filtrado</span>{% else %}<span class="badge-neutral">cerrado</span>{% endif %}</td>
+        <td>{{ s.service_name|default:"—" }}</td>
+        <td>{{ s.product|default:"—" }}</td>
+        <td class="font-mono text-xs">{{ s.version|default:"—" }}</td>
+        <td class="font-mono text-[11px] text-muted">{{ s.cpe|default:"—" }}</td>
+        <td class="max-w-xs truncate font-mono text-[11px] text-muted" title="{{ s.banner }}">{{ s.banner|default:"—" }}</td>
+        <td class="font-mono text-xs">{{ s.last_seen|date:"Y-m-d" }}</td>
+      </tr>
+      {% empty %}<tr><td colspan="8" class="table-empty">Sin servicios observados. Lanza un escaneo de servicios para poblarlos.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% elif tab == "sbom" %}
+{% if perms.assets.change_asset %}
+<form method="post" action="{% url 'assets:sbom_attach' asset.pk %}" enctype="multipart/form-data" class="card flex flex-wrap items-end gap-3">
+  {% csrf_token %}
+  <div class="min-w-64 flex-1"><label class="form-label" for="sbom-file">Subir SBOM (CycloneDX o SPDX en JSON)</label><input id="sbom-file" type="file" name="file" accept=".json,application/json" class="form-input" required></div>
+  <button class="btn-primary" type="submit">Subir</button>
+</form>
+{% endif %}
+<div class="table-wrap">
+  <table class="data-table">
+    <thead><tr><th>Archivo</th><th>Formato</th><th>Generador</th><th>Componentes</th><th>Sujeto</th><th>Subido</th><th>Vigente</th><th></th></tr></thead>
+    <tbody>
+      {% for d in sboms %}
+      <tr>
+        <td>{{ d.original_filename }}<div class="font-mono text-[11px] text-muted">{{ d.sha256|truncatechars:20 }}</div></td>
+        <td>{{ d.get_format_display }} <span class="font-mono text-xs text-muted">{{ d.spec_version }}</span></td>
+        <td class="text-ink-soft">{{ d.generator|default:"—" }}</td>
+        <td class="font-mono">{{ d.component_count }}</td>
+        <td class="font-mono text-xs">{{ d.subject_name|default:"—" }}</td>
+        <td class="font-mono text-xs">{{ d.uploaded_at|date:"Y-m-d H:i" }}<div class="text-muted">{{ d.uploaded_by.get_username|default:"" }}</div></td>
+        <td>{% if d.is_current %}<span class="badge-low">vigente</span>{% else %}<span class="badge-neutral">anterior</span>{% endif %}</td>
+        <td><a href="{% url 'assets:sbom_download' d.pk %}" class="btn-secondary btn-sm">Descargar</a></td>
+      </tr>
+      {% empty %}<tr><td colspan="8" class="table-empty">Sin SBOM.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% elif tab == "sugerencias" %}
+{% if perms.assets.decide_criticality and asset.status != 'RETIRED' %}
+<form method="post" action="{% url 'assets:suggest' asset.pk %}" hx-post="{% url 'assets:suggest' asset.pk %}" hx-target="#suggestions" hx-swap="afterbegin" class="flex flex-wrap items-end gap-2">
+  {% csrf_token %}<input type="hidden" name="next" value="{% url 'assets:detail' asset.pk %}?tab=sugerencias">
+  <select name="model" class="form-input w-auto" aria-label="Modelo">{% for m in llm_models %}<option value="{{ m }}">{{ m }}</option>{% endfor %}</select>
+  <button class="btn-primary" type="submit">Sugerir criticidad con IA</button>
+</form>
+{% endif %}
+<div id="suggestions" class="flex flex-col gap-3">
+  {% for s in suggestions %}{% include "assets/_suggestion_card.html" with show_asset=False %}{% empty %}<p class="muted">Aún no hay sugerencias para este activo.</p>{% endfor %}
+</div>
+
+{% elif tab == "historial" %}
+<div class="table-wrap">
+  <table class="data-table">
+    <thead><tr><th>Fecha</th><th>Autor</th><th>Tipo</th><th>Cambios</th></tr></thead>
+    <tbody>
+      {% for e in history %}
+      <tr>
+        <td class="font-mono text-xs whitespace-nowrap">{{ e.record.history_date|date:"Y-m-d H:i:s" }}</td>
+        <td class="font-mono text-xs">{{ e.record.history_user.get_username|default:"sistema" }}</td>
+        <td>{% if e.record.history_type == '+' %}<span class="badge-low">alta</span>{% elif e.record.history_type == '-' %}<span class="badge-critical">baja</span>{% else %}<span class="badge-neutral">cambio</span>{% endif %}</td>
+        <td class="text-xs">{% for c in e.changes %}<div><span class="font-medium">{{ c.field }}</span>: <span class="text-muted line-through">{{ c.old|default:"—" }}</span> → {{ c.new|default:"—" }}</div>{% empty %}<span class="text-muted">—</span>{% endfor %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% elif tab == "descubrimientos" %}
+<div class="table-wrap">
+  <table class="data-table">
+    <thead><tr><th>Fecha</th><th>Perfil</th><th>Rango</th><th>Estado</th><th></th></tr></thead>
+    <tbody>
+      {% for r in runs %}
+      <tr>
+        <td class="font-mono text-xs">{{ r.created_at|date:"Y-m-d H:i" }}</td>
+        <td>{{ r.get_profile_display }}</td>
+        <td>{{ r.network_range.name|default:"—" }}</td>
+        <td>{% run_status_badge r %}</td>
+        <td><a href="{% url 'discovery:run_detail' r.pk %}" class="btn-secondary btn-sm">Ver</a></td>
+      </tr>
+      {% empty %}<tr><td colspan="5" class="table-empty">Ningún descubrimiento ha observado este activo.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

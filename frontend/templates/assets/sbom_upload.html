@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Subir SBOM{% endblock %}
+{% block toolbar %}<div class="toolbar"><h2>Subir SBOM</h2></div>{% endblock %}
+{% block content %}
+<p class="muted">Acepta CycloneDX JSON y SPDX JSON (p. ej. <span class="font-mono">syft &lt;imagen&gt; -o cyclonedx-json</span>). Phylax propondrá el activo según el sujeto del documento.</p>
+{% url 'assets:list' as cancel %}
+{% include "assets/_simple_form.html" with cancel_url=cancel submit_label="Analizar" multipart=True %}
+{% endblock %}

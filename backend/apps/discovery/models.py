@@ -59,6 +59,9 @@ class DiscoveryRun(UUIDModel):
     conflicts = models.PositiveIntegerField(default=0)
     services_seen = models.PositiveIntegerField(default=0)
     raw_output = models.FileField(upload_to="discovery/", blank=True)
+    assets_touched = models.ManyToManyField(
+        "assets.Asset", blank=True, related_name="discovery_runs_seen"
+    )
     error = models.TextField(blank=True)
 
     class Meta:

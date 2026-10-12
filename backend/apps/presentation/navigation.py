@@ -54,6 +54,72 @@ class Section:
 SECTIONS = (
     Section(key="home", label="Inicio", tabs=(Tab("home", "Inicio", "home"),)),
     Section(
+        key="inventory",
+        label="Inventario",
+        tabs=(
+            Tab(
+                "assets",
+                "Activos",
+                "assets:list",
+                ("assets.view_asset",),
+                (
+                    "assets:detail",
+                    "assets:create",
+                    "assets:edit",
+                    "assets:bulk",
+                    "assets:sbom_upload",
+                    "assets:sbom_confirm",
+                ),
+            ),
+            Tab(
+                "unconfirmed",
+                "Por confirmar",
+                "assets:unconfirmed",
+                ("assets.view_asset",),
+                ("assets:confirm",),
+            ),
+            Tab(
+                "classification",
+                "Clasificación",
+                "assets:classification",
+                ("assets.view_criticalitysuggestion",),
+            ),
+            Tab("conflicts", "Conflictos", "assets:conflicts", ("assets.view_assetconflict",)),
+            Tab(
+                "images",
+                "Imágenes",
+                "assets:images",
+                ("assets.view_containerimage",),
+                ("assets:image_create",),
+            ),
+        ),
+    ),
+    Section(
+        key="discovery",
+        label="Descubrimiento",
+        tabs=(
+            Tab(
+                "ranges",
+                "Rangos de red",
+                "assets:ranges",
+                ("assets.view_networkrange",),
+                (
+                    "assets:range_detail",
+                    "assets:range_create",
+                    "assets:range_edit",
+                    "assets:range_delete",
+                ),
+            ),
+            Tab(
+                "runs",
+                "Ejecuciones",
+                "discovery:runs",
+                ("discovery.view_discoveryrun",),
+                ("discovery:*",),
+            ),
+        ),
+    ),
+    Section(
         key="administration",
         label="Administración",
         tabs=(
@@ -65,6 +131,13 @@ SECTIONS = (
             ),
             Tab("users", "Usuarios", "users:list", ("accounts.view_user",), ("users:*",)),
             Tab("audit", "Bitácora", "accounts:audit_log", ("accounts.view_auditlogentry",)),
+            Tab(
+                "registries",
+                "Registries",
+                "assets:registries",
+                ("assets.manage_registries",),
+                ("assets:registry_create", "assets:registry_edit", "assets:registry_delete"),
+            ),
         ),
     ),
     Section(

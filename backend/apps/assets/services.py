@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ipaddress
 import logging
+import re
 from collections.abc import Iterable
 from datetime import timedelta
 
@@ -1049,3 +1050,90 @@ def attach_sbom(asset, uploaded_file, *, user):
     from .sbom import attach_sbom as impl
 
     return impl(asset, uploaded_file, user=user)
+
+
+# --------------------------------------------------------------------------
+# Rangos de red (alcance autorizado): solo administradores (assets.manage_scope)
+# --------------------------------------------------------------------------
+
+RANGE_FIELDS = (
+    "name",
+    "cidr",
+    "zone",
+    "environment",
+    "description",
+    "in_scope",
+    "authorization_reference",
+    "authorization_expires_at",
+    "discovery_schedule",
+)
+
+
+@transaction.atomic
+def save_network_range(*, user, fields, network_range=None):
+    """Crea o edita un rango y recalcula rango/exposición de los activos afectados.
+
+    Al autorizar (``in_scope`` pasa a verdadero o cambia la referencia) se
+    registra quién y cuándo autorizó.
+    """
+    _require(user, "assets.manage_scope")
+    network_range = network_range or NetworkRange()
+    previous = (network_range.in_scope, network_range.authorization_reference)
+    for name, value in fields.items():
+        if name not in RANGE_FIELDS:
+            raise ValueError(f"Campo no editable: {name}")
+        setattr(network_range, name, value)
+    if network_range.in_scope and (
+        network_range._state.adding
+        or previous != (network_range.in_scope, network_range.authorization_reference)
+    ):
+        network_range.authorized_by = user
+        network_range.authorized_at = timezone.now()
+    if network_range.discovery_schedule != "NONE":
+        from apps.discovery.profiles import validate_sweep_cidr
+
+        validate_sweep_cidr(network_range.cidr)
+    network_range.full_clean()
+    _attribute(network_range, user)
+    network_range.save()
+    refresh_range_membership(user=user)
+    return network_range
+
+
+@transaction.atomic
+def delete_network_range(network_range, *, user):
+    _require(user, "assets.manage_scope")
+    _attribute(network_range, user)
+    network_range.delete()
+    refresh_range_membership(user=user)
+
+
+def bulk_apply(assets, *, user, action, tag=None, environment=None):
+    """Acciones masivas de la lista de activos. Devuelve cuántos activos se procesaron."""
+    done = 0
+    for asset in assets:
+        if action == "tag":
+            _require(user, "assets.change_asset")
+            asset.tags.add(tag)
+        elif action == "environment":
+            update_asset(asset, user=user, fields={"environment": environment})
+        elif action == "suggest":
+            request_criticality_suggestion(asset.pk, user=user)
+        elif action == "ignore":
+            ignore_asset(asset, user=user)
+        elif action == "retire":
+            retire_asset(asset, user=user)
+        else:
+            raise ValidationError("Acción masiva desconocida.")
+        done += 1
+    return done
+
+
+def get_or_create_tags(raw):
+    """Etiquetas separadas por comas o ``|`` → objetos ``Tag`` (slug)."""
+    from django.utils.text import slugify
+
+    from .models import Tag
+
+    names = {slugify(part.strip(), allow_unicode=True) for part in re.split(r"[,|]", raw or "")}
+    return [Tag.objects.get_or_create(name=name)[0] for name in sorted(names) if name]

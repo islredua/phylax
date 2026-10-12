@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% load inventory %}
+{% block title %}Imágenes de contenedor{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <h2>Imágenes de contenedor <span class="ml-1 font-mono text-xs font-normal text-muted">{{ paginator.count }}</span></h2>
+  <div class="page-actions">
+    {% if perms.assets.change_asset %}<a href="{% url 'assets:sbom_upload' %}" class="btn-secondary">Subir SBOM</a>{% endif %}
+    {% if perms.assets.add_asset %}<a href="{% url 'assets:image_create' %}" class="btn-primary">Registrar imagen</a>{% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block content %}
+<div class="table-wrap">
+  <table class="data-table">
+    <thead><tr><th>Imagen</th><th>Digest</th><th>Registry</th><th>Criticidad</th><th>Entorno</th><th>Estado</th></tr></thead>
+    <tbody>
+      {% for img in images %}
+      <tr>
+        <td><a href="{% url 'assets:detail' img.asset_id %}" class="font-mono text-xs font-medium">{{ img.repository }}:{{ img.tag }}</a></td>
+        <td class="font-mono text-[11px] text-muted">{{ img.digest|truncatechars:24|default:"—" }}</td>
+        <td class="text-ink-soft">{{ img.registry.name|default:"—" }}</td>
+        <td>{% criticality_badge img.asset.criticality img.asset.criticality_source %}</td>
+        <td class="text-ink-soft">{{ img.asset.environment|choice_label:"Environment" }}</td>
+        <td>{% status_badge img.asset.status %}</td>
+      </tr>
+      {% empty %}<tr><td colspan="6" class="table-empty">Sin imágenes registradas.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+{% include "_pagination.html" %}
+{% endblock %}

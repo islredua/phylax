@@ -45,6 +45,8 @@ SECRET_MODELS = {
     ("accounts", "mfadevice"),
     ("accounts", "backupcode"),
     ("accounts", "usersession"),
+    # Cargas temporales de otros usuarios: se acceden solo por token propio.
+    ("assets", "pendingupload"),
 }
 
 STANDARD_ACTIONS = ALL_ACTIONS = {"view", "add", "change", "delete"}

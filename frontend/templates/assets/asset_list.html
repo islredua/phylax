@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% load inventory %}
+{% block title %}Activos{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <div class="flex flex-wrap items-center gap-2">
+    <h2>Activos <span class="ml-1 font-mono text-xs font-normal text-muted">{{ paginator.count }}</span></h2>
+    {% for status, label, count in status_counts %}
+    <a href="?status={{ status }}" class="badge-neutral hover:no-underline" title="{{ label }}">{{ label }} · {{ count }}</a>
+    {% endfor %}
+  </div>
+  <div class="page-actions">
+    {% if perms.assets.change_asset %}<a href="{% url 'assets:sbom_upload' %}" class="btn-secondary">Subir SBOM</a>{% endif %}
+    {% if perms.assets.add_asset %}<a href="{% url 'assets:create' %}" class="btn-primary">Nuevo activo</a>{% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block content %}
+<form method="get" class="card grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5 lg:items-end">
+  {% for field in filter_form %}
+  <div class="{% if field.name == 'q' %}lg:col-span-2{% endif %}">
+    <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+    {{ field }}
+  </div>
+  {% endfor %}
+  <div class="flex gap-2">
+    <button type="submit" class="btn-primary">Filtrar</button>
+    <a href="{% url 'assets:list' %}" class="btn-secondary">Limpiar</a>
+  </div>
+</form>
+
+<form method="post" action="{% url 'assets:bulk' %}" class="flex flex-col gap-2">
+  {% csrf_token %}
+  <input type="hidden" name="next" value="{{ request.get_full_path }}">
+  {% if perms.assets.change_asset %}
+  <div class="flex flex-wrap items-end gap-2">
+    <select name="action" class="form-input w-auto" aria-label="Acción masiva">
+      {% for value, label in bulk_actions %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+    </select>
+    <input name="tag" class="form-input w-40" placeholder="etiqueta" aria-label="Etiqueta">
+    <select name="environment" class="form-input w-auto" aria-label="Entorno">
+      <option value="">entorno…</option>
+      {% for value, label in environments %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+    </select>
+    <button type="submit" class="btn-secondary">Aplicar a seleccionados</button>
+  </div>
+  {% endif %}
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr>
+        {% if perms.assets.change_asset %}<th class="w-6"><span class="sr-only">Seleccionar</span></th>{% endif %}
+        <th>Nombre</th><th>Tipo</th><th>Identificador</th><th>Criticidad</th><th>Exposición</th><th>Entorno</th><th>Estado</th><th>Visto</th>
+      </tr></thead>
+      <tbody>
+        {% for a in assets %}
+        <tr>
+          {% if perms.assets.change_asset %}<td><input type="checkbox" name="ids" value="{{ a.pk }}" class="checkbox" aria-label="Seleccionar {{ a.name }}"></td>{% endif %}
+          <td><a href="{% url 'assets:detail' a.pk %}" class="font-medium">{{ a.name }}</a>{% for t in a.tags.all %} <span class="badge-neutral">{{ t.name }}</span>{% endfor %}</td>
+          <td class="text-ink-soft">{{ a.get_asset_type_display }}</td>
+          <td class="font-mono text-xs">{% for i in a.identifiers.all %}{% if forloop.first %}{{ i.value|truncatechars:40 }}{% endif %}{% empty %}—{% endfor %}</td>
+          <td>{% criticality_badge a.criticality a.criticality_source %}</td>
+          <td>{% exposure_badge a.exposure a.exposure_source %}</td>
+          <td class="text-ink-soft">{{ a.environment|choice_label:"Environment" }}</td>
+          <td>{% status_badge a.status %}</td>
+          <td class="font-mono text-xs whitespace-nowrap text-ink-soft">{{ a.last_seen|date:"Y-m-d"|default:"—" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="9" class="table-empty">Sin activos para estos filtros.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</form>
+{% include "_pagination.html" %}
+{% endblock %}

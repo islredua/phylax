@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}{% if asset %}Editar {{ asset.name }}{% else %}Nuevo activo{% endif %}{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <h2>{% if asset %}Editar {{ asset.name }}{% else %}Nuevo activo{% endif %}</h2>
+  <a href="{% if asset %}{% url 'assets:detail' asset.pk %}{% else %}{% url 'assets:list' %}{% endif %}" class="btn-secondary btn-sm">← Volver</a>
+</div>
+{% endblock %}
+{% block content %}
+<form method="post" class="flex flex-col gap-4" novalidate>
+  {% csrf_token %}
+  {% if form.non_field_errors %}<div class="alert-error" role="alert">{% for e in form.non_field_errors %}{{ e }} {% endfor %}</div>{% endif %}
+  <section class="card grid grid-cols-1 gap-4 md:grid-cols-2">
+    {% for field in form %}
+    <div class="{% if field.name == 'description' or field.name == 'data_categories' %}md:col-span-2{% endif %}">
+      {% if field.name == 'in_scope' %}
+        <label class="flex items-center gap-2 text-sm">{{ field }} {{ field.label }}</label>
+      {% elif field.name == 'data_categories' %}
+        <p class="form-label">{{ field.label }}</p>
+        <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm">{% for choice in field %}<label class="flex items-center gap-1.5">{{ choice.tag }} {{ choice.choice_label }}</label>{% endfor %}</div>
+      {% else %}
+        <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+      {% endif %}
+      {% if field.help_text %}<p class="form-help">{{ field.help_text }}</p>{% endif %}
+      {% for e in field.errors %}<p class="form-error">{{ e }}</p>{% endfor %}
+    </div>
+    {% endfor %}
+  </section>
+
+  <section class="card flex flex-col gap-3">
+    <h3 class="card-title mb-0">Identificadores</h3>
+    <p class="text-xs text-muted">IP, MAC, FQDN, referencia o digest de imagen, URL. Se normalizan y no pueden pertenecer a otro activo.</p>
+    {% if identifiers %}
+    <ul class="flex flex-col gap-1">
+      {% for i in identifiers %}<li class="flex items-center gap-2 text-sm"><label class="flex items-center gap-2"><input type="checkbox" name="remove_identifier" value="{{ i.pk }}" class="checkbox"> Quitar</label><span class="badge-neutral">{{ i.get_kind_display }}</span><span class="font-mono text-xs">{{ i.value }}</span></li>{% endfor %}
+    </ul>
+    {% endif %}
+    {{ formset.management_form }}
+    {% for f in formset %}
+    <div class="grid grid-cols-1 gap-2 sm:grid-cols-[12rem_1fr]">{{ f.kind }}{{ f.value }}</div>
+    {% for e in f.non_field_errors %}<p class="form-error">{{ e }}</p>{% endfor %}
+    {% endfor %}
+  </section>
+  <div class="flex gap-2">
+    <button type="submit" class="btn-primary">Guardar</button>
+    <a href="{% if asset %}{% url 'assets:detail' asset.pk %}{% else %}{% url 'assets:list' %}{% endif %}" class="btn-secondary">Cancelar</a>
+  </div>
+</form>
+{% endblock %}

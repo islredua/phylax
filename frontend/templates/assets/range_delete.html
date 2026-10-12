@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Eliminar {{ range.name }}{% endblock %}
+{% block toolbar %}<div class="toolbar"><h2>Eliminar rango «{{ range.name }}»</h2></div>{% endblock %}
+{% block content %}
+<section class="card flex max-w-xl flex-col gap-3">
+  <p class="muted">{{ asset_count }} activo(s) perderán este rango; su exposición heredada se recalculará con el rango más específico restante. El historial se conserva.</p>
+  <form method="post" class="flex gap-2">{% csrf_token %}<button class="btn-danger" type="submit">Eliminar</button><a href="{% url 'assets:range_detail' range.pk %}" class="btn-secondary">Cancelar</a></form>
+</section>
+{% endblock %}

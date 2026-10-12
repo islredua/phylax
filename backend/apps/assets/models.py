@@ -420,3 +420,45 @@ class CriticalitySuggestion(UUIDModel):
     def is_processing(self):
         """Pendiente y todavía sin respuesta del LLM."""
         return self.state == SuggestionState.PENDING and self.inference_id is None
+
+
+class UploadKind(models.TextChoices):
+    CSV = "CSV", "Importación CSV"
+    SBOM = "SBOM", "SBOM"
+
+
+class UploadStatus(models.TextChoices):
+    PREVIEW = "PREVIEW", "Vista previa"
+    PROCESSING = "PROCESSING", "Procesando"
+    DONE = "DONE", "Completada"
+    FAILED = "FAILED", "Fallida"
+
+
+class PendingUpload(UUIDModel):
+    """Carga en dos pasos (vista previa → confirmar), ligada a su usuario y con caducidad.
+
+    El ``id`` (UUID) es el token. Una tarea horaria elimina las caducadas.
+    """
+
+    user = models.ForeignKey(USER, on_delete=models.CASCADE, related_name="+")
+    kind = models.CharField(max_length=4, choices=UploadKind.choices)
+    file = models.FileField(upload_to="uploads/")
+    original_filename = models.CharField(max_length=255)
+    meta = models.JSONField(default=dict, blank=True)
+    status = models.CharField(
+        max_length=10, choices=UploadStatus.choices, default=UploadStatus.PREVIEW
+    )
+    result = models.JSONField(default=dict, blank=True)
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "carga pendiente"
+        verbose_name_plural = "cargas pendientes"
+
+    def __str__(self):
+        return f"{self.get_kind_display()} · {self.original_filename}"
+
+    @property
+    def is_expired(self):
+        return self.expires_at <= timezone.now()

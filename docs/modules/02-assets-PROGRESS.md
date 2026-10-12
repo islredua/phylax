@@ -30,7 +30,7 @@ con LLM local). Se actualiza en cada etapa.
 | 6 | App `llm` + Ollama + `eval_criticality` | ✅ |
 | 7 | App `discovery` | ✅ |
 | 8 | Registries, imágenes, SBOM | ✅ |
-| 9 | UI y permisos | ⏳ |
+| 9 | UI y permisos | ✅ |
 | 10 | Importación / exportación CSV | ⏳ |
 | 11 | `seed_lab_assets` + compose del laboratorio | ⏳ |
 | 12 | Documentación y verificación final | ⏳ |
@@ -89,3 +89,15 @@ Se documentan aquí conforme aparezcan.
 - **SBOM**: un mismo SBOM adjunto a varios activos se almacena una sola vez (`sboms/<sha256>.json`);
   el nombre original se reduce a su `basename` (sin rutas).
 - Bug corregido en `is_in_scope` con referencias de imagen sin digest (encontrado por las pruebas).
+- **UI con el patrón de navegación (ADR-007)**: secciones *Inventario* (Activos · Por confirmar ·
+  Clasificación · Conflictos · Imágenes) y *Descubrimiento* (Rangos de red · Ejecuciones);
+  *Registries* como pestaña de Administración (solo `manage_registries`). La pestaña
+  Importar/Exportar llega con la etapa 10.
+- **Actualización en vivo** con HTMX 2.0.3 servido localmente (`static/vendor/`): las tarjetas de
+  sugerencia se consultan cada 3 s mientras el LLM procesa y dejan de hacerlo al responder; igual el
+  detalle de una ejecución de descubrimiento mientras está en cola o en curso.
+- **`DiscoveryRun.assets_touched`** (M2M): alimenta la pestaña "Descubrimientos" del activo.
+- **`PendingUpload`**: carga en dos pasos con token ligado al usuario y caducidad de 1 h (SBOM sin
+  activo; la usará también la importación CSV).
+- **Rangos de red** se gestionan en `assets` (son modelos del inventario) aunque se muestren en la
+  sección Descubrimiento; el borrado de un rango recalcula la exposición heredada.

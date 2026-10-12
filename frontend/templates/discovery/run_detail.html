@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Ejecución de descubrimiento{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <h2>{{ run.get_profile_display }} · {% if run.network_range %}{{ run.network_range.name }} <span class="font-mono text-xs font-normal text-muted">{{ run.network_range.cidr }}</span>{% elif run.target_asset %}{{ run.target_asset.name }}{% endif %}</h2>
+  <div class="page-actions">
+    <a href="{% url 'discovery:runs' %}" class="btn-secondary btn-sm">← Ejecuciones</a>
+    {% if run.raw_output %}<a href="{% url 'discovery:run_xml' run.pk %}" class="btn-secondary btn-sm">Descargar XML</a>{% endif %}
+    {% if run.is_active and perms.discovery.run_discovery %}<form method="post" action="{% url 'discovery:run_cancel' run.pk %}">{% csrf_token %}<button class="btn-danger btn-sm" type="submit">Cancelar</button></form>{% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block content %}{% include "discovery/_run_status.html" %}{% endblock %}

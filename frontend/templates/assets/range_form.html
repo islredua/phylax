@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}{% if range %}Editar {{ range.name }}{% else %}Nuevo rango{% endif %}{% endblock %}
+{% block toolbar %}<div class="toolbar"><h2>{% if range %}Editar {{ range.name }}{% else %}Nuevo rango de red{% endif %}</h2></div>{% endblock %}
+{% block content %}
+<div class="alert-info max-w-2xl">Marcar un rango <strong>dentro del alcance</strong> autoriza escanearlo: registra la referencia del oficio, ticket o carta que lo permite. Quedarás registrado como quien autorizó.</div>
+{% if range %}{% url 'assets:range_detail' range.pk as cancel %}{% else %}{% url 'assets:ranges' as cancel %}{% endif %}
+{% include "assets/_simple_form.html" with cancel_url=cancel %}
+{% endblock %}

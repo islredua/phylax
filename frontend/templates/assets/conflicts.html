@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Conflictos{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <h2>Conflictos de identidad <span class="ml-1 font-mono text-xs font-normal text-muted">{{ paginator.count }}</span></h2>
+  <a href="?resueltos={% if show_resolved %}0{% else %}1{% endif %}" class="btn-secondary btn-sm">{% if show_resolved %}Ver abiertos{% else %}Ver resueltos{% endif %}</a>
+</div>
+{% endblock %}
+{% block content %}
+<p class="muted">Un mismo identificador observado apunta a activos distintos (p. ej. un host anuncia la MAC de otro). Phylax nunca los fusiona solo.</p>
+<div class="flex flex-col gap-3">
+  {% for c in conflicts %}
+  <article class="card flex flex-col gap-3">
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <p><span class="badge-high">{{ c.get_identifier_kind_display }}</span> <span class="font-mono">{{ c.identifier_value }}</span></p>
+      <p class="font-mono text-xs text-muted">{{ c.get_source_display }} · {{ c.created_at|date:"Y-m-d H:i" }}{% if c.discovery_run %} · <a href="{% url 'discovery:run_detail' c.discovery_run_id %}">ejecución</a>{% endif %}</p>
+    </div>
+    <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
+      {% for a in c.candidate_assets.all %}
+      <div class="rounded border border-line p-3">
+        <a href="{% url 'assets:detail' a.pk %}" class="font-medium">{{ a.name }}</a>
+        <div class="mt-1 flex flex-wrap gap-1">{% for i in a.identifiers.all %}<span class="badge-neutral">{{ i.get_kind_display }} {{ i.value }}</span>{% endfor %}</div>
+      </div>
+      {% endfor %}
+    </div>
+    <details><summary class="cursor-pointer text-xs text-primary">Datos observados</summary><pre class="code-block mt-2">{{ c.observed_payload|pprint }}</pre></details>
+    {% if c.resolved %}
+      <p class="text-xs text-muted">{{ c.get_resolution_display }} por <span class="font-mono">{{ c.resolved_by.get_username|default:"—" }}</span> el {{ c.resolved_at|date:"Y-m-d H:i" }}.</p>
+    {% elif perms.assets.change_assetconflict %}
+    <div class="flex flex-wrap items-end gap-2 border-t border-line-soft pt-3">
+      <form method="post" action="{% url 'assets:resolve_conflict' c.pk %}" class="flex items-end gap-2">
+        {% csrf_token %}<input type="hidden" name="resolution" value="MERGED">
+        <select name="target" class="form-input w-56 py-1 text-xs" aria-label="Conservar" required>
+          <option value="">Conservar…</option>{% for a in c.candidate_assets.all %}<option value="{{ a.pk }}">{{ a.name }}</option>{% endfor %}
+        </select>
+        <button class="btn-primary btn-sm" type="submit">Fusionar</button>
+      </form>
+      <form method="post" action="{% url 'assets:resolve_conflict' c.pk %}">{% csrf_token %}<input type="hidden" name="resolution" value="DISTINCT"><button class="btn-secondary btn-sm" type="submit">Son distintos</button></form>
+      <form method="post" action="{% url 'assets:resolve_conflict' c.pk %}">{% csrf_token %}<input type="hidden" name="resolution" value="DISMISSED"><button class="btn-secondary btn-sm" type="submit">Descartar</button></form>
+    </div>
+    {% endif %}
+  </article>
+  {% empty %}
+  <p class="card muted">{% if show_resolved %}No hay conflictos resueltos.{% else %}No hay conflictos abiertos.{% endif %}</p>
+  {% endfor %}
+</div>
+{% include "_pagination.html" %}
+{% endblock %}

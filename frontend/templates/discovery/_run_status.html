@@ -1,0 +1,31 @@
+{% load inventory %}
+{# Se refresca cada 3 s mientras la ejecución está en cola o en curso. #}
+<div id="run-status" class="flex flex-col gap-4" {% if run.is_active %}hx-get="{% url 'discovery:run_detail' run.pk %}" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+  <section class="card">
+    <div class="mb-3 flex flex-wrap items-center gap-2">{% run_status_badge run %}{% if run.is_active %}<span class="text-xs text-muted">se actualiza automáticamente…</span>{% endif %}</div>
+    <div class="grid grid-cols-2 gap-3 md:grid-cols-5">
+      <div><p class="stat-label">Hosts activos</p><p class="stat-value">{{ run.hosts_up }}</p></div>
+      <div><p class="stat-label">Activos nuevos</p><p class="stat-value">{{ run.assets_created }}</p></div>
+      <div><p class="stat-label">Actualizados</p><p class="stat-value">{{ run.assets_updated }}</p></div>
+      <div><p class="stat-label">Conflictos</p><p class="stat-value {% if run.conflicts %}text-high{% endif %}">{{ run.conflicts }}</p></div>
+      <div><p class="stat-label">Servicios</p><p class="stat-value">{{ run.services_seen }}</p></div>
+    </div>
+    {% if run.error %}<div class="alert-error mt-3">{{ run.error }}</div>{% endif %}
+  </section>
+  <section class="card flex flex-col gap-2">
+    <dl class="kv-grid">
+      <div><dt class="kv-label">Perfil</dt><dd class="kv-value">{{ run.get_profile_display }}</dd></div>
+      <div><dt class="kv-label">Modo de nmap</dt><dd class="kv-value">{{ run.scan_mode|default:"—" }}</dd></div>
+      <div><dt class="kv-label">Inicio / fin</dt><dd class="kv-value font-mono text-xs">{{ run.started_at|date:"Y-m-d H:i:s"|default:"—" }} · {{ run.finished_at|date:"Y-m-d H:i:s"|default:"—" }}</dd></div>
+      <div><dt class="kv-label">Solicitó</dt><dd class="kv-value font-mono text-xs">{{ run.requested_by.get_username|default:"programado" }}</dd></div>
+    </dl>
+    <p class="kv-label mt-2">Comandos ejecutados (argv exacto)</p>
+    {% for argv in run.command %}<pre class="code-block">{{ argv|join:" " }}</pre>{% empty %}<p class="text-muted">—</p>{% endfor %}
+  </section>
+  {% if assets %}
+  <section class="flex flex-col gap-2">
+    <h3 class="eyebrow">Activos observados</h3>
+    <div class="flex flex-wrap gap-1">{% for a in assets %}<a href="{% url 'assets:detail' a.pk %}" class="badge-neutral hover:no-underline">{{ a.name }}</a>{% endfor %}</div>
+  </section>
+  {% endif %}
+</div>

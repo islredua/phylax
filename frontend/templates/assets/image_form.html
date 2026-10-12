@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Registrar imagen{% endblock %}
+{% block toolbar %}<div class="toolbar"><h2>Registrar imagen de contenedor</h2></div>{% endblock %}
+{% block content %}
+<p class="muted">La referencia se normaliza (registry por defecto docker.io, etiqueta latest). Con digest, distintas etiquetas de la misma imagen resuelven al mismo activo.</p>
+{% url 'assets:images' as cancel %}
+{% include "assets/_simple_form.html" with cancel_url=cancel submit_label="Registrar" %}
+{% endblock %}

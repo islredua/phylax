@@ -136,6 +136,8 @@ def _ingest(run, hosts):
         run.assets_created += int(result.created)
         run.assets_updated += int(result.updated)
         run.conflicts += int(result.conflict is not None)
+        if result.asset is not None:
+            run.assets_touched.add(result.asset)
 
 
 def execute_run(run_id):

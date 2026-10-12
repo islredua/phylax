@@ -34,11 +34,11 @@ def test_sidebar_shows_sections_not_subsections(client, admin_user):
     client.force_login(admin_user)
     response = client.get("/users/")
     nav = response.context["nav"]
-    assert [i.key for i in nav.main] == ["home", "administration"]
+    assert [i.key for i in nav.main] == ["home", "inventory", "discovery", "administration"]
     assert [i.key for i in nav.footer] == ["account"]
     # Las subsecciones viven en las pestañas superiores, no en la barra lateral.
-    assert [t.key for t in nav.tabs] == ["overview", "users", "audit"]
-    assert nav.main[1].url_name == "administration"
+    assert [t.key for t in nav.tabs] == ["overview", "users", "audit", "registries"]
+    assert nav.main[3].url_name == "administration"
 
 
 def test_mfa_subpages_keep_security_tab_active(client, user):

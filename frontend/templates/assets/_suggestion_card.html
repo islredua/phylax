@@ -1,0 +1,57 @@
+{% load inventory %}
+{# Mientras el LLM procesa, el fragmento se consulta cada 3 s y se reemplaza solo al terminar. #}
+<article id="suggestion-{{ s.pk }}" class="card flex flex-col gap-3"
+  {% if s.is_processing %}hx-get="{% url 'assets:suggestion_card' s.pk %}" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+  <div class="flex flex-wrap items-center justify-between gap-2">
+    <div class="flex flex-wrap items-center gap-2">
+      {% if show_asset|default:True %}<a href="{% url 'assets:detail' s.asset_id %}" class="font-medium">{{ s.asset.name }}</a>{% endif %}
+      {% if s.is_processing %}
+        <span class="badge-primary">procesando…</span>
+      {% elif s.state == 'PENDING' %}
+        {% criticality_badge s.suggested %}
+        <span class="font-mono text-xs text-muted">confianza {{ s.confidence|floatformat:2 }}</span>
+      {% elif s.state == 'FAILED' %}
+        <span class="badge-critical">falló</span>
+      {% else %}
+        <span class="badge-neutral">{{ s.get_state_display|lower }}</span>
+        {% if s.final_value %}{% criticality_badge s.final_value %}{% endif %}
+      {% endif %}
+    </div>
+    <p class="font-mono text-[11px] text-muted">
+      {{ s.model|default:"—" }}{% if s.inference and s.inference.total_duration_ms %} · {{ s.inference.total_duration_ms|floatformat:0 }} ms{% endif %}{% if s.inference.tokens_per_second %} · {{ s.inference.tokens_per_second|floatformat:1 }} tok/s{% endif %}{% if s.inference.accelerator %} · {{ s.inference.accelerator|upper }}{% endif %}
+    </p>
+  </div>
+
+  {% if errors %}{% include "assets/_inline_error.html" %}{% endif %}
+
+  {% if s.is_processing %}
+    <p class="muted">El modelo local está analizando el activo en segundo plano. Puedes seguir trabajando: esta tarjeta se actualizará sola.</p>
+  {% elif s.state == 'FAILED' %}
+    <p class="text-critical">{{ s.inference.error|default:"La inferencia no se completó." }}</p>
+  {% else %}
+    {% if s.rationale %}<p class="text-ink-soft">{{ s.rationale|linebreaksbr }}</p>{% endif %}
+    {% if s.signals %}<ul class="flex flex-wrap gap-1">{% for signal in s.signals %}<li class="badge-neutral">{{ signal }}</li>{% endfor %}</ul>{% endif %}
+  {% endif %}
+
+  {% if s.state == 'PENDING' and not s.is_processing and perms.assets.decide_criticality %}
+  <div class="flex flex-wrap items-end gap-2 border-t border-line-soft pt-3">
+    <form method="post" action="{% url 'assets:decide' s.pk %}" hx-post="{% url 'assets:decide' s.pk %}" hx-target="#suggestion-{{ s.pk }}" hx-swap="outerHTML">
+      {% csrf_token %}<input type="hidden" name="decision" value="ACCEPTED">
+      <button class="btn-primary btn-sm" type="submit">Aceptar {{ s.get_suggested_display|lower }}</button>
+    </form>
+    <form method="post" action="{% url 'assets:decide' s.pk %}" hx-post="{% url 'assets:decide' s.pk %}" hx-target="#suggestion-{{ s.pk }}" hx-swap="outerHTML" class="flex items-end gap-2">
+      {% csrf_token %}<input type="hidden" name="decision" value="EDITED">
+      <select name="value" class="form-input py-1 text-xs" aria-label="Criticidad">
+        {% for value, label in criticality_choices %}<option value="{{ value }}"{% if value == s.suggested %} selected{% endif %}>{{ label }}</option>{% endfor %}
+      </select>
+      <button class="btn-secondary btn-sm" type="submit">Editar</button>
+    </form>
+    <form method="post" action="{% url 'assets:decide' s.pk %}" hx-post="{% url 'assets:decide' s.pk %}" hx-target="#suggestion-{{ s.pk }}" hx-swap="outerHTML">
+      {% csrf_token %}<input type="hidden" name="decision" value="REJECTED">
+      <button class="btn-secondary btn-sm" type="submit">Rechazar</button>
+    </form>
+  </div>
+  {% elif s.decided_by %}
+  <p class="text-xs text-muted">Decidió <span class="font-mono">{{ s.decided_by.get_username }}</span> el {{ s.decided_at|date:"Y-m-d H:i" }}.</p>
+  {% endif %}
+</article>

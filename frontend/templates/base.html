@@ -7,8 +7,10 @@
   <link rel="icon" type="image/svg+xml" href="{% static 'brand/favicon.svg' %}">
   <link rel="preload" href="{% static 'fonts/ibm-plex-sans-latin-400-normal.woff2' %}" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="{% static 'css/phylax.css' %}">
+  {# HTMX servido localmente: actualizaciones en vivo (LLM, descubrimientos) sin recargar. #}
+  <script src="{% static 'vendor/htmx-2.0.3.min.js' %}" defer></script>
 </head>
-<body>
+<body hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
 {% block body %}
 {# Navegación: secciones en la barra lateral, subsecciones como pestañas (apps/presentation/navigation.py). #}
 <div class="app-shell">

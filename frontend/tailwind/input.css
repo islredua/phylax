@@ -327,4 +327,25 @@
   .tab-active {
     @apply border-primary font-semibold text-primary;
   }
+  /* Subpestañas dentro de una vista (p. ej. detalle de activo). */
+  .subtabs {
+    @apply flex flex-wrap gap-1;
+  }
+  .subtab {
+    @apply rounded px-2.5 py-1 text-[13px] text-ink-soft hover:bg-primary-soft hover:text-primary
+      hover:no-underline;
+  }
+  .subtab-active {
+    @apply bg-primary-soft font-semibold text-primary;
+  }
+  .subtab-disabled {
+    @apply cursor-not-allowed rounded px-2.5 py-1 text-[13px] text-muted opacity-60;
+  }
+  .code-block {
+    @apply max-h-80 overflow-auto rounded border border-line bg-canvas p-3 font-mono text-xs
+      whitespace-pre-wrap text-ink-soft;
+  }
+  .checkbox {
+    @apply h-4 w-4 rounded border-line-strong text-primary accent-primary;
+  }
 }

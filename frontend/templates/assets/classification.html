@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Clasificación{% endblock %}
+{% block toolbar %}<div class="toolbar"><h2>Pendientes de clasificación</h2></div>{% endblock %}
+{% block content %}
+<p class="muted">El LLM local propone una criticidad; tú decides. Las sugerencias en proceso se actualizan solas.</p>
+
+<section class="flex flex-col gap-3">
+  <h3 class="eyebrow">Sugerencias por decidir · {{ pending|length }}</h3>
+  <div id="pending" class="flex flex-col gap-3">
+    {% for s in pending %}{% include "assets/_suggestion_card.html" %}{% empty %}<p class="muted">No hay sugerencias pendientes.</p>{% endfor %}
+  </div>
+</section>
+
+<section class="flex flex-col gap-2">
+  <h3 class="eyebrow">Activos sin criticidad · {{ unclassified|length }}</h3>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th>Activo</th><th>Tipo</th><th>Entorno</th><th>Función</th><th></th></tr></thead>
+      <tbody>
+        {% for a in unclassified %}
+        <tr id="unclassified-{{ a.pk }}">
+          <td><a href="{% url 'assets:detail' a.pk %}">{{ a.name }}</a></td>
+          <td class="text-ink-soft">{{ a.get_asset_type_display }}</td>
+          <td class="text-ink-soft">{{ a.get_environment_display|default:"—" }}</td>
+          <td class="text-ink-soft">{{ a.get_business_role_display|default:"—" }}</td>
+          <td class="text-right">
+            {% if perms.assets.decide_criticality %}
+            <form method="post" action="{% url 'assets:suggest' a.pk %}" hx-post="{% url 'assets:suggest' a.pk %}" hx-target="#pending" hx-swap="afterbegin" hx-on::after-request="if(event.detail.successful){document.getElementById('unclassified-{{ a.pk }}').remove()}" class="flex justify-end gap-2">
+              {% csrf_token %}<input type="hidden" name="next" value="{% url 'assets:classification' %}">
+              <select name="model" class="form-input w-auto py-1 text-xs" aria-label="Modelo">{% for m in llm_models %}<option value="{{ m }}"{% if m == default_model %} selected{% endif %}>{{ m }}</option>{% endfor %}</select>
+              <button class="btn-secondary btn-sm" type="submit">Sugerir</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% empty %}<tr><td colspan="5" class="table-empty">Todos los activos vigentes tienen criticidad.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{% if failed %}
+<section class="flex flex-col gap-3">
+  <h3 class="eyebrow">Fallidas recientes</h3>
+  {% for s in failed %}{% include "assets/_suggestion_card.html" %}{% endfor %}
+</section>
+{% endif %}
+{% endblock %}
