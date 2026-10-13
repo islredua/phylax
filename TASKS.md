@@ -1,4 +1,4 @@
-# Plan maestro de desarrollo — Phylax
+# Plan maestro de desarrollo — Atalaya
 
 Estructura por fases alineada al cronograma del documento (Capítulo 4). Marca con `[x]` lo que vayas completando. Las tareas marcadas con **[decisión]** requieren tu respuesta antes de ejecutar.
 
@@ -21,9 +21,9 @@ Estructura por fases alineada al cronograma del documento (Capítulo 4). Marca c
 
 ### 0.1 Identidad del producto
 
-- [x] Nombre elegido: **Phylax** — griego Φύλαξ, "guardián de muros y templos" (ADR-003)
+- [x] Nombre elegido: **Atalaya** — "torre de vigía" (ADR-009; reemplaza a Phylax, ADR-003)
   - Alternativas consideradas y descartadas: Argos (uso comercial saturado), Vigía, Centinela, Baluarte, Vulcano, Panoptes, Phanes, Lamassu.
-- [x] Slug técnico: `phylax`/ como paquete Python
+- [x] Slug técnico: `atalaya`/ como paquete Python
 - [x] Logo/mark: logo oficial (marca + wordmark) en `frontend/static/brand/` (ADR-007)
 - [x] Favicon y color primario: marino `#1E3A6E` (ADR-007, reemplaza ADR-003)
 

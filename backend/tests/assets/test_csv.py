@@ -87,7 +87,7 @@ def test_dry_run_plans_every_row_without_writing(operator_client):
     AssetIdentifierFactory(asset=existing, kind=IdentifierKind.IPV4, value="10.1.0.5")
     a, b = AssetFactory(), AssetFactory()
     AssetIdentifierFactory(asset=a, kind=IdentifierKind.MAC, value="aa:bb:cc:dd:ee:01")
-    AssetIdentifierFactory(asset=b, kind=IdentifierKind.FQDN, value="dup.phylax.local")
+    AssetIdentifierFactory(asset=b, kind=IdentifierKind.FQDN, value="dup.atalaya.local")
     content = make_csv(
         row(name="nuevo", asset_type="HOST", ipv4="10.1.0.9"),
         row(name="db01", asset_type="DATABASE", ipv4="10.1.0.5", criticality="ALTO"),
@@ -95,7 +95,7 @@ def test_dry_run_plans_every_row_without_writing(operator_client):
             name="choque",
             asset_type="NETWORK_DEVICE",
             mac="aa:bb:cc:dd:ee:01",
-            fqdn="dup.phylax.local",
+            fqdn="dup.atalaya.local",
         ),
         row(name="mala", asset_type="HOST", ipv4="999.1.1.1"),
         row(name="enum", asset_type="SERVIDOR", ipv4="10.1.0.10"),
@@ -122,7 +122,7 @@ def test_confirm_applies_import(operator_client):
         row(
             name="portal",
             asset_type="WEB_APP",
-            fqdn="Portal.Phylax.Local",
+            fqdn="Portal.Atalaya.Local",
             criticality="alto",
             data_categories="PII|FINANCIERO",
             tags="pagos|externo",
@@ -259,7 +259,7 @@ def test_export_respects_filters_bom_and_escaping(client, make_user):
     AssetIdentifierFactory(asset=asset, kind=IdentifierKind.IPV4, value="10.9.0.1")
     AssetFactory(name="dev-box", environment="DEV")
     response = client.get("/inventory/export.csv", {"environment": "PROD"})
-    assert response["Content-Disposition"].startswith('attachment; filename="phylax-activos-')
+    assert response["Content-Disposition"].startswith('attachment; filename="atalaya-activos-')
     raw = response.content
     assert raw.startswith("﻿".encode())
     rows = list(csv.reader(io.StringIO(raw.decode("utf-8-sig"))))
@@ -281,11 +281,11 @@ def test_import_enforces_catalog_and_required_identifiers():
     plan = csv_io.plan_import(
         csv_io.read_rows(
             make_csv(
-                row(name="sin-ip", asset_type="HOST", fqdn="solo-fqdn.phylax.local"),
+                row(name="sin-ip", asset_type="HOST", fqdn="solo-fqdn.atalaya.local"),
                 row(
                     name="rol-raro", asset_type="HOST", ipv4="10.12.0.1", business_role="NO_EXISTE"
                 ),
-                row(name="ok", asset_type="DATABASE", fqdn="db.phylax.local", environment="prod"),
+                row(name="ok", asset_type="DATABASE", fqdn="db.atalaya.local", environment="prod"),
             )
         )
     )

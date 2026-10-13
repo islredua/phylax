@@ -3,7 +3,7 @@
 <host><status state="up" reason="echo-reply"/>
 <address addr="172.30.10.11" addrtype="ipv4"/>
 <address addr="02:42:AC:1E:0A:0B" addrtype="mac"/>
-<hostnames><hostname name="web01.lab.phylax" type="PTR"/></hostnames></host>
+<hostnames><hostname name="web01.lab.atalaya" type="PTR"/></hostnames></host>
 <host><status state="up" reason="syn-ack"/>
 <address addr="172.30.10.12" addrtype="ipv4"/>
 <hostnames/></host>

@@ -10,7 +10,7 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
-  # Pista para Phylax: timeouts de GPU y estado "GPU" mientras no haya modelo cargado.
+  # Pista para Atalaya: timeouts de GPU y estado "GPU" mientras no haya modelo cargado.
   backend:
     environment:
       LLM_ACCELERATOR: gpu

@@ -8,7 +8,7 @@ from apps.core.fields import EncryptedTextField
 
 class Command(BaseCommand):
     help = (
-        "Re-cifra todos los campos cifrados con la llave primaria de PHYLAX_FIELD_ENCRYPTION_KEYS."
+        "Re-cifra todos los campos cifrados con la llave primaria de ATALAYA_FIELD_ENCRYPTION_KEYS."
     )
 
     def handle(self, *args, **options):

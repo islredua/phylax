@@ -2,7 +2,7 @@ from contextvars import ContextVar
 
 from django.shortcuts import redirect
 
-_current_request = ContextVar("phylax_current_request", default=None)
+_current_request = ContextVar("atalaya_current_request", default=None)
 
 
 def get_current_request():
@@ -64,7 +64,7 @@ def password_change_exempt(view_func):
 
 
 class PasswordChangeRequiredMiddleware:
-    """Obliga a cambiar una contraseña temporal antes de usar Phylax (ADR-006).
+    """Obliga a cambiar una contraseña temporal antes de usar Atalaya (ADR-006).
 
     Se evalúa antes que el enforcement de MFA: primero contraseña propia, luego MFA.
     """

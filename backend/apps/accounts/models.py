@@ -1,4 +1,4 @@
-"""Modelos de cuentas de usuario y bitácora de auditoría para Phylax.
+"""Modelos de cuentas de usuario y bitácora de auditoría para Atalaya.
 
 El modelo de usuario es propio desde el inicio del proyecto: cambiar
 AUTH_USER_MODEL después de la primera migración es costoso. Por ahora no añade
@@ -12,7 +12,7 @@ from django.utils import timezone
 
 
 class User(AbstractUser):
-    """Usuario de Phylax. Los roles se modelan como grupos de Django."""
+    """Usuario de Atalaya. Los roles se modelan como grupos de Django."""
 
     must_change_password = models.BooleanField(
         default=False,

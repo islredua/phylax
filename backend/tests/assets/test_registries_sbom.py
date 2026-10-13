@@ -146,7 +146,7 @@ def test_inspect_spdx():
         "SPDX-2.3",
         2,
     )
-    assert info.generator == "syft-1.14.0" and info.subject_name == "app01.phylax.local"
+    assert info.generator == "syft-1.14.0" and info.subject_name == "app01.atalaya.local"
     Path(info.path).unlink()
 
 
@@ -167,7 +167,7 @@ def test_inspect_rejects_invalid(content, message):
 
 
 def test_inspect_enforces_size_limit(settings):
-    settings.PHYLAX_SBOM_MAX_MB = 0
+    settings.ATALAYA_SBOM_MAX_MB = 0
     with pytest.raises(ValidationError, match="límite"):
         inspect_sbom(upload(CYCLONEDX))
 

@@ -9,7 +9,7 @@ from apps.accounts import totp
 from apps.accounts.models import MFADevice, User
 from apps.accounts.roles import ADMIN, AUDITOR, OPERATOR
 
-PASSWORD = "Phylax-Pruebas-2026!"
+PASSWORD = "Atalaya-Pruebas-2026!"
 
 
 @pytest.fixture(autouse=True)
@@ -36,7 +36,7 @@ class UserFactory(factory.django.DjangoModelFactory):
         skip_postgeneration_save = True
 
     username = factory.Sequence(lambda n: f"usuario{n}")
-    email = factory.LazyAttribute(lambda o: f"{o.username}@phylax.test")
+    email = factory.LazyAttribute(lambda o: f"{o.username}@atalaya.test")
     password = factory.django.Password(PASSWORD)
 
 

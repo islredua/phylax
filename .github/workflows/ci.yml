@@ -27,13 +27,13 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_DB: phylax_test
-          POSTGRES_USER: phylax
+          POSTGRES_DB: atalaya_test
+          POSTGRES_USER: atalaya
           POSTGRES_PASSWORD: test
         ports:
           - 5432:5432
         options: >-
-          --health-cmd="pg_isready -U phylax -d phylax_test"
+          --health-cmd="pg_isready -U atalaya -d atalaya_test"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
@@ -52,10 +52,10 @@ jobs:
         env:
           DJANGO_SECRET_KEY: ci-test-key
           # Llave Fernet solo para CI (no protege ningún dato real).
-          PHYLAX_FIELD_ENCRYPTION_KEYS: Y2ktb25seS1rZXktZm9yLXRlc3RzLW5vdC1zZWNyZXQ=
+          ATALAYA_FIELD_ENCRYPTION_KEYS: Y2ktb25seS1rZXktZm9yLXRlc3RzLW5vdC1zZWNyZXQ=
           DJANGO_DEBUG: "0"
-          POSTGRES_DB: phylax_test
-          POSTGRES_USER: phylax
+          POSTGRES_DB: atalaya_test
+          POSTGRES_USER: atalaya
           POSTGRES_PASSWORD: test
           POSTGRES_HOST: localhost
           OLLAMA_BASE_URL: http://localhost:11434

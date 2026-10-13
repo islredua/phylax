@@ -5,12 +5,12 @@ import pytest
 pytestmark = pytest.mark.django_db
 
 
-def test_anonymous_is_sent_to_phylax_login(client):
+def test_anonymous_is_sent_to_atalaya_login(client):
     response = client.get("/admin/", follow=True)
     assert response.redirect_chain[-1][0] == "/accounts/login/?next=/admin/"
 
 
-def test_admin_login_delegates_to_phylax_login(client):
+def test_admin_login_delegates_to_atalaya_login(client):
     response = client.get("/admin/login/?next=/admin/accounts/user/")
     assert response.status_code == 302
     assert response.url == "/accounts/login/?next=/admin/accounts/user/"

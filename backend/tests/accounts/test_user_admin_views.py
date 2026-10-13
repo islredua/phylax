@@ -97,7 +97,7 @@ def test_create_user_shows_temp_password_once(admin_client):
             "username": "nueva",
             "first_name": "Nora",
             "last_name": "Vega",
-            "email": "nora@phylax.test",
+            "email": "nora@atalaya.test",
             "role": AUDITOR,
         },
     )
@@ -124,7 +124,7 @@ def test_create_rejects_duplicate_username_and_email(admin_client, target):
 
 def test_new_user_first_login_requires_password_change(admin_client):
     response = admin_client.post(
-        "/users/new/", {"username": "primera", "email": "p@phylax.test", "role": OPERATOR}
+        "/users/new/", {"username": "primera", "email": "p@atalaya.test", "role": OPERATOR}
     )
     temp = response.context["temp_password"]
     new_user_client = Client()
@@ -138,11 +138,11 @@ def test_new_user_first_login_requires_password_change(admin_client):
 def test_edit_user_and_role_records_actor(admin_client, admin_user, target):
     response = admin_client.post(
         f"/users/{target.pk}/edit/",
-        {"first_name": "Olga", "last_name": "Ruiz", "email": "olga@phylax.test", "role": AUDITOR},
+        {"first_name": "Olga", "last_name": "Ruiz", "email": "olga@atalaya.test", "role": AUDITOR},
     )
     assert response.url == f"/users/{target.pk}/"
     target.refresh_from_db()
-    assert target.email == "olga@phylax.test"
+    assert target.email == "olga@atalaya.test"
     assert list(target.groups.values_list("name", flat=True)) == [AUDITOR]
     assigned = AuditLogEntry.objects.get(
         event_type=AuditEvent.ROLE_ASSIGNED, user=target, metadata__role=AUDITOR

@@ -727,7 +727,7 @@ def _match_keys(asset):
     """Claves para reconocer el mismo equipo: identificadores, nombre y primer label DNS.
 
     Los identificadores son únicos, así que dos activos nunca comparten uno exacto; un
-    duplicado se reconoce por el hostname (``web01`` ~ ``web01.lab.phylax`` ~
+    duplicado se reconoce por el hostname (``web01`` ~ ``web01.lab.atalaya`` ~
     ``lab-web01.red``) o por el nombre.
     """
     keys = set()
@@ -889,12 +889,12 @@ def resolve_conflict(conflict, *, user, resolution, target=None):
 
 
 def mark_stale_assets(now=None):
-    """``ACTIVE`` no observados en ``PHYLAX_ASSET_STALE_DAYS`` → ``STALE``.
+    """``ACTIVE`` no observados en ``ATALAYA_ASSET_STALE_DAYS`` → ``STALE``.
 
     Solo aplica a activos observados alguna vez por descubrimiento.
     """
     now = now or timezone.now()
-    cutoff = now - timedelta(days=settings.PHYLAX_ASSET_STALE_DAYS)
+    cutoff = now - timedelta(days=settings.ATALAYA_ASSET_STALE_DAYS)
     stale = Asset.objects.filter(
         status=AssetStatus.ACTIVE, last_seen__isnull=False, last_seen__lt=cutoff
     )

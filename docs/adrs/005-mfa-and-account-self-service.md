@@ -57,7 +57,7 @@ código TOTP o de respaldo. Solo entonces se llama a `login()`, por lo que
 
 - 5 códigos inválidos o 5 minutos abortan el intento; hay que repetir la
   contraseña. Cada fallo se registra como `mfa_failed`.
-- El Django admin queda cubierto: su login delega en el de Phylax (ADR-004).
+- El Django admin queda cubierto: su login delega en el de Atalaya (ADR-004).
 
 ### 6. MFA obligatorio para `admin` y superusuarios
 

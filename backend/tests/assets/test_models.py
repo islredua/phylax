@@ -45,10 +45,10 @@ def test_expired_authorization_is_out_of_scope():
 
 
 def test_identifier_kind_value_is_unique():
-    AssetIdentifierFactory(kind=IdentifierKind.FQDN, value="web.phylax.local")
+    AssetIdentifierFactory(kind=IdentifierKind.FQDN, value="web.atalaya.local")
     with pytest.raises(IntegrityError):
         AssetIdentifier.objects.create(
-            asset=AssetFactory(), kind=IdentifierKind.FQDN, value="web.phylax.local"
+            asset=AssetFactory(), kind=IdentifierKind.FQDN, value="web.atalaya.local"
         )
 
 

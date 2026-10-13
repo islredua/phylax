@@ -18,9 +18,9 @@ from django.views.decorators.cache import never_cache
 from .roles import ADMIN
 
 
-class PhylaxAdminSite(AdminSite):
-    site_header = "phylax · administración"
-    site_title = "phylax admin"
+class AtalayaAdminSite(AdminSite):
+    site_header = "atalaya · administración"
+    site_title = "atalaya admin"
     index_title = "Administración"
 
     def has_permission(self, request):
@@ -30,7 +30,7 @@ class PhylaxAdminSite(AdminSite):
     @method_decorator(never_cache)
     @login_not_required
     def login(self, request, extra_context=None):
-        """Usa el login único de Phylax en lugar del formulario del admin.
+        """Usa el login único de Atalaya en lugar del formulario del admin.
 
         El ``AdminAuthenticationForm`` exige ``is_staff``; delegar al login de
         la app mantiene un solo punto de entrada (y una sola bitácora).

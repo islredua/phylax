@@ -135,7 +135,7 @@ def test_password_reset_sends_email_for_known_account(client, user, mailoutbox, 
 
 
 def test_password_reset_does_not_reveal_unknown_email(client, mailoutbox):
-    response = client.post("/accounts/password-reset/", {"email": "nadie@phylax.test"})
+    response = client.post("/accounts/password-reset/", {"email": "nadie@atalaya.test"})
     # Misma respuesta que con un correo existente: no hay enumeración de cuentas.
     assert response.status_code == 302
     assert response.url == "/accounts/password-reset/done/"

@@ -9,7 +9,7 @@ from django.conf import settings
 def test_settings_loaded():
     """El módulo de settings se importa sin errores."""
     assert settings.DEBUG is not None
-    assert "phylax" in settings.ROOT_URLCONF
+    assert "atalaya" in settings.ROOT_URLCONF
 
 
 def test_all_apps_registered():

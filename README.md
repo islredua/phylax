@@ -1,12 +1,12 @@
-# Phylax
+# Atalaya
 
 **Risk-based vulnerability management, on-premise.**
 
-Phylax (del griego Φύλαξ, "guardián") es una plataforma de gestión de vulnerabilidades basada en riesgo, desplegable íntegramente on-premise, con modelos de lenguaje ejecutados localmente. Orientada a organizaciones con requisitos de soberanía de datos.
+Atalaya (del árabe hispánico *aṭṭaláya*, "torre de vigía"; antes Phylax) es una plataforma de gestión de vulnerabilidades basada en riesgo, desplegable íntegramente on-premise, con modelos de lenguaje ejecutados localmente. Orientada a organizaciones con requisitos de soberanía de datos.
 
 ## Qué resuelve
 
-El modelo tradicional de gestión de vulnerabilidades está estructuralmente roto: el volumen anual supera los 48,000 CVEs, el *mean time to exploit* se volvió negativo (−7 días en 2025) y los operadores sujetos a regulación no pueden adoptar las plataformas comerciales RBVM porque todas dependen de servicios SaaS con inteligencia artificial en la nube. Phylax cierra ese vacío.
+El modelo tradicional de gestión de vulnerabilidades está estructuralmente roto: el volumen anual supera los 48,000 CVEs, el *mean time to exploit* se volvió negativo (−7 días en 2025) y los operadores sujetos a regulación no pueden adoptar las plataformas comerciales RBVM porque todas dependen de servicios SaaS con inteligencia artificial en la nube. Atalaya cierra ese vacío.
 
 ## Arquitectura
 
@@ -36,13 +36,13 @@ Requiere Docker (Docker Desktop con WSL2 en Windows). Con GPU NVIDIA, además NV
 Toolkit; sin GPU todo funciona en CPU (más lento).
 
 ```bash
-git clone https://github.com/islredua/phylax.git
-cd phylax
+git clone https://github.com/islredua/phylax.git atalaya
+cd atalaya
 
 cp .env.example .env
 # Obligatorio: llave de cifrado de campos
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-#   → pégala en PHYLAX_FIELD_ENCRYPTION_KEYS
+#   → pégala en ATALAYA_FIELD_ENCRYPTION_KEYS
 # Sin descargar modelos aún: LLM_MOCK_MODE=1
 
 scripts/compose.sh up -d          # detecta GPU NVIDIA y la habilita para Ollama
@@ -89,21 +89,21 @@ Luego en **Descubrimiento › Rangos de red › lab-dmz › Descubrir ahora**. E
 
 ### Limitaciones de red del escáner
 
-- El escáner solo alcanza los segmentos con ruta desde el host de Phylax.
+- El escáner solo alcanza los segmentos con ruta desde el host de Atalaya.
 - Con red bridge de Docker, la **MAC** solo se obtiene para objetivos en la misma red de Docker
   (laboratorio); en redes reales solo se ve la MAC de equipos en el mismo segmento L2.
-- Sin capabilities de red, Phylax lo detecta y degrada a `-sT` sin detección de sistema operativo.
+- Sin capabilities de red, Atalaya lo detecta y degrada a `-sT` sin detección de sistema operativo.
 - Nada se escanea fuera de un rango con autorización vigente.
 
-Otras variables nuevas: `PHYLAX_FIELD_ENCRYPTION_KEYS`, `PHYLAX_ASSET_STALE_DAYS`,
-`PHYLAX_MAX_DISCOVERY_PREFIX`, `PHYLAX_SBOM_MAX_MB`, `DISCOVERY_*` (ver `.env.example`).
+Otras variables nuevas: `ATALAYA_FIELD_ENCRYPTION_KEYS`, `ATALAYA_ASSET_STALE_DAYS`,
+`ATALAYA_MAX_DISCOVERY_PREFIX`, `ATALAYA_SBOM_MAX_MB`, `DISCOVERY_*` (ver `.env.example`).
 
 ## Estructura del repositorio
 
 ```
-phylax/
+atalaya/
 ├── backend/           Django + apps por módulo
-│   ├── phylax/        Configuración Django
+│   ├── atalaya/        Configuración Django
 │   └── apps/          Un paquete por módulo del MVP
 ├── frontend/          Templates HTMX + Tailwind
 ├── docs/              Documentación técnica y ADRs

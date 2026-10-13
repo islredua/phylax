@@ -21,10 +21,10 @@ from .audit import record_event
 from .forms import MFACodeForm
 from .models import AuditEvent, AuditLogEntry
 
-MFA_PENDING_SESSION_KEY = "_phylax_mfa_pending"
+MFA_PENDING_SESSION_KEY = "_atalaya_mfa_pending"
 
 
-class PhylaxLoginView(auth_views.LoginView):
+class AtalayaLoginView(auth_views.LoginView):
     """Primer paso del login. Si el usuario tiene MFA no abre la sesión todavía."""
 
     def form_valid(self, form):

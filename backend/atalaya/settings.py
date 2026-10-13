@@ -1,4 +1,4 @@
-"""Django settings para Phylax."""
+"""Django settings para Atalaya."""
 
 import os
 from pathlib import Path
@@ -14,7 +14,7 @@ ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,back
 
 # --- Aplicaciones ---
 INSTALLED_APPS = [
-    "apps.accounts.admin_config.PhylaxAdminConfig",  # django.contrib.admin restringido
+    "apps.accounts.admin_config.AtalayaAdminConfig",  # django.contrib.admin restringido
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
@@ -58,7 +58,7 @@ MIDDLEWARE = [
     "django_htmx.middleware.HtmxMiddleware",
 ]
 
-ROOT_URLCONF = "phylax.urls"
+ROOT_URLCONF = "atalaya.urls"
 
 TEMPLATES = [
     {
@@ -76,14 +76,14 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = "phylax.wsgi.application"
+WSGI_APPLICATION = "atalaya.wsgi.application"
 
 # --- Base de datos ---
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.environ.get("POSTGRES_DB", "phylax"),
-        "USER": os.environ.get("POSTGRES_USER", "phylax"),
+        "NAME": os.environ.get("POSTGRES_DB", "atalaya"),
+        "USER": os.environ.get("POSTGRES_USER", "atalaya"),
         "PASSWORD": os.environ.get("POSTGRES_PASSWORD", ""),
         "HOST": os.environ.get("POSTGRES_HOST", "db"),
         "PORT": os.environ.get("POSTGRES_PORT", "5432"),
@@ -101,7 +101,7 @@ LOGOUT_REDIRECT_URL = "accounts:login"
 MFA_REQUIRED_ROLES = [
     r.strip() for r in os.environ.get("MFA_REQUIRED_ROLES", "admin").split(",") if r.strip()
 ]
-MFA_ISSUER = os.environ.get("MFA_ISSUER", "Phylax")
+MFA_ISSUER = os.environ.get("MFA_ISSUER", "Atalaya")
 MFA_LOGIN_MAX_ATTEMPTS = 5
 MFA_LOGIN_TIMEOUT_SECONDS = 5 * 60
 
@@ -123,12 +123,12 @@ CSRF_COOKIE_SECURE = _secure_cookies
 EMAIL_BACKEND = os.environ.get(
     "DJANGO_EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
 )
-DEFAULT_FROM_EMAIL = os.environ.get("DJANGO_DEFAULT_FROM_EMAIL", "phylax@localhost")
+DEFAULT_FROM_EMAIL = os.environ.get("DJANGO_DEFAULT_FROM_EMAIL", "atalaya@localhost")
 
 # --- Cifrado de campos (tokens de registry) ---
 # Lista separada por comas; la primera cifra, todas descifran (rotación).
-PHYLAX_FIELD_ENCRYPTION_KEYS = [
-    k.strip() for k in os.environ.get("PHYLAX_FIELD_ENCRYPTION_KEYS", "").split(",") if k.strip()
+ATALAYA_FIELD_ENCRYPTION_KEYS = [
+    k.strip() for k in os.environ.get("ATALAYA_FIELD_ENCRYPTION_KEYS", "").split(",") if k.strip()
 ]
 
 # --- Validadores de contraseñas ---
@@ -146,10 +146,10 @@ USE_I18N = True
 USE_TZ = True
 
 # --- Inventario de activos (Módulo 2) ---
-PHYLAX_ASSET_STALE_DAYS = int(os.environ.get("PHYLAX_ASSET_STALE_DAYS", "14"))
+ATALAYA_ASSET_STALE_DAYS = int(os.environ.get("ATALAYA_ASSET_STALE_DAYS", "14"))
 # Prefijo IPv4 más amplio permitido para descubrimiento (16 = /16).
-PHYLAX_MAX_DISCOVERY_PREFIX = int(os.environ.get("PHYLAX_MAX_DISCOVERY_PREFIX", "16"))
-PHYLAX_SBOM_MAX_MB = int(os.environ.get("PHYLAX_SBOM_MAX_MB", "50"))
+ATALAYA_MAX_DISCOVERY_PREFIX = int(os.environ.get("ATALAYA_MAX_DISCOVERY_PREFIX", "16"))
+ATALAYA_SBOM_MAX_MB = int(os.environ.get("ATALAYA_SBOM_MAX_MB", "50"))
 
 # --- Descubrimiento de red (nmap) ---
 DISCOVERY_NMAP_BIN = os.environ.get("NMAP_BIN", "/usr/bin/nmap")
@@ -172,7 +172,7 @@ if REDIS_URL:
         "default": {
             "BACKEND": "django.core.cache.backends.redis.RedisCache",
             "LOCATION": os.environ.get("REDIS_CACHE_URL", REDIS_URL),
-            "KEY_PREFIX": "phylax",
+            "KEY_PREFIX": "atalaya",
         }
     }
 else:
@@ -222,7 +222,7 @@ CELERY_BEAT_SCHEDULE = {
 
 # --- Archivos subidos (SBOM, XML de discovery, cargas temporales) ---
 # Nunca se sirven directamente: solo vía vistas que verifican permisos.
-MEDIA_ROOT = os.environ.get("PHYLAX_MEDIA_ROOT", "/data/media")
+MEDIA_ROOT = os.environ.get("ATALAYA_MEDIA_ROOT", "/data/media")
 
 # --- Archivos estáticos ---
 STATIC_URL = "static/"

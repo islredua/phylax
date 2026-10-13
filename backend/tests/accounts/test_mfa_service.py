@@ -124,7 +124,7 @@ def test_mfa_required_roles_is_configurable(make_user):
 def test_provisioning_uri_uses_issuer_and_username(user):
     device = mfa.start_enrollment(user)
     uri = mfa.provisioning_uri(user, device)
-    assert f"Phylax%3A{user.username}" in uri
+    assert f"Atalaya%3A{user.username}" in uri
     assert device.secret in uri
 
 

@@ -1,14 +1,14 @@
-# Phylax — despliegue on-premise.
+# Atalaya — despliegue on-premise.
 #
 #   scripts/compose.sh up -d      # detecta GPU NVIDIA y añade docker-compose.gpu.yml
 #   docker compose up -d          # equivalente sin GPU (Ollama en CPU)
 #
 # Ningún servicio interno (Redis, Ollama, workers) publica puertos: solo la red
-# phylax-net los alcanza (STRIDE Information Disclosure).
+# atalaya-net los alcanza (STRIDE Information Disclosure).
 
 # Una sola imagen: la construye `backend`; los workers la reutilizan.
 x-backend: &backend
-  image: phylax-backend:dev
+  image: atalaya-backend:dev
   pull_policy: never
   restart: unless-stopped
   env_file:
@@ -16,7 +16,7 @@ x-backend: &backend
   environment: &backend-env
     PYTHONUNBUFFERED: 1
     REDIS_URL: redis://redis:6379/0
-    PHYLAX_MEDIA_ROOT: /data/media
+    ATALAYA_MEDIA_ROOT: /data/media
   volumes:
     - ./backend:/app
     # Templates y estáticos viven fuera de backend/ (settings: BASE_DIR.parent / "frontend").
@@ -36,7 +36,7 @@ x-backend: &backend
     - "host.docker.internal:host-gateway"
 
 x-worker-healthcheck: &worker-healthcheck
-  test: ["CMD-SHELL", "celery -A phylax inspect ping -d celery@$$HOSTNAME --timeout 10 | grep -q pong"]
+  test: ["CMD-SHELL", "celery -A atalaya inspect ping -d celery@$$HOSTNAME --timeout 10 | grep -q pong"]
   interval: 60s
   timeout: 20s
   retries: 3
@@ -45,7 +45,7 @@ x-worker-healthcheck: &worker-healthcheck
 services:
   db:
     image: postgres:16-alpine
-    container_name: phylax-db
+    container_name: atalaya-db
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
@@ -64,7 +64,7 @@ services:
 
   redis:
     image: redis:7.4.1-alpine
-    container_name: phylax-redis
+    container_name: atalaya-redis
     restart: unless-stopped
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     healthcheck:
@@ -77,7 +77,7 @@ services:
   # Modelos en el volumen ollama_models: docker compose exec ollama ollama pull <modelo>
   ollama:
     image: ollama/ollama:0.5.7
-    container_name: phylax-ollama
+    container_name: atalaya-ollama
     restart: unless-stopped
     volumes:
       - ollama_models:/root/.ollama
@@ -96,7 +96,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     pull_policy: build
-    container_name: phylax-backend
+    container_name: atalaya-backend
     ports:
       - "8000:8000"
     command: >
@@ -106,15 +106,15 @@ services:
   # Inventario, importaciones CSV y tareas generales.
   worker:
     <<: *backend
-    container_name: phylax-worker
-    command: celery -A phylax worker -Q default -c 2 -n celery@%h --loglevel INFO
+    container_name: atalaya-worker
+    command: celery -A atalaya worker -Q default -c 2 -n celery@%h --loglevel INFO
     healthcheck: *worker-healthcheck
 
   # Inferencia LLM: concurrencia 1 para no saturar la GPU (o la CPU).
   worker-llm:
     <<: *backend
-    container_name: phylax-worker-llm
-    command: celery -A phylax worker -Q llm -c 1 -n celery@%h --loglevel INFO
+    container_name: atalaya-worker-llm
+    command: celery -A atalaya worker -Q llm -c 1 -n celery@%h --loglevel INFO
     healthcheck: *worker-healthcheck
 
   # Descubrimiento con nmap: concurrencia 1, usuario no root con capabilities de red
@@ -122,17 +122,17 @@ services:
   # segmentos con ruta desde este host; la MAC solo se ve en el mismo segmento L2.
   worker-discovery:
     <<: *backend
-    container_name: phylax-worker-discovery
+    container_name: atalaya-worker-discovery
     cap_add:
       - NET_RAW
       - NET_ADMIN
-    command: celery -A phylax worker -Q discovery -c 1 -n celery@%h --loglevel INFO
+    command: celery -A atalaya worker -Q discovery -c 1 -n celery@%h --loglevel INFO
     healthcheck: *worker-healthcheck
 
   beat:
     <<: *backend
-    container_name: phylax-beat
-    command: celery -A phylax beat --schedule /tmp/celerybeat-schedule --loglevel INFO
+    container_name: atalaya-beat
+    command: celery -A atalaya beat --schedule /tmp/celerybeat-schedule --loglevel INFO
 
 volumes:
   postgres_data:
@@ -143,4 +143,4 @@ volumes:
 
 networks:
   default:
-    name: phylax-net
+    name: atalaya-net

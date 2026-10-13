@@ -1,4 +1,4 @@
-"""Roles de Phylax y su matriz de permisos.
+"""Roles de Atalaya y su matriz de permisos.
 
 Los roles se modelan como grupos de Django. La asignación de permisos se
 calcula a partir de las apps del proyecto (paquete ``apps.``), de modo que los

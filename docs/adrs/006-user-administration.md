@@ -8,7 +8,7 @@
 
 Hasta ahora los usuarios solo podían gestionarse desde el Django admin, que no
 aplica la regla de un rol por usuario, no protege contra dejar el sistema sin
-administradores y no registra las acciones en la bitácora de Phylax. Se necesita
+administradores y no registra las acciones en la bitácora de Atalaya. Se necesita
 una interfaz propia para el rol `admin`, auditable y con salvaguardas.
 
 ## Decisiones

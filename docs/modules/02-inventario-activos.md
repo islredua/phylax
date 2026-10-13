@@ -6,7 +6,7 @@ especificación original están en la última sección y, con más detalle, en
 
 ## Rol del módulo
 
-El inventario es el **hub** de Phylax: el módulo de vulnerabilidades obtiene de aquí sus
+El inventario es el **hub** de Atalaya: el módulo de vulnerabilidades obtiene de aquí sus
 objetivos (`get_scan_targets()`) y el scoring obtiene el contexto de negocio
 (`get_asset_context()`). Mantiene el registro canónico de activos, los enrola por cinco canales,
 resuelve su identidad sin duplicarlos, captura su contexto, define el **alcance autorizado** y
@@ -119,7 +119,7 @@ stateDiagram-v2
 
 - Confirmar sin criticidad programa una sugerencia automática del LLM (ver abajo).
 - `IGNORED`: el descubrimiento actualiza `last_seen` pero no lo devuelve a la cola ni a objetivos.
-- `STALE` solo aplica a activos observados alguna vez (`last_seen` no nulo); `PHYLAX_ASSET_STALE_DAYS`.
+- `STALE` solo aplica a activos observados alguna vez (`last_seen` no nulo); `ATALAYA_ASSET_STALE_DAYS`.
 - `RETIRED` nunca se borra físicamente. Fusionar mueve identificadores, servicios (conservando el
   `last_seen` más reciente), SBOM, sugerencias e hijos, y resuelve los conflictos asociados.
 
@@ -140,7 +140,7 @@ nula/broadcast, FQDN fuera de RFC 1123, digests mal formados y URL que no sean h
 ## Descubrimiento
 
 Perfiles fijos (`apps/discovery/profiles.py`), argv sin shell, objetivos validados con
-`ipaddress`, CIDR IPv4 no más amplio que `PHYLAX_MAX_DISCOVERY_PREFIX`. `SERVICE_SCAN` sobre un rango
+`ipaddress`, CIDR IPv4 no más amplio que `ATALAYA_MAX_DISCOVERY_PREFIX`. `SERVICE_SCAN` sobre un rango
 barre primero y escanea solo los hosts vivos. El worker corre como usuario no root con
 capabilities de red; sin ellas se degrada a `-sT` sin `-O`. Evidencia: argv exacto y XML.
 Programado por Beat cada 15 min según `discovery_schedule`.

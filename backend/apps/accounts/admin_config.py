@@ -3,5 +3,5 @@
 from django.contrib.admin.apps import AdminConfig
 
 
-class PhylaxAdminConfig(AdminConfig):
-    default_site = "apps.accounts.sites.PhylaxAdminSite"
+class AtalayaAdminConfig(AdminConfig):
+    default_site = "apps.accounts.sites.AtalayaAdminSite"

@@ -1,4 +1,4 @@
-"""Formularios de autenticación con el estilo Phylax Dark."""
+"""Formularios de autenticación con el estilo Atalaya Dark."""
 
 from django import forms
 from django.contrib.auth import get_user_model

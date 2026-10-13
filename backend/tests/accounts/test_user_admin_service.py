@@ -24,7 +24,7 @@ def test_temporary_password_passes_validators():
 
 def test_create_user_with_temp_password_and_single_role(admin_user):
     user, temp = user_admin.create_user(
-        admin_user, username="nuevo", email="nuevo@phylax.test", role=OPERATOR
+        admin_user, username="nuevo", email="nuevo@atalaya.test", role=OPERATOR
     )
     assert user.check_password(temp)
     assert user.must_change_password
@@ -47,7 +47,7 @@ def test_update_user_logs_field_names_only(admin_user, make_user):
     user_admin.update_user(
         admin_user,
         target,
-        fields={"first_name": "Luis", "last_name": "", "email": "luis@phylax.test"},
+        fields={"first_name": "Luis", "last_name": "", "email": "luis@atalaya.test"},
         role=OPERATOR,
     )
     target.refresh_from_db()

@@ -1,5 +1,5 @@
 /*
- * Comportamiento progresivo de Phylax (sin dependencias, sin scripts inline).
+ * Comportamiento progresivo de Atalaya (sin dependencias, sin scripts inline).
  * Todo funciona sin JS; esto solo mejora la usabilidad.
  */
 (function () {
