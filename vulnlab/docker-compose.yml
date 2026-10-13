@@ -1,0 +1,162 @@
+name: vulnlab
+
+# ==============================================================================
+# vulnlab — laboratorio de validación (Host B, máquina SEPARADA del host Phylax)
+# ==============================================================================
+# Lee vulnlab/README.md ANTES de ejecutar esto. Resumen: contiene
+# vulnerabilidades reales, explotables; solo corre en una máquina dedicada,
+# en una red local aislada de cualquier otra infraestructura.
+#
+# Diseño:
+#  - Los puertos se publican en BIND_IP (ver .env, default 0.0.0.0) porque el
+#    propósito de este stack es ser escaneado por Phylax desde otra máquina
+#    en la misma red local.
+#  - "vulnlab-internal" conecta los servicios entre sí (p. ej. wp-old↔wp-db);
+#    la publicación de puertos al host es independiente de esa red.
+#  - Solo volúmenes nombrados de Docker. Nunca bind mounts al filesystem de
+#    Host B: una vulnerabilidad de escritura de archivos en un contenedor no
+#    debe poder tocar el disco del host.
+#  - Ningún tag `:latest`: todas las versiones están fijas y documentadas en
+#    README.md con sus CVEs confirmadas en NVD.
+
+networks:
+  vulnlab-internal:
+    driver: bridge
+
+volumes:
+  wp_db_data:
+  pg_old_data:
+
+services:
+  # ---------------------------------------------------------------- Web ----
+  dvwa:
+    image: vulnerables/web-dvwa:1.9
+    container_name: vulnlab-dvwa
+    restart: unless-stopped
+    ports:
+      - "${BIND_IP:-0.0.0.0}:8080:80"
+    networks: [vulnlab-internal]
+
+  juice-shop:
+    image: bkimminich/juice-shop:v15.3.0
+    container_name: vulnlab-juice-shop
+    restart: unless-stopped
+    ports:
+      - "${BIND_IP:-0.0.0.0}:3000:3000"
+    networks: [vulnlab-internal]
+
+  wp-db:
+    image: mariadb:10.3
+    container_name: vulnlab-wp-db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${WP_DB_ROOT_PASSWORD:-wplab-rootpass}
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wordpress
+      MYSQL_PASSWORD: ${WP_DB_PASSWORD:-wplab-pass}
+    volumes:
+      - wp_db_data:/var/lib/mysql
+    networks: [vulnlab-internal]
+    # Sin "ports": solo lo alcanza wp-old, dentro de vulnlab-internal.
+
+  wp-old:
+    image: wordpress:5.0.0
+    container_name: vulnlab-wp-old
+    restart: unless-stopped
+    depends_on: [wp-db]
+    environment:
+      WORDPRESS_DB_HOST: wp-db
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: ${WP_DB_PASSWORD:-wplab-pass}
+    ports:
+      - "${BIND_IP:-0.0.0.0}:8081:80"
+    networks: [vulnlab-internal]
+
+  # -------------------------------------------------------------- Red ------
+  ssh-old:
+    image: sickp/alpine-sshd:7.5
+    container_name: vulnlab-ssh-old
+    restart: unless-stopped
+    ports:
+      - "${BIND_IP:-0.0.0.0}:2222:22"
+    networks: [vulnlab-internal]
+
+  ftp-old:
+    # hhoover/vsftpd:3.0.3 de la propuesta original no existe en Docker Hub
+    # (repo completo inexistente, verificado). Sustituido por una imagen real.
+    image: simfishing/vsftpd:3.0.2
+    container_name: vulnlab-ftp-old
+    restart: unless-stopped
+    ports:
+      - "${BIND_IP:-0.0.0.0}:2121:21"
+    networks: [vulnlab-internal]
+
+  samba-old:
+    # nouchka/samba:4.9.5 de la propuesta original no existe en Docker Hub
+    # (repo completo inexistente, verificado). Sustituido por una imagen que
+    # solo publicó tag "latest" (sin versión fija) — se fija por digest en
+    # su lugar, que es inmutable igual que un tag versionado. Bundlea Samba
+    # 4.5.9 (SambaCry, ver README.md).
+    image: vulnerables/cve-2017-7494@sha256:fdc4b2a97e4f777b95bcf0306fc3d6bb7ac1e025f4f7edd718762907d4ae5b42
+    container_name: vulnlab-samba-old
+    restart: unless-stopped
+    ports:
+      - "${BIND_IP:-0.0.0.0}:1139:139"
+      - "${BIND_IP:-0.0.0.0}:1445:445"
+    networks: [vulnlab-internal]
+
+  # ----------------------------------------------------- Bases de datos ----
+  pg-old:
+    # postgres:11-alpine es un tag "flotante": Docker lo reconstruye con el
+    # último parche de la rama 11.x hasta su EOL, así que hoy resuelve a
+    # 11.22 (parchado) en vez de una versión vieja. Se fija el patch exacto
+    # para que las CVEs del catálogo sigan aplicando.
+    image: postgres:11.1-alpine
+    container_name: vulnlab-pg-old
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${PG_OLD_PASSWORD:-pglab-pass}
+    volumes:
+      - pg_old_data:/var/lib/postgresql/data
+    ports:
+      - "${BIND_IP:-0.0.0.0}:5433:5432"
+    networks: [vulnlab-internal]
+
+  mongo-noauth:
+    # mongo:3.6 también es un tag flotante, congelado hoy en 3.6.23
+    # (parchado). Se fija el patch exacto, igual que pg-old.
+    image: mongo:3.6.8
+    container_name: vulnlab-mongo-noauth
+    restart: unless-stopped
+    # Sin --auth deliberadamente: Mongo 3.6 sin autenticación es el caso que
+    # el escáner de Phylax debe detectar (acceso no autenticado a datos).
+    ports:
+      - "${BIND_IP:-0.0.0.0}:27018:27017"
+    networks: [vulnlab-internal]
+
+  # --------------------------------- Dependencias viejas (sin puertos) -----
+  py-old:
+    # python:3.6-slim es un tag flotante, congelado hoy en 3.6.15 (último
+    # parche de la rama 3.6). Se fija un patch temprano, previo a los CVEs.
+    image: python:3.6.8-slim
+    container_name: vulnlab-py-old
+    restart: unless-stopped
+    command: ["tail", "-f", "/dev/null"]
+    networks: [vulnlab-internal]
+
+  node-old:
+    # node:12-alpine es un tag flotante, congelado hoy en 12.22.12. Se fija
+    # un patch temprano, previo a los CVEs del catálogo.
+    image: node:12.16.1-alpine
+    container_name: vulnlab-node-old
+    restart: unless-stopped
+    command: ["tail", "-f", "/dev/null"]
+    networks: [vulnlab-internal]
+
+  alpine-old:
+    image: alpine:3.10
+    container_name: vulnlab-alpine-old
+    restart: unless-stopped
+    command: ["tail", "-f", "/dev/null"]
+    networks: [vulnlab-internal]
