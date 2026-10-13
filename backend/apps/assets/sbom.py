@@ -37,7 +37,7 @@ class SbomInfo:
 
 def _store_temp(uploaded):
     """Copia en streaming a un temporal, calcula sha256 y aplica el límite de tamaño."""
-    limit = settings.PHYLAX_SBOM_MAX_MB * 1024 * 1024
+    limit = settings.ATALAYA_SBOM_MAX_MB * 1024 * 1024
     digest = hashlib.sha256()
     size = 0
     fd, path = tempfile.mkstemp(prefix="sbom-", suffix=".json")
@@ -47,7 +47,7 @@ def _store_temp(uploaded):
                 size += len(chunk)
                 if size > limit:
                     raise ValidationError(
-                        f"El SBOM excede el límite de {settings.PHYLAX_SBOM_MAX_MB} MB."
+                        f"El SBOM excede el límite de {settings.ATALAYA_SBOM_MAX_MB} MB."
                     )
                 digest.update(chunk)
                 out.write(chunk)

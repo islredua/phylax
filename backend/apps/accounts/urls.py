@@ -5,11 +5,11 @@ from . import account_views as me
 from .forms import LoginForm, StyledPasswordResetForm, StyledSetPasswordForm
 from .middleware import mfa_enrollment_exempt, password_change_exempt
 from .views import (
+    AtalayaLoginView,
     AuditedPasswordResetConfirmView,
     AuditedPasswordResetView,
     AuditLogListView,
     MFAVerifyView,
-    PhylaxLoginView,
 )
 
 app_name = "accounts"
@@ -17,7 +17,7 @@ app_name = "accounts"
 urlpatterns = [
     path(
         "login/",
-        PhylaxLoginView.as_view(
+        AtalayaLoginView.as_view(
             authentication_form=LoginForm,
             redirect_authenticated_user=True,
         ),

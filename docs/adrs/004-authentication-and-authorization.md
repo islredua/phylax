@@ -6,7 +6,7 @@
 
 ## Contexto
 
-Phylax concentra el inventario de vulnerabilidades de la organización: un acceso
+Atalaya concentra el inventario de vulnerabilidades de la organización: un acceso
 no autorizado entrega al atacante el mapa para comprometer la infraestructura.
 El modelo STRIDE exige que todas las vistas requieran sesión (I), permisos por
 grupo (E), una segunda capa sobre el admin (E) y trazabilidad de acciones
@@ -62,12 +62,12 @@ un decorador en una vista nueva ya no expone datos.
 
 ### 4. Admin restringido
 
-- `PhylaxAdminSite` reemplaza el sitio por defecto (vía `PhylaxAdminConfig`).
+- `AtalayaAdminSite` reemplaza el sitio por defecto (vía `AtalayaAdminConfig`).
   Acceso: usuario activo **y** (superusuario **o** miembro del grupo `admin`).
   `is_staff` se ignora.
 - Los superusuarios conservan acceso como vía de emergencia para no quedar
   bloqueados si el grupo `admin` se vacía o se corrompe.
-- El login del admin delega en el login único de Phylax (un solo punto de entrada
+- El login del admin delega en el login único de Atalaya (un solo punto de entrada
   y una sola bitácora). Usuarios autenticados sin rol `admin` reciben 403.
 
 ### 5. Sesión y cookies

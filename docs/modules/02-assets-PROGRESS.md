@@ -53,12 +53,12 @@ Se documentan aquí conforme aparezcan.
 - **`is_in_scope`**: una IP de un activo con `in_scope=False` queda fuera aunque su rango esté autorizado.
 - **Workers separados** (`worker`, `worker-llm`, `worker-discovery`) en lugar de consolidar `default,llm`:
   la cola `llm` necesita concurrencia 1 sin bloquear importaciones ni tareas del inventario.
-- **Imagen única**: solo `backend` construye `phylax-backend:dev`; los workers la reutilizan
+- **Imagen única**: solo `backend` construye `atalaya-backend:dev`; los workers la reutilizan
   (`pull_policy: never`). Construirla en paralelo desde cada servicio falla.
 - **Pruebas**: Celery lee los settings de Django en vivo (namespace `CELERY`), por lo que el modo
   síncrono se activa sobrescribiendo `CELERY_TASK_ALWAYS_EAGER` en `tests/conftest.py`, no `app.conf`.
 - **GPU/CPU adaptable**: `scripts/compose.sh` añade `docker-compose.gpu.yml` si detecta una GPU NVIDIA
-  (o `PHYLAX_GPU=0/1`). `apps/llm/status.py` observa el acelerador en `/api/ps` (pista
+  (o `ATALAYA_GPU=0/1`). `apps/llm/status.py` observa el acelerador en `/api/ps` (pista
   `LLM_ACCELERATOR` mientras no haya modelo cargado) y elige `LLM_TIMEOUT_S` (GPU) o
   `LLM_TIMEOUT_CPU_S` (CPU/desconocido, default 900 s). La píldora del encabezado muestra
   GPU/CPU/no disponible leyendo la caché que refresca Beat cada minuto: ninguna vista consulta Ollama.
@@ -79,7 +79,7 @@ Se documentan aquí conforme aparezcan.
 - **Modo sin privilegios** detectado con una sonda local (`nmap --privileged -sS` a 127.0.0.1):
   sin raw sockets se usa `-sT`, sin `-PE/-PA` ni `-O`. `DISCOVERY_SCAN_MODE` lo puede fijar.
 - **Descubrimiento programado** usa `SERVICE_SCAN` (`DISCOVERY_SCHEDULED_PROFILE`).
-- **Todos los contenedores corren como `phylax` (uid 1000)**; solo `worker-discovery` recibe
+- **Todos los contenedores corren como `atalaya` (uid 1000)**; solo `worker-discovery` recibe
   `NET_RAW`/`NET_ADMIN`. Verificado: nmap detecta modo `privileged` sin root.
 - **Pruebas** escriben archivos en un `MEDIA_ROOT` temporal (antes escribían en el volumen real).
 - **Verificación real** con Ollama en CPU (`qwen2.5:0.5b-instruct`): la solicitud vuelve en ~16 ms,
@@ -110,7 +110,7 @@ Se documentan aquí conforme aparezcan.
   Verificación real: `SERVICE_SCAN` de `lab-dmz` en modo `privileged`, 4 hosts, nginx 1.27.3
   detectado, el 443 declarado en la semilla se marcó cerrado, MAC visibles en el mismo segmento.
 - **Limitaciones observadas**: el descubrimiento también registra la puerta de enlace de Docker
-  (el host de Phylax, que en desarrollo publica PostgreSQL 5432 y Django 8000) y la propia IP del
+  (el host de Atalaya, que en desarrollo publica PostgreSQL 5432 y Django 8000) y la propia IP del
   worker en la red del laboratorio, ambos como `UNCONFIRMED`; se ignoran desde la cola.
 - `seed_lab_assets --reset` borra físicamente lo sembrado (solo laboratorio; en operación los
   activos se retiran).
@@ -140,7 +140,7 @@ Se documentan aquí conforme aparezcan.
 |---|---|---|
 | La sugerencia automática no aparece al dar de alta | Sí se generaba, pero 60 s después y sin ningún aviso; con criticidad manual no se pedía | El activo muestra «Sugerencia programada (HH:MM:SS)» y se recarga solo al terminar; el alta y la confirmación siempre la programan (con criticidad manual, la sugerencia la contrasta) |
 | `IntegrityError` al ejecutar nmap | `worker-discovery` no se reinició tras la migración 0007 y no enviaba `review_suggested` | `db_default=False` en la columna (0008); tras migrar se reinician **todos** los servicios |
-| Acciones masivas: el segundo campo siempre era «etiqueta» | Todos los parámetros visibles a la vez; entorno validado contra el enum anterior; un error detenía el lote | Solo se muestra el parámetro de la acción (`static/js/phylax.js`, sin scripts inline), seleccionar todos, contador, confirmación al retirar; nuevas acciones (quitar etiquetas, cambiar función, restaurar); se aplica activo por activo y se informa qué no se aplicó y por qué |
+| Acciones masivas: el segundo campo siempre era «etiqueta» | Todos los parámetros visibles a la vez; entorno validado contra el enum anterior; un error detenía el lote | Solo se muestra el parámetro de la acción (`static/js/atalaya.js`, sin scripts inline), seleccionar todos, contador, confirmación al retirar; nuevas acciones (quitar etiquetas, cambiar función, restaurar); se aplica activo por activo y se informa qué no se aplicó y por qué |
 | «Respuesta reutilizada» tras cambiar a producción | El cambio a producción fue previo; el clic se hizo con el mismo contexto que la última sugerencia | Con el mismo contexto que la última sugerencia, el botón explica que no cambió nada (temperatura 0 → misma respuesta) en lugar de crear una copia; la reutilización queda para contextos que vuelven a uno anterior |
 | «Ignorar» no se podía deshacer | No existía la transición | `restore_asset`: vuelve a `ACTIVE` si cumple lo exigido al confirmar, si no a `UNCONFIRMED`; botón en el detalle, acción masiva y enlace a ignorados desde «Por confirmar» |
 | La ejecución no mostraba qué hosts encontró | Solo había conteos | Tabla «Hosts observados» con filtros (por confirmar, en inventario, ignorados, retirados), marca «nuevo», «Agregar al inventario…» (vuelve a la ejecución) e ignorar/restaurar |

@@ -187,14 +187,14 @@ def test_create_asset_with_inline_identifiers(client, as_role):
             "ident-TOTAL_FORMS": "2",
             "ident-INITIAL_FORMS": "0",
             "ident-0-kind": "FQDN",
-            "ident-0-value": "Portal.Phylax.Local",
+            "ident-0-value": "Portal.Atalaya.Local",
             "ident-1-kind": "",
             "ident-1-value": "",
         },
     )
     asset = Asset.objects.get(name="portal")
     assert response.url == f"/inventory/{asset.pk}/"
-    assert asset.identifiers.get().value == "portal.phylax.local"
+    assert asset.identifiers.get().value == "portal.atalaya.local"
     assert set(asset.tags.values_list("name", flat=True)) == {"pagos", "externo"}
     assert asset.criticality_source == "MANUAL" and asset.data_categories == ["PII"]
 
@@ -338,7 +338,7 @@ def test_bulk_bar_markup(client, as_role):
     AssetFactory()
     body = client.get("/inventory/").content.decode()
     assert 'data-bulk-param="ENVIRONMENT"' in body and "data-bulk-all" in body
-    assert 'data-confirm="Los activos retirados' in body and "js/phylax.js" in body
+    assert 'data-confirm="Los activos retirados' in body and "js/atalaya.js" in body
 
 
 def test_restore_ignored_asset(client, as_role):
@@ -644,7 +644,7 @@ def test_history_shows_spanish_labels_and_related_names(client, as_role):
 
 def test_list_shows_primary_identifier(client, as_role):
     asset = AssetFactory(name="multi")
-    AssetIdentifierFactory(asset=asset, kind=IdentifierKind.FQDN, value="a-primero.phylax.local")
+    AssetIdentifierFactory(asset=asset, kind=IdentifierKind.FQDN, value="a-primero.atalaya.local")
     AssetIdentifierFactory(asset=asset, kind=IdentifierKind.IPV4, value="10.94.0.9")
     as_role(AUDITOR)
     rows = client.get("/inventory/", {"q": "multi"}).context["assets"]
@@ -739,7 +739,7 @@ def test_host_registration_requires_ip_and_context(client, as_role):
             "ident-TOTAL_FORMS": "1",
             "ident-INITIAL_FORMS": "0",
             "ident-0-kind": "FQDN",
-            "ident-0-value": "sin-ip.phylax.local",
+            "ident-0-value": "sin-ip.atalaya.local",
         },
     )
     body = response.content.decode()
@@ -757,7 +757,7 @@ def test_host_registration_requires_ip_and_context(client, as_role):
             "ident-TOTAL_FORMS": "1",
             "ident-INITIAL_FORMS": "0",
             "ident-0-kind": "FQDN",
-            "ident-0-value": "sin-ip.phylax.local",
+            "ident-0-value": "sin-ip.atalaya.local",
         },
     )
     assert "IPv4" in response.content.decode()
@@ -858,9 +858,9 @@ def test_manual_create_launches_scan_and_defers_suggestion(client, as_role, monk
 def test_merge_only_offered_for_matching_active_assets(client, as_role):
     as_role(OPERATOR)
     active = AssetFactory(name="web01")
-    AssetIdentifierFactory(asset=active, kind=IdentifierKind.FQDN, value="web01.lab.phylax")
+    AssetIdentifierFactory(asset=active, kind=IdentifierKind.FQDN, value="web01.lab.atalaya")
     twin = AssetFactory(name="172.30.10.50", status=AssetStatus.UNCONFIRMED)
-    AssetIdentifierFactory(asset=twin, kind=IdentifierKind.FQDN, value="lab-web01.phylax-lab-dmz")
+    AssetIdentifierFactory(asset=twin, kind=IdentifierKind.FQDN, value="lab-web01.atalaya-lab-dmz")
     loner = AssetFactory(name="172.30.10.60", status=AssetStatus.UNCONFIRMED)
     AssetIdentifierFactory(asset=loner, kind=IdentifierKind.IPV4, value="172.30.10.60")
     body = client.get("/inventory/unconfirmed/").content.decode()

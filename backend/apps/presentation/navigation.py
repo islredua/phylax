@@ -1,4 +1,4 @@
-"""Registro de navegación de Phylax (ADR-007).
+"""Registro de navegación de Atalaya (ADR-007).
 
 Patrón único para toda la interfaz:
 

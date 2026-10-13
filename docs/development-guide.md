@@ -22,8 +22,8 @@ Hooks: `trailing-whitespace`, `end-of-file-fixer`, `ruff --fix` y `black`
 
 ## Estilos (Tailwind CSS 4, binario standalone)
 
-Phylax no usa Node ni CDN: los estilos se compilan con el binario standalone de
-Tailwind y el CSS resultante se versiona en `frontend/static/css/phylax.css`, de
+Atalaya no usa Node ni CDN: los estilos se compilan con el binario standalone de
+Tailwind y el CSS resultante se versiona en `frontend/static/css/atalaya.css`, de
 modo que un despliegue on-premise no necesita compilar nada ni salir a internet.
 
 - Fuente: `frontend/tailwind/input.css` (configuración CSS-first con `@theme`;
@@ -55,7 +55,7 @@ En macOS/Windows usar el binario correspondiente de la misma release.
 Desde la raíz del repo, después de cambiar templates, formularios o `input.css`:
 
 ```bash
-.tools/tailwindcss-linux-x64 -i frontend/tailwind/input.css -o frontend/static/css/phylax.css --minify
+.tools/tailwindcss-linux-x64 -i frontend/tailwind/input.css -o frontend/static/css/atalaya.css --minify
 ```
 
 Durante desarrollo se puede añadir `--watch`. Commitear siempre el CSS

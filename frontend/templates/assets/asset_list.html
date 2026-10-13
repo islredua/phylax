@@ -34,7 +34,7 @@
   {% csrf_token %}
   <input type="hidden" name="next" value="{{ request.get_full_path }}">
   {% if perms.assets.change_asset %}
-  {# phylax.js muestra solo el parámetro de la acción elegida; sin JS se ven todos y el servidor valida. #}
+  {# atalaya.js muestra solo el parámetro de la acción elegida; sin JS se ven todos y el servidor valida. #}
   <div class="card flex flex-wrap items-end gap-3 py-3" data-bulk>
     <div>
       <label class="form-label" for="bulk-action">Acción sobre los seleccionados</label>

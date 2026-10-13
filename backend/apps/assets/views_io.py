@@ -124,7 +124,7 @@ class ExportView(Perm, View):
             csv_io.to_csv_bytes(csv_io.export_rows(assets)), content_type="text/csv; charset=utf-8"
         )
         stamp = timezone.now().strftime("%Y%m%d-%H%M")
-        response["Content-Disposition"] = f'attachment; filename="phylax-activos-{stamp}.csv"'
+        response["Content-Disposition"] = f'attachment; filename="atalaya-activos-{stamp}.csv"'
         return response
 
 
@@ -136,5 +136,5 @@ class TemplateCsvView(Perm, View):
             csv_io.to_csv_bytes([csv_io.COLUMNS, csv_io.TEMPLATE_EXAMPLE]),
             content_type="text/csv; charset=utf-8",
         )
-        response["Content-Disposition"] = 'attachment; filename="phylax-plantilla-activos.csv"'
+        response["Content-Disposition"] = 'attachment; filename="atalaya-plantilla-activos.csv"'
         return response

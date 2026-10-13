@@ -14,7 +14,7 @@ from apps.accounts.roles import AUDITOR, OPERATOR
 
 pytestmark = pytest.mark.django_db
 
-UA = "Mozilla/5.0 (pruebas Phylax)"
+UA = "Mozilla/5.0 (pruebas Atalaya)"
 
 
 def entries(event_type):
@@ -67,7 +67,7 @@ def test_password_reset_request_logs_user_without_email(client, user):
 
 
 def test_password_reset_request_for_unknown_email_stores_no_email(client):
-    client.post("/accounts/password-reset/", {"email": "nadie@phylax.test"})
+    client.post("/accounts/password-reset/", {"email": "nadie@atalaya.test"})
     entry = entries(AuditEvent.PASSWORD_RESET_REQUESTED).get()
     assert entry.user is None
     assert entry.metadata == {"matched_account": False}

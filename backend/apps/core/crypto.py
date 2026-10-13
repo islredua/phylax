@@ -1,6 +1,6 @@
 """Cifrado simétrico de campos con rotación de llaves (MultiFernet).
 
-``PHYLAX_FIELD_ENCRYPTION_KEYS`` es una lista separada por comas; la primera
+``ATALAYA_FIELD_ENCRYPTION_KEYS`` es una lista separada por comas; la primera
 llave cifra y todas descifran. Para rotar: anteponer una llave nueva, ejecutar
 ``manage.py rotate_field_encryption`` y después retirar la anterior.
 """
@@ -21,20 +21,20 @@ KEY_HELP = (
 def build_fernet(keys):
     if not keys:
         raise ImproperlyConfigured(
-            "Falta PHYLAX_FIELD_ENCRYPTION_KEYS: Phylax no arranca sin llave para cifrar "
+            "Falta ATALAYA_FIELD_ENCRYPTION_KEYS: Atalaya no arranca sin llave para cifrar "
             f"secretos (tokens de registry). {KEY_HELP}"
         )
     try:
         return MultiFernet([Fernet(key.encode()) for key in keys])
     except ValueError as exc:
         raise ImproperlyConfigured(
-            f"PHYLAX_FIELD_ENCRYPTION_KEYS contiene una llave Fernet inválida. {KEY_HELP}"
+            f"ATALAYA_FIELD_ENCRYPTION_KEYS contiene una llave Fernet inválida. {KEY_HELP}"
         ) from exc
 
 
 @lru_cache(maxsize=1)
 def get_fernet():
-    return build_fernet(tuple(settings.PHYLAX_FIELD_ENCRYPTION_KEYS))
+    return build_fernet(tuple(settings.ATALAYA_FIELD_ENCRYPTION_KEYS))
 
 
 def encrypt(plaintext):
@@ -47,7 +47,7 @@ def decrypt(ciphertext):
     except InvalidToken as exc:
         # Nunca incluir el texto cifrado ni el claro en el mensaje.
         raise ImproperlyConfigured(
-            "No se pudo descifrar un campo: ninguna llave de PHYLAX_FIELD_ENCRYPTION_KEYS "
+            "No se pudo descifrar un campo: ninguna llave de ATALAYA_FIELD_ENCRYPTION_KEYS "
             "coincide."
         ) from exc
 
@@ -58,7 +58,7 @@ def rotate(ciphertext):
 
 
 def _reset_cache(*, setting, **kwargs):
-    if setting == "PHYLAX_FIELD_ENCRYPTION_KEYS":
+    if setting == "ATALAYA_FIELD_ENCRYPTION_KEYS":
         get_fernet.cache_clear()
 
 

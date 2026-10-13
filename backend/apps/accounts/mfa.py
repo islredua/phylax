@@ -14,6 +14,8 @@ BACKUP_CODE_COUNT = 10
 # Sin caracteres ambiguos (0/o, 1/l/i). 10 caracteres ≈ 49 bits por código.
 BACKUP_CODE_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
 BACKUP_CODE_LENGTH = 10
+# Valor fijo heredado del nombre anterior (Phylax): cambiarlo invalida los códigos de
+# respaldo ya emitidos.
 _BACKUP_CODE_SALT = "phylax.accounts.backup_code"
 
 

@@ -1,4 +1,4 @@
-"""Contraseña temporal: cambio obligatorio antes de usar Phylax."""
+"""Contraseña temporal: cambio obligatorio antes de usar Atalaya."""
 
 import pytest
 

@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Inicio{% endblock %} · Phylax</title>
+  <title>{% block title %}Inicio{% endblock %} · Atalaya</title>
   <link rel="icon" type="image/svg+xml" href="{% static 'brand/favicon.svg' %}">
   <link rel="preload" href="{% static 'fonts/ibm-plex-sans-latin-400-normal.woff2' %}" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="{% static 'css/phylax.css' %}">
+  <link rel="stylesheet" href="{% static 'css/atalaya.css' %}">
   {# HTMX servido localmente: actualizaciones en vivo (LLM, descubrimientos) sin recargar. #}
   <script src="{% static 'vendor/htmx-2.0.3.min.js' %}" defer></script>
-  <script src="{% static 'js/phylax.js' %}" defer></script>
+  <script src="{% static 'js/atalaya.js' %}" defer></script>
 </head>
 <body hx-headers='{"X-CSRFToken": "{{ csrf_token }}"}'>
 {% block body %}
@@ -17,9 +17,9 @@
 <div class="app-shell">
   <div class="sidebar-col">
   <aside class="sidebar" aria-label="Navegación principal">
-    <a href="{% url 'home' %}" class="brand" aria-label="Phylax, inicio">
+    <a href="{% url 'home' %}" class="brand" aria-label="Atalaya, inicio">
       {% include "_brand_mark.html" with class="h-[22px] w-[22px]" %}
-      <span class="brand-name">Phylax</span>
+      <span class="brand-name">Atalaya</span>
     </a>
     <nav class="sidebar-group">
       {% for item in nav.main %}

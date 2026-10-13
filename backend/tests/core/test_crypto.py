@@ -27,27 +27,27 @@ def test_ciphertext_is_randomised():
 
 @pytest.mark.parametrize("keys", [(), ("no-es-una-llave",)])
 def test_missing_or_invalid_keys_fail_with_clear_message(keys):
-    with pytest.raises(ImproperlyConfigured, match="PHYLAX_FIELD_ENCRYPTION_KEYS"):
+    with pytest.raises(ImproperlyConfigured, match="ATALAYA_FIELD_ENCRYPTION_KEYS"):
         crypto.build_fernet(keys)
 
 
 def test_rotation_keeps_old_tokens_readable_and_reencrypts():
-    with override_settings(PHYLAX_FIELD_ENCRYPTION_KEYS=[OLD]):
+    with override_settings(ATALAYA_FIELD_ENCRYPTION_KEYS=[OLD]):
         token = crypto.encrypt("valor")
-    with override_settings(PHYLAX_FIELD_ENCRYPTION_KEYS=[NEW, OLD]):
+    with override_settings(ATALAYA_FIELD_ENCRYPTION_KEYS=[NEW, OLD]):
         assert crypto.decrypt(token) == "valor"
         rotated = crypto.rotate(token)
-    with override_settings(PHYLAX_FIELD_ENCRYPTION_KEYS=[NEW]):
+    with override_settings(ATALAYA_FIELD_ENCRYPTION_KEYS=[NEW]):
         assert crypto.decrypt(rotated) == "valor"
         with pytest.raises(ImproperlyConfigured):
             crypto.decrypt(token)
 
 
 def test_decrypt_error_never_leaks_values():
-    with override_settings(PHYLAX_FIELD_ENCRYPTION_KEYS=[OLD]):
+    with override_settings(ATALAYA_FIELD_ENCRYPTION_KEYS=[OLD]):
         token = crypto.encrypt("super-secreto")
     with (
-        override_settings(PHYLAX_FIELD_ENCRYPTION_KEYS=[NEW]),
+        override_settings(ATALAYA_FIELD_ENCRYPTION_KEYS=[NEW]),
         pytest.raises(ImproperlyConfigured) as excinfo,
     ):
         crypto.decrypt(token)

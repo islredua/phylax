@@ -1,6 +1,6 @@
 # Modelo de amenaza STRIDE
 
-Análisis sistemático de amenazas sobre Phylax, estructurado según las seis categorías STRIDE: Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, Elevation of Privilege.
+Análisis sistemático de amenazas sobre Atalaya, estructurado según las seis categorías STRIDE: Spoofing, Tampering, Repudiation, Information Disclosure, Denial of Service, Elevation of Privilege.
 
 ## Contexto del sistema
 
@@ -15,7 +15,7 @@ La plataforma procesa el inventario completo de vulnerabilidades de la organizac
                                ▼
                        ┌───────────────┐  (zona confiable)
 ┌───────────────────┐  │               │
-│   Red escaneada   │◀─│    Phylax     │
+│   Red escaneada   │◀─│    Atalaya     │
 └───────────────────┘  │               │
                        └───────┬───────┘
                                │

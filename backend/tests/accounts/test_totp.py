@@ -79,8 +79,8 @@ def test_decode_secret_tolerates_spaces_and_lowercase():
 
 
 def test_provisioning_uri():
-    uri = totp.provisioning_uri("JBSWY3DPEHPK3PXP", "ana@phylax", "Phylax")
-    assert uri.startswith("otpauth://totp/Phylax%3Aana%40phylax?")
+    uri = totp.provisioning_uri("JBSWY3DPEHPK3PXP", "ana@atalaya", "Atalaya")
+    assert uri.startswith("otpauth://totp/Atalaya%3Aana%40atalaya?")
     assert "secret=JBSWY3DPEHPK3PXP" in uri
-    assert "issuer=Phylax" in uri
+    assert "issuer=Atalaya" in uri
     assert "period=30" in uri

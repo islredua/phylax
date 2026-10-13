@@ -9,7 +9,7 @@ from apps.accounts.models import UserSession
 
 pytestmark = pytest.mark.django_db
 
-UA = "Mozilla/5.0 (sesiones Phylax)"
+UA = "Mozilla/5.0 (sesiones Atalaya)"
 
 
 def login(client, user, password):

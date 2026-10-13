@@ -64,12 +64,12 @@ def test_update_name_without_password(logged_client, user):
 
 def test_email_change_requires_current_password(logged_client, user):
     response = logged_client.post(
-        "/accounts/me/profile/", {"first_name": "", "last_name": "", "email": "nuevo@phylax.test"}
+        "/accounts/me/profile/", {"first_name": "", "last_name": "", "email": "nuevo@atalaya.test"}
     )
     assert response.status_code == 200
     assert "current_password" in response.context["form"].errors
     user.refresh_from_db()
-    assert user.email != "nuevo@phylax.test"
+    assert user.email != "nuevo@atalaya.test"
 
 
 def test_email_change_with_password_is_logged_without_email(logged_client, user, password):
@@ -78,12 +78,12 @@ def test_email_change_with_password_is_logged_without_email(logged_client, user,
         {
             "first_name": "",
             "last_name": "",
-            "email": "nuevo@phylax.test",
+            "email": "nuevo@atalaya.test",
             "current_password": password,
         },
     )
     user.refresh_from_db()
-    assert user.email == "nuevo@phylax.test"
+    assert user.email == "nuevo@atalaya.test"
     entry = events(AuditEvent.EMAIL_CHANGED, user).get()
     assert "@" not in str(entry.metadata)
 

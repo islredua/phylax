@@ -81,6 +81,6 @@ class ContainerRegistryFactory(factory.django.DjangoModelFactory):
         model = ContainerRegistry
 
     name = factory.Sequence(lambda n: f"registry-{n}")
-    url = factory.Sequence(lambda n: f"https://registry{n}.phylax.test")
+    url = factory.Sequence(lambda n: f"https://registry{n}.atalaya.test")
     username = "lector"
     token = "token-de-solo-lectura"

@@ -32,14 +32,14 @@ def test_parse_sweep_only_up_hosts():
     assert [h.ipv4 for h in hosts] == ["172.30.10.11", "172.30.10.12"]
     with_mac, without_name = hosts
     assert with_mac.mac == "02:42:AC:1E:0A:0B"
-    assert with_mac.hostnames == ("web01.lab.phylax",)
+    assert with_mac.hostnames == ("web01.lab.atalaya",)
     assert without_name.hostnames == () and without_name.mac is None
     assert not with_mac.services_complete
 
 
 def test_parse_service_scan():
     web, db = parse_nmap_xml(SERVICE, observed_at=NOW, services_complete=True)
-    assert web.hostnames == ("web01.lab.phylax",)  # PTR y user deduplicados
+    assert web.hostnames == ("web01.lab.atalaya",)  # PTR y user deduplicados
     assert web.os_guess == "Linux 6.0"  # osmatch de mayor precisión
     ssh, https, proxy = web.services
     assert (ssh.port, ssh.product, ssh.version, ssh.extra_info, ssh.cpe) == (
@@ -106,7 +106,7 @@ def test_argv_rejects_injection_and_non_strict_targets(target):
 
 
 def test_cidr_limits(settings):
-    settings.PHYLAX_MAX_DISCOVERY_PREFIX = 16
+    settings.ATALAYA_MAX_DISCOVERY_PREFIX = 16
     assert validate_sweep_cidr("10.0.0.0/16") == "10.0.0.0/16"
     with pytest.raises(ValidationError, match="demasiado amplio"):
         validate_sweep_cidr("10.0.0.0/8")
@@ -352,7 +352,7 @@ def test_run_records_live_text_output(lab_range, operator, fake_nmap, settings):
     assert truncated and len(output) == 10
 
 
-def test_text_output_path_must_be_generated_by_phylax(settings):
+def test_text_output_path_must_be_generated_by_atalaya(settings):
     with pytest.raises(ValidationError):
         build_argv(
             DiscoveryProfile.HOST_SWEEP,

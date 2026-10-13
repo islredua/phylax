@@ -5,7 +5,7 @@ from django.contrib import admin
 from django.contrib.auth import get_user_model
 
 from apps.accounts.models import User
-from apps.accounts.sites import PhylaxAdminSite
+from apps.accounts.sites import AtalayaAdminSite
 
 
 def test_custom_user_model_is_active():
@@ -29,4 +29,4 @@ def test_session_cookie_hardening():
 
 def test_default_admin_site_is_restricted():
     # admin.site es un LazyObject; isinstance se resuelve contra el sitio real.
-    assert isinstance(admin.site, PhylaxAdminSite)
+    assert isinstance(admin.site, AtalayaAdminSite)

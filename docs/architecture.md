@@ -21,7 +21,7 @@ Backend: Django 5 + PostgreSQL 16 + Celery/Redis. Despliegue: Docker Compose. In
 ## Decisiones de diseño
 
 - **Monolito modular, no microservicios.** Equipo unipersonal, 12 semanas. La separación lógica entre módulos preserva la opción de extracción futura.
-- **Ollama en Docker Compose, con o sin GPU (ADR-008).** `scripts/compose.sh` habilita la GPU NVIDIA si existe; Phylax detecta GPU/CPU y ajusta timeouts. Toda inferencia corre en segundo plano (cola Celery `llm`).
+- **Ollama en Docker Compose, con o sin GPU (ADR-008).** `scripts/compose.sh` habilita la GPU NVIDIA si existe; Atalaya detecta GPU/CPU y ajusta timeouts. Toda inferencia corre en segundo plano (cola Celery `llm`).
 - **Tareas en segundo plano con Celery + Redis + Beat** (colas `default`, `llm`, `discovery`).
 - **Datos en PostgreSQL.** JSONB para hallazgos semiestructurados, full-text search para CTI.
 - **Scanners como subprocesos.** nmap, nuclei y Grype corren como binarios dentro del contenedor backend (Dockerfile ya los instala).

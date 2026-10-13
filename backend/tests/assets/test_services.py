@@ -56,21 +56,21 @@ def test_resolve_returns_none_without_match():
 
 def test_resolve_by_any_identifier():
     asset = AssetFactory()
-    ident(asset, IdentifierKind.FQDN, "web.phylax.local")
-    assert services.resolve_asset([(IdentifierKind.FQDN, "WEB.phylax.local.")]) == asset
+    ident(asset, IdentifierKind.FQDN, "web.atalaya.local")
+    assert services.resolve_asset([(IdentifierKind.FQDN, "WEB.atalaya.local.")]) == asset
 
 
 def test_resolve_conflict_mac_vs_fqdn_is_persisted_without_changes():
     a, b = AssetFactory(), AssetFactory()
     ident(a, IdentifierKind.MAC, "aa:bb:cc:dd:ee:01")
-    ident(b, IdentifierKind.FQDN, "db.phylax.local")
+    ident(b, IdentifierKind.FQDN, "db.atalaya.local")
     result = services.resolve_asset(
-        [(IdentifierKind.FQDN, "db.phylax.local"), (IdentifierKind.MAC, "AA:BB:CC:DD:EE:01")]
+        [(IdentifierKind.FQDN, "db.atalaya.local"), (IdentifierKind.MAC, "AA:BB:CC:DD:EE:01")]
     )
     assert isinstance(result, AssetConflict)
     assert set(result.candidate_assets.all()) == {a, b}
     # La identidad disputada es la que no coincide con el identificador de mayor precedencia.
-    assert (result.identifier_kind, result.identifier_value) == ("FQDN", "db.phylax.local")
+    assert (result.identifier_kind, result.identifier_value) == ("FQDN", "db.atalaya.local")
 
 
 def test_resolve_conflict_is_reused_while_open():
@@ -121,14 +121,14 @@ def test_upsert_creates_unconfirmed_asset_with_range_and_exposure():
     NetworkRangeFactory(cidr="10.50.0.0/16", zone=Exposure.INTERNAL)
     dmz = NetworkRangeFactory(cidr="10.50.1.0/24", zone=Exposure.DMZ)
     result = services.upsert_discovered_host(
-        host(ipv4="10.50.1.20", hostnames=("Web01.Phylax.Local",), os_guess="Linux 5.x")
+        host(ipv4="10.50.1.20", hostnames=("Web01.Atalaya.Local",), os_guess="Linux 5.x")
     )
     asset = result.asset
     assert result.created and not result.updated
     assert asset.status == AssetStatus.UNCONFIRMED
     assert asset.origin == AssetOrigin.DISCOVERY
     assert asset.criticality is None
-    assert asset.name == "web01.phylax.local"
+    assert asset.name == "web01.atalaya.local"
     # Longest-prefix match: /24 gana a /16 y hereda su zona.
     assert asset.network_range == dmz
     assert asset.exposure == Exposure.DMZ
@@ -224,7 +224,7 @@ def test_upsert_adds_new_identifiers_to_known_asset():
     asset = AssetFactory()
     ident(asset, IdentifierKind.IPV4, "10.92.0.1")
     services.upsert_discovered_host(
-        host(ipv4="10.92.0.1", mac="aa:bb:cc:00:00:10", hostnames=("app.phylax.local",))
+        host(ipv4="10.92.0.1", mac="aa:bb:cc:00:00:10", hostnames=("app.atalaya.local",))
     )
     assert set(asset.identifiers.values_list("kind", flat=True)) == {"IPV4", "MAC", "FQDN"}
 
@@ -360,7 +360,7 @@ def test_mark_stale_assets_only_for_observed():
 def test_merge_moves_everything_and_resolves_duplicates(operator):
     source, target = AssetFactory(), AssetFactory()
     ident(source, IdentifierKind.IPV4, "10.120.0.1")
-    ident(target, IdentifierKind.FQDN, "app.phylax.local")
+    ident(target, IdentifierKind.FQDN, "app.atalaya.local")
     newer = timezone.now()
     older = newer - timedelta(days=2)
     ServiceFactory(asset=source, port=443, product="nginx-nuevo", last_seen=newer)
@@ -378,7 +378,7 @@ def test_merge_moves_everything_and_resolves_duplicates(operator):
     assert source.status == AssetStatus.RETIRED and source.merged_into == target
     assert set(target.identifiers.values_list("value", flat=True)) == {
         "10.120.0.1",
-        "app.phylax.local",
+        "app.atalaya.local",
     }
     assert target.services.count() == 2
     assert target.services.get(port=443).product == "nginx-nuevo"
@@ -433,17 +433,17 @@ def test_create_asset_normalises_and_rejects_duplicates(operator):
             "environment": "PROD",
             "business_role": "WEB_PUBLICA",
         },
-        identifiers=[(IdentifierKind.FQDN, "Portal.Phylax.Local")],
+        identifiers=[(IdentifierKind.FQDN, "Portal.Atalaya.Local")],
         criticality="ALTO",
     )
     assert asset.status == AssetStatus.ACTIVE
     assert asset.criticality_source == CriticalitySource.MANUAL
-    assert asset.identifiers.get().value == "portal.phylax.local"
+    assert asset.identifiers.get().value == "portal.atalaya.local"
     with pytest.raises(ValidationError, match="Ya existe"):
         services.create_asset(
             user=operator,
             fields={"name": "dup"},
-            identifiers=[(IdentifierKind.FQDN, "portal.phylax.local")],
+            identifiers=[(IdentifierKind.FQDN, "portal.atalaya.local")],
         )
 
 
@@ -565,7 +565,7 @@ def test_beat_schedule_and_routes_are_configured():
 
 def test_confirm_requires_identifiers_of_the_type(operator):
     asset = AssetFactory(status=AssetStatus.UNCONFIRMED)
-    ident(asset, IdentifierKind.FQDN, "solo-nombre.phylax.local")
+    ident(asset, IdentifierKind.FQDN, "solo-nombre.atalaya.local")
     with pytest.raises(ValidationError, match="IPv4"):
         services.confirm_asset(asset, user=operator, criticality="BAJO")
 
@@ -576,7 +576,7 @@ def test_create_asset_requires_identifier_for_type(operator):
         services.create_asset(user=operator, fields=fields, identifiers=[])
     with pytest.raises(ValidationError, match="IPv4"):
         services.create_asset(
-            user=operator, fields=fields, identifiers=[(IdentifierKind.FQDN, "host.phylax.local")]
+            user=operator, fields=fields, identifiers=[(IdentifierKind.FQDN, "host.atalaya.local")]
         )
     with pytest.raises(ValidationError, match="catálogo"):
         services.create_asset(

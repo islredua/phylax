@@ -1,4 +1,4 @@
-"""URLs raíz de Phylax."""
+"""URLs raíz de Atalaya."""
 
 from django.contrib import admin
 from django.contrib.auth.decorators import login_not_required
@@ -8,7 +8,7 @@ from django.urls import include, path
 
 @login_not_required
 def health(_request):
-    return JsonResponse({"status": "ok", "service": "phylax"})
+    return JsonResponse({"status": "ok", "service": "atalaya"})
 
 
 urlpatterns = [

@@ -45,7 +45,7 @@ HOSTS = [
         "WEB_APP",
         "WEB_PUBLICA",
         "ALTO",
-        [(Kind.IPV4, "172.30.10.11"), (Kind.FQDN, "web01.lab.phylax")],
+        [(Kind.IPV4, "172.30.10.11"), (Kind.FQDN, "web01.lab.atalaya")],
         "Portal público de la aseguradora donde los clientes consultan pólizas y descargan "
         "constancias. Atiende unas 20 000 sesiones diarias.",
         ["PII"],
@@ -56,7 +56,7 @@ HOSTS = [
         "WEB_APP",
         "WEB_PUBLICA",
         None,
-        [(Kind.IPV4, "172.30.10.12"), (Kind.FQDN, "web02.lab.phylax")],
+        [(Kind.IPV4, "172.30.10.12"), (Kind.FQDN, "web02.lab.atalaya")],
         "Sitio institucional con noticias y formulario de contacto. No almacena datos de clientes; "
         "los mensajes se reenvían por correo al área de comunicación.",
         [],
@@ -67,7 +67,7 @@ HOSTS = [
         "WEB_APP",
         "PAGOS",
         None,
-        [(Kind.IPV4, "172.30.10.13"), (Kind.FQDN, "pagos.lab.phylax")],
+        [(Kind.IPV4, "172.30.10.13"), (Kind.FQDN, "pagos.lab.atalaya")],
         "Pasarela de pagos en línea: recibe pagos con tarjeta de primas de seguros e integra con el "
         "procesador bancario. Indisponible = no se cobra.",
         ["PII", "FINANCIERO"],
@@ -99,7 +99,7 @@ HOSTS = [
         "DATABASE",
         "BASE_DATOS",
         "CRITICO",
-        [(Kind.IPV4, "172.30.20.21"), (Kind.FQDN, "db01.lab.phylax")],
+        [(Kind.IPV4, "172.30.20.21"), (Kind.FQDN, "db01.lab.atalaya")],
         "PostgreSQL principal de pólizas y siniestros: datos personales y de salud de asegurados.",
         ["PII", "CLINICO"],
         "RESTRINGIDA",
@@ -129,7 +129,7 @@ HOSTS = [
         "HOST",
         "AUTENTICACION",
         None,
-        [(Kind.IPV4, "172.30.20.32"), (Kind.FQDN, "sso.lab.phylax")],
+        [(Kind.IPV4, "172.30.20.32"), (Kind.FQDN, "sso.lab.atalaya")],
         "Servidor de identidad (Keycloak) que da inicio de sesión único a empleados y portales.",
         ["CREDENCIALES"],
         "RESTRINGIDA",
@@ -252,7 +252,7 @@ class Command(BaseCommand):
                 source="nmap",
                 observed_at=now,
                 ipv4="172.30.20.40",
-                hostnames=("backup01.lab.phylax",),
+                hostnames=("backup01.lab.atalaya",),
                 os_guess="Linux 5.x",
                 services=(
                     DiscoveredService(

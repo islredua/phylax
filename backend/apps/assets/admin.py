@@ -50,7 +50,7 @@ class AssetIdentifierAdmin(NoDeleteMixin, SimpleHistoryAdmin):
 
 @admin.register(ContainerRegistry)
 class ContainerRegistryAdmin(admin.ModelAdmin):
-    # El token es write-only: se gestiona desde la UI de Phylax, nunca aquí.
+    # El token es write-only: se gestiona desde la UI de Atalaya, nunca aquí.
     exclude = ("token",)
     list_display = ("name", "url", "environment", "last_check_ok")
 

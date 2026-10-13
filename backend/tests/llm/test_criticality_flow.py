@@ -24,7 +24,7 @@ def test_build_input_excludes_exposure_truncates_and_cleans():
     asset = AssetFactory(
         description="x" * 2000 + "\x07\x1b", exposure=Exposure.INTERNET, data_categories=["PII"]
     )
-    AssetIdentifierFactory(asset=asset, kind=IdentifierKind.FQDN, value="app.phylax.local")
+    AssetIdentifierFactory(asset=asset, kind=IdentifierKind.FQDN, value="app.atalaya.local")
     for port in range(1, 13):
         ServiceFactory(asset=asset, port=port, banner="b" * 500)
     ServiceFactory(asset=asset, port=999, state="closed")
@@ -35,7 +35,7 @@ def test_build_input_excludes_exposure_truncates_and_cleans():
     assert len(data["services"]) == 10
     assert all(len(s["banner"]) <= 301 for s in data["services"])
     assert not any("999/" in s["servicio"] for s in data["services"])
-    assert data["hostnames"] == ["app.phylax.local"]
+    assert data["hostnames"] == ["app.atalaya.local"]
 
 
 def test_injection_in_banner_stays_inside_delimiters():

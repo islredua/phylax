@@ -19,17 +19,17 @@ UNPRIVILEGED = "unprivileged"
 
 
 def validate_sweep_cidr(cidr):
-    """CIDR IPv4 estricto y no más amplio que ``PHYLAX_MAX_DISCOVERY_PREFIX``."""
+    """CIDR IPv4 estricto y no más amplio que ``ATALAYA_MAX_DISCOVERY_PREFIX``."""
     try:
         network = ipaddress.ip_network(str(cidr), strict=True)
     except ValueError as exc:
         raise ValidationError(f"«{cidr}» no es un CIDR válido.") from exc
     if network.version != 4:
         raise ValidationError("El descubrimiento solo admite rangos IPv4.")
-    if network.prefixlen < settings.PHYLAX_MAX_DISCOVERY_PREFIX:
+    if network.prefixlen < settings.ATALAYA_MAX_DISCOVERY_PREFIX:
         raise ValidationError(
             f"El rango {network} es demasiado amplio para descubrimiento "
-            f"(máximo /{settings.PHYLAX_MAX_DISCOVERY_PREFIX})."
+            f"(máximo /{settings.ATALAYA_MAX_DISCOVERY_PREFIX})."
         )
     return network.compressed
 
@@ -47,7 +47,7 @@ _OUTPUT_NAME = re.compile(r"^[0-9a-f-]{36}\.txt$")
 def _output_flags(text_output):
     """Salida legible (-oN) en el archivo del run, además del XML por stdout.
 
-    La ruta la genera Phylax (``MEDIA_ROOT/discovery/<uuid>.txt``), nunca el usuario.
+    La ruta la genera Atalaya (``MEDIA_ROOT/discovery/<uuid>.txt``), nunca el usuario.
     """
     if text_output is None:
         return []

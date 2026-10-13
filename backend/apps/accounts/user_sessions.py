@@ -11,7 +11,7 @@ from .models import UserSession
 
 # Frecuencia máxima con la que se actualiza ``last_seen_at`` por sesión.
 TOUCH_INTERVAL_SECONDS = 5 * 60
-SEEN_SESSION_KEY = "_phylax_seen_at"
+SEEN_SESSION_KEY = "_atalaya_seen_at"
 
 
 def _session_store(session_key=None):

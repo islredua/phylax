@@ -23,7 +23,7 @@ sobre grises neutros. Los colores de severidad solo comunican riesgo o estado.
 | `primary` | `#1E3A6E` | Acento único: menú activo, botones primarios, enlaces, etiquetas |
 | `primary-hover` | `#172F59` | Hover del primario |
 | `primary-soft` | `#E3E8F1` | Hover de menú, fondos de etiquetas de rol, avisos informativos |
-| `brand-ink` | `#002466` | Logo y nombre "Phylax" |
+| `brand-ink` | `#002466` | Logo y nombre "Atalaya" |
 | `sidebar` / `sidebar-line` | `#EEF0F3` / `#DDE1E7` | Barra lateral y su borde |
 | `canvas` | `#F4F6FA` | Fondo del área de trabajo |
 | `surface` | `#FFFFFF` | Tarjetas y tablas |
@@ -54,7 +54,7 @@ manifiesto C2PA, por eso están excluidos de los hooks de whitespace.
 
 - `favicon.svg`: favicon del sitio.
 - Marca (corchete + cuadrado) inline en la barra lateral y el login, con
-  `currentColor = brand-ink`, junto al nombre "Phylax" en Plex Sans 600. Se usa
+  `currentColor = brand-ink`, junto al nombre "Atalaya" en Plex Sans 600. Se usa
   inline y no `<img>` porque dentro de un `<img>` el SVG no puede usar la fuente
   local y caería a una genérica.
 - Variantes blancas e icono de app disponibles para usos futuros (reportes PDF,
