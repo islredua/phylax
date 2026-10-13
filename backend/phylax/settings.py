@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     "apps.cti",
     "apps.scoring",
     "apps.presentation",
+    "apps.labgen",
 ]
 
 MIDDLEWARE = [
@@ -268,6 +269,12 @@ NVD_API_KEY = os.environ.get("NVD_API_KEY", "")
 NVD_API_BASE = os.environ.get("NVD_API_BASE", "https://services.nvd.nist.gov/rest/json/cves/2.0")
 EPSS_SNAPSHOT_URL = os.environ.get("EPSS_SNAPSHOT_URL", "")
 KEV_CATALOG_URL = os.environ.get("KEV_CATALOG_URL", "")
+
+# --- Vulnlab (laboratorio de validación, rama feat/experimental-lab) ---
+# Host B: máquina SEPARADA del host de Phylax donde corre vulnlab/docker-compose.yml.
+# Vacío/0 en producción: nunca debe apuntar a un host real fuera del laboratorio.
+VULNLAB_HOST = os.environ.get("VULNLAB_HOST", "")
+VULNLAB_ENABLED = os.environ.get("VULNLAB_ENABLED", "0") == "1"
 
 # --- Scoring weights ---
 SCORING_WEIGHTS = {

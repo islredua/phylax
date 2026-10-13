@@ -20,6 +20,9 @@ from apps.assets.models import (
     Service,
     Tag,
 )
+from apps.cti.models import CTISnapshot, CVERecord
+from apps.labgen.models import SyntheticDataset
+from apps.scanners.models import Finding
 
 
 class NetworkRangeFactory(factory.django.DjangoModelFactory):
@@ -84,3 +87,47 @@ class ContainerRegistryFactory(factory.django.DjangoModelFactory):
     url = factory.Sequence(lambda n: f"https://registry{n}.phylax.test")
     username = "lector"
     token = "token-de-solo-lectura"
+
+
+class CTISnapshotFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = CTISnapshot
+
+    label = factory.Sequence(lambda n: f"snapshot-{n}")
+    source_hash = factory.Sequence(lambda n: f"{n:064x}")
+    cve_count = 0
+
+
+class CVERecordFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = CVERecord
+
+    snapshot = factory.SubFactory(CTISnapshotFactory)
+    cve_id = factory.Sequence(lambda n: f"CVE-2024-{n:05d}")
+    cvss_score = 7.5
+    epss_score = 0.1
+    in_kev = False
+
+
+class SyntheticDatasetFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = SyntheticDataset
+
+    name = factory.Sequence(lambda n: f"dataset-{n}")
+    seed = 42
+    assets_count = 10
+    findings_count = 20
+    cti_snapshot_hash = factory.Sequence(lambda n: f"{n:064x}")
+
+
+class FindingFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = Finding
+
+    asset = factory.SubFactory(AssetFactory)
+    cve_id = factory.Sequence(lambda n: f"CVE-2024-{n:05d}")
+    cvss_score = 7.5
+    epss_score = 0.1
+    in_kev = False
+    detected_at = factory.LazyFunction(timezone.now)
+    is_synthetic = False
