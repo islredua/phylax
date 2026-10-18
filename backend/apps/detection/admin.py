@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import SoftwareComponent
+from .models import Finding, FindingEvent, FindingEvidence, SoftwareComponent
 
 
 @admin.register(SoftwareComponent)
@@ -13,6 +13,49 @@ class SoftwareComponentAdmin(admin.ModelAdmin):
         return False
 
     def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+class ReadOnly:
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+class EvidenceInline(ReadOnly, admin.TabularInline):
+    model = FindingEvidence
+    extra = 0
+
+
+class EventInline(ReadOnly, admin.TabularInline):
+    model = FindingEvent
+    extra = 0
+
+
+@admin.register(Finding)
+class FindingAdmin(admin.ModelAdmin):
+    list_display = (
+        "vulnerability_id",
+        "asset",
+        "severity",
+        "status",
+        "in_kev",
+        "epss_score",
+        "last_seen_at",
+    )
+    list_filter = ("status", "severity", "in_kev")
+    search_fields = ("vulnerability_id", "title", "asset__name")
+    inlines = [EvidenceInline, EventInline]
+
+    def has_add_permission(self, request):
         return False
 
     def has_delete_permission(self, request, obj=None):

@@ -30,7 +30,7 @@ el PR de este módulo depende del PR #7). **No se hace merge a `main`.**
 |---|---|---|
 | 1 | Reconocimiento y este documento | ✅ |
 | 2 | Almacén CTI (espejo NVD/EPSS/KEV), índice de software y reconciliación sin escanear | ✅ |
-| 3 | Hallazgos: modelo, deduplicación, ciclo de vida y línea de tiempo | ⬜ |
+| 3 | Hallazgos: modelo, deduplicación, ciclo de vida y línea de tiempo | ✅ |
 | 4 | Fuentes de eventos (CTI, inventario, tiempo) y filtro rápido | ⬜ |
 | 5 | Planificador LLM con lista cerrada de acciones y registro de decisiones | ⬜ |
 | 6 | Ejecutor (nuclei, Grype, nmap vía discovery), guardarraíles y cola con prioridad | ⬜ |
@@ -88,6 +88,17 @@ Se documentan aquí conforme aparezcan.
   (desde `upsert_discovered_host`, al confirmar la transacción), `asset_confirmed` y
   `sbom_attached` (desde `sbom.attach_sbom`, que es la función que usan las vistas). Los
   receptores reciben solo identificadores.
+- **Reapertura solo desde «Mitigado».** Un hallazgo aceptado o marcado falso positivo que una
+  herramienta vuelve a reportar **no** se reabre: la persona ya decidió sobre esa
+  vulnerabilidad; la evidencia nueva se añade igual y queda «visto de nuevo» en la línea de tiempo.
+- **Cierre automático por reconciliación** (`findings.resolve_vanished`): si un hallazgo lo
+  reportó *solo* la reconciliación CTI y el componente afectado deja de estar vigente (versión
+  corregida, servicio cerrado), pasa a «Mitigado» con el evento «Resuelto por reconciliación».
+  Si vuelve, se reabre como «Reaparecido».
+- **Aceptar el riesgo o falso positivo exigen nota.** Reabrir un cerrado vuelve a «Confirmado».
+- **Scoring**: `apps/scoring/services.py` define `score_findings(ids) -> {id: ScoreResult}` y
+  `is_available()`. La detección lo invoca tras crear o actualizar hallazgos; cuando el
+  Módulo 4 lo implemente, el puntaje y su desglose quedan en el hallazgo y en su línea de tiempo.
 - Las pruebas de `cti` conectan la señal `changes_detected` con `weak=False` (una lambda se
   recolecta antes de dispararse).
 

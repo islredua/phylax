@@ -67,3 +67,200 @@ class SoftwareComponent(UUIDModel):
         if self.port:
             text += f" · {self.port}/{self.protocol}"
         return text
+
+
+# --------------------------------------------------------------------------
+# Hallazgos (etapa 3)
+# --------------------------------------------------------------------------
+
+
+class FindingSeverity(models.TextChoices):
+    CRITICAL = "CRITICAL", "Crítica"
+    HIGH = "HIGH", "Alta"
+    MEDIUM = "MEDIUM", "Media"
+    LOW = "LOW", "Baja"
+    INFO = "INFO", "Informativa"
+
+
+SEVERITY_RANK = {
+    FindingSeverity.CRITICAL: 4,
+    FindingSeverity.HIGH: 3,
+    FindingSeverity.MEDIUM: 2,
+    FindingSeverity.LOW: 1,
+    FindingSeverity.INFO: 0,
+}
+
+
+class FindingStatus(models.TextChoices):
+    NEW = "NEW", "Nuevo"
+    CONFIRMED = "CONFIRMED", "Confirmado"
+    PRIORITIZED = "PRIORITIZED", "Priorizado"
+    REOPENED = "REOPENED", "Reaparecido"
+    MITIGATED = "MITIGATED", "Mitigado"
+    ACCEPTED = "ACCEPTED", "Riesgo aceptado"
+    FALSE_POSITIVE = "FALSE_POSITIVE", "Falso positivo"
+
+
+OPEN_STATUSES = (
+    FindingStatus.NEW,
+    FindingStatus.CONFIRMED,
+    FindingStatus.PRIORITIZED,
+    FindingStatus.REOPENED,
+)
+CLOSED_STATUSES = (FindingStatus.MITIGATED, FindingStatus.ACCEPTED, FindingStatus.FALSE_POSITIVE)
+
+
+class FindingSource(models.TextChoices):
+    CTI_MATCH = "CTI_MATCH", "Reconciliación CTI"
+    NUCLEI = "NUCLEI", "nuclei"
+    GRYPE = "GRYPE", "Grype"
+    MANUAL = "MANUAL", "Manual"
+
+
+class Finding(UUIDModel):
+    """«Este activo tiene este software» ∪ «este software tiene esta vulnerabilidad».
+
+    Un hallazgo por ``(activo, vulnerabilidad)``: si dos herramientas reportan lo mismo, es
+    **uno** con dos evidencias. Los campos CTI (CVSS, EPSS, KEV) se copian para filtrar y
+    ordenar; la fuente de verdad sigue en ``cti.CveRecord``. ``priority_score`` lo llena el
+    motor de scoring (Módulo 4); mientras no exista, el panel ordena por prioridad provisional.
+    """
+
+    asset = models.ForeignKey("assets.Asset", on_delete=models.CASCADE, related_name="findings")
+    vulnerability_id = models.CharField("vulnerabilidad", max_length=100)
+    cve = models.ForeignKey(
+        "cti.CveRecord", null=True, blank=True, on_delete=models.SET_NULL, related_name="findings"
+    )
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    severity = models.CharField(
+        max_length=8, choices=FindingSeverity.choices, default=FindingSeverity.MEDIUM
+    )
+    status = models.CharField(
+        max_length=15, choices=FindingStatus.choices, default=FindingStatus.NEW, db_index=True
+    )
+    component = models.ForeignKey(
+        SoftwareComponent, null=True, blank=True, on_delete=models.SET_NULL, related_name="findings"
+    )
+    sources = models.JSONField(default=list, blank=True, help_text="Herramientas que lo reportan.")
+    confidence = models.CharField(max_length=8, blank=True)
+    environment = models.CharField(max_length=30, blank=True, help_text="Copia para filtrar.")
+
+    first_detected_at = models.DateTimeField()
+    last_seen_at = models.DateTimeField()
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    reopened_count = models.PositiveSmallIntegerField(default=0)
+
+    cvss_score = models.FloatField(null=True, blank=True)
+    epss_score = models.FloatField(null=True, blank=True)
+    in_kev = models.BooleanField(default=False, db_index=True)
+    kev_due_at = models.DateField(null=True, blank=True)
+
+    priority_score = models.FloatField(null=True, blank=True)
+    priority_breakdown = models.JSONField(default=dict, blank=True)
+    priority_computed_at = models.DateTimeField(null=True, blank=True)
+
+    status_changed_by = models.ForeignKey(
+        USER, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    status_changed_at = models.DateTimeField(null=True, blank=True)
+    note = models.TextField(blank=True, help_text="Última nota de quien lo trabajó.")
+
+    class Meta:
+        ordering = ["-priority_score", "-in_kev", "-severity", "-epss_score", "-first_detected_at"]
+        verbose_name = "hallazgo"
+        verbose_name_plural = "hallazgos"
+        constraints = [
+            models.UniqueConstraint(fields=["asset", "vulnerability_id"], name="unique_finding")
+        ]
+        indexes = [
+            models.Index(fields=["severity"]),
+            models.Index(fields=["environment"]),
+            models.Index(fields=["last_seen_at"]),
+        ]
+        permissions = [
+            ("work_findings", "Trabajar hallazgos (confirmar, mitigar, aceptar, falso positivo)")
+        ]
+
+    def __str__(self):
+        return f"{self.vulnerability_id} · {self.asset}"
+
+    @property
+    def is_open(self):
+        return self.status in OPEN_STATUSES
+
+    @property
+    def severity_rank(self):
+        return SEVERITY_RANK.get(self.severity, 0)
+
+    @property
+    def provisional_rank(self):
+        """Orden mientras no hay scoring: KEV, severidad, EPSS. Etiquetado como provisional."""
+        return (int(self.in_kev), self.severity_rank, self.epss_score or 0.0)
+
+
+class FindingEvidence(UUIDModel):
+    """Lo que cada herramienta vio: qué se corrió y qué devolvió (auditable)."""
+
+    finding = models.ForeignKey(Finding, on_delete=models.CASCADE, related_name="evidence")
+    source = models.CharField(max_length=10, choices=FindingSource.choices)
+    component = models.ForeignKey(
+        SoftwareComponent, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    execution_ref = models.CharField(max_length=100, blank=True, db_index=True)
+    summary = models.CharField(max_length=255)
+    data = models.JSONField(default=dict, blank=True)
+    observed_at = models.DateTimeField()
+    times_seen = models.PositiveIntegerField(default=1)
+
+    class Meta:
+        ordering = ["-observed_at"]
+        verbose_name = "evidencia"
+        verbose_name_plural = "evidencias"
+
+    def __str__(self):
+        return f"{self.get_source_display()}: {self.summary}"
+
+
+class FindingEventKind(models.TextChoices):
+    DETECTED = "DETECTED", "Detectado"
+    SOURCE_ADDED = "SOURCE_ADDED", "Confirmado por otra herramienta"
+    SEEN_AGAIN = "SEEN_AGAIN", "Visto de nuevo"
+    RESCANNED = "RESCANNED", "Reescaneado"
+    EPSS_CHANGED = "EPSS_CHANGED", "EPSS cambió"
+    KEV_ADDED = "KEV_ADDED", "Entró a KEV"
+    CVSS_CHANGED = "CVSS_CHANGED", "CVSS cambió"
+    PRIORITY_CHANGED = "PRIORITY_CHANGED", "Prioridad recalculada"
+    STATUS_CHANGED = "STATUS_CHANGED", "Cambio de estado"
+    REOPENED = "REOPENED", "Reaparecido"
+    AUTO_RESOLVED = "AUTO_RESOLVED", "Resuelto por reconciliación"
+    NOTE = "NOTE", "Nota"
+
+
+class FindingEvent(models.Model):
+    """Línea de tiempo del hallazgo. **Solo se agrega**: nunca se edita ni se borra."""
+
+    finding = models.ForeignKey(Finding, on_delete=models.CASCADE, related_name="events")
+    kind = models.CharField(max_length=20, choices=FindingEventKind.choices)
+    occurred_at = models.DateTimeField(db_index=True)
+    actor = models.ForeignKey(
+        USER, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    message = models.CharField(max_length=500, blank=True)
+    data = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["occurred_at", "id"]
+        verbose_name = "evento de hallazgo"
+        verbose_name_plural = "eventos de hallazgo"
+
+    def __str__(self):
+        return f"{self.get_kind_display()} · {self.occurred_at:%Y-%m-%d %H:%M}"
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            raise ValueError("La línea de tiempo de un hallazgo no se reescribe.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("La línea de tiempo de un hallazgo no se borra.")

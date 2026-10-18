@@ -37,6 +37,11 @@ IMMUTABLE_MODELS = {
     ("accounts", "auditlogentry"),
     ("llm", "inferencelog"),
     ("discovery", "discoveryrun"),
+    # Módulo 3: evidencia del lazo de detección.
+    ("cti", "ctisyncrun"),
+    ("cti", "ctichange"),
+    ("detection", "findingevent"),
+    ("detection", "findingevidence"),
 }
 # Configuración que solo admin modifica; el operador solo la consulta.
 ADMIN_MANAGED_MODELS = {
@@ -44,6 +49,7 @@ ADMIN_MANAGED_MODELS = {
     ("assets", "containerregistry"),
     ("assets", "catalogentry"),
     ("llm", "llmsettings"),
+    ("cti", "ctisource"),
 }
 # (app_label, model) con secretos: ningún rol recibe permisos sobre ellos.
 SECRET_MODELS = {
@@ -62,7 +68,15 @@ ROLE_ACTIONS = {
 }
 # Permisos custom ("app_label.codename") que reciben roles distintos de admin.
 ROLE_CUSTOM_PERMISSIONS = {
-    OPERATOR: {"assets.decide_criticality", "discovery.run_discovery"},
+    OPERATOR: {
+        "assets.decide_criticality",
+        "discovery.run_discovery",
+        # Módulo 3: el Analista trabaja hallazgos, aprueba acciones y lanza evaluaciones.
+        "detection.work_findings",
+        "detection.approve_actions",
+        "detection.request_evaluation",
+        "detection.use_test_panel",
+    },
     AUDITOR: set(),
 }
 

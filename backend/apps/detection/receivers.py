@@ -37,4 +37,12 @@ def on_asset_confirmed(sender, asset_id, **kwargs):
 
 @receiver(changes_detected, dispatch_uid="detection.cti_changes")
 def on_cti_changes(sender, run, changes, **kwargs):
-    logger.info("CTI: %d cambio(s) detectados en la sincronización %s", len(changes), run.pk)
+    from . import findings
+
+    touched = findings.apply_cti_changes(changes)
+    logger.info(
+        "CTI: %d cambio(s) en la sincronización %s; %d hallazgo(s) actualizados",
+        len(changes),
+        run.pk,
+        len(touched),
+    )
