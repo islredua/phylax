@@ -29,4 +29,5 @@ urlpatterns = [
     path("organization/draft/", views.DraftView.as_view(), name="organization_draft"),
     path("sources/", views.SourcesView.as_view(), name="sources"),
     path("sources/<str:kind>/sync/", views.SyncSourceView.as_view(), name="source_sync"),
+    path("tests/", views.TestPanelView.as_view(), name="test_panel"),
 ]

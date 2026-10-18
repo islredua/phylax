@@ -167,6 +167,7 @@ SECTIONS = (
                 ("detection.view_organizationprofile",),
                 ("detection:organization_draft",),
             ),
+            Tab("tests", "Pruebas", "detection:test_panel", ("detection.use_test_panel",)),
         ),
     ),
     Section(

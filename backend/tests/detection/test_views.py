@@ -105,6 +105,7 @@ def test_navigation_has_detection_section(client, as_role):
         "sources",
         "automation",
         "organization",
+        "tests",
     ]
     assert [t.key for t in nav.tabs if t.active] == ["queue"]
 

@@ -588,3 +588,96 @@ class SyncSourceView(Perm, View):
             request, f"Sincronización de {source.get_kind_display()} en curso (ver Actividad)."
         )
         return redirect("detection:sources")
+
+
+# --------------------------------------------------------------------------
+# Panel de pruebas (etapa 10)
+# --------------------------------------------------------------------------
+
+
+class TestPanelView(Perm, View):
+    permission_required = "detection.use_test_panel"
+    template_name = "detection/test_panel.html"
+
+    def _context(self):
+        from apps.assets import services as assets_services
+        from apps.assets.models import Asset
+
+        from . import testing
+        from .models import Recording
+
+        actionable = [pk for pk, _ in assets_services.list_actionable_assets()]
+        assets = Asset.objects.filter(pk__in=actionable).order_by("name").only("name")
+        return {
+            "assets": assets,
+            "recordings": Recording.objects.select_related("created_by"),
+            "recording": Recording.objects.filter(status="RECORDING").first(),
+            "recent_events": DetectionEvent.objects.filter(batch__source="TEST")
+            .select_related("asset", "cve")
+            .order_by("-created_at")[:15],
+            "lab_fixture": testing.LAB_FIXTURE.name,
+            "mock_mode": cti.settings.LLM_MOCK_MODE,
+        }
+
+    def get(self, request):
+        return render(request, self.template_name, self._context())
+
+    def post(self, request):
+        from . import testing
+
+        action = request.POST.get("action", "")
+        try:
+            if action == "asset_change":
+                testing.simulate_asset_change(request.POST.get("asset"), user=request.user)
+                messages.success(
+                    request, "Evento simulado inyectado: el lazo lo procesa como uno real."
+                )
+            elif action == "kev":
+                run = testing.simulate_kev_added(request.POST.get("cve_id"), user=request.user)
+                messages.success(request, f"Simulado: entrada a KEV ({run.changes} cambio(s)).")
+            elif action == "epss":
+                testing.simulate_epss_rise(
+                    request.POST.get("cve_id"), request.POST.get("score"), user=request.user
+                )
+                messages.success(request, "Simulado: subida de EPSS.")
+            elif action == "new_cve":
+                _, cve_id = testing.simulate_new_cve(
+                    request.POST.get("product"),
+                    request.POST.get("version") or "999",
+                    user=request.user,
+                    severity=request.POST.get("severity", "HIGH"),
+                )
+                messages.success(request, f"Simulado: CVE nuevo {cve_id}.")
+            elif action == "load_fixture":
+                run = testing.load_lab_fixture(user=request.user)
+                messages.success(
+                    request,
+                    f"Datos de ejemplo cargados: {run.created} CVE nuevos, {run.changes} cambios.",
+                )
+            elif action == "start_recording":
+                testing.start_recording(request.POST.get("name"), user=request.user)
+                messages.success(
+                    request, "Grabando: todo evento y decisión desde ahora queda en la grabación."
+                )
+            elif action == "stop_recording":
+                recording = testing.stop_recording(request.POST.get("recording"), user=request.user)
+                messages.success(
+                    request,
+                    f"Grabación «{recording.name}» lista: {recording.event_count} evento(s).",
+                )
+            elif action == "replay":
+                batch, decided = testing.replay(request.POST.get("recording"), user=request.user)
+                messages.success(
+                    request,
+                    f"Reproducido: {batch.size} evento(s), {decided} decisión(es) tomadas de la grabación.",
+                )
+            elif action == "delete_recording":
+                testing.delete_recording(request.POST.get("recording"), user=request.user)
+                messages.success(request, "Grabación eliminada.")
+            else:
+                messages.error(request, "Acción desconocida.")
+        except (ValidationError, ValueError) as error:
+            _messages_from(request, error)
+        except PermissionDenied:
+            raise
+        return redirect("detection:test_panel")

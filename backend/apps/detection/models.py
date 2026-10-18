@@ -771,3 +771,46 @@ class OrganizationProfile(models.Model):
     @property
     def is_empty(self):
         return not any((self.name, self.sector, self.location, self.description.strip()))
+
+
+# --------------------------------------------------------------------------
+# Panel de pruebas: grabación y reproducción (etapa 10)
+# --------------------------------------------------------------------------
+
+
+class RecordingStatus(models.TextChoices):
+    RECORDING = "RECORDING", "Grabando"
+    READY = "READY", "Lista para reproducir"
+
+
+class Recording(UUIDModel):
+    """Sesión grabada del lazo: eventos y las decisiones que tomó el planificador.
+
+    Al reproducirla se vuelven a inyectar los eventos y las decisiones salen de la grabación,
+    no del LLM: sirve para repetir un escenario de forma determinista (pruebas, demos, tesis).
+    """
+
+    name = models.CharField("nombre", max_length=120)
+    status = models.CharField(
+        max_length=10, choices=RecordingStatus.choices, default=RecordingStatus.RECORDING
+    )
+    created_by = models.ForeignKey(
+        USER, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    started_at = models.DateTimeField()
+    stopped_at = models.DateTimeField(null=True, blank=True)
+    data = models.JSONField(default=dict, blank=True, help_text='{"events": [...]}')
+    replays = models.PositiveIntegerField(default=0)
+    last_replayed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "grabación"
+        verbose_name_plural = "grabaciones"
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def event_count(self):
+        return len((self.data or {}).get("events", []))

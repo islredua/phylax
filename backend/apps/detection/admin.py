@@ -11,6 +11,7 @@ from .models import (
     OrganizationProfile,
     PlannedAction,
     PlannerDecision,
+    Recording,
     SoftwareComponent,
     WatchItem,
 )
@@ -125,3 +126,8 @@ class AutomationLogEntryAdmin(ReadOnly, admin.ModelAdmin):
 @admin.register(OrganizationProfile)
 class OrganizationProfileAdmin(admin.ModelAdmin):
     list_display = ("name", "sector", "location", "draft_state", "updated_at")
+
+
+@admin.register(Recording)
+class RecordingAdmin(admin.ModelAdmin):
+    list_display = ("name", "status", "started_at", "stopped_at", "replays")
