@@ -717,3 +717,57 @@ class AutomationLogEntry(models.Model):
 
     def delete(self, *args, **kwargs):
         raise ValueError("La bitácora de automatización no se borra.")
+
+
+# --------------------------------------------------------------------------
+# Perfil de la organización (etapa 8)
+# --------------------------------------------------------------------------
+
+
+class DraftState(models.TextChoices):
+    NONE = "NONE", "Sin borrador"
+    PENDING = "PENDING", "Generando"
+    READY = "READY", "Listo para editar"
+    FAILED = "FAILED", "Falló"
+
+
+class OrganizationProfile(models.Model):
+    """Contexto de negocio en lenguaje natural (una sola fila). Sube relevancia; nunca esconde.
+
+    Se usa como contexto del planificador y de las explicaciones para la dirección. El texto se
+    mantiene corto porque entra en cada consulta al LLM y en CPU cada palabra se paga.
+    """
+
+    name = models.CharField("nombre", max_length=200, blank=True)
+    sector = models.CharField("giro", max_length=120, blank=True)
+    location = models.CharField("ubicación", max_length=120, blank=True)
+    description = models.TextField(
+        "descripción",
+        blank=True,
+        max_length=1200,
+        help_text="Un párrafo: qué hace, a quién sirve, qué datos maneja y en qué tecnología se apoya.",
+    )
+    draft_state = models.CharField(
+        max_length=8, choices=DraftState.choices, default=DraftState.NONE
+    )
+    draft_description = models.TextField(blank=True)
+    draft_requested_at = models.DateTimeField(null=True, blank=True)
+    draft_inference = models.ForeignKey(
+        "llm.InferenceLog", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    updated_by = models.ForeignKey(
+        USER, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "perfil de la organización"
+        verbose_name_plural = "perfil de la organización"
+        permissions = [("manage_profile", "Editar el perfil de la organización")]
+
+    def __str__(self):
+        return self.name or "(sin nombre)"
+
+    @property
+    def is_empty(self):
+        return not any((self.name, self.sector, self.location, self.description.strip()))

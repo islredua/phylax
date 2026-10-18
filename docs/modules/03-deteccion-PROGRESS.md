@@ -35,7 +35,7 @@ el PR de este módulo depende del PR #7). **No se hace merge a `main`.**
 | 5 | Planificador LLM con lista cerrada de acciones y registro de decisiones | ✅ |
 | 6 | Ejecutor (nuclei, Grype, nmap vía discovery), guardarraíles y cola con prioridad | ✅ |
 | 7 | Modo automático/manual: cola de aprobación, interruptor, por entorno, escalamiento, pausa y bitácora | ✅ |
-| 8 | Perfil de la organización y su uso en la relevancia de CTI | ⬜ |
+| 8 | Perfil de la organización y su uso en la relevancia de CTI | ✅ |
 | 9 | Pantallas y permisos | ⬜ |
 | 10 | Panel de pruebas: inyección de eventos simulados y grabación/reproducción | ⬜ |
 | 11 | Datos de laboratorio y documentación | ⬜ |
@@ -156,6 +156,19 @@ Se documentan aquí conforme aparezcan.
   de entorno provisional de la etapa 5).
 - `Dockerfile`: se instala `unzip` y el `RUN` de nuclei ya no termina en `|| true` (si nuclei no
   se instala, el build falla en lugar de dejar un worker sin herramienta).
+- **Perfil de la organización** (`OrganizationProfile`, una fila; `apps/detection/profile.py`):
+  nombre, giro, ubicación y descripción (máximo 1200 caracteres). `planner_context()` entra al
+  prompt del planificador (recortado a 600 caracteres); `mentions_products()` decide si una
+  entrada de KEV sobre un producto **no inventariado** merece un ítem de vigilancia (palabras
+  del perfil contra producto, alias y vendors; sin acentos; palabras genéricas no cuentan).
+  **Nunca filtra**: la reconciliación por inventario corre antes y sin él.
+- **Borrador desde el inventario** (tarea `draft_org_profile`, cola `llm`, prompt
+  `org_profile_draft/v1`): entrada agregada sin IP ni nombres de equipo
+  (`assets.services.inventory_overview` + productos más frecuentes del índice); el resultado queda
+  como borrador (`draft_*`) que el administrador edita y aplica; nunca se aplica solo.
+- D6 reforzado: `assets.services.get_asset_summary` e `inventory_overview`, y
+  `discovery.services.can_scan_asset_id`, sustituyen lecturas directas de modelos del inventario
+  que habían quedado en el planificador y el perfil.
 - Las pruebas de `cti` conectan la señal `changes_detected` con `weak=False` (una lambda se
   recolecta antes de dispararse).
 

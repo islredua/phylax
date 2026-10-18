@@ -84,3 +84,18 @@ class PlannerOutput(BaseModel):
     )
     category: Literal["cves", "exposure", "misconfig", "all"] | None = None
     watch_product: Annotated[str, StringConstraints(max_length=120)] = ""
+
+
+# --- Borrador del perfil de la organización (Módulo 3) ---------------------------------
+
+PROFILE_DRAFT_SCHEMA = {
+    "type": "object",
+    "properties": {"description": {"type": "string", "maxLength": 1200}},
+    "required": ["description"],
+}
+
+
+class ProfileDraftOutput(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    description: str = Field(max_length=1200)

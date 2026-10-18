@@ -4,7 +4,7 @@ import logging
 
 from celery import shared_task
 
-from . import actions, components, events, planner
+from . import actions, components, events, planner, profile
 
 logger = logging.getLogger(__name__)
 
@@ -73,3 +73,14 @@ def dispatch_actions():
     launched = actions.dispatch_due()
     stale = actions.stale_running()
     return {"launched": len(launched), "stale": stale}
+
+
+@shared_task(acks_late=True, soft_time_limit=1900, time_limit=2000)
+def draft_org_profile(user_id=None):
+    """Cola ``llm``: borrador del perfil de la organización a partir del inventario."""
+    try:
+        result = profile.complete_draft(user_id)
+    except BaseException:
+        profile.fail_draft()
+        raise
+    return str(result.draft_state)

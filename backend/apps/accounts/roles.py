@@ -56,6 +56,7 @@ ADMIN_MANAGED_MODELS = {
     ("llm", "llmsettings"),
     ("cti", "ctisource"),
     ("detection", "automationsettings"),
+    ("detection", "organizationprofile"),
 }
 # (app_label, model) con secretos: ningún rol recibe permisos sobre ellos.
 SECRET_MODELS = {

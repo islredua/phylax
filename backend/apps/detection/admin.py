@@ -8,6 +8,7 @@ from .models import (
     Finding,
     FindingEvent,
     FindingEvidence,
+    OrganizationProfile,
     PlannedAction,
     PlannerDecision,
     SoftwareComponent,
@@ -119,3 +120,8 @@ class PlannedActionAdmin(ReadOnly, admin.ModelAdmin):
 class AutomationLogEntryAdmin(ReadOnly, admin.ModelAdmin):
     list_display = ("kind", "timestamp", "action", "user", "message")
     list_filter = ("kind",)
+
+
+@admin.register(OrganizationProfile)
+class OrganizationProfileAdmin(admin.ModelAdmin):
+    list_display = ("name", "sector", "location", "draft_state", "updated_at")
