@@ -1,0 +1,22 @@
+{% load detection_tags %}
+<article class="card flex flex-col gap-2" data-queue-card tabindex="0">
+  <div class="flex flex-wrap items-center justify-between gap-2">
+    <div class="flex flex-wrap items-center gap-2">
+      {% if selectable %}<input type="checkbox" name="ids" value="{{ a.pk }}" class="checkbox" aria-label="Seleccionar">{% endif %}
+      <a href="{% url 'detection:action' a.pk %}" class="font-medium">{{ a.get_action_display }}</a>
+      {% urgency_badge a.urgency %}{% action_status_badge a.status %}
+      {% if a.asset %}<span class="text-sm">sobre <a href="{% url 'assets:detail' a.asset_id %}">{{ a.asset.name }}</a></span>{% endif %}
+      {% if a.decision.fallback %}<span class="badge-medium" title="{{ a.decision.fallback_reason }}">regla de respaldo</span>{% endif %}
+      {% model_warning a.decision.model_mismatch a.decision.model_requested a.decision.model_responded %}
+    </div>
+    <p class="font-mono text-[11px] text-muted">{{ a.event.get_kind_display|lower }} · prioridad {{ a.priority }} · {{ a.created_at|date:"Y-m-d H:i" }}</p>
+  </div>
+  <p class="text-ink-soft">{{ a.decision.rationale }}</p>
+  {% if a.decision.evidence %}<ul class="flex flex-wrap gap-1">{% for e in a.decision.evidence %}<li class="badge-neutral">{{ e }}</li>{% endfor %}</ul>{% endif %}
+  {% if perms.detection.approve_actions %}
+  <div class="flex flex-wrap items-center gap-2 border-t border-line-soft pt-2">
+    <button type="submit" formaction="{% url 'detection:action_approve' a.pk %}" formmethod="post" class="btn-primary btn-sm">{% if a.status == 'NEEDS_REVIEW' %}Marcar revisada{% else %}Aprobar{% endif %}</button>
+    <button type="submit" formaction="{% url 'detection:action_reject' a.pk %}" formmethod="post" class="btn-secondary btn-sm">Rechazar</button>
+  </div>
+  {% endif %}
+</article>

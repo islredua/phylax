@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% load detection_tags inventory %}
+{% block title %}Panel de detección{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <div class="flex flex-wrap items-center gap-2">
+    <h2>Hallazgos <span class="ml-1 font-mono text-xs font-normal text-muted">{{ paginator.count }}</span></h2>
+    {% if automation.paused %}<span class="badge-critical" title="Ningún escaneo ni decisión corre mientras dure la pausa">automatización en pausa</span>{% elif automation.mode == 'MANUAL' %}<span class="badge-medium">modo manual</span>{% else %}<span class="badge-low">modo automático</span>{% endif %}
+    {% if queue_size %}<a href="{% url 'detection:queue' %}" class="badge-high hover:no-underline">{{ queue_size }} por aprobar</a>{% endif %}
+  </div>
+  <div class="page-actions"><a href="{% url 'detection:activity' %}" class="btn-secondary btn-sm">Actividad</a></div>
+</div>
+{% endblock %}
+{% block content %}
+<div class="grid grid-cols-2 gap-3 lg:grid-cols-5">
+  <a href="?status=" class="card hover:no-underline"><p class="stat-label">Abiertos</p><p class="stat-value">{{ summary.open }}</p></a>
+  <a href="?status=NEW" class="card hover:no-underline"><p class="stat-label">Nuevos o reaparecidos</p><p class="stat-value {% if summary.new %}text-primary{% endif %}">{{ summary.new }}</p></a>
+  <a href="?severity=CRITICAL" class="card hover:no-underline"><p class="stat-label">Críticos</p><p class="stat-value {% if summary.critical %}text-critical{% endif %}">{{ summary.critical }}</p></a>
+  <a href="?severity=HIGH" class="card hover:no-underline"><p class="stat-label">Altos</p><p class="stat-value {% if summary.high %}text-high{% endif %}">{{ summary.high }}</p></a>
+  <a href="?in_kev=1" class="card hover:no-underline"><p class="stat-label">En KEV (explotación activa)</p><p class="stat-value {% if summary.in_kev %}text-critical{% endif %}">{{ summary.in_kev }}</p></a>
+</div>
+
+<form method="get" class="card grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6 lg:items-end">
+  {% for field in filter_form %}{% if field.name != 'asset' %}
+  <div class="{% if field.name == 'q' %}lg:col-span-2{% endif %}">
+    <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}
+  </div>
+  {% else %}{{ field }}{% endif %}{% endfor %}
+  <div class="flex gap-2"><button type="submit" class="btn-primary">Filtrar</button><a href="{% url 'detection:panel' %}" class="btn-secondary">Limpiar</a></div>
+</form>
+
+{% if not scoring_available %}<p class="text-xs text-muted">Orden <strong>provisional</strong> (KEV, severidad, EPSS) hasta que el motor de scoring entregue la prioridad.</p>{% endif %}
+<div class="table-wrap">
+  <table class="data-table">
+    <thead><tr><th>Vulnerabilidad</th><th>Activo</th><th>Severidad</th><th>EPSS</th><th>Estado</th><th>Fuentes</th><th>Entorno</th><th>Detectado</th><th>Visto</th></tr></thead>
+    <tbody>
+      {% for f in findings %}
+      <tr>
+        <td><a href="{% url 'detection:finding' f.pk %}" class="font-medium font-mono text-xs">{{ f.vulnerability_id }}</a> {% kev_badge f.in_kev %}<p class="text-xs text-muted">{{ f.title|truncatechars:80 }}</p></td>
+        <td><a href="{% url 'assets:detail' f.asset_id %}">{{ f.asset.name }}</a>{% if f.component %}<p class="text-xs text-muted">{{ f.component.label }}</p>{% endif %}</td>
+        <td>{% severity_badge f.severity %}{% if f.cvss_score %} <span class="font-mono text-xs text-muted">{{ f.cvss_score }}</span>{% endif %}</td>
+        <td class="font-mono text-xs">{{ f.epss_score|epss_pct }}</td>
+        <td>{% finding_status_badge f.status %}</td>
+        <td class="text-xs">{% for s in f.sources %}<span class="badge-neutral">{{ s|lower }}</span> {% endfor %}</td>
+        <td class="text-ink-soft">{{ f.environment|catalog:"ENVIRONMENT" }}</td>
+        <td class="font-mono text-xs whitespace-nowrap text-ink-soft">{{ f.first_detected_at|date:"Y-m-d" }}</td>
+        <td class="font-mono text-xs whitespace-nowrap text-ink-soft">{{ f.last_seen_at|date:"Y-m-d" }}</td>
+      </tr>
+      {% empty %}<tr><td colspan="9" class="table-empty">Sin hallazgos para estos filtros. El lazo crea hallazgos cuando llega inteligencia que afecta al software inventariado o cuando una herramienta los reporta.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+{% include "_pagination.html" %}
+{% endblock %}

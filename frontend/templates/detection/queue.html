@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% load detection_tags %}
+{% block title %}Cola de aprobación{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <div class="flex flex-wrap items-center gap-2"><h2>Cola de aprobación <span class="ml-1 font-mono text-xs font-normal text-muted">{{ queue|length }}</span></h2>
+  {% if automation.mode == 'AUTO' and not automation.paused %}<span class="badge-low" title="Solo llegan aquí las acciones marcadas para revisión humana y las de entornos en modo manual">modo automático</span>{% else %}<span class="badge-medium">modo manual</span>{% endif %}</div>
+  <a href="{% url 'detection:automation' %}" class="btn-secondary btn-sm">Automatización</a>
+</div>
+{% endblock %}
+{% block content %}
+{% if perms.detection.approve_actions and queue %}
+<form method="post" action="{% url 'detection:queue_bulk' %}" class="flex flex-col gap-3" data-queue>
+  {% csrf_token %}
+  <div class="card flex flex-wrap items-center gap-3 py-3">
+    <label class="flex items-center gap-2 text-sm"><input type="checkbox" class="checkbox" data-queue-all> Seleccionar todas</label>
+    <button type="submit" name="decision" value="approve" class="btn-primary btn-sm" data-queue-approve>Aprobar seleccionadas <kbd class="font-mono text-[10px]">A</kbd></button>
+    <button type="submit" name="decision" value="reject" class="btn-secondary btn-sm" data-queue-reject>Rechazar seleccionadas <kbd class="font-mono text-[10px]">R</kbd></button>
+    <p class="text-xs text-muted">Atajos: <span class="font-mono">A</span> aprueba, <span class="font-mono">R</span> rechaza, <span class="font-mono">J</span>/<span class="font-mono">K</span> cambian de tarjeta, <span class="font-mono">X</span> marca. Lo aprobado en lote queda marcado como tal.</p>
+  </div>
+  {% for a in queue %}{% include "detection/_action_card.html" with a=a selectable=True %}{% endfor %}
+</form>
+{% else %}
+<div class="flex flex-col gap-3">{% for a in queue %}{% include "detection/_action_card.html" with a=a selectable=False %}{% empty %}<p class="muted">No hay acciones esperando aprobación.</p>{% endfor %}</div>
+{% endif %}
+{% if waiting %}
+<section class="flex flex-col gap-2"><h3 class="eyebrow">Aprobadas, en cola o en ejecución</h3>
+<div class="table-wrap"><table class="data-table"><thead><tr><th>Acción</th><th>Activo</th><th>Urgencia</th><th>Estado</th><th>Esperará hasta</th></tr></thead><tbody>
+{% for a in waiting %}<tr><td><a href="{% url 'detection:action' a.pk %}">{{ a.get_action_display }}</a>{% if a.escalated %} <span class="badge-critical">escalada</span>{% endif %}</td><td>{{ a.asset.name|default:"—" }}</td><td>{% urgency_badge a.urgency %}</td><td>{% action_status_badge a.status %}</td><td class="font-mono text-xs">{% if a.waiting_for_window %}{{ a.not_before|date:"Y-m-d H:i" }} (ventana){% else %}—{% endif %}</td></tr>{% endfor %}
+</tbody></table></div></section>
+{% endif %}
+{% endblock %}
