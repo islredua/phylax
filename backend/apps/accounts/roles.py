@@ -45,6 +45,8 @@ IMMUTABLE_MODELS = {
     ("detection", "detectionevent"),
     ("detection", "eventbatch"),
     ("detection", "plannerdecision"),
+    ("detection", "automationlogentry"),
+    ("scanners", "toolexecution"),
 }
 # Configuración que solo admin modifica; el operador solo la consulta.
 ADMIN_MANAGED_MODELS = {
@@ -53,6 +55,7 @@ ADMIN_MANAGED_MODELS = {
     ("assets", "catalogentry"),
     ("llm", "llmsettings"),
     ("cti", "ctisource"),
+    ("detection", "automationsettings"),
 }
 # (app_label, model) con secretos: ningún rol recibe permisos sobre ellos.
 SECRET_MODELS = {

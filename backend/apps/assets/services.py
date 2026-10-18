@@ -1005,6 +1005,51 @@ def list_actionable_assets():
     )
 
 
+def get_asset_summary(asset_id) -> dict:
+    """Resumen descriptivo (sin lógica) para el planificador: nombre, tipo, estado, imagen/SBOM."""
+    asset = (
+        Asset.objects.select_related("container_image").prefetch_related("sboms").get(pk=asset_id)
+    )
+    return {
+        "name": asset.name,
+        "asset_type": asset.asset_type,
+        "status": asset.status,
+        "has_image": hasattr(asset, "container_image"),
+        "has_sbom": any(s.is_current for s in asset.sboms.all()),
+    }
+
+
+def inventory_overview() -> dict:
+    """Agregados del inventario vigente en alcance (sin identificadores de red)."""
+    from collections import Counter
+
+    from . import catalogs
+
+    assets = list(
+        Asset.objects.filter(status__in=SCANNABLE_STATUSES, in_scope=True).only(
+            "asset_type", "environment", "business_role", "data_categories", "description"
+        )
+    )
+    by_type = Counter(a.asset_type for a in assets)
+    by_env = Counter(a.environment for a in assets if a.environment)
+    by_role = Counter(a.business_role for a in assets if a.business_role)
+    categories = Counter(c for a in assets for c in (a.data_categories or []))
+    descriptions = [a.description[:160] for a in assets if a.description.strip()][:8]
+    return {
+        "assets": len(assets),
+        "asset_ids": [a.pk for a in assets],
+        "by_type": {catalogs.label(catalogs.ASSET_TYPE, k): v for k, v in by_type.most_common(6)},
+        "by_environment": {
+            catalogs.label(catalogs.ENVIRONMENT, k): v for k, v in by_env.most_common(6)
+        },
+        "by_business_role": {
+            catalogs.label(catalogs.BUSINESS_ROLE, k): v for k, v in by_role.most_common(8)
+        },
+        "data_categories": dict(categories.most_common(6)),
+        "sample_descriptions": descriptions,
+    }
+
+
 def get_asset_software(asset_id) -> list[SoftwareItem]:
     """Software conocido del activo: servicios abiertos (nmap) y componentes del SBOM vigente.
 

@@ -33,8 +33,8 @@ el PR de este módulo depende del PR #7). **No se hace merge a `main`.**
 | 3 | Hallazgos: modelo, deduplicación, ciclo de vida y línea de tiempo | ✅ |
 | 4 | Fuentes de eventos (CTI, inventario, tiempo) y filtro rápido | ✅ |
 | 5 | Planificador LLM con lista cerrada de acciones y registro de decisiones | ✅ |
-| 6 | Ejecutor (nuclei, Grype, nmap vía discovery), guardarraíles y cola con prioridad | ⬜ |
-| 7 | Modo automático/manual: cola de aprobación, interruptor, por entorno, escalamiento, pausa y bitácora | ⬜ |
+| 6 | Ejecutor (nuclei, Grype, nmap vía discovery), guardarraíles y cola con prioridad | ✅ |
+| 7 | Modo automático/manual: cola de aprobación, interruptor, por entorno, escalamiento, pausa y bitácora | ✅ |
 | 8 | Perfil de la organización y su uso en la relevancia de CTI | ⬜ |
 | 9 | Pantallas y permisos | ⬜ |
 | 10 | Panel de pruebas: inyección de eventos simulados y grabación/reproducción | ⬜ |
@@ -129,6 +129,33 @@ Se documentan aquí conforme aparezcan.
 - **Ítems de vigilancia** (`WatchItem`): `CREATE_WATCH` guarda la clave canónica del producto;
   al reindexar un activo que lo contiene, el ítem se cierra y nace un evento `WATCH_MATCHED`
   con urgencia alta, que pasa por el lazo como cualquier otro.
+- **Ejecutor** (`apps/scanners`): `ToolExecution` guarda perfil, objetivos, `argv` exacto,
+  código de salida, salida cruda (`scans/<id>.txt`) y conteos. Perfiles fijos: nuclei por
+  categoría (`cves`, `exposure`, `misconfig`, `all`) con `-jsonl -silent`; Grype sobre
+  `sbom:<ruta en MEDIA_ROOT>` o `registry:<ref>` con credenciales **por variables de entorno**
+  (nunca en argv ni en la salida guardada). Objetivos validados (`ipaddress`, normalización de
+  imagen, ruta dentro de `MEDIA_ROOT`). `is_in_scope` se re-verifica dentro del worker. Grype
+  termina con código 1 cuando hay vulnerabilidades: no es error.
+- **`RESCAN_SERVICES` delega en el descubrimiento** (`discovery.request_discovery`, perfil
+  `SERVICE_SCAN`); la acción se cierra con la señal nueva `discovery.signals.run_finished`.
+- **`RECONCILE` no espera aprobación** en ningún modo: no toca el activo ni la red.
+- **Acciones y modo** (`apps/detection/actions.py`, `automation.py`): `PlannedAction` con
+  prioridad (urgencia × 10 + criticidad del activo, +5 si lo pidió una persona), `not_before`
+  para la ventana no operativa, guardarraíles anotados (`[{check, ok, detail}]`), aprobación
+  humana individual o en lote (`approved_in_bulk`), rechazo con nota, cancelación. `FLAG_HUMAN`
+  entra a la cola como «revisión humana» y se cierra como «revisada». Despacho por Beat cada
+  minuto y tras cada aprobación; las acciones en cola sin resultado en 3 h pasan a fallidas.
+- **`AutomationSettings`** (una fila): modo global, modo por entorno (el global `MANUAL` manda
+  sobre todo), `escalate_critical`, pausa de emergencia (quién, cuándo, por qué; detiene
+  planificador y despacho, las aprobadas esperan), ventana no operativa (inicio, fin, días; cruza
+  medianoche), `defer_heavy_actions`, `max_scans_per_hour`, `max_concurrent_executions`,
+  `max_planner_calls_per_hour`. **`AutomationLogEntry`** (solo inserción) registra aprobaciones
+  automáticas, escalamientos, despachos, bloqueos, diferimientos, resultados, cambios de modo y
+  pausas, con el usuario cuando lo hubo.
+- El tope del planificador por hora vive solo en `AutomationSettings` (se retiró la variable
+  de entorno provisional de la etapa 5).
+- `Dockerfile`: se instala `unzip` y el `RUN` de nuclei ya no termina en `|| true` (si nuclei no
+  se instala, el build falla en lugar de dejar un worker sin herramienta).
 - Las pruebas de `cti` conectan la señal `changes_detected` con `weak=False` (una lambda se
   recolecta antes de dispararse).
 

@@ -4,7 +4,7 @@ import logging
 
 from celery import shared_task
 
-from . import components, events, planner
+from . import actions, components, events, planner
 
 logger = logging.getLogger(__name__)
 
@@ -65,3 +65,11 @@ def plan_event(event_id):
 def plan_stragglers():
     """Beat (cada 5 min): reencola eventos READY que nadie tomó."""
     return planner.enqueue_stragglers()
+
+
+@shared_task(acks_late=True, soft_time_limit=120, time_limit=150)
+def dispatch_actions():
+    """Beat (cada minuto): lanza las acciones aprobadas que ya pueden correr y recoge las colgadas."""
+    launched = actions.dispatch_due()
+    stale = actions.stale_running()
+    return {"launched": len(launched), "stale": stale}

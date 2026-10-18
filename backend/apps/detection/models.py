@@ -505,3 +505,215 @@ class WatchItem(UUIDModel):
 
     def __str__(self):
         return f"Vigilar {self.product_label}"
+
+
+# --------------------------------------------------------------------------
+# Automatización y acciones planificadas (etapas 6 y 7)
+# --------------------------------------------------------------------------
+
+
+class AutomationMode(models.TextChoices):
+    AUTO = "AUTO", "Automático"
+    MANUAL = "MANUAL", "Manual (cola de aprobación)"
+
+
+class AutomationSettings(models.Model):
+    """Configuración global del lazo (una sola fila). Solo administradores la cambian."""
+
+    mode = models.CharField(
+        "modo", max_length=6, choices=AutomationMode.choices, default=AutomationMode.AUTO
+    )
+    # {código de entorno: AUTO | MANUAL}; vacío = heredar el modo global.
+    environment_modes = models.JSONField("modo por entorno", default=dict, blank=True)
+    escalate_critical = models.BooleanField(
+        "escalar críticos",
+        default=True,
+        help_text="En modo manual, las acciones de urgencia crítica se ejecutan sin esperar.",
+    )
+    paused = models.BooleanField("pausa de emergencia", default=False)
+    paused_by = models.ForeignKey(
+        USER, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    paused_at = models.DateTimeField(null=True, blank=True)
+    pause_reason = models.CharField(max_length=255, blank=True)
+    # Ventana no operativa: las acciones pesadas de urgencia baja/normal esperan a que empiece.
+    defer_heavy_actions = models.BooleanField("diferir acciones pesadas a la ventana", default=True)
+    off_hours_start = models.TimeField("inicio de la ventana no operativa", default="22:00")
+    off_hours_end = models.TimeField("fin de la ventana no operativa", default="06:00")
+    off_hours_days = models.JSONField(
+        "días de la ventana",
+        default=list,
+        blank=True,
+        help_text="0=lunes … 6=domingo; vacío = todos.",
+    )
+    max_scans_per_hour = models.PositiveSmallIntegerField("máximo de escaneos por hora", default=6)
+    max_concurrent_executions = models.PositiveSmallIntegerField(
+        "ejecuciones simultáneas", default=1
+    )
+    max_planner_calls_per_hour = models.PositiveSmallIntegerField(
+        "máximo de decisiones del planificador por hora", default=60
+    )
+    updated_by = models.ForeignKey(
+        USER, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "configuración de automatización"
+        verbose_name_plural = "configuración de automatización"
+        permissions = [
+            ("manage_automation", "Cambiar el modo de automatización y los guardarraíles")
+        ]
+
+    def __str__(self):
+        return f"Automatización {self.get_mode_display()}{' · en pausa' if self.paused else ''}"
+
+
+class ActionStatus(models.TextChoices):
+    PROPOSED = "PROPOSED", "Propuesta (espera aprobación)"
+    NEEDS_REVIEW = "NEEDS_REVIEW", "Revisión humana"
+    APPROVED = "APPROVED", "Aprobada"
+    REJECTED = "REJECTED", "Rechazada"
+    QUEUED = "QUEUED", "En cola"
+    RUNNING = "RUNNING", "En ejecución"
+    DONE = "DONE", "Ejecutada"
+    FAILED = "FAILED", "Fallida"
+    BLOCKED = "BLOCKED", "Bloqueada por guardarraíl"
+    CANCELLED = "CANCELLED", "Cancelada"
+    SKIPPED = "SKIPPED", "Sin acción"
+    REVIEWED = "REVIEWED", "Revisada"
+
+
+ACTION_OPEN_STATUSES = (
+    ActionStatus.PROPOSED,
+    ActionStatus.NEEDS_REVIEW,
+    ActionStatus.APPROVED,
+    ActionStatus.QUEUED,
+    ActionStatus.RUNNING,
+)
+HEAVY_ACTIONS = (Action.RESCAN_SERVICES, Action.DETECT_VULNS, Action.REANALYZE_SBOM)
+
+
+class PlannedAction(UUIDModel):
+    """Una decisión convertida en trabajo: su aprobación, su turno en la cola y su resultado."""
+
+    decision = models.OneToOneField(
+        PlannerDecision, on_delete=models.CASCADE, related_name="planned"
+    )
+    event = models.ForeignKey(DetectionEvent, on_delete=models.CASCADE, related_name="actions")
+    asset = models.ForeignKey(
+        "assets.Asset",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="planned_actions",
+    )
+    action = models.CharField(max_length=20, choices=Action.choices)
+    urgency = models.CharField(max_length=8, choices=Urgency.choices, default=Urgency.NORMAL)
+    category = models.CharField(max_length=10, blank=True)
+    status = models.CharField(
+        max_length=12, choices=ActionStatus.choices, default=ActionStatus.PROPOSED, db_index=True
+    )
+    priority = models.IntegerField(default=0, help_text="Mayor = antes en la cola.")
+    not_before = models.DateTimeField(null=True, blank=True, help_text="Diferida a la ventana.")
+    mode_at_decision = models.CharField(max_length=6, blank=True)
+    auto_approved = models.BooleanField(default=False)
+    escalated = models.BooleanField(
+        default=False, help_text="Crítica ejecutada pese al modo manual."
+    )
+    approved_by = models.ForeignKey(
+        USER, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    approved_in_bulk = models.BooleanField(default=False)
+    rejected_by = models.ForeignKey(
+        USER, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    rejected_at = models.DateTimeField(null=True, blank=True)
+    review_note = models.CharField(max_length=500, blank=True)
+    guardrails = models.JSONField(default=list, blank=True, help_text="[{check, ok, detail}]")
+    queued_at = models.DateTimeField(null=True, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    result = models.JSONField(default=dict, blank=True)
+    error = models.TextField(blank=True)
+    discovery_run = models.ForeignKey(
+        "discovery.DiscoveryRun", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
+    class Meta:
+        ordering = ["-priority", "created_at"]
+        verbose_name = "acción planificada"
+        verbose_name_plural = "acciones planificadas"
+        permissions = [("approve_actions", "Aprobar o rechazar acciones propuestas")]
+
+    def __str__(self):
+        return f"{self.get_action_display()} · {self.get_status_display()}"
+
+    @property
+    def is_open(self):
+        return self.status in ACTION_OPEN_STATUSES
+
+    @property
+    def is_heavy(self):
+        return self.action in HEAVY_ACTIONS
+
+    @property
+    def waiting_for_window(self):
+        from django.utils import timezone
+
+        return (
+            self.status == ActionStatus.APPROVED
+            and self.not_before
+            and self.not_before > timezone.now()
+        )
+
+
+class LogKind(models.TextChoices):
+    AUTO_APPROVED = "AUTO_APPROVED", "Aprobada automáticamente"
+    ESCALATED = "ESCALATED", "Crítica escalada en modo manual"
+    APPROVED = "APPROVED", "Aprobada por una persona"
+    REJECTED = "REJECTED", "Rechazada"
+    DISPATCHED = "DISPATCHED", "Enviada a ejecutar"
+    BLOCKED = "BLOCKED", "Bloqueada por guardarraíl"
+    DEFERRED = "DEFERRED", "Diferida a la ventana"
+    FINISHED = "FINISHED", "Ejecución terminada"
+    FAILED = "FAILED", "Ejecución fallida"
+    MODE_CHANGED = "MODE_CHANGED", "Modo cambiado"
+    PAUSED = "PAUSED", "Pausa de emergencia"
+    RESUMED = "RESUMED", "Pausa levantada"
+    SETTINGS_CHANGED = "SETTINGS_CHANGED", "Configuración cambiada"
+
+
+class AutomationLogEntry(models.Model):
+    """Bitácora de lo que el sistema hizo solo (y de quien cambió sus reglas). Solo se inserta."""
+
+    kind = models.CharField(max_length=20, choices=LogKind.choices)
+    timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
+    action = models.ForeignKey(
+        PlannedAction, null=True, blank=True, on_delete=models.SET_NULL, related_name="log_entries"
+    )
+    asset = models.ForeignKey(
+        "assets.Asset", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    user = models.ForeignKey(
+        USER, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    message = models.CharField(max_length=500, blank=True)
+    data = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-timestamp", "-id"]
+        verbose_name = "entrada de bitácora de automatización"
+        verbose_name_plural = "bitácora de automatización"
+
+    def __str__(self):
+        return f"{self.get_kind_display()} · {self.timestamp:%Y-%m-%d %H:%M}"
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            raise ValueError("La bitácora de automatización no se reescribe.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("La bitácora de automatización no se borra.")

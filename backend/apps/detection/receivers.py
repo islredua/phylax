@@ -10,6 +10,7 @@ from django.dispatch import receiver
 
 from apps.assets.signals_domain import asset_confirmed, sbom_attached, services_changed
 from apps.cti.signals import changes_detected
+from apps.discovery.signals import run_finished
 
 from . import events
 from .models import EventKind
@@ -55,3 +56,10 @@ def on_cti_changes(sender, run, changes, **kwargs):
         batch.pk,
     )
     process_event_batch.delay(str(batch.pk))
+
+
+@receiver(run_finished, dispatch_uid="detection.discovery_run_finished")
+def on_discovery_run_finished(sender, run_id, status, asset_id=None, **kwargs):
+    from .actions import on_discovery_finished
+
+    on_discovery_finished(run_id, status, asset_id)

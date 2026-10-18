@@ -14,7 +14,6 @@ import re
 import time
 import unicodedata
 
-from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
@@ -82,13 +81,7 @@ def _asset_summary(asset_id):
     from apps.discovery import services as discovery
 
     context = assets_services.get_asset_context(asset_id)
-    from apps.assets.models import (
-        Asset,
-    )  # lectura de campos descriptivos vía el contrato de contexto
-
-    asset = (
-        Asset.objects.select_related("container_image").prefetch_related("sboms").get(pk=asset_id)
-    )
+    asset = assets_services.get_asset_summary(asset_id)
     components = components_index.current_components([asset_id])[:MAX_COMPONENTS]
     state = AssetDetectionState.objects.filter(asset_id=asset_id).first()
     open_findings = Finding.objects.filter(asset_id=asset_id, status__in=OPEN_STATUSES)
@@ -97,17 +90,16 @@ def _asset_summary(asset_id):
         return value.date().isoformat() if value else None
 
     return {
-        "name": clean(asset.name, 120),
-        "type": asset.asset_type,
+        "name": clean(asset["name"], 120),
+        "type": asset["asset_type"],
         "environment": context.environment,
         "criticality": context.criticality
         + (" (por defecto)" if context.criticality_defaulted else ""),
         "exposure": context.exposure,
         "business_role": context.business_role,
-        "status": asset.status,
-        "can_scan_network": discovery.can_scan(asset),
-        "has_image_or_sbom": hasattr(asset, "container_image")
-        or asset.sboms.filter(is_current=True).exists(),
+        "status": asset["status"],
+        "can_scan_network": discovery.can_scan_asset_id(asset_id),
+        "has_image_or_sbom": asset["has_image"] or asset["has_sbom"],
         "software": [c.label for c in components],
         "open_findings": open_findings.count(),
         "open_findings_in_kev": open_findings.filter(in_kev=True).count(),
@@ -309,15 +301,12 @@ def _count_call():
 
 def planner_allowed():
     """``(ok, motivo)``: pausa de emergencia o límite de llamadas por hora."""
-    try:
-        from .automation import current_settings
+    from .automation import current_settings
 
-        config = current_settings()
-        if config.paused:
-            return False, "automatización en pausa"
-        limit = config.max_planner_calls_per_hour
-    except ImportError:  # pragma: no cover - antes de la etapa 7
-        limit = settings.DETECTION_PLANNER_MAX_PER_HOUR
+    config = current_settings()
+    if config.paused:
+        return False, "automatización en pausa"
+    limit = config.max_planner_calls_per_hour
     if planner_calls_this_hour() >= limit:
         return False, f"límite de {limit} decisiones por hora alcanzado"
     return True, ""

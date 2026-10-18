@@ -202,8 +202,10 @@ def test_model_unavailable_falls_back_and_event_is_planned(ollama):
     assert "Ollama" in decision.fallback_reason
 
 
-def test_rate_limit_leaves_event_ready_for_stragglers(mock_llm, settings):
-    settings.DETECTION_PLANNER_MAX_PER_HOUR = 1
+def test_rate_limit_leaves_event_ready_for_stragglers(mock_llm):
+    from apps.detection import automation
+
+    automation.update_settings(user=None, fields={"max_planner_calls_per_hour": 1})
     first = _scannable_asset()
     event1, batch1 = _ready_event(EventKind.MANUAL_EVALUATION, first)
     events.process_batch(batch1.pk)

@@ -241,6 +241,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.detection.tasks.plan_stragglers",
         "schedule": crontab(minute="*/5"),
     },
+    "detection-dispatch-actions": {
+        "task": "apps.detection.tasks.dispatch_actions",
+        "schedule": 60.0,
+    },
 }
 
 # --- Archivos subidos (SBOM, XML de discovery, cargas temporales) ---
@@ -285,6 +289,10 @@ NMAP_BIN = os.environ.get("NMAP_BIN", "/usr/bin/nmap")
 NUCLEI_BIN = os.environ.get("NUCLEI_BIN", "/usr/local/bin/nuclei")
 GRYPE_BIN = os.environ.get("GRYPE_BIN", "/usr/local/bin/grype")
 SCAN_RESULTS_DIR = os.environ.get("SCAN_RESULTS_DIR", "/data/scan-results")
+# Plantillas de nuclei (vacío = las que nuclei encuentre en su directorio por defecto).
+NUCLEI_TEMPLATES_DIR = os.environ.get("NUCLEI_TEMPLATES_DIR", "")
+# Tiempo máximo de una ejecución de nuclei o Grype.
+SCANNER_TIMEOUT_S = int(os.environ.get("SCANNER_TIMEOUT_S", "3600"))
 
 # --- CTI (Módulo 3: espejo local de NVD, EPSS y KEV) ---
 NVD_API_KEY = os.environ.get("NVD_API_KEY", "")
@@ -311,8 +319,6 @@ CTI_EPSS_HIGH = float(os.environ.get("CTI_EPSS_HIGH", "0.5"))
 # que una fuente vuelva a ver un hallazgo abierto.
 DETECTION_ASSET_REVIEW_DAYS = int(os.environ.get("DETECTION_ASSET_REVIEW_DAYS", "14"))
 DETECTION_FINDING_REVIEW_DAYS = int(os.environ.get("DETECTION_FINDING_REVIEW_DAYS", "30"))
-# Tope de decisiones del planificador por hora cuando no hay configuración en BD.
-DETECTION_PLANNER_MAX_PER_HOUR = int(os.environ.get("DETECTION_PLANNER_MAX_PER_HOUR", "60"))
 
 # --- Scoring weights ---
 SCORING_WEIGHTS = {

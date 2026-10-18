@@ -1,11 +1,14 @@
 from django.contrib import admin
 
 from .models import (
+    AutomationLogEntry,
+    AutomationSettings,
     DetectionEvent,
     EventBatch,
     Finding,
     FindingEvent,
     FindingEvidence,
+    PlannedAction,
     PlannerDecision,
     SoftwareComponent,
     WatchItem,
@@ -99,3 +102,20 @@ class PlannerDecisionAdmin(ReadOnly, admin.ModelAdmin):
 @admin.register(WatchItem)
 class WatchItemAdmin(admin.ModelAdmin):
     list_display = ("product_label", "product_key", "cve", "is_active", "matched_at")
+
+
+@admin.register(AutomationSettings)
+class AutomationSettingsAdmin(admin.ModelAdmin):
+    list_display = ("mode", "paused", "escalate_critical", "max_scans_per_hour", "updated_at")
+
+
+@admin.register(PlannedAction)
+class PlannedActionAdmin(ReadOnly, admin.ModelAdmin):
+    list_display = ("action", "status", "urgency", "priority", "asset", "not_before", "created_at")
+    list_filter = ("action", "status", "urgency")
+
+
+@admin.register(AutomationLogEntry)
+class AutomationLogEntryAdmin(ReadOnly, admin.ModelAdmin):
+    list_display = ("kind", "timestamp", "action", "user", "message")
+    list_filter = ("kind",)
