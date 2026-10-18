@@ -1,6 +1,13 @@
 from django.contrib import admin
 
-from .models import Finding, FindingEvent, FindingEvidence, SoftwareComponent
+from .models import (
+    DetectionEvent,
+    EventBatch,
+    Finding,
+    FindingEvent,
+    FindingEvidence,
+    SoftwareComponent,
+)
 
 
 @admin.register(SoftwareComponent)
@@ -60,3 +67,14 @@ class FindingAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(DetectionEvent)
+class DetectionEventAdmin(ReadOnly, admin.ModelAdmin):
+    list_display = ("kind", "status", "asset", "cve", "triage_reason", "created_at")
+    list_filter = ("kind", "status")
+
+
+@admin.register(EventBatch)
+class EventBatchAdmin(ReadOnly, admin.ModelAdmin):
+    list_display = ("source", "reference", "size", "processed_at", "stats")

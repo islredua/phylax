@@ -310,6 +310,8 @@ def sync_source(kind, *, user=None, trigger=SyncTrigger.SCHEDULED, http=None, no
     source = get_source(kind)
     run = CtiSyncRun.objects.create(source=kind, trigger=trigger, requested_by=user)
     now = now or timezone.now()
+    if http is None and not settings.CTI_ONLINE:
+        return _finish(run, source, error="Descargas deshabilitadas (CTI_ONLINE=0).")
     try:
         if kind == SourceKind.NVD:
             since = source.last_success_at or (now - timedelta(days=settings.CTI_NVD_INITIAL_DAYS))
@@ -362,7 +364,7 @@ def ensure_product_coverage(key, vendor="", *, http=None, force=False, now=None)
     Devuelve el ``CtiSyncRun`` creado, o ``None`` si la cobertura estaba vigente o NVD está
     deshabilitado.
     """
-    if not key:
+    if not key or (http is None and not settings.CTI_ONLINE):
         return None
     source = get_source(SourceKind.NVD)
     if not source.enabled or not source.url:

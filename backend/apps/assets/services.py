@@ -990,6 +990,21 @@ def get_scan_targets() -> list[ScanTarget]:
     return targets
 
 
+def get_asset_status(asset_id):
+    """``(status, in_scope)`` del activo, o ``None`` si no existe (lectura barata para el lazo)."""
+    row = Asset.objects.filter(pk=asset_id).values_list("status", "in_scope").first()
+    return row if row is not None else None
+
+
+def list_actionable_assets():
+    """``[(id, created_at)]`` de activos confirmados, vigentes y en alcance (ACTIVE/STALE)."""
+    return list(
+        Asset.objects.filter(status__in=SCANNABLE_STATUSES, in_scope=True).values_list(
+            "pk", "created_at"
+        )
+    )
+
+
 def get_asset_software(asset_id) -> list[SoftwareItem]:
     """Software conocido del activo: servicios abiertos (nmap) y componentes del SBOM vigente.
 

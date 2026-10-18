@@ -31,7 +31,7 @@ el PR de este módulo depende del PR #7). **No se hace merge a `main`.**
 | 1 | Reconocimiento y este documento | ✅ |
 | 2 | Almacén CTI (espejo NVD/EPSS/KEV), índice de software y reconciliación sin escanear | ✅ |
 | 3 | Hallazgos: modelo, deduplicación, ciclo de vida y línea de tiempo | ✅ |
-| 4 | Fuentes de eventos (CTI, inventario, tiempo) y filtro rápido | ⬜ |
+| 4 | Fuentes de eventos (CTI, inventario, tiempo) y filtro rápido | ✅ |
 | 5 | Planificador LLM con lista cerrada de acciones y registro de decisiones | ⬜ |
 | 6 | Ejecutor (nuclei, Grype, nmap vía discovery), guardarraíles y cola con prioridad | ⬜ |
 | 7 | Modo automático/manual: cola de aprobación, interruptor, por entorno, escalamiento, pausa y bitácora | ⬜ |
@@ -99,6 +99,22 @@ Se documentan aquí conforme aparezcan.
 - **Scoring**: `apps/scoring/services.py` define `score_findings(ids) -> {id: ScoreResult}` y
   `is_available()`. La detección lo invoca tras crear o actualizar hallazgos; cuando el
   Módulo 4 lo implemente, el puntaje y su desglose quedan en el hallazgo y en su línea de tiempo.
+- **Triage de eventos CTI (sin LLM).** Por lote: una reconciliación para todos los CVE del lote;
+  luego por evento: *ningún producto del inventario coincide* → `FILTERED`; *producto presente
+  sin versión* → `READY` (el planificador decide si reescanear); *versiones no afectadas* →
+  `FILTERED`; *emparejó* → `RECONCILED` (hallazgos creados/actualizados sin escanear), salvo
+  **KEV sobre un activo inventariado**, que llega al planificador con urgencia alta (puede
+  proponer verificar con la herramienta o escalar a una persona).
+- **Eventos de inventario** reindexan el software aunque el activo esté «por confirmar» (así al
+  confirmarlo ya hay contra qué reconciliar), pero solo los activos `ACTIVE`/`STALE` en alcance
+  pasan al planificador. Un producto nuevo en el índice pide cobertura NVD en segundo plano.
+- **Deduplicación**: un evento idéntico (`kind:asset:cve`) que ya espera (`NEW`/`READY`/
+  `PLANNING`) no se vuelve a crear.
+- **`CTI_ONLINE=0`** (fijado en `tests/conftest.py`) impide cualquier descarga; las pruebas de
+  `cti` pasan un cliente `httpx` interceptado por `respx`. Se añadió tras detectar que una
+  prueba salía a NVD real por la cobertura de producto.
+- `assets.services` gana dos lecturas baratas para el lazo: `get_asset_status` y
+  `list_actionable_assets` (D6: la detección no importa modelos del inventario).
 - Las pruebas de `cti` conectan la señal `changes_detected` con `weak=False` (una lambda se
   recolecta antes de dispararse).
 

@@ -31,6 +31,7 @@ KEV = "https://kev.test/known_exploited_vulnerabilities.json"
 def _sources(settings, db):
     settings.NVD_API_BASE, settings.EPSS_SNAPSHOT_URL, settings.KEV_CATALOG_URL = NVD, EPSS, KEV
     settings.NVD_API_KEY = ""
+    settings.CTI_ONLINE = True  # respx intercepta todo el HTTP de estas pruebas
     services.ensure_sources()
 
 
@@ -301,6 +302,14 @@ def test_product_coverage_without_vendor_and_failure(respx_mock, http):
     )
     CtiSource.objects.filter(kind="NVD").update(enabled=False)
     assert services.ensure_product_coverage("openssh", "", http=http, force=True) is None
+
+
+def test_offline_mode_never_downloads(settings, respx_mock):
+    settings.CTI_ONLINE = False
+    run = services.sync_source("KEV")
+    assert run.status == "FAILED" and "CTI_ONLINE" in run.error
+    assert services.ensure_product_coverage("nginx", "f5", force=True) is None
+    assert not respx_mock.calls
 
 
 # --- Datos de ejemplo -------------------------------------------------------------------

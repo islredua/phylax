@@ -42,6 +42,8 @@ IMMUTABLE_MODELS = {
     ("cti", "ctichange"),
     ("detection", "findingevent"),
     ("detection", "findingevidence"),
+    ("detection", "detectionevent"),
+    ("detection", "eventbatch"),
 }
 # Configuración que solo admin modifica; el operador solo la consulta.
 ADMIN_MANAGED_MODELS = {

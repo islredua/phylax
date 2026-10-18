@@ -264,3 +264,149 @@ class FindingEvent(models.Model):
 
     def delete(self, *args, **kwargs):
         raise ValueError("La línea de tiempo de un hallazgo no se borra.")
+
+
+# --------------------------------------------------------------------------
+# Eventos del lazo (etapa 4)
+# --------------------------------------------------------------------------
+
+
+class AssetDetectionState(models.Model):
+    """Marcas de tiempo por activo que alimentan los eventos «pasó mucho sin revisar»."""
+
+    asset = models.OneToOneField(
+        "assets.Asset", on_delete=models.CASCADE, primary_key=True, related_name="detection_state"
+    )
+    last_reconciled_at = models.DateTimeField(null=True, blank=True)
+    last_evaluated_at = models.DateTimeField(
+        "última decisión del planificador", null=True, blank=True
+    )
+    last_service_scan_at = models.DateTimeField(null=True, blank=True)
+    last_vuln_scan_at = models.DateTimeField(null=True, blank=True)
+    last_sbom_scan_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "estado de detección del activo"
+        verbose_name_plural = "estados de detección"
+
+    def __str__(self):
+        return f"Detección · {self.asset_id}"
+
+
+class EventKind(models.TextChoices):
+    CTI_NEW_CVE = "CTI_NEW_CVE", "CVE nuevo"
+    CTI_CVE_MODIFIED = "CTI_CVE_MODIFIED", "CVE modificado"
+    CTI_KEV_ADDED = "CTI_KEV_ADDED", "CVE entró a KEV"
+    CTI_EPSS_RISE = "CTI_EPSS_RISE", "EPSS subió"
+    ASSET_SERVICES_CHANGED = "ASSET_SERVICES_CHANGED", "Servicios del activo cambiaron"
+    ASSET_CONFIRMED = "ASSET_CONFIRMED", "Activo confirmado"
+    ASSET_SBOM_UPDATED = "ASSET_SBOM_UPDATED", "SBOM cargado o actualizado"
+    ASSET_STALE_REVIEW = "ASSET_STALE_REVIEW", "Activo sin revisar hace tiempo"
+    FINDING_STALE_REVIEW = "FINDING_STALE_REVIEW", "Hallazgos sin revisar hace tiempo"
+    MANUAL_EVALUATION = "MANUAL_EVALUATION", "Evaluación pedida a mano"
+    SIMULATED = "SIMULATED", "Evento simulado"
+
+
+CTI_EVENT_KINDS = (
+    EventKind.CTI_NEW_CVE,
+    EventKind.CTI_CVE_MODIFIED,
+    EventKind.CTI_KEV_ADDED,
+    EventKind.CTI_EPSS_RISE,
+)
+
+
+class EventStatus(models.TextChoices):
+    NEW = "NEW", "Recibido"
+    FILTERED = "FILTERED", "Descartado por el filtro"
+    RECONCILED = "RECONCILED", "Resuelto por reconciliación"
+    READY = "READY", "Esperando al planificador"
+    PLANNING = "PLANNING", "En el planificador"
+    PLANNED = "PLANNED", "Planificado"
+    FAILED = "FAILED", "Fallido"
+
+
+class BatchSource(models.TextChoices):
+    CTI = "CTI", "Inteligencia de amenazas"
+    INVENTORY = "INVENTORY", "Inventario"
+    TIME = "TIME", "Paso del tiempo"
+    MANUAL = "MANUAL", "Manual"
+    TEST = "TEST", "Panel de pruebas"
+
+
+class EventBatch(UUIDModel):
+    """Lote de eventos procesados juntos (un día de CTI puede traer cientos de CVE)."""
+
+    source = models.CharField(max_length=10, choices=BatchSource.choices)
+    reference = models.CharField(max_length=100, blank=True, help_text="p. ej. CtiSyncRun.")
+    size = models.PositiveIntegerField(default=0)
+    processed_at = models.DateTimeField(null=True, blank=True)
+    stats = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "lote de eventos"
+        verbose_name_plural = "lotes de eventos"
+
+    def __str__(self):
+        return f"{self.get_source_display()} · {self.size} evento(s)"
+
+
+class DetectionEvent(UUIDModel):
+    """Algo que pasó y que podría ameritar atención. Inmutable salvo su estado de proceso."""
+
+    kind = models.CharField(max_length=25, choices=EventKind.choices)
+    status = models.CharField(
+        max_length=10, choices=EventStatus.choices, default=EventStatus.NEW, db_index=True
+    )
+    batch = models.ForeignKey(
+        EventBatch, null=True, blank=True, on_delete=models.SET_NULL, related_name="events"
+    )
+    asset = models.ForeignKey(
+        "assets.Asset",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="detection_events",
+    )
+    cve = models.ForeignKey(
+        "cti.CveRecord", null=True, blank=True, on_delete=models.CASCADE, related_name="+"
+    )
+    dedupe_key = models.CharField(max_length=200, db_index=True)
+    payload = models.JSONField(default=dict, blank=True)
+    # Resultado del filtro rápido y de la reconciliación previa al LLM.
+    triage_reason = models.CharField(max_length=255, blank=True)
+    reconciliation = models.JSONField(default=dict, blank=True)
+    urgency_hint = models.CharField(
+        max_length=8, blank=True, help_text="Pista para el planificador."
+    )
+    requested_by = models.ForeignKey(
+        USER, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    processed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "evento de detección"
+        verbose_name_plural = "eventos de detección"
+        indexes = [models.Index(fields=["kind", "status"])]
+        permissions = [
+            ("request_evaluation", "Pedir a mano la evaluación o el escaneo de un activo"),
+            ("use_test_panel", "Usar el panel de pruebas (eventos simulados)"),
+        ]
+
+    def __str__(self):
+        return f"{self.get_kind_display()} · {self.get_status_display()}"
+
+    @property
+    def is_cti(self):
+        return self.kind in CTI_EVENT_KINDS
+
+    @property
+    def subject(self):
+        if self.asset_id:
+            return str(self.asset)
+        if self.cve_id:
+            return self.cve_id
+        return self.payload.get("subject", "")
+
