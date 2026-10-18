@@ -30,7 +30,8 @@ Backend: Django 5 + PostgreSQL 16 + Celery/Redis. Despliegue: Docker Compose. In
 
 ### M1. Escaneo activo (`apps.scanners`)
 
-Orquesta tres herramientas FOSS como subprocesos y normaliza su salida al modelo de datos interno.
+Ejecutor del Módulo 3: corre nuclei y Grype con perfiles fijos (el descubrimiento con nmap vive en
+`apps.discovery`) y convierte su salida en hallazgos del módulo de detección.
 
 - `nmap` para descubrimiento + fingerprinting (XML output)
 - `nuclei` para detección por templates (JSONL output)
@@ -43,17 +44,17 @@ Salidas: `Finding` persistido con referencia al `Asset`.
 
 Hub del sistema. Enrolamiento sin agentes por cinco canales (manual, CSV, descubrimiento nmap, imágenes de contenedor, SBOM), resolución de identidad con conflictos, alcance autorizado por rangos de red y criticidad sugerida por LLM local con humano en el ciclo. Expone `get_scan_targets()` y `get_asset_context()` a los demás módulos. Ver [`modules/02-inventario-activos.md`](modules/02-inventario-activos.md) e [`modules/02-interfaces.md`](modules/02-interfaces.md).
 
-### M3. Enriquecimiento CTI (`apps.cti`)
+### M3. Detección continua y CTI (`apps.cti`, `apps.detection`, `apps.scanners`)
 
-Integra tres fuentes:
+Lazo dirigido por eventos: inteligencia nueva (espejo local de NVD, EPSS y KEV, descargado hacia
+Atalaya), cambios del inventario y paso del tiempo. Reconciliación contra el índice de software de
+cada activo **sin reescanear**; filtro de reglas; planificador con LLM local que elige una acción de
+una lista cerrada; modo automático/manual con guardarraíles, ventana no operativa y pausa; ejecutor
+con perfiles fijos (nuclei, Grype; nmap vía discovery); hallazgos únicos por (activo, vulnerabilidad)
+con línea de tiempo append-only. Ver [`modules/03-deteccion-continua.md`](modules/03-deteccion-continua.md)
+y [`modules/03-interfaces.md`](modules/03-interfaces.md).
 
-- **EPSS** (FIRST.org) — snapshot CSV descargado diariamente a cache local
-- **CISA KEV** — JSON descargado diariamente
-- **NVD** — API REST con rate limiting (requiere API key opcional)
-
-Flujo: para cada `Finding` con un CVE asociado, lookup en las tres fuentes y persistir los enriquecimientos.
-
-Submódulo LLM: extracción de entidades (CVE, productos, técnicas MITRE) desde texto no estructurado (advisories, blogs).
+Pendiente del plan original: extracción de entidades CTI desde texto no estructurado.
 
 ### M4. Motor de scoring (`apps.scoring`)
 

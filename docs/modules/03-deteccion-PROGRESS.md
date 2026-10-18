@@ -36,9 +36,9 @@ el PR de este módulo depende del PR #7). **No se hace merge a `main`.**
 | 6 | Ejecutor (nuclei, Grype, nmap vía discovery), guardarraíles y cola con prioridad | ✅ |
 | 7 | Modo automático/manual: cola de aprobación, interruptor, por entorno, escalamiento, pausa y bitácora | ✅ |
 | 8 | Perfil de la organización y su uso en la relevancia de CTI | ✅ |
-| 9 | Pantallas y permisos | ⬜ |
-| 10 | Panel de pruebas: inyección de eventos simulados y grabación/reproducción | ⬜ |
-| 11 | Datos de laboratorio y documentación | ⬜ |
+| 9 | Pantallas y permisos | ✅ |
+| 10 | Panel de pruebas: inyección de eventos simulados y grabación/reproducción | ✅ |
+| 11 | Datos de laboratorio y documentación | ✅ |
 
 ## Decisiones de diseño
 
@@ -169,6 +169,34 @@ Se documentan aquí conforme aparezcan.
 - D6 reforzado: `assets.services.get_asset_summary` e `inventory_overview`, y
   `discovery.services.can_scan_asset_id`, sustituyen lecturas directas de modelos del inventario
   que habían quedado en el planificador y el perfil.
+- **Pantallas** (sección **Detección**: Panel · Actividad · Cola de aprobación · Fuentes CTI ·
+  Automatización · Organización · Pruebas). El panel ordena por `priority_score` y, a falta de
+  motor de scoring, por prioridad provisional etiquetada como tal. El detalle de hallazgo muestra
+  evidencia por herramienta y la línea de tiempo completa; acciones: confirmar, priorizar,
+  mitigar, aceptar el riesgo, falso positivo, reabrir y notas. La cola de aprobación tiene
+  aprobación/rechazo por tarjeta, en lote con casillas y atajos de teclado (`A`, `R`, `J`/`K`,
+  `X`), y lo aprobado en lote queda marcado. Actividad y borrador del perfil se refrescan con
+  HTMX (10 s / 3 s). La advertencia «modelo sustituido» se muestra en eventos, acciones y cola.
+  El detalle del activo gana la pestaña «Hallazgos» (enlace al panel filtrado) y el botón
+  «Evaluar ahora (detección)».
+- **Permisos en pantallas**: lectura con los `view_*` que la matriz de roles ya da a los tres
+  roles; cambios solo con los permisos custom (`work_findings`, `approve_actions`,
+  `request_evaluation`, `use_test_panel` para el Analista; `manage_automation`, `manage_profile`,
+  `cti.manage_sources` para el Administrador). El Lector no ve la pestaña «Pruebas».
+- **Panel de pruebas**: inyección de «cambió un activo» (evento `SIMULATED`), «entró a KEV»,
+  «subió EPSS» y «CVE nuevo para un producto» (CVE sintético `CVE-9999-NNNNN`); carga de
+  `datasets/cti-lab-sample.json`; **grabación** (eventos + decisión del planificador desde el
+  inicio hasta el fin) y **reproducción** (se reinyectan los eventos en un lote `TEST` y las
+  decisiones salen de la grabación: `PlannerDecision.replayed_from`, sin inferencia).
+- El CSS se recompiló con el binario de Tailwind v4.1.13 (`docs/development-guide.md`).
+- **Laboratorio** (`seed_lab_detection`): añade servicios con versión a los hosts de
+  `seed_lab_assets` (nginx 1.27.3 y OpenSSH 9.2p1 en web01, nginx 1.27.4 en web02, Apache 2.4.49
+  en web-pagos, PostgreSQL 16.4 en db01, 16.6 en db-reportes, nginx sin versión en app-siniestros),
+  carga `datasets/cti-lab-sample.json`, rellena el perfil de la organización si está vacío y pide
+  evaluaciones para web01 y web-pagos. Resultado esperado: hallazgos para nginx 1.27.3, PostgreSQL
+  16.4 y Apache 2.4.49 (KEV), ninguno para db-reportes, candidato sin versión en app-siniestros.
+- Documentación: `docs/modules/03-deteccion-continua.md`, `03-interfaces.md`, `03-threat-model.md`,
+  ADR-010; README, `docs/architecture.md` y `TASKS.md` actualizados.
 - Las pruebas de `cti` conectan la señal `changes_detected` con `weak=False` (una lambda se
   recolecta antes de dispararse).
 
@@ -191,8 +219,9 @@ Se documentan aquí conforme aparezcan.
 
 ## Checklist final
 
-- [ ] Lazo de punta a punta probado con eventos simulados (panel de pruebas + `seed_lab_detection`)
-- [ ] Pruebas sin internet, sin LLM real y sin herramientas reales
-- [ ] Configuración nueva documentada en `.env.example` y en `docs/modules/03-deteccion-continua.md`
-- [ ] Nota de integración con inventario, scoring y presentación (`docs/modules/03-interfaces.md`)
-- [ ] Pendientes listados en el PR
+- [x] Lazo de punta a punta probado con eventos simulados (panel de pruebas + `seed_lab_detection`;
+      `test_testing_panel.py::test_seed_lab_detection_command` lo recorre completo con herramientas y LLM simulados)
+- [x] Pruebas sin internet, sin LLM real y sin herramientas reales (`CTI_ONLINE=0` en `conftest`, `respx`, `run_command` simulado)
+- [x] Configuración nueva documentada en `.env.example` y en `docs/modules/03-deteccion-continua.md`
+- [x] Nota de integración con inventario, scoring y presentación (`docs/modules/03-interfaces.md`)
+- [x] Pendientes listados en el PR y en la sección «Pendientes» de la especificación

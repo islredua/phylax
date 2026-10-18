@@ -167,6 +167,6 @@ class ProfileForm(StyledMixin, forms.Form):
 
 
 class SourceForm(StyledMixin, forms.Form):
-    url = forms.URLField(label="URL", max_length=500, required=False)
+    url = forms.URLField(label="URL", max_length=500, required=False, assume_scheme="https")
     enabled = forms.BooleanField(label="Habilitada", required=False)
     interval_hours = forms.IntegerField(label="Intervalo (horas)", min_value=1, max_value=720)

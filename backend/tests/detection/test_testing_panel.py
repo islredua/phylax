@@ -184,3 +184,26 @@ def test_panel_views(client, analyst, make_user):
     assert client.get("/detection/tests/").status_code == 403
     nav = client.get("/detection/").context["nav"]
     assert "tests" not in [t.key for t in nav.tabs]
+
+
+def test_seed_lab_detection_command(capsys, settings):
+    from django.core.management import call_command
+    from django.core.management.base import CommandError
+
+    settings.LLM_MOCK_MODE = True
+    with pytest.raises(CommandError, match="seed_lab_assets"):
+        call_command("seed_lab_detection")
+    call_command("seed_lab_assets")
+    call_command("seed_lab_detection")
+    out = capsys.readouterr().out
+    assert "CVE nuevos" in out and "Evaluaciones pedidas" in out
+    web01 = __import__("apps.assets.models", fromlist=["Asset"]).Asset.objects.get(name="web01")
+    assert Finding.objects.filter(asset=web01, vulnerability_id="CVE-2025-23419").exists()
+    assert Finding.objects.filter(
+        asset__name="web-pagos", vulnerability_id="CVE-2021-41773", in_kev=True
+    ).exists()
+    assert Finding.objects.filter(asset__name="db01", vulnerability_id="CVE-2024-10979").exists()
+    assert not Finding.objects.filter(asset__name="db-reportes").exists()
+    assert profile.get_profile().sector == "Seguros"
+    assert DetectionEvent.objects.filter(kind=EventKind.MANUAL_EVALUATION).count() == 2
+    call_command("seed_lab_detection", "--no-loop")  # idempotente
