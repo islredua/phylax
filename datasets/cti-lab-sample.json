@@ -1,0 +1,72 @@
+{
+  "_comment": "Muestra CTI para el laboratorio de Atalaya (formato propio: cves[].{cve_id, description, published, modified, cvss, cwe_ids, affected[], epss, kev, references}). Los CVE son reales; los rangos, puntajes y fechas son instantáneas ilustrativas que no sustituyen a las fuentes vivas. Cargar con: manage.py load_cti_fixture /datasets/cti-lab-sample.json",
+  "cves": [
+    {
+      "cve_id": "CVE-2025-23419",
+      "description": "nginx: con varios bloques server que comparten IP y puerto, la reanudación de sesión TLS permite eludir la autenticación por certificado de cliente.",
+      "published": "2025-02-05T18:15:00Z", "modified": "2025-02-10T12:00:00Z",
+      "cvss": {"score": 5.3, "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N", "version": "3.1", "severity": "MEDIUM"},
+      "cwe_ids": ["CWE-287"],
+      "affected": [{"vendor": "f5", "product": "nginx", "cpe": "cpe:2.3:a:f5:nginx:*:*:*:*:*:*:*:*", "version_start_including": "1.5.0", "version_end_excluding": "1.27.4"}],
+      "epss": {"score": 0.0012, "percentile": 0.46},
+      "references": ["https://my.f5.com/manage/s/article/K000148922"]
+    },
+    {
+      "cve_id": "CVE-2024-10979",
+      "description": "PostgreSQL PL/Perl: un usuario sin privilegios puede cambiar variables de entorno sensibles del proceso (p. ej. PATH), lo que puede derivar en ejecución de código.",
+      "published": "2024-11-14T13:15:00Z", "modified": "2024-11-19T20:00:00Z",
+      "cvss": {"score": 8.8, "vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H", "version": "3.1", "severity": "HIGH"},
+      "cwe_ids": ["CWE-15"],
+      "affected": [
+        {"vendor": "postgresql", "product": "postgresql", "cpe": "cpe:2.3:a:postgresql:postgresql:*:*:*:*:*:*:*:*", "version_start_including": "16.0", "version_end_excluding": "16.5"},
+        {"vendor": "postgresql", "product": "postgresql", "cpe": "cpe:2.3:a:postgresql:postgresql:*:*:*:*:*:*:*:*", "version_start_including": "15.0", "version_end_excluding": "15.9"}
+      ],
+      "epss": {"score": 0.62, "percentile": 0.98},
+      "references": ["https://www.postgresql.org/support/security/CVE-2024-10979/"]
+    },
+    {
+      "cve_id": "CVE-2021-41773",
+      "description": "Apache HTTP Server 2.4.49: path traversal que permite mapear URL a archivos fuera del document root; con CGI habilitado, ejecución remota de código.",
+      "published": "2021-10-05T09:15:00Z", "modified": "2023-11-07T03:38:00Z",
+      "cvss": {"score": 7.5, "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N", "version": "3.1", "severity": "HIGH"},
+      "cwe_ids": ["CWE-22"],
+      "affected": [{"vendor": "apache", "product": "http_server", "cpe": "cpe:2.3:a:apache:http_server:2.4.49:*:*:*:*:*:*:*", "exact_version": "2.4.49"}],
+      "epss": {"score": 0.97, "percentile": 0.999},
+      "kev": {"added": "2021-11-03", "due": "2021-11-17", "vendor": "Apache", "product": "HTTP Server", "name": "Apache HTTP Server Path Traversal Vulnerability", "action": "Apply updates per vendor instructions.", "ransomware": "Known"},
+      "references": ["https://httpd.apache.org/security/vulnerabilities_24.html"]
+    },
+    {
+      "cve_id": "CVE-2024-6387",
+      "description": "OpenSSH (regreSSHion): condición de carrera en el manejador de señales de sshd que permite ejecución remota de código como root en sistemas glibc.",
+      "published": "2024-07-01T13:15:00Z", "modified": "2024-07-12T16:00:00Z",
+      "cvss": {"score": 8.1, "vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H", "version": "3.1", "severity": "HIGH"},
+      "cwe_ids": ["CWE-364"],
+      "affected": [{"vendor": "openbsd", "product": "openssh", "cpe": "cpe:2.3:a:openbsd:openssh:*:*:*:*:*:*:*:*", "version_start_including": "8.5", "version_end_excluding": "9.8"}],
+      "epss": {"score": 0.21, "percentile": 0.96},
+      "references": ["https://www.openssh.com/txt/release-9.8"]
+    },
+    {
+      "cve_id": "CVE-2024-9143",
+      "description": "OpenSSL: acceso fuera de límites en parámetros de curvas elípticas GF(2^m) con polinomios irreducibles inválidos.",
+      "published": "2024-10-16T17:15:00Z", "modified": "2024-10-21T14:00:00Z",
+      "cvss": {"score": 4.3, "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:U/C:N/I:N/A:L", "version": "3.1", "severity": "MEDIUM"},
+      "cwe_ids": ["CWE-787"],
+      "affected": [{"vendor": "openssl", "product": "openssl", "cpe": "cpe:2.3:a:openssl:openssl:*:*:*:*:*:*:*:*", "version_start_including": "3.0.0", "version_end_excluding": "3.0.16"}],
+      "epss": {"score": 0.003, "percentile": 0.52},
+      "references": ["https://openssl-library.org/news/secadv/20241016.txt"]
+    },
+    {
+      "cve_id": "CVE-2024-53907",
+      "description": "Django: denegación de servicio potencial en django.utils.html.strip_tags() y en el filtro striptags con entradas que contienen secuencias largas de entidades HTML incompletas.",
+      "published": "2024-12-06T12:15:00Z", "modified": "2024-12-10T10:00:00Z",
+      "cvss": {"score": 7.5, "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H", "version": "3.1", "severity": "HIGH"},
+      "cwe_ids": ["CWE-400"],
+      "affected": [
+        {"vendor": "djangoproject", "product": "django", "cpe": "cpe:2.3:a:djangoproject:django:*:*:*:*:*:*:*:*", "version_start_including": "5.1", "version_end_excluding": "5.1.4"},
+        {"vendor": "djangoproject", "product": "django", "cpe": "cpe:2.3:a:djangoproject:django:*:*:*:*:*:*:*:*", "version_start_including": "5.0", "version_end_excluding": "5.0.10"}
+      ],
+      "epss": {"score": 0.0009, "percentile": 0.40},
+      "references": ["https://www.djangoproject.com/weblog/2024/dec/04/security-releases/"]
+    }
+  ]
+}

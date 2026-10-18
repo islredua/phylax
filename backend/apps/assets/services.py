@@ -23,7 +23,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from . import catalogs
-from .contracts import AssetContext, DiscoveredHost, ScanTarget, UpsertResult
+from .contracts import AssetContext, DiscoveredHost, ScanTarget, SoftwareItem, UpsertResult
 from .enums import (
     IDENTITY_PRECEDENCE,
     AssetOrigin,
@@ -50,6 +50,7 @@ from .models import (
     Service,
 )
 from .normalization import ip_kind, normalize_identifier
+from .signals_domain import asset_confirmed, services_changed
 
 logger = logging.getLogger(__name__)
 
@@ -90,8 +91,13 @@ _PRECEDENCE_INDEX = {kind: i for i, kind in enumerate(IDENTITY_PRECEDENCE)}
 
 
 # --------------------------------------------------------------------------
-# Permisos
+# Permisos y señales de dominio
 # --------------------------------------------------------------------------
+
+
+def _emit_after_commit(signal, **kwargs):
+    """Emite una señal de dominio al confirmar la transacción (nunca dentro de ella)."""
+    transaction.on_commit(lambda: signal.send(sender=Asset, **kwargs))
 
 
 def _require(user, *perms):
@@ -500,12 +506,12 @@ def _upsert_locked(host, identifiers, payload, run):
     _add_identifiers(asset, identifiers, host.observed_at)
     services_before = None if created else _service_signature(asset)
     _upsert_services(asset, host)
-    if (
-        not created
-        and asset.status in SUGGESTIBLE_STATUSES
-        and _service_signature(asset) != services_before
-    ):
+    services_after = _service_signature(asset)
+    if not created and asset.status in SUGGESTIBLE_STATUSES and services_after != services_before:
         schedule_suggestion(asset.pk, trigger=SuggestionTrigger.CONTEXT_CHANGE)
+    if host.services and (created or services_after != services_before):
+        # Módulo 3: el software observado cambió; la detección reindexa y reconcilia.
+        _emit_after_commit(services_changed, asset_id=asset.pk, created=created)
     if not created:
         asset.first_seen = asset.first_seen or host.observed_at
         asset.last_seen = max(filter(None, (asset.last_seen, host.observed_at)))
@@ -692,6 +698,7 @@ def confirm_asset(asset, *, user, fields=None, criticality=None, suggest=True):
     asset.save()
     if suggest:
         schedule_suggestion(asset.pk, trigger=SuggestionTrigger.CONFIRM, requested_by=user)
+    _emit_after_commit(asset_confirmed, asset_id=asset.pk)
     return asset
 
 
@@ -981,6 +988,33 @@ def get_scan_targets() -> list[ScanTarget]:
         if current is not None:
             targets.append(ScanTarget(asset_id=asset.pk, kind="sbom", value=current.file.name))
     return targets
+
+
+def get_asset_software(asset_id) -> list[SoftwareItem]:
+    """Software conocido del activo: servicios abiertos (nmap) y componentes del SBOM vigente.
+
+    Lo consume el módulo de detección para reconciliar la CTI sin reescanear.
+    """
+    from .sbom import components_of
+
+    asset = Asset.objects.get(pk=asset_id)
+    items = [
+        SoftwareItem(
+            source="SERVICE",
+            name=svc.product or svc.service_name,
+            version=svc.version,
+            cpe=svc.cpe,
+            service_id=svc.pk,
+            port=svc.port,
+            protocol=svc.protocol,
+        )
+        for svc in asset.services.filter(state=ServiceState.OPEN).order_by("port")
+        if svc.product or svc.cpe
+    ]
+    current = asset.sboms.filter(is_current=True).first()
+    if current is not None:
+        items.extend(components_of(current))
+    return items
 
 
 def assets_matching(identifiers: Iterable[tuple[str, str]]):

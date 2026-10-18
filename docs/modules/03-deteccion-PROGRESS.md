@@ -29,7 +29,7 @@ el PR de este módulo depende del PR #7). **No se hace merge a `main`.**
 | # | Etapa | Estado |
 |---|---|---|
 | 1 | Reconocimiento y este documento | ✅ |
-| 2 | Almacén CTI (espejo NVD/EPSS/KEV), índice de software y reconciliación sin escanear | ⬜ |
+| 2 | Almacén CTI (espejo NVD/EPSS/KEV), índice de software y reconciliación sin escanear | ✅ |
 | 3 | Hallazgos: modelo, deduplicación, ciclo de vida y línea de tiempo | ⬜ |
 | 4 | Fuentes de eventos (CTI, inventario, tiempo) y filtro rápido | ⬜ |
 | 5 | Planificador LLM con lista cerrada de acciones y registro de decisiones | ⬜ |
@@ -73,6 +73,23 @@ el PR de este módulo depende del PR #7). **No se hace merge a `main`.**
 ## Desviaciones y notas
 
 Se documentan aquí conforme aparezcan.
+
+- **Espejo NVD dirigido, no completo.** Un espejo íntegro de NVD (300 000+ CVE) no aporta al
+  MVP y tarda horas sin API key. El espejo tiene dos entradas: (a) incremental por fecha de
+  modificación (`CTI_NVD_INITIAL_DAYS` hacia atrás la primera vez, luego desde la última
+  sincronización exitosa) y (b) **por producto del inventario** (`virtualMatchString`), que se
+  pide cuando aparece un producto nuevo en el índice de software (`ProductCoverage`, con
+  refresco cada `CTI_PRODUCT_REFRESH_DAYS`). KEV se refleja completo (es pequeño) y EPSS solo
+  para los CVE presentes en el espejo.
+- **Reconciliación sin versión = candidato, no hallazgo.** Si el componente no tiene versión
+  (nmap sin `-sV` útil) o la fuente no acota versiones (entrada de KEV sin CPE), no se crea un
+  hallazgo: queda un *candidato* que el planificador puede resolver con `RESCAN_SERVICES`.
+- **Señales de dominio del inventario** (`apps/assets/signals_domain.py`): `services_changed`
+  (desde `upsert_discovered_host`, al confirmar la transacción), `asset_confirmed` y
+  `sbom_attached` (desde `sbom.attach_sbom`, que es la función que usan las vistas). Los
+  receptores reciben solo identificadores.
+- Las pruebas de `cti` conectan la señal `changes_detected` con `weak=False` (una lambda se
+  recolecta antes de dispararse).
 
 - El planificador se invoca **por evento sobreviviente**, pero los lotes CTI se resuelven antes
   por reconciliación: la mayoría de las novedades CTI se convierten en hallazgos sin pasar por el
