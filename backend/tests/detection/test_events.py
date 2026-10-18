@@ -44,6 +44,14 @@ def _immediate_on_commit(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_planner(monkeypatch):
+    """Estas pruebas examinan el filtro: el planificador (etapa 5) no se encola."""
+    from apps.detection import planner
+
+    monkeypatch.setattr(planner, "enqueue_ready", lambda ids: None)
+
+
+@pytest.fixture(autouse=True)
 def _no_nvd(settings, db):
     # La cobertura por producto saldría a internet: NVD deshabilitado en pruebas.
     cti.ensure_sources()

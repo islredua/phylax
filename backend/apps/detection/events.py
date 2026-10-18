@@ -338,6 +338,10 @@ def _triage_asset(event):
         return _finish(event, EventStatus.FILTERED, reason, summary)
     if event.kind in REINDEX_KINDS:
         _request_coverage(tuple(summary["new_products"]), event.asset_id)
+        if summary["new_products"]:
+            from .planner import check_watches
+
+            summary["watches_matched"] = len(check_watches(event.asset_id, summary["new_products"]))
         summary.update(_reconcile_asset(event.asset_id))
     return _finish(event, EventStatus.READY, "listo para el planificador", summary)
 
@@ -386,7 +390,16 @@ def process_batch(batch_id):
     batch.processed_at = timezone.now()
     batch.stats = stats_summary
     batch.save(update_fields=["processed_at", "stats", "updated_at"])
+    ready = [e.pk for e in events if e.status == EventStatus.READY]
+    if ready:
+        transaction.on_commit(lambda: _enqueue_planner(ready))
     return batch
+
+
+def _enqueue_planner(event_ids):
+    from .planner import enqueue_ready
+
+    enqueue_ready(event_ids)
 
 
 def process_pending(limit=200):

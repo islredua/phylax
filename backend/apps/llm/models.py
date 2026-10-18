@@ -11,6 +11,8 @@ class InferenceTask(models.TextChoices):
     ASSET_CRITICALITY = "ASSET_CRITICALITY", "Criticidad de activo"
     CTI_EXTRACTION = "CTI_EXTRACTION", "Extracción CTI"
     EXEC_NARRATIVE = "EXEC_NARRATIVE", "Narrativa ejecutiva"
+    DETECTION_PLANNER = "DETECTION_PLANNER", "Planificador de detección"
+    ORG_PROFILE_DRAFT = "ORG_PROFILE_DRAFT", "Borrador del perfil de la organización"
 
 
 class InferenceLog(UUIDModel):
@@ -19,6 +21,9 @@ class InferenceLog(UUIDModel):
     task = models.CharField(max_length=20, choices=InferenceTask.choices)
     model = models.CharField(max_length=100)
     model_digest = models.CharField(max_length=100, blank=True)
+    # Modelo que Ollama dice haber usado en la respuesta: si difiere de ``model`` hubo una
+    # sustitución y la decisión debe marcarse (nunca una sustitución silenciosa).
+    model_responded = models.CharField(max_length=100, blank=True)
     prompt_version = models.CharField(max_length=20)
     request_payload = models.JSONField(default=dict)
     response_raw = models.TextField(blank=True)
@@ -51,6 +56,10 @@ class InferenceLog(UUIDModel):
     def __str__(self):
         status = "ok" if self.parsed_ok else "error"
         return f"{self.get_task_display()} · {self.model} · {status}"
+
+    @property
+    def model_mismatch(self):
+        return bool(self.model_responded) and self.model_responded != self.model
 
 
 class LLMSettings(models.Model):

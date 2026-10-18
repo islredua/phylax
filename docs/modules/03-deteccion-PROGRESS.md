@@ -32,7 +32,7 @@ el PR de este módulo depende del PR #7). **No se hace merge a `main`.**
 | 2 | Almacén CTI (espejo NVD/EPSS/KEV), índice de software y reconciliación sin escanear | ✅ |
 | 3 | Hallazgos: modelo, deduplicación, ciclo de vida y línea de tiempo | ✅ |
 | 4 | Fuentes de eventos (CTI, inventario, tiempo) y filtro rápido | ✅ |
-| 5 | Planificador LLM con lista cerrada de acciones y registro de decisiones | ⬜ |
+| 5 | Planificador LLM con lista cerrada de acciones y registro de decisiones | ✅ |
 | 6 | Ejecutor (nuclei, Grype, nmap vía discovery), guardarraíles y cola con prioridad | ⬜ |
 | 7 | Modo automático/manual: cola de aprobación, interruptor, por entorno, escalamiento, pausa y bitácora | ⬜ |
 | 8 | Perfil de la organización y su uso en la relevancia de CTI | ⬜ |
@@ -115,6 +115,20 @@ Se documentan aquí conforme aparezcan.
   prueba salía a NVD real por la cobertura de producto.
 - `assets.services` gana dos lecturas baratas para el lazo: `get_asset_status` y
   `list_actionable_assets` (D6: la detección no importa modelos del inventario).
+- **Planificador** (`apps/detection/planner.py`): entrada compacta (`build_input`: evento,
+  resumen del activo con su software indexado y hallazgos abiertos, resumen del CVE, perfil de
+  la organización), prompt versionado `detection_planner/v1`, salida con JSON Schema (`enum` de
+  acciones) validada con Pydantic. Si el modelo no responde o devuelve algo fuera de la lista,
+  decide la **regla de respaldo** (`fallback_decision`) y la decisión queda marcada
+  `fallback=True` con el motivo. `LLM_MOCK_MODE=1` usa la misma regla, marcada como simulada.
+- **Sustitución de modelo visible**: `InferenceLog.model_responded` (campo nuevo, migración
+  `llm.0003`) guarda el `model` que devuelve Ollama; `PlannerDecision.model_mismatch` se marca y
+  se registra una advertencia.
+- **Tope de decisiones por hora** (`DETECTION_PLANNER_MAX_PER_HOUR`, luego configurable en BD):
+  los eventos que no alcanzan turno quedan `READY` y una tarea Beat los reencola cada 5 min.
+- **Ítems de vigilancia** (`WatchItem`): `CREATE_WATCH` guarda la clave canónica del producto;
+  al reindexar un activo que lo contiene, el ítem se cierra y nace un evento `WATCH_MATCHED`
+  con urgencia alta, que pasa por el lazo como cualquier otro.
 - Las pruebas de `cti` conectan la señal `changes_detected` con `weak=False` (una lambda se
   recolecta antes de dispararse).
 

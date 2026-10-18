@@ -305,6 +305,7 @@ class EventKind(models.TextChoices):
     ASSET_STALE_REVIEW = "ASSET_STALE_REVIEW", "Activo sin revisar hace tiempo"
     FINDING_STALE_REVIEW = "FINDING_STALE_REVIEW", "Hallazgos sin revisar hace tiempo"
     MANUAL_EVALUATION = "MANUAL_EVALUATION", "Evaluación pedida a mano"
+    WATCH_MATCHED = "WATCH_MATCHED", "Apareció un producto vigilado"
     SIMULATED = "SIMULATED", "Evento simulado"
 
 
@@ -410,3 +411,97 @@ class DetectionEvent(UUIDModel):
             return self.cve_id
         return self.payload.get("subject", "")
 
+
+# --------------------------------------------------------------------------
+# Planificador (etapa 5)
+# --------------------------------------------------------------------------
+
+
+class Action(models.TextChoices):
+    """Lista cerrada: el LLM elige de aquí; nunca produce una orden libre."""
+
+    RECONCILE = "RECONCILE", "Reconciliar con el inventario"
+    RESCAN_SERVICES = "RESCAN_SERVICES", "Reescanear servicios"
+    DETECT_VULNS = "DETECT_VULNS", "Detectar vulnerabilidades"
+    REANALYZE_SBOM = "REANALYZE_SBOM", "Reanalizar imagen o SBOM"
+    CREATE_WATCH = "CREATE_WATCH", "Crear ítem de vigilancia"
+    FLAG_HUMAN = "FLAG_HUMAN", "Marcar para revisión humana"
+    NO_ACTION = "NO_ACTION", "No hacer nada"
+
+
+class Urgency(models.TextChoices):
+    LOW = "LOW", "Baja"
+    NORMAL = "NORMAL", "Normal"
+    HIGH = "HIGH", "Alta"
+    CRITICAL = "CRITICAL", "Crítica"
+
+
+URGENCY_RANK = {Urgency.LOW: 0, Urgency.NORMAL: 1, Urgency.HIGH: 2, Urgency.CRITICAL: 3}
+
+
+class PlannerDecision(UUIDModel):
+    """Qué decidió el planificador, sobre qué, por qué y con qué modelo. Inmutable."""
+
+    event = models.ForeignKey(DetectionEvent, on_delete=models.CASCADE, related_name="decisions")
+    asset = models.ForeignKey(
+        "assets.Asset", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    action = models.CharField(max_length=20, choices=Action.choices)
+    urgency = models.CharField(max_length=8, choices=Urgency.choices, default=Urgency.NORMAL)
+    category = models.CharField(max_length=10, blank=True)
+    watch_product = models.CharField(max_length=120, blank=True)
+    rationale = models.TextField(blank=True)
+    evidence = models.JSONField(default=list, blank=True)
+    input_payload = models.JSONField(default=dict, blank=True)
+    prompt_version = models.CharField(max_length=20, blank=True)
+    model_requested = models.CharField(max_length=100, blank=True)
+    model_responded = models.CharField(max_length=100, blank=True)
+    model_mismatch = models.BooleanField(default=False)
+    inference = models.ForeignKey(
+        "llm.InferenceLog", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    duration_ms = models.FloatField(null=True, blank=True)
+    # La decisión no salió del modelo sino de la regla de respaldo (modelo caído o salida inválida).
+    fallback = models.BooleanField(default=False)
+    fallback_reason = models.CharField(max_length=255, blank=True)
+    # Reproducción de una grabación (panel de pruebas): la decisión se tomó de la grabación.
+    replayed_from = models.CharField(max_length=100, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "decisión del planificador"
+        verbose_name_plural = "decisiones del planificador"
+
+    def __str__(self):
+        return f"{self.get_action_display()} · {self.get_urgency_display()}"
+
+    @property
+    def urgency_rank(self):
+        return URGENCY_RANK.get(self.urgency, 1)
+
+
+class WatchItem(UUIDModel):
+    """«Esto me interesa pero no lo tengo inventariado: avísame si aparece»."""
+
+    product_key = models.CharField(max_length=120, db_index=True)
+    product_label = models.CharField(max_length=120)
+    cve = models.ForeignKey(
+        "cti.CveRecord", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    reason = models.TextField(blank=True)
+    decision = models.ForeignKey(
+        PlannerDecision, null=True, blank=True, on_delete=models.SET_NULL, related_name="watches"
+    )
+    is_active = models.BooleanField(default=True)
+    matched_at = models.DateTimeField(null=True, blank=True)
+    matched_asset = models.ForeignKey(
+        "assets.Asset", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "ítem de vigilancia"
+        verbose_name_plural = "ítems de vigilancia"
+
+    def __str__(self):
+        return f"Vigilar {self.product_label}"

@@ -6,7 +6,9 @@ from .models import (
     Finding,
     FindingEvent,
     FindingEvidence,
+    PlannerDecision,
     SoftwareComponent,
+    WatchItem,
 )
 
 
@@ -78,3 +80,22 @@ class DetectionEventAdmin(ReadOnly, admin.ModelAdmin):
 @admin.register(EventBatch)
 class EventBatchAdmin(ReadOnly, admin.ModelAdmin):
     list_display = ("source", "reference", "size", "processed_at", "stats")
+
+
+@admin.register(PlannerDecision)
+class PlannerDecisionAdmin(ReadOnly, admin.ModelAdmin):
+    list_display = (
+        "action",
+        "urgency",
+        "asset",
+        "model_requested",
+        "model_mismatch",
+        "fallback",
+        "created_at",
+    )
+    list_filter = ("action", "urgency", "fallback", "model_mismatch")
+
+
+@admin.register(WatchItem)
+class WatchItemAdmin(admin.ModelAdmin):
+    list_display = ("product_label", "product_key", "cve", "is_active", "matched_at")

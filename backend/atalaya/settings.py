@@ -196,6 +196,11 @@ CELERY_TASK_ROUTES = {
     "apps.assets.tasks.suggest_criticality": {"queue": "llm"},
     "apps.assets.tasks.sweep_unclassified_criticality": {"queue": "llm"},
     "apps.discovery.tasks.run_discovery": {"queue": "discovery"},
+    # Módulo 3: el planificador infiere en la cola llm; las herramientas corren en el
+    # worker de descubrimiento (único con acceso a las redes escaneadas).
+    "apps.detection.tasks.plan_event": {"queue": "llm"},
+    "apps.detection.tasks.draft_org_profile": {"queue": "llm"},
+    "apps.scanners.tasks.run_tool": {"queue": "discovery"},
 }
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_BEAT_SCHEDULE = {
@@ -231,6 +236,10 @@ CELERY_BEAT_SCHEDULE = {
     "detection-time-reviews": {
         "task": "apps.detection.tasks.emit_time_reviews",
         "schedule": crontab(minute=40),
+    },
+    "detection-plan-stragglers": {
+        "task": "apps.detection.tasks.plan_stragglers",
+        "schedule": crontab(minute="*/5"),
     },
 }
 
@@ -302,6 +311,8 @@ CTI_EPSS_HIGH = float(os.environ.get("CTI_EPSS_HIGH", "0.5"))
 # que una fuente vuelva a ver un hallazgo abierto.
 DETECTION_ASSET_REVIEW_DAYS = int(os.environ.get("DETECTION_ASSET_REVIEW_DAYS", "14"))
 DETECTION_FINDING_REVIEW_DAYS = int(os.environ.get("DETECTION_FINDING_REVIEW_DAYS", "30"))
+# Tope de decisiones del planificador por hora cuando no hay configuración en BD.
+DETECTION_PLANNER_MAX_PER_HOUR = int(os.environ.get("DETECTION_PLANNER_MAX_PER_HOUR", "60"))
 
 # --- Scoring weights ---
 SCORING_WEIGHTS = {

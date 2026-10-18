@@ -44,6 +44,7 @@ IMMUTABLE_MODELS = {
     ("detection", "findingevidence"),
     ("detection", "detectionevent"),
     ("detection", "eventbatch"),
+    ("detection", "plannerdecision"),
 }
 # Configuración que solo admin modifica; el operador solo la consulta.
 ADMIN_MANAGED_MODELS = {
