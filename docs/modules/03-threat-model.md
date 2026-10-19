@@ -12,6 +12,7 @@ Complementa [`02-threat-model.md`](02-threat-model.md) y [`../stride-threat-mode
 | Repudiation | «Yo no aprobé ese escaneo» / «el sistema lo hizo solo» | `approved_by`, `approved_at`, `approved_in_bulk`, `auto_approved`, `escalated`, bitácora con usuario; decisiones con entrada, modelo y duración | `PlannedAction`, `AutomationLogEntry`, `PlannerDecision` | `test_manual_mode_queues_and_human_approval_dispatches`, `test_reject_and_bulk_approve` |
 | Repudiation | «Yo no acepté ese riesgo» | `status_changed_by`, nota obligatoria, evento `STATUS_CHANGED` con actor | `findings.transition` | `test_lifecycle_transitions`, `test_accepting_requires_note_and_permission` |
 | Info disclosure | Datos del inventario salen a servicios externos | Las fuentes solo se descargan; el LLM es local; `CTI_ONLINE=0` bloquea descargas; el borrador del perfil no incluye IP ni nombres de equipo | `cti/services.py`, `detection/profile.inventory_summary` | `test_offline_mode_never_downloads`, `test_draft_from_inventory_with_mock` |
+| Info disclosure | nuclei habla con servidores externos durante un escaneo (interactsh para pruebas fuera de banda; plantillas con URL externas fijas) | `-no-interactsh` en el perfil fijo; plantillas con versión fijada en `NUCLEI_TEMPLATES_DIR` (revisar al actualizar) | `scanners/profiles.py::NUCLEI_COMMON` | `test_nuclei_argv_is_fixed_and_validates_targets` |
 | Info disclosure | Token de registry en argv, logs o evidencia | Credenciales solo por variables de entorno del proceso; `argv` y `output_tail` no las contienen | `scanners/services._registry_env` | `test_registry_credentials_go_through_env_not_argv` |
 | Info disclosure | Salida de herramientas y evidencia accesibles sin permiso | Vistas con `view_*`; archivos en `MEDIA_ROOT` nunca servidos directamente | `detection/views.py` (`Perm`) | `test_views.py::test_roleless_user_is_forbidden` |
 | DoS | Ráfaga de CTI dispara cientos de inferencias | Reconciliación por lote (sin LLM); solo eventos `READY` al planificador; tope de decisiones por hora; cola `llm` con concurrencia 1 | `events.process_batch`, `planner.planner_allowed` | `test_cti_batch_is_reconciled_once_and_triaged_per_event`, `test_rate_limit_leaves_event_ready_for_stragglers` |
@@ -27,7 +28,10 @@ Complementa [`02-threat-model.md`](02-threat-model.md) y [`../stride-threat-mode
 1. **nuclei y Grype corren en el worker de descubrimiento** con `NET_RAW`/`NET_ADMIN`; sería más
    estricto un worker aparte sin capabilities para Grype.
 2. **Plantillas de nuclei** vienen de internet; verificar su procedencia y fijar versión en el
-   despliegue (`NUCLEI_TEMPLATES_DIR`).
+   despliegue (`NUCLEI_TEMPLATES_DIR`, `update_scanner_data --templates-archive`). Algunas
+   plantillas de la comunidad piden URL externas fijas (se observó en la prueba real con
+   `secrets-patterns-*`): interactsh va desactivado, pero esas peticiones no se pueden impedir sin
+   un proxy de salida; en un despliegue sin internet simplemente fallan.
 3. **Grabaciones del panel de pruebas** reinyectan eventos reales: solo el Analista puede usarlas y
    todo queda en lotes `TEST` visibles en Actividad.
 4. **Modelo pequeño o sustituido**: la decisión se marca, pero en modo automático se ejecuta igual

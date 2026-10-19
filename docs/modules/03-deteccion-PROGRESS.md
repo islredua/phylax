@@ -220,7 +220,11 @@ Se documentan aquí conforme aparezcan.
 - Probado en el equipo de desarrollo con la imagen reconstruida (nuclei 3.3.5, Grype 0.120.1):
   base de Grype y plantillas descargadas al volumen `cti_cache`; Grype real sobre un SBOM con
   log4j-core 2.14.1 (7 hallazgos, parseados por `parse_grype_json`); nuclei real con el perfil
-  `exposure` contra un servicio HTTP del propio stack. Hallazgos de esa prueba:
+  `exposure` (3 903 plantillas, 138 s) contra el servicio Ollama del propio stack: detectó el panel
+  (`ollama-llm-panel`) y 27 coincidencias informativas de patrones. Hallazgos de esa prueba:
+  - nuclei usa interactsh (servidor externo) por defecto para pruebas fuera de banda: el perfil
+    fijo lleva ahora `-no-interactsh`. Algunas plantillas de la comunidad consultan URL externas
+    fijas; queda anotado como riesgo residual en el STRIDE.
   - El actualizador de nuclei agota el tiempo en redes lentas y devuelve salida 0 sin instalar
     nada: `update_scanner_data` comprueba que haya plantillas y, si no, baja el zip de la versión
     publicada con `curl` (o acepta `--templates-archive` para despliegues sin internet).

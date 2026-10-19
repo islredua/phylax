@@ -70,6 +70,7 @@ def test_nuclei_argv_is_fixed_and_validates_targets(settings):
     settings.NUCLEI_TEMPLATES_DIR = ""
     argv = profiles.build_nuclei_argv("cves", ["10.7.0.10", "10.7.0.11"])
     assert argv[0] == "/usr/local/bin/nuclei" and "-jsonl" in argv and "-silent" in argv
+    assert "-no-interactsh" in argv  # nada sale a servidores OOB externos
     assert argv[argv.index("-tags") + 1] == "cve"
     assert argv.count("-target") == 2 and "10.7.0.11" in argv
     with pytest.raises(ValidationError):

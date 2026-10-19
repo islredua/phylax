@@ -27,6 +27,8 @@ NUCLEI_COMMON = [
     "-silent",
     "-no-color",
     "-disable-update-check",
+    # Sin interactsh: nada de pruebas fuera de banda contra servidores externos (nada sale).
+    "-no-interactsh",
     "-rate-limit",
     "50",
     "-timeout",
