@@ -21,6 +21,7 @@ from .models import ACTIVE_STATUSES, DiscoveryProfile, DiscoveryRun, RunStatus
 from .parser import NmapParseError, parse_nmap_xml
 from .profiles import build_argv, validate_host_ip, validate_sweep_cidr
 from .runner import DiscoveryCancelledError, DiscoveryError, detect_scan_mode, run_nmap
+from .signals import run_finished
 
 logger = logging.getLogger(__name__)
 
@@ -202,12 +203,24 @@ def execute_run(run_id):
         # Escaneo de un activo: ya con servicios, MAC y hostname, se calcula su criticidad.
         # La huella evita una inferencia nueva si el escaneo no cambió el contexto.
         assets_services.schedule_suggestion(run.target_asset_id, trigger="SCAN")
+    # Módulo 3: la acción «reescanear servicios» que lo pidió se cierra con este resultado.
+    run_finished.send(
+        sender=DiscoveryRun, run_id=run.pk, status=run.status, asset_id=run.target_asset_id
+    )
     return run
 
 
 def can_scan(asset):
     """``True`` si el activo tiene alguna IP dentro del alcance autorizado."""
     return bool(_asset_ips(asset))
+
+
+def can_scan_asset_id(asset_id):
+    """Variante por id para módulos que no manejan instancias del inventario (D6)."""
+    from apps.assets.models import Asset
+
+    asset = Asset.objects.filter(pk=asset_id).first()
+    return asset is not None and can_scan(asset)
 
 
 def has_service_scan(asset):

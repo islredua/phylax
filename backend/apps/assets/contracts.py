@@ -77,6 +77,25 @@ class ScanTarget:
 
 
 @dataclass(frozen=True)
+class SoftwareItem:
+    """Software conocido de un activo: un servicio observado por nmap o un componente del SBOM.
+
+    Es lo que el módulo de detección indexa y reconcilia contra la CTI sin reescanear.
+    """
+
+    source: str  # "SERVICE" | "SBOM"
+    name: str
+    version: str = ""
+    cpe: str = ""
+    purl: str = ""
+    vendor: str = ""
+    service_id: int | None = None
+    sbom_id: UUID | None = None
+    port: int | None = None
+    protocol: str = ""
+
+
+@dataclass(frozen=True)
 class RegistryAuth:
     """Credenciales descifradas de un registry. Solo para uso interno del worker."""
 

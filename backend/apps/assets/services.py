@@ -23,7 +23,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from . import catalogs
-from .contracts import AssetContext, DiscoveredHost, ScanTarget, UpsertResult
+from .contracts import AssetContext, DiscoveredHost, ScanTarget, SoftwareItem, UpsertResult
 from .enums import (
     IDENTITY_PRECEDENCE,
     AssetOrigin,
@@ -50,6 +50,7 @@ from .models import (
     Service,
 )
 from .normalization import ip_kind, normalize_identifier
+from .signals_domain import asset_confirmed, services_changed
 
 logger = logging.getLogger(__name__)
 
@@ -90,8 +91,13 @@ _PRECEDENCE_INDEX = {kind: i for i, kind in enumerate(IDENTITY_PRECEDENCE)}
 
 
 # --------------------------------------------------------------------------
-# Permisos
+# Permisos y señales de dominio
 # --------------------------------------------------------------------------
+
+
+def _emit_after_commit(signal, **kwargs):
+    """Emite una señal de dominio al confirmar la transacción (nunca dentro de ella)."""
+    transaction.on_commit(lambda: signal.send(sender=Asset, **kwargs))
 
 
 def _require(user, *perms):
@@ -500,12 +506,12 @@ def _upsert_locked(host, identifiers, payload, run):
     _add_identifiers(asset, identifiers, host.observed_at)
     services_before = None if created else _service_signature(asset)
     _upsert_services(asset, host)
-    if (
-        not created
-        and asset.status in SUGGESTIBLE_STATUSES
-        and _service_signature(asset) != services_before
-    ):
+    services_after = _service_signature(asset)
+    if not created and asset.status in SUGGESTIBLE_STATUSES and services_after != services_before:
         schedule_suggestion(asset.pk, trigger=SuggestionTrigger.CONTEXT_CHANGE)
+    if host.services and (created or services_after != services_before):
+        # Módulo 3: el software observado cambió; la detección reindexa y reconcilia.
+        _emit_after_commit(services_changed, asset_id=asset.pk, created=created)
     if not created:
         asset.first_seen = asset.first_seen or host.observed_at
         asset.last_seen = max(filter(None, (asset.last_seen, host.observed_at)))
@@ -692,6 +698,7 @@ def confirm_asset(asset, *, user, fields=None, criticality=None, suggest=True):
     asset.save()
     if suggest:
         schedule_suggestion(asset.pk, trigger=SuggestionTrigger.CONFIRM, requested_by=user)
+    _emit_after_commit(asset_confirmed, asset_id=asset.pk)
     return asset
 
 
@@ -981,6 +988,93 @@ def get_scan_targets() -> list[ScanTarget]:
         if current is not None:
             targets.append(ScanTarget(asset_id=asset.pk, kind="sbom", value=current.file.name))
     return targets
+
+
+def get_asset_status(asset_id):
+    """``(status, in_scope)`` del activo, o ``None`` si no existe (lectura barata para el lazo)."""
+    row = Asset.objects.filter(pk=asset_id).values_list("status", "in_scope").first()
+    return row if row is not None else None
+
+
+def list_actionable_assets():
+    """``[(id, created_at)]`` de activos confirmados, vigentes y en alcance (ACTIVE/STALE)."""
+    return list(
+        Asset.objects.filter(status__in=SCANNABLE_STATUSES, in_scope=True).values_list(
+            "pk", "created_at"
+        )
+    )
+
+
+def get_asset_summary(asset_id) -> dict:
+    """Resumen descriptivo (sin lógica) para el planificador: nombre, tipo, estado, imagen/SBOM."""
+    asset = (
+        Asset.objects.select_related("container_image").prefetch_related("sboms").get(pk=asset_id)
+    )
+    return {
+        "name": asset.name,
+        "asset_type": asset.asset_type,
+        "status": asset.status,
+        "has_image": hasattr(asset, "container_image"),
+        "has_sbom": any(s.is_current for s in asset.sboms.all()),
+    }
+
+
+def inventory_overview() -> dict:
+    """Agregados del inventario vigente en alcance (sin identificadores de red)."""
+    from collections import Counter
+
+    from . import catalogs
+
+    assets = list(
+        Asset.objects.filter(status__in=SCANNABLE_STATUSES, in_scope=True).only(
+            "asset_type", "environment", "business_role", "data_categories", "description"
+        )
+    )
+    by_type = Counter(a.asset_type for a in assets)
+    by_env = Counter(a.environment for a in assets if a.environment)
+    by_role = Counter(a.business_role for a in assets if a.business_role)
+    categories = Counter(c for a in assets for c in (a.data_categories or []))
+    descriptions = [a.description[:160] for a in assets if a.description.strip()][:8]
+    return {
+        "assets": len(assets),
+        "asset_ids": [a.pk for a in assets],
+        "by_type": {catalogs.label(catalogs.ASSET_TYPE, k): v for k, v in by_type.most_common(6)},
+        "by_environment": {
+            catalogs.label(catalogs.ENVIRONMENT, k): v for k, v in by_env.most_common(6)
+        },
+        "by_business_role": {
+            catalogs.label(catalogs.BUSINESS_ROLE, k): v for k, v in by_role.most_common(8)
+        },
+        "data_categories": dict(categories.most_common(6)),
+        "sample_descriptions": descriptions,
+    }
+
+
+def get_asset_software(asset_id) -> list[SoftwareItem]:
+    """Software conocido del activo: servicios abiertos (nmap) y componentes del SBOM vigente.
+
+    Lo consume el módulo de detección para reconciliar la CTI sin reescanear.
+    """
+    from .sbom import components_of
+
+    asset = Asset.objects.get(pk=asset_id)
+    items = [
+        SoftwareItem(
+            source="SERVICE",
+            name=svc.product or svc.service_name,
+            version=svc.version,
+            cpe=svc.cpe,
+            service_id=svc.pk,
+            port=svc.port,
+            protocol=svc.protocol,
+        )
+        for svc in asset.services.filter(state=ServiceState.OPEN).order_by("port")
+        if svc.product or svc.cpe
+    ]
+    current = asset.sboms.filter(is_current=True).first()
+    if current is not None:
+        items.extend(components_of(current))
+    return items
 
 
 def assets_matching(identifiers: Iterable[tuple[str, str]]):

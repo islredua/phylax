@@ -16,12 +16,15 @@ from django.core.files import File
 from django.core.files.storage import default_storage
 from django.db import IntegrityError, transaction
 
+from .contracts import SoftwareItem
 from .enums import IdentifierKind, SbomFormat
 from .models import SbomDocument
 from .normalization import normalize_fqdn, normalize_image_ref
-from .services import _require, assets_matching
+from .services import _emit_after_commit, _require, assets_matching
+from .signals_domain import sbom_attached
 
 CHUNK = 64 * 1024
+MAX_COMPONENTS = 5000
 
 
 @dataclass
@@ -185,4 +188,68 @@ def attach_sbom(asset, uploaded_or_info, *, user, original_filename=None):
     finally:
         if os.path.exists(info.path):
             os.unlink(info.path)
+    # Módulo 3: el SBOM vigente cambió; la detección reindexa sus componentes.
+    _emit_after_commit(sbom_attached, asset_id=asset.pk, sbom_id=document.pk)
     return document
+
+
+def _external_ref(refs, kind):
+    for ref in refs or []:
+        if not isinstance(ref, dict):
+            continue
+        if kind == "purl" and ref.get("referenceType") == "purl":
+            return str(ref.get("referenceLocator") or "")
+        if kind == "cpe" and str(ref.get("referenceType") or "").startswith("cpe"):
+            return str(ref.get("referenceLocator") or "")
+    return ""
+
+
+def components_of(document):
+    """Componentes del SBOM almacenado como ``SoftwareItem`` (CycloneDX y SPDX JSON).
+
+    Dato no confiable: nombres y versiones vienen del archivo subido. Se acota a
+    ``MAX_COMPONENTS`` y los campos se truncan.
+    """
+    try:
+        with document.file.open("rb") as fh:
+            doc = json.load(fh)
+    except (FileNotFoundError, ValueError, OSError):
+        return []
+    items = []
+    if document.format == SbomFormat.CYCLONEDX_JSON:
+        raw = doc.get("components") or []
+        for comp in raw[:MAX_COMPONENTS]:
+            if not isinstance(comp, dict) or not comp.get("name"):
+                continue
+            supplier = comp.get("supplier") or comp.get("publisher") or ""
+            if isinstance(supplier, dict):
+                supplier = supplier.get("name", "")
+            items.append(
+                SoftwareItem(
+                    source="SBOM",
+                    name=str(comp["name"])[:200],
+                    version=str(comp.get("version") or "")[:100],
+                    cpe=str(comp.get("cpe") or "")[:255],
+                    purl=str(comp.get("purl") or "")[:255],
+                    vendor=str(supplier or "")[:120],
+                    sbom_id=document.pk,
+                )
+            )
+    else:
+        raw = doc.get("packages") or []
+        for pkg in raw[:MAX_COMPONENTS]:
+            if not isinstance(pkg, dict) or not pkg.get("name"):
+                continue
+            refs = pkg.get("externalRefs") or []
+            items.append(
+                SoftwareItem(
+                    source="SBOM",
+                    name=str(pkg["name"])[:200],
+                    version=str(pkg.get("versionInfo") or "")[:100],
+                    cpe=_external_ref(refs, "cpe")[:255],
+                    purl=_external_ref(refs, "purl")[:255],
+                    vendor=str(pkg.get("supplier") or "")[:120],
+                    sbom_id=document.pk,
+                )
+            )
+    return items

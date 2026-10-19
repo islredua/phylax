@@ -1,0 +1,16 @@
+{# Mientras el LLM genera el borrador, se consulta cada 3 s. #}
+<section id="draft-status" class="card flex flex-col gap-2" {% if profile.draft_state == 'PENDING' %}hx-get="{% url 'detection:organization' %}" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+  <h3 class="card-title mb-0">Borrador desde el inventario</h3>
+  {% if profile.draft_state == 'PENDING' %}
+    <p class="muted"><span class="badge-primary">generando…</span> el LLM local redacta a partir de tipos, funciones, datos y productos del inventario (sin IP ni nombres de equipo).</p>
+  {% elif profile.draft_state == 'READY' %}
+    <p class="text-ink-soft">{{ profile.draft_description|linebreaksbr }}</p>
+    <p class="font-mono text-[11px] text-muted">{{ profile.draft_inference.model|default:"—" }} · {{ profile.draft_requested_at|date:"Y-m-d H:i" }}{% if profile.draft_inference.accelerator == 'mock' %} · simulado{% endif %}</p>
+    <p class="text-xs text-muted">Copia el texto a la descripción y edítalo; el borrador no se aplica solo.</p>
+    {% if can_manage %}<form method="post" action="{% url 'detection:organization_draft' %}">{% csrf_token %}<input type="hidden" name="discard" value="1"><button class="btn-secondary btn-sm" type="submit">Descartar borrador</button></form>{% endif %}
+  {% elif profile.draft_state == 'FAILED' %}
+    <div class="alert-error text-sm">No se pudo generar el borrador{% if profile.draft_inference.error %}: {{ profile.draft_inference.error }}{% endif %}.</div>
+  {% else %}
+    <p class="text-sm text-muted">Pide un borrador para que el LLM local redacte una primera descripción a partir de lo que ya se descubrió.</p>
+  {% endif %}
+</section>

@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% load detection_tags %}
+{% block title %}Evento{% endblock %}
+{% block breadcrumb_tail %}<li><a href="{% url 'detection:activity' %}">Actividad</a></li><li>Evento</li>{% endblock %}
+{% block toolbar %}<div class="toolbar"><div class="flex flex-wrap items-center gap-2"><h2>{{ event.get_kind_display }}</h2>{% event_status_badge event.status %}{% urgency_badge event.urgency_hint %}</div><a href="{% url 'detection:activity' %}" class="btn-secondary btn-sm">← Actividad</a></div>{% endblock %}
+{% block content %}
+<section class="card">
+  <dl class="kv-grid">
+    <div><dt class="kv-label">Sobre</dt><dd class="kv-value">{% if event.asset %}<a href="{% url 'assets:detail' event.asset_id %}">{{ event.asset.name }}</a>{% endif %} {% if event.cve %}<span class="font-mono">{{ event.cve_id }}</span>{% endif %}</dd></div>
+    <div><dt class="kv-label">Recibido / procesado</dt><dd class="kv-value font-mono text-xs">{{ event.created_at|date:"Y-m-d H:i:s" }} · {{ event.processed_at|date:"Y-m-d H:i:s"|default:"—" }}</dd></div>
+    <div><dt class="kv-label">Filtro rápido</dt><dd class="kv-value">{{ event.triage_reason|default:"—" }}</dd></div>
+    <div><dt class="kv-label">Lote</dt><dd class="kv-value">{% if event.batch %}{{ event.batch.get_source_display }} · {{ event.batch.size }} evento(s){% else %}—{% endif %}</dd></div>
+    <div><dt class="kv-label">Pidió</dt><dd class="kv-value font-mono text-xs">{{ event.requested_by.get_username|default:"sistema" }}</dd></div>
+  </dl>
+  {% if event.reconciliation %}<p class="kv-label mt-3">Reconciliación previa (sin escanear)</p><pre class="code-block">{{ event.reconciliation }}</pre>{% endif %}
+</section>
+{% for d in decisions %}
+<section class="card flex flex-col gap-2">
+  <div class="flex flex-wrap items-center gap-2">
+    <h3 class="card-title mb-0">Decisión: {{ d.get_action_display }}</h3>{% urgency_badge d.urgency %}
+    {% if d.fallback %}<span class="badge-medium" title="{{ d.fallback_reason }}">regla de respaldo (sin LLM)</span>{% endif %}
+    {% if d.replayed_from %}<span class="badge-neutral">reproducida: {{ d.replayed_from }}</span>{% endif %}
+    {% model_warning d.model_mismatch d.model_requested d.model_responded %}
+  </div>
+  <p class="text-ink-soft">{{ d.rationale|linebreaksbr }}</p>
+  {% if d.evidence %}<ul class="flex flex-wrap gap-1">{% for e in d.evidence %}<li class="badge-neutral">{{ e }}</li>{% endfor %}</ul>{% endif %}
+  <p class="font-mono text-[11px] text-muted">{{ d.created_at|date:"Y-m-d H:i:s" }} · modelo {{ d.model_requested|default:"—" }}{% if d.model_responded and d.model_responded != d.model_requested %} → respondió {{ d.model_responded }}{% endif %} · prompt {{ d.prompt_version }}{% if d.duration_ms %} · {{ d.duration_ms|floatformat:0 }} ms{% endif %}{% if d.category %} · categoría {{ d.category }}{% endif %}</p>
+  <details><summary class="cursor-pointer text-xs text-primary">Entrada que recibió el modelo</summary><pre class="code-block mt-2">{{ d.input_payload }}</pre></details>
+</section>
+{% empty %}<p class="text-sm text-muted">{% if event.status == 'READY' %}Esperando al planificador.{% elif event.status == 'RECONCILED' %}Se resolvió con la reconciliación: no hizo falta el planificador.{% else %}Sin decisión.{% endif %}</p>{% endfor %}
+{% if actions %}
+<section class="flex flex-col gap-2"><h3 class="eyebrow">Acciones</h3>
+<div class="table-wrap"><table class="data-table"><thead><tr><th>Acción</th><th>Estado</th><th>Prioridad</th><th>Resultado</th></tr></thead><tbody>
+{% for a in actions %}<tr><td><a href="{% url 'detection:action' a.pk %}">{{ a.get_action_display }}</a></td><td>{% action_status_badge a.status %}</td><td class="font-mono text-xs">{{ a.priority }}</td><td class="text-xs">{{ a.error|default:a.result }}</td></tr>{% endfor %}
+</tbody></table></div></section>
+{% endif %}
+{% endblock %}

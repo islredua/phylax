@@ -127,6 +127,50 @@ SECTIONS = (
         ),
     ),
     Section(
+        key="detection",
+        label="Detección",
+        tabs=(
+            Tab(
+                "panel",
+                "Panel",
+                "detection:panel",
+                ("detection.view_finding",),
+                (
+                    "detection:finding",
+                    "detection:finding_transition",
+                    "detection:finding_note",
+                    "detection:event",
+                    "detection:action",
+                    "detection:execution",
+                ),
+            ),
+            Tab("activity", "Actividad", "detection:activity", ("detection.view_detectionevent",)),
+            Tab(
+                "queue",
+                "Cola de aprobación",
+                "detection:queue",
+                ("detection.view_plannedaction",),
+                ("detection:queue_bulk",),
+            ),
+            Tab("sources", "Fuentes CTI", "detection:sources", ("cti.view_ctisource",)),
+            Tab(
+                "automation",
+                "Automatización",
+                "detection:automation",
+                ("detection.view_automationsettings",),
+                ("detection:automation_pause",),
+            ),
+            Tab(
+                "organization",
+                "Organización",
+                "detection:organization",
+                ("detection.view_organizationprofile",),
+                ("detection:organization_draft",),
+            ),
+            Tab("tests", "Pruebas", "detection:test_panel", ("detection.use_test_panel",)),
+        ),
+    ),
+    Section(
         key="administration",
         label="Administración",
         tabs=(

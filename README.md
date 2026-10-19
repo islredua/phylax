@@ -12,9 +12,9 @@ El modelo tradicional de gestión de vulnerabilidades está estructuralmente rot
 
 Cinco módulos integrados sobre un stack FOSS:
 
-1. **Escaneo de vulnerabilidades** — `nuclei` y `Grype` sobre los objetivos del inventario
+1. **Escaneo de vulnerabilidades** — `nuclei` y `Grype` con perfiles fijos, orquestados por el lazo de detección
 2. **Inventario de activos** — enrolamiento sin agentes (manual, CSV, descubrimiento `nmap`, imágenes, SBOM), alcance autorizado y criticidad sugerida por LLM local
-3. **Enriquecimiento CTI** — integra EPSS, CISA KEV y NVD
+3. **Detección continua + CTI** — espejo local de NVD/EPSS/KEV, reconciliación sin reescanear, planificador con LLM local (lista cerrada de acciones), modo automático/manual con guardarraíles, hallazgos con línea de tiempo
 4. **Motor de scoring** — multidimensional (CVSS + EPSS + KEV + contexto)
 5. **Presentación** — vista técnica + vista ejecutiva con narrativa generada por LLM
 
@@ -87,6 +87,17 @@ docker compose exec backend python manage.py seed_lab_assets     # --reset para 
 Luego en **Descubrimiento › Rangos de red › lab-dmz › Descubrir ahora**. Evaluación de LLMs:
 `manage.py eval_criticality` (ver `datasets/README.md`).
 
+### Detección continua (Módulo 3)
+
+```bash
+docker compose exec backend python manage.py seed_lab_detection   # CTI de ejemplo + software + perfil + primer paso del lazo
+```
+
+Sin internet ni LLM real (`CTI_ONLINE=0`, `LLM_MOCK_MODE=1`) el lazo funciona completo con datos de
+ejemplo. Ver **Detección › Actividad** y **Detección › Pruebas**. Fuentes reales: **Detección ›
+Fuentes CTI** (`NVD_API_KEY` recomendado). Documentación:
+[`docs/modules/03-deteccion-continua.md`](docs/modules/03-deteccion-continua.md).
+
 ### Limitaciones de red del escáner
 
 - El escáner solo alcanza los segmentos con ruta desde el host de Atalaya.
@@ -96,7 +107,9 @@ Luego en **Descubrimiento › Rangos de red › lab-dmz › Descubrir ahora**. E
 - Nada se escanea fuera de un rango con autorización vigente.
 
 Otras variables nuevas: `ATALAYA_FIELD_ENCRYPTION_KEYS`, `ATALAYA_ASSET_STALE_DAYS`,
-`ATALAYA_MAX_DISCOVERY_PREFIX`, `ATALAYA_SBOM_MAX_MB`, `DISCOVERY_*` (ver `.env.example`).
+`ATALAYA_MAX_DISCOVERY_PREFIX`, `ATALAYA_SBOM_MAX_MB`, `DISCOVERY_*`, `CTI_*`, `DETECTION_*`,
+`NUCLEI_TEMPLATES_DIR`, `GRYPE_DB_CACHE_DIR`, `SCANNER_TIMEOUT_S` (ver `.env.example`). Plantillas de
+nuclei y base de Grype: `docker compose exec worker-discovery python manage.py update_scanner_data`.
 
 ## Estructura del repositorio
 

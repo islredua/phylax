@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Actividad{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <div class="flex flex-wrap items-center gap-2">
+    <h2>Actividad del lazo</h2>
+    {% if automation.paused %}<span class="badge-critical">en pausa</span>{% else %}<span class="badge-low">vigilando</span>{% endif %}
+    <span class="badge-neutral" title="Acciones propuestas, aprobadas o en ejecución">{{ open_actions }} acción(es) abiertas</span>
+    <span class="badge-neutral" title="Decisiones del planificador en la hora en curso">{{ planner_calls }} decisión(es) esta hora</span>
+  </div>
+  <nav class="subtabs" aria-label="Tipo de actividad">{% for key, label in kinds %}<a href="?kind={{ key }}" class="subtab {% if key == kind %}subtab-active{% endif %}">{{ label }}</a>{% endfor %}</nav>
+</div>
+{% endblock %}
+{% block content %}{% include "detection/_activity_feed.html" %}{% endblock %}

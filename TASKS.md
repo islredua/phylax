@@ -215,7 +215,25 @@ Especificación final: [`docs/modules/02-inventario-activos.md`](docs/modules/02
 - [ ] Curar el dataset real de criticidad (`datasets/criticality-50.jsonl`) — autor
 - [ ] Imágenes vulnerables definitivas del laboratorio (TODO en `lab/docker-compose.lab.yml`)
 
-### Módulo 3: Enriquecimiento CTI (`apps.cti`)
+### Módulo 3: Detección continua y CTI (`apps.cti`, `apps.detection`, `apps.scanners`)
+
+Especificación final: [`docs/modules/03-deteccion-continua.md`](docs/modules/03-deteccion-continua.md).
+
+- [x] Espejo CTI local (NVD incremental y por producto, EPSS, KEV) con cambios detectados y fuentes administrables
+- [x] Índice de software por activo y reconciliación sin reescanear (hallazgos directos)
+- [x] Hallazgos: deduplicación entre herramientas, ciclo de vida, reapertura y línea de tiempo append-only
+- [x] Fuentes de eventos (CTI, inventario, tiempo, manual) y filtro rápido por reglas
+- [x] Planificador LLM local con lista cerrada de acciones, respaldo determinista y sustitución de modelo visible
+- [x] Ejecutor (nuclei, Grype; nmap vía discovery), guardarraíles y cola con prioridad
+- [x] Modo automático/manual, por entorno, escalamiento, pausa, ventana no operativa y bitácora
+- [x] Perfil de la organización y borrador desde el inventario
+- [x] Pantallas (Detección) y permisos por rol
+- [x] Panel de pruebas: eventos simulados, grabación y reproducción
+- [x] `seed_lab_detection`, `datasets/cti-lab-sample.json`, ADR-010, modelo de amenaza
+- [ ] Plantillas de nuclei fijadas en el despliegue
+- [ ] Extracción LLM desde texto no estructurado (plan original 3.5)
+
+#### Plan original (referencia)
 
 **Semana:** S4–S5
 

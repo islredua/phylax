@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% load detection_tags %}
+{% block title %}Acción{% endblock %}
+{% block breadcrumb_tail %}<li><a href="{% url 'detection:queue' %}">Cola de aprobación</a></li><li>{{ action.get_action_display }}</li>{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <div class="flex flex-wrap items-center gap-2"><h2>{{ action.get_action_display }}</h2>{% action_status_badge action.status %}{% urgency_badge action.urgency %}{% if action.escalated %}<span class="badge-critical" title="Crítica ejecutada sin esperar aprobación">escalada</span>{% endif %}{% if action.auto_approved %}<span class="badge-primary">automática</span>{% endif %}{% if action.approved_in_bulk %}<span class="badge-neutral">aprobada en lote</span>{% endif %}</div>
+  <div class="page-actions">
+    {% if perms.detection.approve_actions %}
+      {% if action.status == 'PROPOSED' or action.status == 'NEEDS_REVIEW' %}
+      <form method="post" action="{% url 'detection:action_approve' action.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}"><button class="btn-primary btn-sm" type="submit">{% if action.status == 'NEEDS_REVIEW' %}Marcar revisada{% else %}Aprobar{% endif %}</button></form>
+      <form method="post" action="{% url 'detection:action_reject' action.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}"><button class="btn-secondary btn-sm" type="submit">Rechazar</button></form>
+      {% elif action.status == 'APPROVED' or action.status == 'QUEUED' %}
+      <form method="post" action="{% url 'detection:action_cancel' action.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}"><button class="btn-danger btn-sm" type="submit">Cancelar</button></form>
+      {% endif %}
+    {% endif %}
+    <a href="{% url 'detection:event' action.event_id %}" class="btn-secondary btn-sm">Ver evento</a>
+  </div>
+</div>
+{% endblock %}
+{% block content %}
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+  <section class="card flex flex-col gap-2">
+    <h3 class="card-title mb-0">Por qué</h3>
+    <div class="flex flex-wrap items-center gap-2">{% if action.decision.fallback %}<span class="badge-medium" title="{{ action.decision.fallback_reason }}">regla de respaldo (sin LLM)</span>{% endif %}{% model_warning action.decision.model_mismatch action.decision.model_requested action.decision.model_responded %}</div>
+    <p class="text-ink-soft">{{ action.decision.rationale|linebreaksbr }}</p>
+    {% if action.decision.evidence %}<ul class="flex flex-wrap gap-1">{% for e in action.decision.evidence %}<li class="badge-neutral">{{ e }}</li>{% endfor %}</ul>{% endif %}
+    <p class="font-mono text-[11px] text-muted">modelo {{ action.decision.model_requested|default:"—" }} · prompt {{ action.decision.prompt_version }}{% if action.category %} · categoría {{ action.category }}{% endif %}</p>
+  </section>
+  <section class="card">
+    <dl class="kv-grid">
+      <div><dt class="kv-label">Activo</dt><dd class="kv-value">{% if action.asset %}<a href="{% url 'assets:detail' action.asset_id %}">{{ action.asset.name }}</a>{% else %}—{% endif %}</dd></div>
+      <div><dt class="kv-label">Prioridad / modo</dt><dd class="kv-value font-mono text-xs">{{ action.priority }} · {{ action.mode_at_decision|default:"—" }}</dd></div>
+      <div><dt class="kv-label">Esperará hasta</dt><dd class="kv-value font-mono text-xs">{{ action.not_before|date:"Y-m-d H:i"|default:"—" }}</dd></div>
+      <div><dt class="kv-label">Aprobó / rechazó</dt><dd class="kv-value font-mono text-xs">{{ action.approved_by.get_username|default:"" }}{% if action.auto_approved %}sistema{% endif %}{% if action.rejected_by %} · rechazó {{ action.rejected_by.get_username }}{% endif %}{% if action.review_note %}<p class="text-muted">{{ action.review_note }}</p>{% endif %}</dd></div>
+      <div><dt class="kv-label">En cola / inicio / fin</dt><dd class="kv-value font-mono text-xs">{{ action.queued_at|date:"H:i:s"|default:"—" }} · {{ action.started_at|date:"H:i:s"|default:"—" }} · {{ action.finished_at|date:"Y-m-d H:i:s"|default:"—" }}</dd></div>
+      <div><dt class="kv-label">Resultado</dt><dd class="kv-value text-xs">{{ action.error|default:action.result }}</dd></div>
+    </dl>
+    {% if action.discovery_run %}<p class="mt-2 text-xs"><a href="{% url 'discovery:run_detail' action.discovery_run_id %}">Ver ejecución de descubrimiento</a></p>{% endif %}
+  </section>
+</div>
+<section class="flex flex-col gap-2"><h3 class="eyebrow">Guardarraíles verificados</h3>
+<div class="table-wrap"><table class="data-table"><thead><tr><th>Comprobación</th><th>Resultado</th><th>Detalle</th></tr></thead><tbody>
+{% for g in action.guardrails %}<tr><td class="font-mono text-xs">{{ g.check }}</td><td>{% if g.ok %}<span class="badge-low">ok</span>{% else %}<span class="badge-critical">no</span>{% endif %}</td><td class="text-xs text-ink-soft">{{ g.detail }}</td></tr>{% empty %}<tr><td colspan="3" class="table-empty">Aún no se ha intentado ejecutar.</td></tr>{% endfor %}
+</tbody></table></div></section>
+{% if executions %}
+<section class="flex flex-col gap-2"><h3 class="eyebrow">Ejecuciones de herramientas</h3>
+<div class="table-wrap"><table class="data-table"><thead><tr><th>Herramienta</th><th>Estado</th><th>Hallazgos</th><th>Duración</th></tr></thead><tbody>
+{% for x in executions %}<tr><td><a href="{% url 'detection:execution' x.pk %}">{{ x.get_tool_display }} · {{ x.profile }}</a></td><td>{% execution_status_badge x.status %}</td><td class="font-mono text-xs">{{ x.findings_seen }} ({{ x.findings_created }} nuevos)</td><td class="font-mono text-xs">{{ x.duration_s|default:"—" }} s</td></tr>{% endfor %}
+</tbody></table></div></section>
+{% endif %}
+<section class="flex flex-col gap-2"><h3 class="eyebrow">Bitácora</h3>
+<div class="table-wrap"><table class="data-table"><thead><tr><th>Cuándo</th><th>Qué</th><th>Quién</th><th>Detalle</th></tr></thead><tbody>
+{% for l in log_entries %}<tr><td class="font-mono text-xs whitespace-nowrap">{{ l.timestamp|date:"Y-m-d H:i:s" }}</td><td>{{ l.get_kind_display }}</td><td class="font-mono text-xs">{{ l.user.get_username|default:"sistema" }}</td><td class="text-xs text-ink-soft">{{ l.message }}</td></tr>{% empty %}<tr><td colspan="4" class="table-empty">Sin entradas.</td></tr>{% endfor %}
+</tbody></table></div></section>
+{% endblock %}

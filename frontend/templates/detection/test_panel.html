@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% load detection_tags %}
+{% block title %}Panel de pruebas{% endblock %}
+{% block toolbar %}<div class="toolbar"><div class="flex flex-wrap items-center gap-2"><h2>Panel de pruebas</h2>{% if mock_mode %}<span class="badge-medium" title="LLM_MOCK_MODE=1: el planificador responde con la regla determinista">LLM simulado</span>{% endif %}{% if recording %}<span class="badge-critical">● grabando «{{ recording.name }}»</span>{% endif %}</div></div>{% endblock %}
+{% block content %}
+<div class="alert-info max-w-3xl">Los eventos simulados recorren el <strong>mismo lazo</strong> que la operación real: filtro, planificador, guardarraíles y ejecutor. Sirven para ver cómo reacciona el sistema sin esperar a que pase algo. Nada sale a internet.</div>
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+  <form method="post" class="card flex flex-col gap-3">{% csrf_token %}<input type="hidden" name="action" value="asset_change">
+    <h3 class="card-title mb-0">Cambió un activo</h3>
+    <p class="text-xs text-muted">Reindexa su software, reconcilia con la CTI y deja decidir al planificador.</p>
+    <label class="form-label" for="sim-asset">Activo (confirmado y en alcance)</label>
+    <select id="sim-asset" name="asset" class="form-input" required>{% for a in assets %}<option value="{{ a.pk }}">{{ a.name }}</option>{% empty %}<option value="">(no hay activos confirmados en alcance)</option>{% endfor %}</select>
+    <div><button class="btn-primary btn-sm" type="submit" {% if not assets %}disabled{% endif %}>Inyectar</button></div>
+  </form>
+  <form method="post" class="card flex flex-col gap-3">{% csrf_token %}<input type="hidden" name="action" value="kev">
+    <h3 class="card-title mb-0">Un CVE entra a KEV</h3>
+    <p class="text-xs text-muted">Produce el mismo cambio que una descarga real del catálogo de CISA.</p>
+    <label class="form-label" for="sim-kev">CVE (debe estar en el espejo)</label>
+    <input id="sim-kev" name="cve_id" class="form-input font-mono" placeholder="CVE-2025-23419" required>
+    <div><button class="btn-primary btn-sm" type="submit">Inyectar</button></div>
+  </form>
+  <form method="post" class="card flex flex-col gap-3">{% csrf_token %}<input type="hidden" name="action" value="epss">
+    <h3 class="card-title mb-0">Sube el EPSS de un CVE</h3>
+    <div class="grid grid-cols-2 gap-2">
+      <div><label class="form-label" for="sim-epss-cve">CVE</label><input id="sim-epss-cve" name="cve_id" class="form-input font-mono" placeholder="CVE-2024-6387" required></div>
+      <div><label class="form-label" for="sim-epss-score">Nuevo puntaje (0–1)</label><input id="sim-epss-score" name="score" class="form-input font-mono" value="0.9" required></div>
+    </div>
+    <div><button class="btn-primary btn-sm" type="submit">Inyectar</button></div>
+  </form>
+  <form method="post" class="card flex flex-col gap-3">{% csrf_token %}<input type="hidden" name="action" value="new_cve">
+    <h3 class="card-title mb-0">Sale un CVE nuevo para un producto</h3>
+    <p class="text-xs text-muted">Crea un CVE sintético (<span class="font-mono">CVE-9999-…</span>) que afecta a las versiones anteriores a la indicada.</p>
+    <div class="grid grid-cols-3 gap-2">
+      <div><label class="form-label" for="sim-product">Producto</label><input id="sim-product" name="product" class="form-input" placeholder="nginx" required></div>
+      <div><label class="form-label" for="sim-version">Corregido en</label><input id="sim-version" name="version" class="form-input font-mono" placeholder="1.28.0" required></div>
+      <div><label class="form-label" for="sim-sev">Severidad</label><select id="sim-sev" name="severity" class="form-input"><option>CRITICAL</option><option selected>HIGH</option><option>MEDIUM</option><option>LOW</option></select></div>
+    </div>
+    <div><button class="btn-primary btn-sm" type="submit">Inyectar</button></div>
+  </form>
+</div>
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+  <form method="post" class="card flex flex-col gap-3">{% csrf_token %}<input type="hidden" name="action" value="load_fixture">
+    <h3 class="card-title mb-0">Datos de ejemplo CTI</h3>
+    <p class="text-xs text-muted">Carga <span class="font-mono">{{ lab_fixture }}</span> (CVE reales con rangos ilustrativos para nginx, PostgreSQL, Apache, OpenSSH, OpenSSL y Django) y emite los cambios como si hubieran llegado de las fuentes.</p>
+    <div><button class="btn-secondary btn-sm" type="submit">Cargar datos de ejemplo</button></div>
+  </form>
+  <section class="card flex flex-col gap-3">
+    <h3 class="card-title mb-0">Grabación y reproducción</h3>
+    <p class="text-xs text-muted">Graba una sesión (eventos y decisiones) y reprodúcela después: los eventos se vuelven a inyectar y las decisiones salen de la grabación, no del LLM.</p>
+    {% if recording %}
+    <form method="post" class="flex items-center gap-2">{% csrf_token %}<input type="hidden" name="action" value="stop_recording"><input type="hidden" name="recording" value="{{ recording.pk }}"><button class="btn-danger btn-sm" type="submit">Detener «{{ recording.name }}»</button><span class="text-xs text-muted">desde {{ recording.started_at|date:"H:i:s" }}</span></form>
+    {% else %}
+    <form method="post" class="flex items-end gap-2">{% csrf_token %}<input type="hidden" name="action" value="start_recording"><div class="flex-1"><label class="form-label" for="rec-name">Nombre</label><input id="rec-name" name="name" class="form-input" placeholder="Escenario KEV sobre web01" maxlength="120" required></div><button class="btn-primary btn-sm" type="submit">Grabar</button></form>
+    {% endif %}
+    <div class="table-wrap"><table class="data-table"><thead><tr><th>Grabación</th><th>Eventos</th><th>Estado</th><th>Reproducciones</th><th></th></tr></thead><tbody>
+    {% for r in recordings %}<tr><td>{{ r.name }}<p class="text-xs text-muted">{{ r.started_at|date:"Y-m-d H:i" }} · {{ r.created_by.get_username|default:"—" }}</p></td><td class="font-mono text-xs">{{ r.event_count }}</td><td>{% if r.status == 'READY' %}<span class="badge-low">lista</span>{% else %}<span class="badge-critical">grabando</span>{% endif %}</td><td class="font-mono text-xs">{{ r.replays }}{% if r.last_replayed_at %} · {{ r.last_replayed_at|date:"m-d H:i" }}{% endif %}</td>
+    <td class="text-right"><div class="flex justify-end gap-1">{% if r.status == 'READY' %}<form method="post">{% csrf_token %}<input type="hidden" name="action" value="replay"><input type="hidden" name="recording" value="{{ r.pk }}"><button class="btn-secondary btn-sm" type="submit">Reproducir</button></form>{% endif %}<form method="post">{% csrf_token %}<input type="hidden" name="action" value="delete_recording"><input type="hidden" name="recording" value="{{ r.pk }}"><button class="btn-secondary btn-sm" type="submit">Eliminar</button></form></div></td></tr>
+    {% empty %}<tr><td colspan="5" class="table-empty">Sin grabaciones.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+</div>
+<section class="flex flex-col gap-2"><h3 class="eyebrow">Eventos simulados o reproducidos recientes</h3>
+<div class="table-wrap"><table class="data-table"><thead><tr><th>Cuándo</th><th>Evento</th><th>Sobre</th><th>Estado</th><th>Filtro</th></tr></thead><tbody>
+{% for e in recent_events %}<tr><td class="font-mono text-xs whitespace-nowrap">{{ e.created_at|date:"Y-m-d H:i:s" }}</td><td><a href="{% url 'detection:event' e.pk %}">{{ e.get_kind_display }}</a></td><td class="text-xs">{{ e.subject }}</td><td>{% event_status_badge e.status %}</td><td class="text-xs text-ink-soft">{{ e.triage_reason }}</td></tr>{% empty %}<tr><td colspan="5" class="table-empty">Aún no se ha inyectado nada.</td></tr>{% endfor %}
+</tbody></table></div></section>
+{% endblock %}

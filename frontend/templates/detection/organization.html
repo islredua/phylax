@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Perfil de la organización{% endblock %}
+{% block toolbar %}<div class="toolbar"><h2>Perfil de la organización</h2>{% if can_manage %}<form method="post" action="{% url 'detection:organization_draft' %}">{% csrf_token %}<button class="btn-secondary btn-sm" type="submit" {% if profile.draft_state == 'PENDING' %}disabled{% endif %}>Generar borrador desde el inventario</button></form>{% endif %}</div>{% endblock %}
+{% block content %}
+<div class="alert-info max-w-3xl">Este perfil da contexto al planificador y a las explicaciones para la dirección: <strong>sube</strong> la relevancia de lo que importa y nunca esconde nada. Si un activo tiene un producto vulnerable, el hallazgo aparece aunque el perfil no lo mencione. Mantén el texto corto: entra en cada consulta al LLM.</div>
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+  <form method="post" class="card flex flex-col gap-4" novalidate>
+    {% csrf_token %}
+    {% if form.non_field_errors %}<div class="alert-error">{% for e in form.non_field_errors %}{{ e }} {% endfor %}</div>{% endif %}
+    {% for field in form %}<div><label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<p class="form-help">{{ field.help_text }}</p>{% endif %}{% for e in field.errors %}<p class="form-error">{{ e }}</p>{% endfor %}</div>{% endfor %}
+    {% if can_manage %}<div><button class="btn-primary" type="submit">Guardar</button></div>{% else %}<p class="text-xs text-muted">Solo un administrador edita el perfil.</p>{% endif %}
+    {% if profile.updated_by %}<p class="text-xs text-muted">Última edición: <span class="font-mono">{{ profile.updated_by.get_username }}</span> el {{ profile.updated_at|date:"Y-m-d H:i" }}</p>{% endif %}
+  </form>
+  {% include "detection/_draft_status.html" %}
+</div>
+{% endblock %}

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% load detection_tags %}
+{% block title %}Ejecución de herramienta{% endblock %}
+{% block breadcrumb_tail %}<li><a href="{% url 'detection:activity' %}">Actividad</a></li><li>{{ execution.get_tool_display }}</li>{% endblock %}
+{% block toolbar %}<div class="toolbar"><div class="flex flex-wrap items-center gap-2"><h2>{{ execution.get_tool_display }} · {{ execution.profile }}</h2>{% execution_status_badge execution.status %}</div>{% if execution.action %}<a href="{% url 'detection:action' execution.action_id %}" class="btn-secondary btn-sm">Ver acción</a>{% endif %}</div>{% endblock %}
+{% block content %}
+<section class="card">
+  <dl class="kv-grid">
+    <div><dt class="kv-label">Activo</dt><dd class="kv-value">{% if execution.asset %}<a href="{% url 'assets:detail' execution.asset_id %}">{{ execution.asset.name }}</a>{% else %}—{% endif %}</dd></div>
+    <div><dt class="kv-label">Objetivos</dt><dd class="kv-value font-mono text-xs">{{ execution.targets|join:", " }}</dd></div>
+    <div><dt class="kv-label">Inicio / fin</dt><dd class="kv-value font-mono text-xs">{{ execution.started_at|date:"Y-m-d H:i:s"|default:"—" }} · {{ execution.finished_at|date:"Y-m-d H:i:s"|default:"—" }}{% if execution.duration_s %} ({{ execution.duration_s }} s){% endif %}</dd></div>
+    <div><dt class="kv-label">Código de salida</dt><dd class="kv-value font-mono text-xs">{{ execution.exit_code|default_if_none:"—" }}</dd></div>
+    <div><dt class="kv-label">Hallazgos</dt><dd class="kv-value font-mono text-xs">{{ execution.findings_seen }} reportados · {{ execution.findings_created }} nuevos · {{ execution.findings_updated }} actualizados</dd></div>
+    <div><dt class="kv-label">Pidió</dt><dd class="kv-value font-mono text-xs">{{ execution.requested_by.get_username|default:"sistema" }}</dd></div>
+  </dl>
+  {% if execution.error %}<div class="alert-error mt-3">{{ execution.error }}</div>{% endif %}
+  <p class="kv-label mt-3">Comando ejecutado (argv exacto; las credenciales van por entorno, nunca aquí)</p>
+  <pre class="code-block">{{ execution.argv|join:" "|default:"—" }}</pre>
+  <p class="kv-label mt-3">Salida (últimas líneas; datos de terceros, no confiables)</p>
+  <pre class="code-block max-h-[28rem]">{{ execution.output_tail|default:"—" }}</pre>
+</section>
+{% if findings %}
+<section class="flex flex-col gap-2"><h3 class="eyebrow">Hallazgos con evidencia de esta ejecución</h3>
+<div class="table-wrap"><table class="data-table"><thead><tr><th>Vulnerabilidad</th><th>Severidad</th><th>Estado</th></tr></thead><tbody>
+{% for f in findings %}<tr><td><a href="{% url 'detection:finding' f.pk %}" class="font-mono text-xs">{{ f.vulnerability_id }}</a> {{ f.title|truncatechars:70 }}</td><td>{% severity_badge f.severity %}</td><td>{% finding_status_badge f.status %}</td></tr>{% endfor %}
+</tbody></table></div></section>
+{% endif %}
+{% endblock %}

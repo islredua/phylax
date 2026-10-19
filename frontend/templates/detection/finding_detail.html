@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% load detection_tags inventory %}
+{% block title %}{{ finding.vulnerability_id }}{% endblock %}
+{% block breadcrumb_tail %}<li>{{ finding.vulnerability_id }}</li>{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <div class="flex flex-wrap items-center gap-2">
+    <h2 class="font-mono">{{ finding.vulnerability_id }}</h2>
+    {% severity_badge finding.severity %}{% finding_status_badge finding.status %}{% kev_badge finding.in_kev %}
+    {% if finding.reopened_count %}<span class="badge-high" title="Veces que reapareció tras marcarse mitigado">reapareció ×{{ finding.reopened_count }}</span>{% endif %}
+  </div>
+  <div class="page-actions"><a href="{% url 'detection:panel' %}" class="btn-secondary btn-sm">← Panel</a></div>
+</div>
+{% endblock %}
+{% block content %}
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+  <section class="card">
+    <h3 class="card-title">{{ finding.title }}</h3>
+    <dl class="kv-grid">
+      <div><dt class="kv-label">Activo</dt><dd class="kv-value"><a href="{% url 'assets:detail' finding.asset_id %}">{{ finding.asset.name }}</a> · {{ finding.environment|catalog:"ENVIRONMENT" }}</dd></div>
+      <div><dt class="kv-label">Software afectado</dt><dd class="kv-value">{% if finding.component %}{{ finding.component.label }}{% if not finding.component.is_current %} <span class="badge-neutral">ya no se observa</span>{% endif %}{% else %}—{% endif %}</dd></div>
+      <div><dt class="kv-label">Severidad / CVSS</dt><dd class="kv-value">{% severity_badge finding.severity %} <span class="font-mono text-xs">{{ finding.cvss_score|default:"—" }}{% if finding.cve.cvss_vector %} · {{ finding.cve.cvss_vector }}{% endif %}</span></dd></div>
+      <div><dt class="kv-label">EPSS</dt><dd class="kv-value font-mono text-xs">{{ finding.epss_score|epss_pct }}{% if finding.cve.epss_percentile %} (percentil {{ finding.cve.epss_percentile|floatformat:2 }}){% endif %}</dd></div>
+      <div><dt class="kv-label">KEV</dt><dd class="kv-value">{% if finding.in_kev %}<span class="badge-critical">explotación activa</span> desde {{ finding.cve.kev_added_at }}{% if finding.kev_due_at %} · remediar antes de {{ finding.kev_due_at }}{% endif %}{% if finding.cve.kev_ransomware == 'Known' %} · <span class="badge-high">ransomware</span>{% endif %}{% else %}no{% endif %}</dd></div>
+      <div><dt class="kv-label">Prioridad</dt><dd class="kv-value">{% if finding.priority_score is not None %}<span class="font-mono">{{ finding.priority_score }}</span> <span class="text-xs text-muted">{{ finding.priority_computed_at|date:"Y-m-d H:i" }}</span>{% else %}<span class="text-muted">provisional (sin motor de scoring)</span>{% endif %}</dd></div>
+      <div><dt class="kv-label">Fuentes</dt><dd class="kv-value">{% for s in finding.sources %}<span class="badge-neutral">{{ s|lower }}</span> {% endfor %} <span class="text-xs text-muted">confianza {{ finding.confidence|default:"—"|lower }}</span></dd></div>
+      <div><dt class="kv-label">Detectado / visto / resuelto</dt><dd class="kv-value font-mono text-xs">{{ finding.first_detected_at|date:"Y-m-d H:i" }} · {{ finding.last_seen_at|date:"Y-m-d H:i" }} · {{ finding.resolved_at|date:"Y-m-d H:i"|default:"—" }}</dd></div>
+    </dl>
+    {% if finding.description %}<div class="mt-4"><p class="kv-label">Descripción</p><p class="mt-1 text-ink-soft">{{ finding.description|truncatechars:900 }}</p></div>{% endif %}
+    {% if finding.cve and finding.cve.references %}<div class="mt-3"><p class="kv-label">Referencias</p><ul class="mt-1 text-xs">{% for r in finding.cve.references|slice:":5" %}<li><a href="{{ r }}" rel="noopener noreferrer" target="_blank">{{ r|truncatechars:90 }}</a></li>{% endfor %}</ul></div>{% endif %}
+    {% if finding.cve.kev_action %}<div class="alert-warning mt-3 text-sm"><strong>Acción requerida (CISA):</strong> {{ finding.cve.kev_action }}</div>{% endif %}
+  </section>
+  <section class="card flex flex-col gap-3">
+    <h3 class="card-title mb-0">Acciones</h3>
+    {% if finding.note %}<div class="alert-info text-sm"><strong>Última nota:</strong> {{ finding.note }}</div>{% endif %}
+    {% if perms.detection.work_findings %}
+    {% if transitions %}
+    <form method="post" action="{% url 'detection:finding_transition' finding.pk %}" class="flex flex-col gap-2">
+      {% csrf_token %}
+      <label class="form-label" for="transition-status">Nuevo estado</label>
+      <select id="transition-status" name="status" class="form-input">{% for value, label in transitions %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select>
+      <label class="form-label" for="transition-note">Nota (obligatoria para aceptar el riesgo o falso positivo)</label>
+      <textarea id="transition-note" name="note" class="form-input" rows="3" maxlength="2000"></textarea>
+      <button class="btn-primary" type="submit">Aplicar</button>
+    </form>
+    {% else %}<p class="text-sm text-muted">Sin transiciones disponibles desde este estado.</p>{% endif %}
+    <form method="post" action="{% url 'detection:finding_note' finding.pk %}" class="flex flex-col gap-2 border-t border-line-soft pt-3">
+      {% csrf_token %}
+      <label class="form-label" for="note-text">Agregar nota</label>
+      <textarea id="note-text" name="text" class="form-input" rows="2" maxlength="2000" required></textarea>
+      <button class="btn-secondary btn-sm" type="submit">Guardar nota</button>
+    </form>
+    {% else %}<p class="text-sm text-muted">Solo lectura.</p>{% endif %}
+    {% if perms.detection.request_evaluation %}
+    <form method="post" action="{% url 'detection:evaluate' finding.asset_id %}" class="border-t border-line-soft pt-3">{% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}"><button class="btn-secondary w-full" type="submit">Evaluar el activo ahora</button></form>
+    {% endif %}
+  </section>
+</div>
+
+<section class="flex flex-col gap-2">
+  <h3 class="eyebrow">Evidencia de las herramientas</h3>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th>Fuente</th><th>Resumen</th><th>Visto</th><th>Veces</th><th>Ejecución</th></tr></thead>
+      <tbody>
+        {% for e in evidence %}
+        <tr>
+          <td>{{ e.get_source_display }}</td>
+          <td class="text-xs">{{ e.summary }}{% if e.data.affected_range %}<p class="text-muted">rango afectado: {{ e.data.affected_range }}</p>{% endif %}{% if e.data.fix %}<p class="text-muted">corrección: {{ e.data.fix }}</p>{% endif %}</td>
+          <td class="font-mono text-xs whitespace-nowrap">{{ e.observed_at|date:"Y-m-d H:i" }}</td>
+          <td class="font-mono text-xs">{{ e.times_seen }}</td>
+          <td class="text-xs">{% if e.execution_ref %}<a href="{% url 'detection:execution' e.execution_ref %}" class="font-mono">{{ e.execution_ref|truncatechars:13 }}</a>{% else %}—{% endif %}</td>
+        </tr>
+        {% empty %}<tr><td colspan="5" class="table-empty">Sin evidencia registrada.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="flex flex-col gap-2">
+  <h3 class="eyebrow">Línea de tiempo</h3>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th>Cuándo</th><th>Qué pasó</th><th>Detalle</th><th>Quién</th></tr></thead>
+      <tbody>
+        {% for ev in timeline %}
+        <tr>
+          <td class="font-mono text-xs whitespace-nowrap">{{ ev.occurred_at|date:"Y-m-d H:i:s" }}</td>
+          <td><span class="badge-neutral">{{ ev.get_kind_display }}</span></td>
+          <td class="text-xs text-ink-soft">{{ ev.message }}</td>
+          <td class="font-mono text-xs">{{ ev.actor.get_username|default:"sistema" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
