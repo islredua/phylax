@@ -58,8 +58,9 @@ def _build_argv(tool, profile, targets):
 
 
 def _in_scope(tool, profile, targets):
-    if tool == Tool.GRYPE and profile == "sbom":
-        return all(assets_services.is_in_scope(t) for t in targets)
+    if tool == Tool.NUCLEI:
+        # El alcance se decide por la IP; el puerto solo dirige la prueba.
+        return all(assets_services.is_in_scope(profiles.split_host_port(t)[0]) for t in targets)
     return all(assets_services.is_in_scope(t) for t in targets)
 
 

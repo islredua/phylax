@@ -108,7 +108,8 @@ Fuentes CTI** (`NVD_API_KEY` recomendado). Documentación:
 
 Otras variables nuevas: `ATALAYA_FIELD_ENCRYPTION_KEYS`, `ATALAYA_ASSET_STALE_DAYS`,
 `ATALAYA_MAX_DISCOVERY_PREFIX`, `ATALAYA_SBOM_MAX_MB`, `DISCOVERY_*`, `CTI_*`, `DETECTION_*`,
-`NUCLEI_TEMPLATES_DIR`, `SCANNER_TIMEOUT_S` (ver `.env.example`).
+`NUCLEI_TEMPLATES_DIR`, `GRYPE_DB_CACHE_DIR`, `SCANNER_TIMEOUT_S` (ver `.env.example`). Plantillas de
+nuclei y base de Grype: `docker compose exec worker-discovery python manage.py update_scanner_data`.
 
 ## Estructura del repositorio
 

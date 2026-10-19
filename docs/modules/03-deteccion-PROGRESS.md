@@ -214,8 +214,24 @@ Se documentan aquí conforme aparezcan.
 - `InferenceLog.model_responded` es una columna nueva en `llm` (migración 0003); tras migrar
   hay que reiniciar todos los servicios (regla de la guía de desarrollo).
 - El `Dockerfile` instala `unzip` para que nuclei sí quede en la imagen; `nuclei -update-templates`
-  no corre en build (sin internet en despliegue): los templates se montan en el volumen
-  `scan_results`/`nuclei-templates` o se descargan una vez con `manage.py nuclei_templates`.
+  no corre en build (sin internet en despliegue): plantillas y base de Grype viven en el volumen
+  `cti_cache` (`NUCLEI_TEMPLATES_DIR`, `GRYPE_DB_CACHE_DIR`) y se descargan una vez con
+  `manage.py update_scanner_data` en `worker-discovery`.
+- Probado en el equipo de desarrollo con la imagen reconstruida (nuclei 3.3.5, Grype 0.120.1):
+  base de Grype y plantillas descargadas al volumen `cti_cache`; Grype real sobre un SBOM con
+  log4j-core 2.14.1 (7 hallazgos, parseados por `parse_grype_json`); nuclei real con el perfil
+  `exposure` contra un servicio HTTP del propio stack. Hallazgos de esa prueba:
+  - El actualizador de nuclei agota el tiempo en redes lentas y devuelve salida 0 sin instalar
+    nada: `update_scanner_data` comprueba que haya plantillas y, si no, baja el zip de la versión
+    publicada con `curl` (o acepta `--templates-archive` para despliegues sin internet).
+  - Grype reporta avisos GHSA con el CVE en `relatedVulnerabilities`: el parser identifica el
+    hallazgo por el CVE (deduplica con la reconciliación CTI) y guarda el GHSA como alias.
+  - nuclei con la IP pelada solo prueba 80/443: `DETECT_VULNS` ahora pasa `ip:puerto` por cada
+    puerto TCP abierto del índice de software (el alcance se sigue decidiendo por la IP).
+- Hueco encontrado al probar sobre un inventario real: los activos anteriores al módulo no tenían
+  índice `SoftwareComponent` (solo se construía al cambiar el activo). La revisión por tiempo ahora
+  trata «nunca reconciliado» como vencido, indexa y reconcilia en la primera pasada
+  (`ASSET_STALE_REVIEW` entra en `REINDEX_KINDS`).
 
 ## Checklist final
 

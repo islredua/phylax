@@ -45,6 +45,33 @@ def validate_ip(value):
         raise ValidationError(f"Objetivo inválido para nuclei: {value!r}") from exc
 
 
+def split_host_port(value):
+    """``(ip, puerto|None)`` a partir de ``ip``, ``ip:puerto`` o ``[ipv6]:puerto``."""
+    value = str(value).strip()
+    host, port = value, None
+    if value.startswith("["):
+        host, _, rest = value[1:].partition("]")
+        if rest:
+            if not rest.startswith(":"):
+                raise ValidationError(f"Objetivo inválido para nuclei: {value!r}")
+            port = rest[1:]
+    elif value.count(":") == 1:
+        host, _, port = value.partition(":")
+    if port is not None:
+        if not port.isdigit() or not 1 <= int(port) <= 65535:
+            raise ValidationError(f"Puerto inválido en el objetivo: {value!r}")
+        port = int(port)
+    return validate_ip(host), port
+
+
+def validate_host_target(value):
+    """Objetivo de red para nuclei: una IP validada, opcionalmente con puerto (``ip:puerto``)."""
+    host, port = split_host_port(value)
+    if port is None:
+        return host
+    return f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
+
+
 def validate_sbom_path(value):
     root = os.path.realpath(settings.MEDIA_ROOT)
     path = os.path.realpath(os.path.join(root, str(value)))
@@ -69,7 +96,7 @@ def build_nuclei_argv(category, targets):
     if settings.NUCLEI_TEMPLATES_DIR:
         argv += ["-templates", settings.NUCLEI_TEMPLATES_DIR]
     for target in targets:
-        argv += ["-target", validate_ip(target)]
+        argv += ["-target", validate_host_target(target)]
     return argv
 
 

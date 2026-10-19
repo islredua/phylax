@@ -82,6 +82,13 @@ def test_nuclei_argv_is_fixed_and_validates_targets(settings):
         profiles.build_nuclei_argv("all", [])
     settings.NUCLEI_TEMPLATES_DIR = "/data/templates"
     assert "/data/templates" in profiles.build_nuclei_argv("all", ["10.7.0.10"])
+    # ip:puerto para servicios fuera de 80/443; IPv6 con corchetes.
+    argv = profiles.build_nuclei_argv("all", ["10.7.0.10:8080", "[fd00::1]:8443", "fd00::2"])
+    assert argv[argv.index("-target") + 1 :: 2][:3] == ["10.7.0.10:8080", "[fd00::1]:8443", "fd00::2"]
+    for bad in ("10.7.0.10:0", "10.7.0.10:70000", "10.7.0.10:x", "[fd00::1]8443", "web:80"):
+        with pytest.raises(ValidationError):
+            profiles.build_nuclei_argv("all", [bad])
+    assert profiles.split_host_port("10.7.0.10:22") == ("10.7.0.10", 22)
 
 
 def test_grype_argv_for_sbom_and_image(settings, tmp_path):
@@ -120,8 +127,10 @@ def test_parse_grype_json():
     assert [i.vulnerability_id for i in items] == [
         "CVE-2024-9143",
         "CVE-2024-9143",
-        "GHSA-XXXX-YYYY-ZZZZ",
+        "CVE-2020-0002",  # Grype reporta el aviso GHSA; el hallazgo se identifica por el CVE
     ]
+    assert items[2].raw["aliases"] == ["GHSA-XXXX-YYYY-ZZZZ"]
+    assert items[0].raw["aliases"] == []
     first = items[0]
     assert (
         first.component_name == "openssl" and first.cvss_score == 4.3 and first.severity == "MEDIUM"
@@ -209,6 +218,12 @@ def test_out_of_scope_target_is_rejected_inside_worker(fake_tool):
     execution.refresh_from_db()
     assert execution.status == "FAILED" and "fuera del alcance" in execution.error
     assert not Finding.objects.filter(asset=asset).exists()
+    # El puerto no cambia el alcance: se decide por la IP.
+    execution = services.request_execution(
+        tool="NUCLEI", profile="cves", asset_id=asset.pk, targets=["192.0.2.9:8080"]
+    )
+    execution.refresh_from_db()
+    assert execution.status == "FAILED" and "fuera del alcance" in execution.error
 
 
 def test_tool_errors_and_cancellation(fake_tool):
@@ -273,3 +288,65 @@ def test_registry_credentials_go_through_env_not_argv(fake_tool, make_user):
     assert (
         "secreto-xyz" not in " ".join(execution.argv) and "secreto-xyz" not in execution.output_tail
     )
+
+
+def test_update_scanner_data_command_uses_configured_dirs(monkeypatch, settings, tmp_path):
+    import zipfile
+    from io import StringIO
+
+    from django.core.management import call_command
+
+    from apps.scanners.management.commands import update_scanner_data as cmd
+
+    templates = tmp_path / "nuclei-templates"
+    settings.NUCLEI_TEMPLATES_DIR = str(templates)
+    calls = []
+
+    def nuclei_ok(argv, *, timeout=None, env=None):
+        calls.append(argv)
+        if argv[1] == "-update-templates":
+            (templates / "http").mkdir(parents=True)
+            (templates / "http" / "a.yaml").write_text("id: a")
+        return CommandResult(stdout="", stderr="[INF] ok", exit_code=0, duration_s=0.1)
+
+    monkeypatch.setattr(cmd, "run_command", nuclei_ok)
+    out = StringIO()
+    call_command("update_scanner_data", stdout=out)
+    assert calls[0] == [settings.NUCLEI_BIN, "-update-templates", "-update-template-dir", str(templates)]
+    assert calls[1] == [settings.GRYPE_BIN, "db", "update"]
+    assert "actualizados" in out.getvalue()
+
+    # El actualizador de nuclei "termina bien" sin instalar nada: descarga directa del zip.
+    shutil_rm = __import__("shutil").rmtree
+    shutil_rm(templates)
+    archive = tmp_path / "templates.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("nuclei-templates-10.5.0/http/cves/CVE-2021-41773.yaml", "id: CVE-2021-41773")
+        zf.writestr("nuclei-templates-10.5.0/README.md", "x")
+    calls.clear()
+
+    def nuclei_silent_failure(argv, *, timeout=None, env=None):
+        calls.append(argv)
+        if argv[0] == "curl":
+            __import__("shutil").copy(archive, argv[-2])
+            return CommandResult(stdout="", stderr="", exit_code=0, duration_s=1)
+        if argv[0] == "unzip":
+            with zipfile.ZipFile(argv[-3]) as zf:
+                zf.extractall(argv[-1])
+            return CommandResult(stdout="", stderr="", exit_code=0, duration_s=0.1)
+        return CommandResult(
+            stdout="", stderr="[WRN] failed to install nuclei templates: timeout", exit_code=0, duration_s=0.1
+        )
+
+    monkeypatch.setattr(cmd, "run_command", nuclei_silent_failure)
+    call_command("update_scanner_data", only="nuclei", stdout=StringIO())
+    assert [c[0] for c in calls] == [settings.NUCLEI_BIN, "curl", "unzip"]
+    assert "github.com/projectdiscovery/nuclei-templates" in calls[1][-1]
+    assert (templates / "http" / "cves" / "CVE-2021-41773.yaml").read_text() == "id: CVE-2021-41773"
+
+    def failing(argv, *, timeout=None, env=None):
+        raise ToolMissingError("no instalada")
+
+    monkeypatch.setattr(cmd, "run_command", failing)
+    with pytest.raises(SystemExit):
+        call_command("update_scanner_data", only="grype", stdout=StringIO(), stderr=StringIO())

@@ -41,7 +41,7 @@ Apps: `apps.cti` (almacén CTI), `apps.detection` (lazo), `apps.scanners` (herra
 |---|---|---|
 | CTI | Beat horario revisa qué fuente venció su intervalo (`Detección › Fuentes CTI`). NVD incremental por fecha + por producto del inventario; KEV completo; EPSS para el espejo. Cada diferencia es un `CtiChange`. | `CTI_NEW_CVE`, `CTI_CVE_MODIFIED`, `CTI_KEV_ADDED`, `CTI_EPSS_RISE` |
 | Inventario | Señales `services_changed` (descubrimiento), `asset_confirmed`, `sbom_attached` | `ASSET_SERVICES_CHANGED`, `ASSET_CONFIRMED`, `ASSET_SBOM_UPDATED` |
-| Tiempo | Beat horario: activos sin decisión del planificador en `DETECTION_ASSET_REVIEW_DAYS`; hallazgos abiertos sin verse en `DETECTION_FINDING_REVIEW_DAYS` | `ASSET_STALE_REVIEW`, `FINDING_STALE_REVIEW` |
+| Tiempo | Beat horario: activos sin decisión del planificador en `DETECTION_ASSET_REVIEW_DAYS` **o nunca reconciliados** (inventario anterior al módulo: se indexan y reconcilian en la primera pasada); hallazgos abiertos sin verse en `DETECTION_FINDING_REVIEW_DAYS` | `ASSET_STALE_REVIEW`, `FINDING_STALE_REVIEW` |
 | Manual | Botón «Evaluar ahora» (detalle del activo o del hallazgo) | `MANUAL_EVALUATION` |
 | Vigilancia | Un producto vigilado aparece en el índice | `WATCH_MATCHED` |
 | Pruebas | Panel de pruebas | `SIMULATED` (+ los CTI anteriores, simulados) |
@@ -161,7 +161,7 @@ línea de tiempo; detalle de evento, acción y ejecución. En el activo: pestañ
 `.env`: `NVD_API_KEY`, `NVD_API_BASE`, `EPSS_SNAPSHOT_URL`, `KEV_CATALOG_URL`, `CTI_ONLINE`,
 `CTI_NVD_INITIAL_DAYS`, `CTI_PRODUCT_REFRESH_DAYS`, `CTI_EPSS_RISE_DELTA`, `CTI_EPSS_HIGH`,
 `DETECTION_ASSET_REVIEW_DAYS`, `DETECTION_FINDING_REVIEW_DAYS`, `NUCLEI_TEMPLATES_DIR`,
-`SCANNER_TIMEOUT_S`. En BD (UI): fuentes CTI (URL, intervalo, habilitada), `AutomationSettings`,
+`GRYPE_DB_CACHE_DIR`, `SCANNER_TIMEOUT_S`. En BD (UI): fuentes CTI (URL, intervalo, habilitada), `AutomationSettings`,
 `OrganizationProfile`.
 
 Beat: `sync-cti-sources` (hh:20), `detection-process-pending` (1 min), `detection-time-reviews`
@@ -180,16 +180,42 @@ docker compose exec backend python manage.py seed_lab_detection
 Luego en **Detección › Actividad** se ve: lote CTI reconciliado (hallazgos para nginx 1.27.3,
 PostgreSQL 16.4, Apache 2.4.49 en KEV), evaluaciones pedidas para `web01` y `web-pagos`, decisión del
 planificador (simulado), acción aprobada (modo automático), ejecución de nuclei en `worker-discovery`
-(requiere plantillas: `nuclei -update-templates` una vez, o `NUCLEI_TEMPLATES_DIR`). En **Pruebas**
+(requiere plantillas: ver abajo). En **Pruebas**
 se pueden inyectar más eventos, grabar y reproducir. Las pruebas automatizadas
 (`pytest tests/cti tests/detection tests/scanners`) cubren el mismo recorrido con herramientas y
 LLM simulados.
 
+### Datos de las herramientas (plantillas de nuclei, base de Grype)
+
+No se descargan en el build (el despliegue puede no tener internet). Con `NUCLEI_TEMPLATES_DIR` y
+`GRYPE_DB_CACHE_DIR` apuntando al volumen `cti_cache` (valores de `.env.example`) sobreviven a
+recrear los contenedores; se descargan o actualizan una vez (y cuando se quiera) desde el worker que
+ejecuta las herramientas:
+
+```bash
+docker compose exec worker-discovery python manage.py update_scanner_data   # --only nuclei|grype
+```
+
+Sin plantillas, las acciones `DETECT_VULNS` fallan con el mensaje de nuclei en la ejecución; sin base
+de Grype, `REANALYZE_SBOM` intenta descargarla en el momento (necesita internet).
+
+### Inventario previo al módulo
+
+Los activos que ya existían cuando se instaló el módulo no tienen índice de software. La revisión
+horaria por tiempo los detecta (nunca reconciliados), construye su índice desde el inventario y los
+reconcilia contra el espejo CTI en la primera pasada, sin esperar `DETECTION_ASSET_REVIEW_DAYS` y sin
+escanear nada. En modo automático el planificador puede después decidir un reescaneo dentro de la
+ventana no operativa y los guardarraíles.
+
 ## Pendientes
 
-- Plantillas de nuclei: no se descargan en el build (sin internet en despliegue); hay que
-  montarlas o descargarlas una vez.
+- Plantillas de nuclei y base de Grype: no se descargan en el build; `update_scanner_data` una vez
+  (o montarlas) en despliegues sin internet.
 - Motor de scoring (Módulo 4): hoy `score_findings` devuelve vacío.
-- Escaneo de red vía nuclei solo por IP (sin hostnames/URL); `exposure`/`misconfig` por etiquetas.
+- Escaneo de red vía nuclei por `ip:puerto` (los puertos TCP abiertos que conoce el inventario; sin
+  hostnames/URL); `exposure`/`misconfig` por etiquetas.
 - La reconciliación de componentes de SBOM contra NVD depende de que el SBOM traiga CPE o un nombre
-  que coincida; el análisis fino lo hace Grype (`REANALYZE_SBOM`).
+  que coincida; el análisis fino lo hace Grype (`REANALYZE_SBOM`). Grype suele reportar el aviso
+  GHSA: el hallazgo se identifica por el CVE relacionado (para deduplicar con la CTI) y el GHSA queda
+  como alias en la evidencia. Un SBOM de paquetes de distribución sin metadatos del sistema operativo
+  (como `sample-cyclonedx.json`) no produce coincidencias en Grype.

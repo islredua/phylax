@@ -30,6 +30,7 @@ from .models import (
     ActionStatus,
     LogKind,
     PlannedAction,
+    SoftwareComponent,
     Urgency,
 )
 
@@ -217,7 +218,21 @@ def _targets_for(action):
     """Objetivos concretos del activo para la herramienta, ya filtrados por alcance."""
     targets = [t for t in assets_services.get_scan_targets() if t.asset_id == action.asset_id]
     if action.action == Action.DETECT_VULNS:
-        return [t.value for t in targets if t.kind == "ip"]
+        ips = [t.value for t in targets if t.kind == "ip"]
+        # nuclei solo prueba 80/443 si recibe la IP pelada: se le dan los puertos TCP abiertos
+        # que el inventario conoce (índice de software) para que mire donde hay servicio.
+        ports = sorted(
+            set(
+                SoftwareComponent.objects.filter(
+                    asset_id=action.asset_id, is_current=True, port__isnull=False
+                )
+                .exclude(protocol="udp")
+                .values_list("port", flat=True)
+            )
+        )
+        if not ports:
+            return ips
+        return [f"{ip}:{port}" for ip in ips for port in ports]
     if action.action == Action.REANALYZE_SBOM:
         sboms = [t.value for t in targets if t.kind == "sbom"]
         images = [t.value for t in targets if t.kind == "image"]

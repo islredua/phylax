@@ -101,9 +101,19 @@ def parse_grype_json(text: str) -> list[ToolFinding]:
     for match in payload.get("matches") or []:
         vuln = match.get("vulnerability") or {}
         artifact = match.get("artifact") or {}
-        vuln_id = str(vuln.get("id") or "").upper()[:100]
-        if not vuln_id:
+        reported_id = str(vuln.get("id") or "").upper()[:100]
+        if not reported_id:
             continue
+        # Grype suele reportar el aviso GHSA y deja el CVE en relatedVulnerabilities. Un
+        # hallazgo es (activo, vulnerabilidad): se identifica por el CVE para que coincida con
+        # lo que ya encontró la reconciliación CTI, y el aviso queda como alias en la evidencia.
+        related = [
+            str(r.get("id") or "").upper()
+            for r in match.get("relatedVulnerabilities") or []
+            if str(r.get("id") or "").upper().startswith("CVE-")
+        ]
+        vuln_id = reported_id if reported_id.startswith("CVE-") else (related[0] if related else reported_id)
+        aliases = sorted({reported_id, *related} - {vuln_id})
         cvss = vuln.get("cvss") or []
         score = None
         for entry in cvss:
@@ -130,6 +140,7 @@ def parse_grype_json(text: str) -> list[ToolFinding]:
                             k: artifact.get(k) for k in ("name", "version", "type", "purl")
                         },
                         "dataSource": vuln.get("dataSource"),
+                        "aliases": aliases,
                         "fix": fix,
                     }
                 ),

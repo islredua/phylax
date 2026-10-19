@@ -115,10 +115,11 @@ def test_auto_mode_executes_detect_vulns_end_to_end(fake_tool):
         "tasa": True,
     }
     execution = ToolExecution.objects.get(action=action)
+    # Un objetivo por puerto TCP conocido: nuclei no se limita a 80/443.
     assert (
         execution.tool == "NUCLEI"
         and execution.profile == "cves"
-        and execution.targets == ["10.7.0.10"]
+        and execution.targets == ["10.7.0.10:80"]
     )
     assert asset.detection_state.last_vuln_scan_at is not None
     kinds = list(

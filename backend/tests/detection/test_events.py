@@ -196,11 +196,13 @@ def test_time_reviews_for_stale_assets_and_findings(settings):
     settings.DETECTION_FINDING_REVIEW_DAYS = 30
     now = timezone.now()
     fresh = AssetFactory()
-    events.touch_state(fresh.pk, last_evaluated_at=True)
+    events.touch_state(fresh.pk, last_evaluated_at=True, last_reconciled_at=True)
     stale = AssetFactory()
-    events.touch_state(stale.pk, last_evaluated_at=now - timedelta(days=20))
+    events.touch_state(stale.pk, last_evaluated_at=now - timedelta(days=20), last_reconciled_at=True)
     never = AssetFactory()
     type(never).objects.filter(pk=never.pk).update(created_at=now - timedelta(days=15))
+    # Inventario previo al módulo: reciente pero nunca reconciliado → se revisa ya.
+    unindexed = AssetFactory()
     AssetFactory(status=AssetStatus.UNCONFIRMED)  # no se revisa
     from apps.detection import findings
 
@@ -216,10 +218,14 @@ def test_time_reviews_for_stale_assets_and_findings(settings):
     assert kinds == {
         (EventKind.ASSET_STALE_REVIEW, stale.pk),
         (EventKind.ASSET_STALE_REVIEW, never.pk),
+        (EventKind.ASSET_STALE_REVIEW, unindexed.pk),
         (EventKind.FINDING_STALE_REVIEW, fresh.pk),
     }
+    assert batch.events.get(asset_id=unindexed.pk).payload["reason"] == "nunca reconciliado"
     events.process_batch(batch.pk)
     assert set(batch.events.values_list("status", flat=True)) == {EventStatus.READY}
+    # La revisión por tiempo indexa y reconcilia: a partir de aquí el activo ya tiene estado.
+    assert events.state_for(unindexed.pk).last_reconciled_at is not None
     # Mientras esperan no se vuelven a emitir.
     assert events.emit_time_reviews(now).size == 0
 

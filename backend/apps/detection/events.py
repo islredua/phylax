@@ -179,13 +179,19 @@ def emit_time_reviews(now=None):
     for asset_id, created_at in assets_services.list_actionable_assets():
         state = AssetDetectionState.objects.filter(asset_id=asset_id).first()
         last = state.last_evaluated_at if state else None
+        # Inventario anterior al módulo (o importado sin pasar por el descubrimiento): nunca se
+        # indexó ni reconcilió, así que se revisa en la primera pasada sin esperar al plazo.
+        never_reconciled = state is None or state.last_reconciled_at is None
         reference = last or created_at
-        if reference <= asset_cutoff:
+        if never_reconciled or reference <= asset_cutoff:
             _, is_new = emit(
                 EventKind.ASSET_STALE_REVIEW,
                 asset_id=asset_id,
                 batch=batch,
-                payload={"last_evaluated_at": last.isoformat() if last else None},
+                payload={
+                    "last_evaluated_at": last.isoformat() if last else None,
+                    "reason": "nunca reconciliado" if never_reconciled else "sin revisar",
+                },
                 urgency="LOW",
             )
             created += int(is_new)
@@ -321,6 +327,7 @@ REINDEX_KINDS = (
     EventKind.ASSET_SERVICES_CHANGED,
     EventKind.ASSET_CONFIRMED,
     EventKind.ASSET_SBOM_UPDATED,
+    EventKind.ASSET_STALE_REVIEW,
     EventKind.MANUAL_EVALUATION,
     EventKind.SIMULATED,
 )
