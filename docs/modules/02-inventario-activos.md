@@ -219,8 +219,9 @@ carecer de entorno y función hasta confirmarse.
 ## Interfaz
 
 Sección **Inventario** (Activos · Por confirmar · Clasificación · Conflictos · Imágenes ·
-Importar/Exportar), sección **Descubrimiento** (Rangos de red · Ejecuciones) y pestañas
-**LLM**, **Catálogos** y **Registries** en Administración. Migas de pan en todas las
+Rangos de red · Descubrimiento · Importar/Exportar) y pestañas **LLM**, **Catálogos** y
+**Registries** en Administración. El descubrimiento no es una sección aparte: es el mecanismo
+que llena el inventario y sus pantallas (rangos y ejecuciones de nmap) viven en esa sección. Migas de pan en todas las
 pantallas (ADR-007). El detalle de una ejecución de descubrimiento muestra la salida legible
 de nmap (`-oN`) en vivo. Detalle de activo con subpestañas Resumen, Identificadores,
 Servicios, SBOM, Sugerencias LLM, Historial y Descubrimientos (Hallazgos y Riesgo reservados).

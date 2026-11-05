@@ -37,7 +37,6 @@ def test_sidebar_shows_sections_not_subsections(client, admin_user):
     assert [i.key for i in nav.main] == [
         "home",
         "inventory",
-        "discovery",
         "detection",
         "administration",
     ]
@@ -51,7 +50,26 @@ def test_sidebar_shows_sections_not_subsections(client, admin_user):
         "catalogs",
         "registries",
     ]
-    assert nav.main[4].url_name == "administration"
+    assert nav.main[3].url_name == "administration"
+
+
+def test_discovery_lives_inside_inventory(client, admin_user):
+    client.force_login(admin_user)
+    nav = client.get("/discovery/runs/").context["nav"]
+    assert nav.section.key == "inventory"
+    assert [t.key for t in nav.tabs] == [
+        "assets",
+        "unconfirmed",
+        "classification",
+        "conflicts",
+        "images",
+        "ranges",
+        "discovery",
+        "import",
+    ]
+    assert [t.key for t in nav.tabs if t.active] == ["discovery"]
+    nav = client.get("/inventory/ranges/").context["nav"]
+    assert nav.section.key == "inventory" and [t.key for t in nav.tabs if t.active] == ["ranges"]
 
 
 def test_mfa_subpages_keep_security_tab_active(client, user):
@@ -206,7 +224,7 @@ def test_audit_log_renders_severity_badges(client, auditor_user):
         ("/users/", ["Inicio", "Administración", "Usuarios"]),
         ("/accounts/me/security/", ["Inicio", "Mi cuenta", "Seguridad"]),
         ("/inventory/", ["Inicio", "Inventario", "Activos"]),
-        ("/inventory/ranges/", ["Inicio", "Descubrimiento", "Rangos de red"]),
+        ("/inventory/ranges/", ["Inicio", "Inventario", "Rangos de red"]),
     ],
 )
 def test_breadcrumbs_follow_navigation(client, admin_user, path, crumbs):

@@ -84,7 +84,7 @@ docker compose -f docker-compose.yml -f lab/docker-compose.lab.yml up -d
 docker compose exec backend python manage.py seed_lab_assets     # --reset para reiniciar
 ```
 
-Luego en **Descubrimiento › Rangos de red › lab-dmz › Descubrir ahora**. Evaluación de LLMs:
+Luego en **Inventario › Rangos de red › lab-dmz › Descubrir ahora**. Evaluación de LLMs:
 `manage.py eval_criticality` (ver `datasets/README.md`).
 
 ### Detección continua (Módulo 3)

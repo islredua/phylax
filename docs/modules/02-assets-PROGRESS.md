@@ -16,7 +16,7 @@ con LLM local). Se actualiza en cada etapa.
 | Estructura de apps | Paquete `apps.` | `apps.core`, `apps.assets`, `apps.discovery`, `apps.llm`. `apps.scanners` queda para el módulo de vulnerabilidades (nuclei/Grype). |
 | Media / caché | Sin `MEDIA_ROOT` ni `CACHES` | Volumen `media` (SBOM, XML de discovery, cargas temporales) servido solo vía vistas con permiso; caché Redis (locmem en pruebas). |
 | Dataset de evaluación | Convención del repo: `datasets/` | Ejemplo en `datasets/criticality-example.jsonl`; resultados en `experiments/llm_eval/criticality/results/` (argumentos del comando). |
-| Navegación | Patrón secciones + pestañas (ADR-007) | **Inventario**: Activos · Por confirmar · Clasificación · Conflictos · Imágenes · Importar/Exportar. **Descubrimiento**: Rangos de red · Ejecuciones. **Administración**: + Registries. |
+| Navegación | Patrón secciones + pestañas (ADR-007) | **Inventario**: Activos · Por confirmar · Clasificación · Conflictos · Imágenes · Rangos de red · Descubrimiento · Importar/Exportar (desde 2026-11-05 el descubrimiento ya no es sección aparte). **Administración**: + Registries. |
 
 ## Etapas
 

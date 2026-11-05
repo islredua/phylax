@@ -92,19 +92,7 @@ SECTIONS = (
                 ("assets.view_containerimage",),
                 ("assets:image_create",),
             ),
-            Tab(
-                "import",
-                "Importar/Exportar",
-                "assets:import",
-                ("assets.add_asset", "assets.view_asset"),
-                ("assets:import_preview", "assets:import_status"),
-            ),
-        ),
-    ),
-    Section(
-        key="discovery",
-        label="Descubrimiento",
-        tabs=(
+            # El descubrimiento es el mecanismo que llena el inventario: vive en esta sección.
             Tab(
                 "ranges",
                 "Rangos de red",
@@ -118,11 +106,18 @@ SECTIONS = (
                 ),
             ),
             Tab(
-                "runs",
-                "Ejecuciones",
+                "discovery",
+                "Descubrimiento",
                 "discovery:runs",
                 ("discovery.view_discoveryrun",),
                 ("discovery:*",),
+            ),
+            Tab(
+                "import",
+                "Importar/Exportar",
+                "assets:import",
+                ("assets.add_asset", "assets.view_asset"),
+                ("assets:import_preview", "assets:import_status"),
             ),
         ),
     ),
