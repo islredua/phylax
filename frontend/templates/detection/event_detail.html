@@ -19,7 +19,6 @@
   <div class="flex flex-wrap items-center gap-2">
     <h3 class="card-title mb-0">Decisión: {{ d.get_action_display }}</h3>{% urgency_badge d.urgency %}
     {% if d.fallback %}<span class="badge-medium" title="{{ d.fallback_reason }}">regla de respaldo (sin LLM)</span>{% endif %}
-    {% if d.replayed_from %}<span class="badge-neutral">reproducida: {{ d.replayed_from }}</span>{% endif %}
     {% model_warning d.model_mismatch d.model_requested d.model_responded %}
   </div>
   <p class="text-ink-soft">{{ d.rationale|linebreaksbr }}</p>

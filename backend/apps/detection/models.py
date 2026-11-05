@@ -306,7 +306,6 @@ class EventKind(models.TextChoices):
     FINDING_STALE_REVIEW = "FINDING_STALE_REVIEW", "Hallazgos sin revisar hace tiempo"
     MANUAL_EVALUATION = "MANUAL_EVALUATION", "Evaluación pedida a mano"
     WATCH_MATCHED = "WATCH_MATCHED", "Apareció un producto vigilado"
-    SIMULATED = "SIMULATED", "Evento simulado"
 
 
 CTI_EVENT_KINDS = (
@@ -332,7 +331,6 @@ class BatchSource(models.TextChoices):
     INVENTORY = "INVENTORY", "Inventario"
     TIME = "TIME", "Paso del tiempo"
     MANUAL = "MANUAL", "Manual"
-    TEST = "TEST", "Panel de pruebas"
 
 
 class EventBatch(UUIDModel):
@@ -393,7 +391,6 @@ class DetectionEvent(UUIDModel):
         indexes = [models.Index(fields=["kind", "status"])]
         permissions = [
             ("request_evaluation", "Pedir a mano la evaluación o el escaneo de un activo"),
-            ("use_test_panel", "Usar el panel de pruebas (eventos simulados)"),
         ]
 
     def __str__(self):
@@ -464,8 +461,6 @@ class PlannerDecision(UUIDModel):
     # La decisión no salió del modelo sino de la regla de respaldo (modelo caído o salida inválida).
     fallback = models.BooleanField(default=False)
     fallback_reason = models.CharField(max_length=255, blank=True)
-    # Reproducción de una grabación (panel de pruebas): la decisión se tomó de la grabación.
-    replayed_from = models.CharField(max_length=100, blank=True)
 
     class Meta:
         ordering = ["-created_at"]
@@ -771,46 +766,3 @@ class OrganizationProfile(models.Model):
     @property
     def is_empty(self):
         return not any((self.name, self.sector, self.location, self.description.strip()))
-
-
-# --------------------------------------------------------------------------
-# Panel de pruebas: grabación y reproducción (etapa 10)
-# --------------------------------------------------------------------------
-
-
-class RecordingStatus(models.TextChoices):
-    RECORDING = "RECORDING", "Grabando"
-    READY = "READY", "Lista para reproducir"
-
-
-class Recording(UUIDModel):
-    """Sesión grabada del lazo: eventos y las decisiones que tomó el planificador.
-
-    Al reproducirla se vuelven a inyectar los eventos y las decisiones salen de la grabación,
-    no del LLM: sirve para repetir un escenario de forma determinista (pruebas, demos, tesis).
-    """
-
-    name = models.CharField("nombre", max_length=120)
-    status = models.CharField(
-        max_length=10, choices=RecordingStatus.choices, default=RecordingStatus.RECORDING
-    )
-    created_by = models.ForeignKey(
-        USER, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
-    )
-    started_at = models.DateTimeField()
-    stopped_at = models.DateTimeField(null=True, blank=True)
-    data = models.JSONField(default=dict, blank=True, help_text='{"events": [...]}')
-    replays = models.PositiveIntegerField(default=0)
-    last_replayed_at = models.DateTimeField(null=True, blank=True)
-
-    class Meta:
-        ordering = ["-created_at"]
-        verbose_name = "grabación"
-        verbose_name_plural = "grabaciones"
-
-    def __str__(self):
-        return self.name
-
-    @property
-    def event_count(self):
-        return len((self.data or {}).get("events", []))

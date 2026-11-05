@@ -228,7 +228,7 @@ Especificación final: [`docs/modules/03-deteccion-continua.md`](docs/modules/03
 - [x] Modo automático/manual, por entorno, escalamiento, pausa, ventana no operativa y bitácora
 - [x] Perfil de la organización y borrador desde el inventario
 - [x] Pantallas (Detección) y permisos por rol
-- [x] Panel de pruebas: eventos simulados, grabación y reproducción
+- [x] ~~Panel de pruebas: eventos simulados, grabación y reproducción~~ (retirado: las pruebas se hacen contra un laboratorio real)
 - [x] `seed_lab_detection`, `datasets/cti-lab-sample.json`, ADR-010, modelo de amenaza
 - [ ] Plantillas de nuclei fijadas en el despliegue
 - [ ] Extracción LLM desde texto no estructurado (plan original 3.5)

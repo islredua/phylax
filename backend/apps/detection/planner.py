@@ -223,7 +223,6 @@ def fallback_decision(data) -> dict:
         EventKind.ASSET_SERVICES_CHANGED,
         EventKind.ASSET_CONFIRMED,
         EventKind.MANUAL_EVALUATION,
-        EventKind.SIMULATED,
     ):
         if not asset.get("can_scan_network"):
             return {
@@ -321,7 +320,6 @@ def _record(
     duration_ms=None,
     fallback=False,
     fallback_reason="",
-    replayed_from="",
 ):
     model = log.model if log is not None else ""
     responded = log.model_responded if log is not None else ""
@@ -343,7 +341,6 @@ def _record(
         duration_ms=duration_ms,
         fallback=fallback,
         fallback_reason=fallback_reason[:255],
-        replayed_from=replayed_from,
     )
     if decision.model_mismatch:
         logger.warning(
@@ -370,21 +367,17 @@ def _after_decision(event, decision):
     return decision
 
 
-def plan_event(event_id, *, replay=None):
+def plan_event(event_id):
     """Cuerpo de la tarea ``plan_event`` (cola ``llm``). Idempotente: solo eventos READY/PLANNING."""
     event = DetectionEvent.objects.select_related("cve").filter(pk=event_id).first()
     if event is None or event.status not in (EventStatus.READY, EventStatus.PLANNING):
         return None
     ok, reason = planner_allowed()
-    if not ok and replay is None:
+    if not ok:
         logger.info("Planificador omitido para %s: %s", event_id, reason)
         return None
     DetectionEvent.objects.filter(pk=event_id).update(status=EventStatus.PLANNING)
     data = build_input(event)
-    if replay is not None:
-        output = PlannerOutput.model_validate(replay["output"]).model_dump()
-        decision = _record(event, data, output, replayed_from=replay.get("source", "grabación"))
-        return _after_decision(event, decision)
     started = time.monotonic()
     _count_call()
     log = run_structured(

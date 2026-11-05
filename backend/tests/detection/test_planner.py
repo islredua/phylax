@@ -232,7 +232,7 @@ def test_worker_failure_marks_event_failed(mock_llm, monkeypatch):
     asset = _scannable_asset()
     event, _ = _ready_event(EventKind.MANUAL_EVALUATION, asset)
     DetectionEvent.objects.filter(pk=event.pk).update(status=EventStatus.READY)
-    monkeypatch.setattr(planner, "plan_event", lambda event_id, replay=None: 1 / 0)
+    monkeypatch.setattr(planner, "plan_event", lambda event_id: 1 / 0)
     DetectionEvent.objects.filter(pk=event.pk).update(status=EventStatus.PLANNING)
     with pytest.raises(ZeroDivisionError):
         tasks.plan_event(str(event.pk))

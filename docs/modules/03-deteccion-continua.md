@@ -44,7 +44,6 @@ Apps: `apps.cti` (almacén CTI), `apps.detection` (lazo), `apps.scanners` (herra
 | Tiempo | Beat horario: activos sin decisión del planificador en `DETECTION_ASSET_REVIEW_DAYS` **o nunca reconciliados** (inventario anterior al módulo: se indexan y reconcilian en la primera pasada); hallazgos abiertos sin verse en `DETECTION_FINDING_REVIEW_DAYS` | `ASSET_STALE_REVIEW`, `FINDING_STALE_REVIEW` |
 | Manual | Botón «Evaluar ahora» (detalle del activo o del hallazgo) | `MANUAL_EVALUATION` |
 | Vigilancia | Un producto vigilado aparece en el índice | `WATCH_MATCHED` |
-| Pruebas | Panel de pruebas | `SIMULATED` (+ los CTI anteriores, simulados) |
 
 Los eventos se agrupan en **lotes** (`EventBatch`): un lote por sincronización CTI, uno por cambio
 de inventario. Un evento idéntico (`kind:activo:cve`) que ya espera no se vuelve a crear.
@@ -143,9 +142,8 @@ párrafo a partir de agregados sin IP ni nombres de equipo; el admin lo edita.
 ## J. Pantallas
 
 Sección **Detección**: Panel (hallazgos con filtros y resumen) · Actividad (flujo en vivo) · Cola
-de aprobación · Fuentes CTI · Automatización (controles y bitácora) · Organización · Pruebas
-(eventos simulados, datos de ejemplo, grabación/reproducción). Detalle de hallazgo con evidencia y
-línea de tiempo; detalle de evento, acción y ejecución. En el activo: pestaña «Hallazgos» y
+de aprobación · Fuentes CTI · Automatización (controles y bitácora) · Organización. Detalle de
+hallazgo con evidencia y línea de tiempo; detalle de evento, acción y ejecución. En el activo: pestaña «Hallazgos» y
 «Evaluar ahora».
 
 ## Permisos
@@ -153,8 +151,8 @@ línea de tiempo; detalle de evento, acción y ejecución. En el activo: pestañ
 | Rol | Puede |
 |---|---|
 | Administrador | Todo: modo y guardarraíles, perfil, fuentes CTI, además de lo del Analista |
-| Analista (`operador`) | Aprobar/rechazar acciones, trabajar hallazgos, pedir evaluaciones, panel de pruebas |
-| Lector (`auditor`) | Solo ver (sin la pestaña Pruebas) |
+| Analista (`operador`) | Aprobar/rechazar acciones, trabajar hallazgos, pedir evaluaciones |
+| Lector (`auditor`) | Solo ver |
 
 ## Configuración
 
@@ -180,8 +178,7 @@ docker compose exec backend python manage.py seed_lab_detection
 Luego en **Detección › Actividad** se ve: lote CTI reconciliado (hallazgos para nginx 1.27.3,
 PostgreSQL 16.4, Apache 2.4.49 en KEV), evaluaciones pedidas para `web01` y `web-pagos`, decisión del
 planificador (simulado), acción aprobada (modo automático), ejecución de nuclei en `worker-discovery`
-(requiere plantillas: ver abajo). En **Pruebas**
-se pueden inyectar más eventos, grabar y reproducir. Las pruebas automatizadas
+(requiere plantillas: ver abajo). Las pruebas automatizadas
 (`pytest tests/cti tests/detection tests/scanners`) cubren el mismo recorrido con herramientas y
 LLM simulados.
 

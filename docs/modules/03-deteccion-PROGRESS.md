@@ -19,7 +19,7 @@ el PR de este módulo depende del PR #7). **No se hace merge a `main`.**
 | Cliente LLM (`apps.llm`) | `run_structured` + `InferenceLog`; mock determinista solo para criticidad | Se reutiliza tal cual. Se añade: registro de generadores simulados por tarea (`register_mock`), campo `InferenceLog.model_responded` (el modelo que **respondió** según Ollama) para detectar sustitución silenciosa, tareas `DETECTION_PLANNER` y `ORG_PROFILE_DRAFT`. Prompt versionado `prompts/detection_planner/v1.md`. |
 | Celery | Colas `default`, `llm`, `discovery` | Sin colas ni workers nuevos. Planificador → `llm` (concurrencia 1). Herramientas (nuclei, Grype) → `discovery`: es el único worker conectado a las redes del laboratorio y con capabilities; nmap sigue en `discovery` vía `discovery.services.request_discovery`. Beat: sincronización CTI, triage/despacho cada minuto, revisiones por tiempo cada hora. |
 | Roles (`accounts/roles.py`) | admin / operador (Analista) / auditor (Lector) | Permisos custom nuevos: `detection.manage_automation`, `detection.manage_profile` (solo admin); `detection.approve_actions`, `detection.work_findings`, `detection.request_evaluation`, `detection.use_test_panel` (operador). `cti.manage_sources` (admin). Inmutables: `DetectionEvent`, `PlannerDecision`, `FindingEvent`, `ToolExecution`, `CtiSyncRun`. |
-| Navegación (ADR-007) | Secciones + pestañas | Sección **Detección**: Panel · Actividad · Cola de aprobación · Fuentes CTI · Automatización · Organización · Pruebas. Detalle de hallazgo como subpágina del Panel. |
+| Navegación (ADR-007) | Secciones + pestañas | Sección **Detección**: Panel · Actividad · Cola de aprobación · Fuentes CTI · Automatización · Organización. Detalle de hallazgo como subpágina del Panel. |
 | Scoring | No existe | `Finding.priority_score` lo llena el motor de scoring cuando exista (`apps.scoring.services.score_findings`, hoy un contrato vacío). Mientras tanto el panel ordena por una **prioridad provisional** (KEV, severidad, EPSS) explícitamente etiquetada como provisional. |
 | Imagen Docker | `nuclei` no quedó instalado (`unzip` ausente; el `RUN` termina en `\|\| true`) | Se corrige el Dockerfile (instalar `unzip`); el wrapper detecta el binario ausente y la ejecución falla con un mensaje claro en lugar de romper el lazo. |
 | Pruebas | pytest contra PostgreSQL en el contenedor; `respx` para HTTP; `Popen` simulado para nmap | Mismo enfoque: fixtures JSON de NVD/EPSS/KEV, JSONL de nuclei y JSON de Grype; `subprocess` simulado; LLM con `LLM_MOCK_MODE` o `respx`. **Una prueba preexistente** (`test_refresh_task_caches_status_and_timeout_adapts`) falla en este equipo porque el contenedor tiene `LLM_ACCELERATOR=gpu`; no es de este módulo. |
@@ -37,7 +37,7 @@ el PR de este módulo depende del PR #7). **No se hace merge a `main`.**
 | 7 | Modo automático/manual: cola de aprobación, interruptor, por entorno, escalamiento, pausa y bitácora | ✅ |
 | 8 | Perfil de la organización y su uso en la relevancia de CTI | ✅ |
 | 9 | Pantallas y permisos | ✅ |
-| 10 | Panel de pruebas: inyección de eventos simulados y grabación/reproducción | ✅ |
+| 10 | Panel de pruebas: inyección de eventos simulados y grabación/reproducción | ✅ → **retirado** (2026-11-05, ver notas) |
 | 11 | Datos de laboratorio y documentación | ✅ |
 
 ## Decisiones de diseño
@@ -170,7 +170,7 @@ Se documentan aquí conforme aparezcan.
   `discovery.services.can_scan_asset_id`, sustituyen lecturas directas de modelos del inventario
   que habían quedado en el planificador y el perfil.
 - **Pantallas** (sección **Detección**: Panel · Actividad · Cola de aprobación · Fuentes CTI ·
-  Automatización · Organización · Pruebas). El panel ordena por `priority_score` y, a falta de
+  Automatización · Organización). El panel ordena por `priority_score` y, a falta de
   motor de scoring, por prioridad provisional etiquetada como tal. El detalle de hallazgo muestra
   evidencia por herramienta y la línea de tiempo completa; acciones: confirmar, priorizar,
   mitigar, aceptar el riesgo, falso positivo, reabrir y notas. La cola de aprobación tiene
@@ -181,13 +181,17 @@ Se documentan aquí conforme aparezcan.
   «Evaluar ahora (detección)».
 - **Permisos en pantallas**: lectura con los `view_*` que la matriz de roles ya da a los tres
   roles; cambios solo con los permisos custom (`work_findings`, `approve_actions`,
-  `request_evaluation`, `use_test_panel` para el Analista; `manage_automation`, `manage_profile`,
-  `cti.manage_sources` para el Administrador). El Lector no ve la pestaña «Pruebas».
-- **Panel de pruebas**: inyección de «cambió un activo» (evento `SIMULATED`), «entró a KEV»,
-  «subió EPSS» y «CVE nuevo para un producto» (CVE sintético `CVE-9999-NNNNN`); carga de
-  `datasets/cti-lab-sample.json`; **grabación** (eventos + decisión del planificador desde el
-  inicio hasta el fin) y **reproducción** (se reinyectan los eventos en un lote `TEST` y las
-  decisiones salen de la grabación: `PlannerDecision.replayed_from`, sin inferencia).
+  `request_evaluation` para el Analista; `manage_automation`, `manage_profile`,
+  `cti.manage_sources` para el Administrador).
+- **Panel de pruebas retirado (2026-11-05)**: la pestaña «Pruebas» (eventos simulados, CVE
+  sintéticos, grabación/reproducción) se eliminó por decisión del proyecto: las pruebas del lazo se
+  harán contra un laboratorio real en otro equipo, no con eventos inyectados desde la UI. Se
+  quitaron `apps.detection.testing`, `TestPanelView`, la plantilla, el modelo `Recording`, el
+  permiso `use_test_panel`, el tipo de evento `SIMULATED`, el origen de lote `TEST`, el campo
+  `PlannerDecision.replayed_from` y el camino de reproducción de `planner.plan_event`
+  (migración `0009_remove_test_panel`). Se conservan `seed_lab_detection` y
+  `datasets/cti-lab-sample.json` para las pruebas automatizadas y demos de pantallas
+  (`test_lab_seed.py`).
 - El CSS se recompiló con el binario de Tailwind v4.1.13 (`docs/development-guide.md`).
 - **Laboratorio** (`seed_lab_detection`): añade servicios con versión a los hosts de
   `seed_lab_assets` (nginx 1.27.3 y OpenSSH 9.2p1 en web01, nginx 1.27.4 en web02, Apache 2.4.49
@@ -239,8 +243,8 @@ Se documentan aquí conforme aparezcan.
 
 ## Checklist final
 
-- [x] Lazo de punta a punta probado con eventos simulados (panel de pruebas + `seed_lab_detection`;
-      `test_testing_panel.py::test_seed_lab_detection_command` lo recorre completo con herramientas y LLM simulados)
+- [x] Lazo de punta a punta probado con datos de laboratorio (`seed_lab_detection`;
+      `test_lab_seed.py::test_seed_lab_detection_command` lo recorre completo con herramientas y LLM simulados)
 - [x] Pruebas sin internet, sin LLM real y sin herramientas reales (`CTI_ONLINE=0` en `conftest`, `respx`, `run_command` simulado)
 - [x] Configuración nueva documentada en `.env.example` y en `docs/modules/03-deteccion-continua.md`
 - [x] Nota de integración con inventario, scoring y presentación (`docs/modules/03-interfaces.md`)

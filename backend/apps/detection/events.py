@@ -329,7 +329,6 @@ REINDEX_KINDS = (
     EventKind.ASSET_SBOM_UPDATED,
     EventKind.ASSET_STALE_REVIEW,
     EventKind.MANUAL_EVALUATION,
-    EventKind.SIMULATED,
 )
 
 
@@ -403,15 +402,10 @@ def process_batch(batch_id):
     return batch
 
 
-# La reproducción de grabaciones decide por sí misma: no se encola el planificador.
-SUPPRESS_PLANNER = False
-
-
 def _enqueue_planner(event_ids):
     from .planner import enqueue_ready
 
-    if not SUPPRESS_PLANNER:
-        enqueue_ready(event_ids)
+    enqueue_ready(event_ids)
 
 
 def process_pending(limit=200):

@@ -94,7 +94,7 @@ docker compose exec backend python manage.py seed_lab_detection   # CTI de ejemp
 ```
 
 Sin internet ni LLM real (`CTI_ONLINE=0`, `LLM_MOCK_MODE=1`) el lazo funciona completo con datos de
-ejemplo. Ver **Detección › Actividad** y **Detección › Pruebas**. Fuentes reales: **Detección ›
+ejemplo. Ver **Detección › Actividad**. Fuentes reales: **Detección ›
 Fuentes CTI** (`NVD_API_KEY` recomendado). Documentación:
 [`docs/modules/03-deteccion-continua.md`](docs/modules/03-deteccion-continua.md).
 

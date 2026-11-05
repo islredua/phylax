@@ -32,7 +32,5 @@ Complementa [`02-threat-model.md`](02-threat-model.md) y [`../stride-threat-mode
    plantillas de la comunidad piden URL externas fijas (se observó en la prueba real con
    `secrets-patterns-*`): interactsh va desactivado, pero esas peticiones no se pueden impedir sin
    un proxy de salida; en un despliegue sin internet simplemente fallan.
-3. **Grabaciones del panel de pruebas** reinyectan eventos reales: solo el Analista puede usarlas y
-   todo queda en lotes `TEST` visibles en Actividad.
 4. **Modelo pequeño o sustituido**: la decisión se marca, pero en modo automático se ejecuta igual
    (dentro de los guardarraíles); para operación estricta, modo manual.

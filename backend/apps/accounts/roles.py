@@ -82,7 +82,6 @@ ROLE_CUSTOM_PERMISSIONS = {
         "detection.work_findings",
         "detection.approve_actions",
         "detection.request_evaluation",
-        "detection.use_test_panel",
     },
     AUDITOR: set(),
 }
