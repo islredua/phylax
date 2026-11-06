@@ -19,6 +19,7 @@ from apps.llm.status import active_model, active_model_ready
 from . import catalogs, services
 from .enums import AssetStatus, Criticality, SuggestionState, SuggestionTrigger
 from .forms import (
+    AssetCreateForm,
     AssetFilterForm,
     AssetForm,
     ConfirmForm,
@@ -342,6 +343,31 @@ def _identifiers_from(formset):
     ]
 
 
+def _authorize_scope(request, asset, ips, scope):
+    """Crea la autorización elegida en el alta (un host o su red) y devuelve la nota para el aviso."""
+    reference = scope["authorization_reference"]
+    expires = scope["authorization_expires_at"]
+    try:
+        if scope["register_network"]:
+            rng = services.register_network_for_host(
+                ips[0], user=request.user, reference=reference, expires_at=expires, asset=asset
+            )
+            return f"Red {rng.cidr} registrada y autorizada para escaneo."
+        created = [
+            services.authorize_host(
+                ip, user=request.user, reference=reference, expires_at=expires, asset=asset
+            )
+            for ip in ips
+        ]
+        created = [r for r in created if r is not None]
+        if created:
+            asset.refresh_from_db()
+            return "Escaneo autorizado para " + ", ".join(r.cidr for r in created) + "."
+    except (ValidationError, PermissionDenied) as error:
+        messages.warning(request, f"No se autorizó el escaneo: {error}")
+    return ""
+
+
 def _apply_probe(token, asset, identifiers):
     """Copia al activo el resultado de «Verificar alcance» si corresponde a una de sus IP."""
     from apps.discovery import probe
@@ -376,6 +402,7 @@ class ProbeView(Perm, View):
             if formset.is_valid()
             else []
         )
+        authorized = request.POST.get("authorize_scan") in ("on", "true", "1")
         if not ips:
             return render(
                 request,
@@ -383,7 +410,7 @@ class ProbeView(Perm, View):
                 {"state": "error", "error": "Captura primero una dirección IP para sondearla."},
             )
         try:
-            token = probe.start_probe(ips[0], user=request.user)
+            token = probe.start_probe(ips[0], user=request.user, authorized=authorized)
         except ValidationError as error:
             return render(
                 request,
@@ -421,18 +448,39 @@ class AssetCreateView(Perm, View):
             request,
             self.template_name,
             {
-                "form": AssetForm(),
+                "form": AssetCreateForm(),
                 "formset": IdentifierFormSet(prefix="ident"),
                 "asset": None,
             },
         )
 
     def post(self, request):
-        form = AssetForm(request.POST)
+        form = AssetCreateForm(request.POST)
         formset = IdentifierFormSet(request.POST, prefix="ident")
         if form.is_valid() and formset.is_valid():
             identifiers = _identifiers_from(formset)
-            will_scan = _may_auto_scan(request.user, identifiers)
+            ips = [v for k, v in identifiers if k in ("IPV4", "IPV6")]
+            scope = form.cleaned_data
+            authorize = bool(ips) and (scope["authorize_scan"] or scope["register_network"])
+            to_authorize = []
+            if authorize:
+                # Se valida antes de crear el activo: una IP pública sin referencia, o un rango
+                # caducado que la cubre, no deben dejar un activo a medias.
+                try:
+                    to_authorize = services.validate_host_authorization(
+                        ips,
+                        user=request.user,
+                        reference=scope["authorization_reference"],
+                        register_network=scope["register_network"],
+                    )
+                except (ValidationError, PermissionDenied) as error:
+                    form.add_error(None, error)
+                    return render(
+                        request,
+                        self.template_name,
+                        {"form": form, "formset": formset, "asset": None},
+                    )
+            will_scan = _may_auto_scan(request.user, identifiers) or bool(to_authorize)
             try:
                 asset = services.create_asset(
                     user=request.user,
@@ -447,13 +495,16 @@ class AssetCreateView(Perm, View):
             except ValidationError as error:
                 form.add_error(None, error)
             else:
+                scope_note = (
+                    _authorize_scope(request, asset, to_authorize, scope) if to_authorize else ""
+                )
                 _apply_probe(request.POST.get("probe_token"), asset, identifiers)
                 note = (
                     _auto_scan(request, asset, fallback_trigger=SuggestionTrigger.CREATE)
                     if will_scan
                     else _suggestion_note(asset)
                 )
-                messages.success(request, f"Activo creado. {note}".strip())
+                messages.success(request, f"Activo creado. {scope_note} {note}".strip())
                 return redirect("assets:detail", pk=asset.pk)
         return render(
             request, self.template_name, {"form": form, "formset": formset, "asset": None}

@@ -2,9 +2,10 @@
 
 import csv
 import io
+import ipaddress
 import logging
 
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 
 from . import catalogs, services
@@ -264,10 +265,37 @@ def _probe_after_import(asset, user):
     probe_asset.delay(str(asset.pk))
 
 
-def execute_import(rows, *, user):
-    """Aplica la importación fila por fila (cada fila en su propia transacción)."""
+def authorize_reference(upload):
+    """Referencia con la que se autorizan los equipos de una importación, o ``None``."""
+    if not (upload.meta or {}).get("authorize_hosts"):
+        return None
+    who = upload.user.get_username() if upload.user_id else "sistema"
+    return f"Importación CSV «{upload.original_filename}» por {who} el {upload.created_at:%Y-%m-%d}"
+
+
+def _authorize_after_import(asset, user, reference):
+    """Autoriza (rango /32) las IP privadas del activo nuevo que aún no están en alcance."""
+    created = 0
+    for ident in asset.identifiers.filter(kind__in=("IPV4", "IPV6")):
+        if ipaddress.ip_address(ident.value).is_global:
+            continue
+        try:
+            if services.authorize_host(ident.value, user=user, reference=reference, asset=asset):
+                created += 1
+        except (ValidationError, PermissionDenied):
+            continue  # rango caducado que la cubre, o sin permiso: queda fuera del alcance
+    return created
+
+
+def execute_import(rows, *, user, authorize_reference=None):
+    """Aplica la importación fila por fila (cada fila en su propia transacción).
+
+    ``authorize_reference``: si viene, los activos nuevos con IP privada fuera de alcance quedan
+    autorizados para escaneo con esa referencia (rango de un solo equipo por IP).
+    """
     counts = {CREATE: 0, UPDATE: 0, CONFLICT: 0, ERROR: 0}
     errors, needs_suggestion = [], []
+    authorized = 0
     for number, row in enumerate(rows, start=2):
         try:
             data, identifiers = parse_row(row)
@@ -281,11 +309,18 @@ def execute_import(rows, *, user):
         if asset is not None and asset.criticality is None:
             needs_suggestion.append(asset.pk)
         if action == CREATE and asset is not None:
+            if authorize_reference:
+                authorized += _authorize_after_import(asset, user, authorize_reference)
             _probe_after_import(asset, user)
     # Sugerencia automática para los activos sin criticidad (con espera y huella).
     for asset_id in dict.fromkeys(needs_suggestion):
         services.schedule_suggestion(asset_id, trigger=SuggestionTrigger.IMPORT, requested_by=user)
-    return {"counts": counts, "errors": errors[:200], "llm_scheduled": len(set(needs_suggestion))}
+    return {
+        "counts": counts,
+        "errors": errors[:200],
+        "llm_scheduled": len(set(needs_suggestion)),
+        "authorized": authorized,
+    }
 
 
 # --- Exportación -------------------------------------------------------------------

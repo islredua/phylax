@@ -109,15 +109,26 @@ def run_probe(ip) -> ProbeResult:
 # --------------------------------------------------------------------------
 
 
-def start_probe(ip, *, user):
-    """Encola la sonda y devuelve el token con el que se consulta el resultado."""
+def start_probe(ip, *, user, authorized=False):
+    """Encola la sonda y devuelve el token con el que se consulta el resultado.
+
+    ``authorized``: el formulario de alta trae marcada «Autorizar el escaneo de este equipo»;
+    para una IP privada basta para sondear antes de guardar (al guardar se crea el rango /32).
+    """
     if user is not None and not user.has_perm("discovery.run_discovery"):
         raise PermissionDenied("No tienes permiso para sondear la red.")
     ip = validate_host_ip(ip)
     if not assets_services.is_in_scope(ip):
-        raise ValidationError(
-            f"{ip} no está en un rango autorizado: Atalaya no sondea fuera del alcance."
-        )
+        import ipaddress
+
+        if not (authorized and not ipaddress.ip_address(ip).is_global):
+            raise ValidationError(
+                f"{ip} no está en un rango autorizado: marca «Autorizar el escaneo de este "
+                "equipo» (IP privada) o registra el rango con su referencia."
+            )
+        problem = assets_services._covering_range_problem(ip)
+        if problem:
+            raise ValidationError(problem)
     token = uuid.uuid4().hex
     cache.set(_KEY.format(token=token), {"status": "pending", "ip": ip}, CACHE_TTL_S)
     from .tasks import probe_host

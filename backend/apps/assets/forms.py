@@ -161,6 +161,52 @@ class AssetForm(StyledMixin, forms.Form):
         return data
 
 
+class AssetCreateForm(AssetForm):
+    """Alta: además del contexto, la autorización de escaneo del equipo (y, opcional, su red)."""
+
+    authorize_scan = forms.BooleanField(
+        label="Autorizar el escaneo de este equipo",
+        required=False,
+        initial=True,
+        help_text=(
+            "Si la IP no está en un rango registrado, se crea una autorización de un solo "
+            "equipo a tu nombre; así Atalaya puede sondearlo, escanearlo y evaluarlo."
+        ),
+    )
+    authorization_reference = forms.CharField(
+        label="Referencia de autorización",
+        required=False,
+        max_length=255,
+        help_text="Oficio, ticket o motivo. Si se deja vacía se anota el alta manual; "
+        "obligatoria para direcciones públicas.",
+    )
+    authorization_expires_at = forms.DateTimeField(
+        label="Autorización vigente hasta",
+        required=False,
+        widget=forms.DateTimeInput(attrs={"type": "datetime-local"}, format="%Y-%m-%dT%H:%M"),
+    )
+    register_network = forms.BooleanField(
+        label="Registrar también la red completa del equipo (/24) para descubrir otros",
+        required=False,
+        initial=False,
+        help_text="Amplía el alcance a toda la red con la misma referencia. Requiere permiso "
+        "de gestión del alcance.",
+    )
+
+    SCOPE_FIELDS = (
+        "authorize_scan",
+        "authorization_reference",
+        "authorization_expires_at",
+        "register_network",
+    )
+
+    def scope_fields(self):
+        return [self[name] for name in self.SCOPE_FIELDS]
+
+    def context_bound_fields(self):
+        return [f for f in self if f.name not in self.SCOPE_FIELDS]
+
+
 class IdentifierForm(StyledMixin, forms.Form):
     kind = forms.ChoiceField(
         label="Tipo", choices=_blank("—", IdentifierKind.choices), required=False

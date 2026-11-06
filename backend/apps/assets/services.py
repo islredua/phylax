@@ -34,6 +34,7 @@ from .enums import (
     ContextCompleteness,
     Criticality,
     CriticalitySource,
+    Exposure,
     ExposureSource,
     IdentifierKind,
     ServiceState,
@@ -1590,6 +1591,154 @@ def save_network_range(*, user, fields, network_range=None):
     network_range.save()
     refresh_range_membership(user=user)
     return network_range
+
+
+def _unique_range_name(base):
+    name, n = base[:100], 2
+    while NetworkRange.objects.filter(name=name).exists():
+        suffix = f" ({n})"
+        name, n = base[: 100 - len(suffix)] + suffix, n + 1
+    return name
+
+
+def _create_authorized_range(
+    *, cidr, name, user, reference, expires_at, zone, environment, description
+):
+    rng = NetworkRange(
+        name=_unique_range_name(name),
+        cidr=cidr,
+        zone=zone or Exposure.INTERNAL,
+        environment=environment or "PROD",
+        description=description,
+        in_scope=True,
+        authorization_reference=reference[:255],
+        authorized_by=user,
+        authorized_at=timezone.now(),
+        authorization_expires_at=expires_at,
+    )
+    rng.full_clean()
+    _attribute(rng, user)
+    rng.save()
+    refresh_range_membership(user=user)
+    return rng
+
+
+def _covering_range_problem(ip):
+    """Mensaje si la IP ya cae en un rango registrado que no autoriza escanear (o ``""``)."""
+    rng = find_range_for_ip(ip)
+    if rng is None or rng.is_authorized():
+        return ""
+    if not rng.in_scope:
+        return f"{ip} pertenece al rango {rng.cidr} ({rng.name}), que está fuera del alcance."
+    return (
+        f"{ip} pertenece al rango {rng.cidr} ({rng.name}), cuya autorización caducó el "
+        f"{timezone.localdate(rng.authorization_expires_at):%Y-%m-%d}. Renuévala en Rangos de red."
+    )
+
+
+def default_host_reference(user, asset_name=""):
+    who = user.get_username() if user is not None else "sistema"
+    what = f" de «{asset_name}»" if asset_name else ""
+    return f"Alta manual{what} por {who} el {timezone.localdate():%Y-%m-%d}"
+
+
+def validate_host_authorization(ips, *, user, reference="", register_network=False):
+    """Comprueba, antes de crear nada, que la autorización por host es posible.
+
+    - Quien autoriza un host debe poder lanzar escaneos; una red completa exige gestionar el
+      alcance.
+    - Una IP pública exige referencia escrita: ahí un error de captura apunta a un tercero.
+    - Una IP dentro de un rango registrado pero no vigente no se «salta» con un /32: el rango se
+      renueva en su sitio.
+    Devuelve las IP que efectivamente quedarán autorizadas (las que hoy están fuera de alcance).
+    """
+    _require(user, "discovery.run_discovery")
+    if register_network:
+        _require(user, "assets.manage_scope")
+    pending = []
+    for ip in ips:
+        if is_in_scope(ip):
+            continue
+        problem = _covering_range_problem(ip)
+        if problem:
+            raise ValidationError(problem)
+        if ipaddress.ip_address(ip).is_global and not (reference or "").strip():
+            raise ValidationError(
+                f"{ip} es una dirección pública: indica la referencia de la autorización "
+                "(oficio, ticket o carta) para poder escanearla."
+            )
+        pending.append(ip)
+    return pending
+
+
+@transaction.atomic
+def authorize_host(ip, *, user, reference="", expires_at=None, asset=None):
+    """Autoriza el escaneo de **un solo equipo** creando un rango /32 (o /128) a nombre del usuario.
+
+    Devuelve el rango creado, o ``None`` si la IP ya estaba en alcance. Conserva la trazabilidad
+    de los rangos (quién, cuándo, referencia, caducidad) sin obligar a registrar la red entera.
+    """
+    ip = normalize_identifier(ip_kind(ip), ip)
+    if not validate_host_authorization([ip], user=user, reference=reference):
+        return None
+    name = asset.name if asset is not None else ""
+    address = ipaddress.ip_address(ip)
+    return _create_authorized_range(
+        cidr=f"{ip}/{address.max_prefixlen}",
+        name=f"Host {name or ip}",
+        user=user,
+        reference=(reference or "").strip() or default_host_reference(user, name),
+        expires_at=expires_at,
+        zone=asset.exposure if asset is not None and asset.exposure else None,
+        environment=asset.environment if asset is not None else None,
+        description=f"Autorización de un solo equipo creada al dar de alta «{name}»."
+        if name
+        else "Autorización de un solo equipo.",
+    )
+
+
+HOST_NETWORK_PREFIX = {4: 24, 6: 64}
+
+
+def network_for_host(ip):
+    address = ipaddress.ip_address(ip)
+    return ipaddress.ip_network(f"{ip}/{HOST_NETWORK_PREFIX[address.version]}", strict=False)
+
+
+@transaction.atomic
+def register_network_for_host(ip, *, user, reference, expires_at=None, asset=None):
+    """Paso opcional al dar de alta: registrar y autorizar la red del equipo (/24 o /64).
+
+    Si la red ya existe y está vigente, se devuelve tal cual. Exige ``assets.manage_scope``.
+    """
+    _require(user, "assets.manage_scope")
+    if not (reference or "").strip():
+        raise ValidationError(
+            "Registrar una red completa requiere la referencia de su autorización."
+        )
+    network = network_for_host(ip)
+    existing = NetworkRange.objects.filter(cidr=network.compressed).first()
+    if existing is not None:
+        if existing.is_authorized():
+            return existing
+        raise ValidationError(
+            f"La red {existing.cidr} ({existing.name}) ya está registrada pero no vigente: "
+            "renuévala en Rangos de red."
+        )
+    if network.is_global:
+        raise ValidationError("Solo se registra automáticamente una red completa si es privada.")
+    return _create_authorized_range(
+        cidr=network.compressed,
+        name=f"Red {network.compressed}",
+        user=user,
+        reference=reference.strip(),
+        expires_at=expires_at,
+        zone=asset.exposure if asset is not None and asset.exposure else None,
+        environment=asset.environment if asset is not None else None,
+        description=f"Registrada al dar de alta «{asset.name}» para descubrir otros equipos."
+        if asset is not None
+        else "",
+    )
 
 
 @transaction.atomic

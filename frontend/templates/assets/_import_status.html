@@ -10,6 +10,7 @@
       <div class="card"><p class="stat-label">Conflictos</p><p class="stat-value">{{ upload.result.counts.conflict }}</p></div>
       <div class="card"><p class="stat-label">Errores</p><p class="stat-value">{{ upload.result.counts.error }}</p></div>
     </div>
+    {% if upload.result.authorized %}<div class="alert-info">Se autorizó el escaneo de {{ upload.result.authorized }} equipo(s) nuevos (rangos de un solo equipo en <a href="{% url 'assets:ranges' %}">Rangos de red</a>).</div>{% endif %}
     {% if upload.result.llm_scheduled %}<div class="alert-info">Se programaron {{ upload.result.llm_scheduled }} sugerencias de criticidad: revísalas en <a href="{% url 'assets:classification' %}">Clasificación</a>.</div>{% endif %}
     {% if upload.result.counts.conflict %}<div class="alert-warning">Hay conflictos de identidad por revisar en <a href="{% url 'assets:conflicts' %}">Conflictos</a>.</div>{% endif %}
     {% if upload.result.errors %}

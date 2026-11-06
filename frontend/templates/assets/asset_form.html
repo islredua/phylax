@@ -12,7 +12,7 @@
   {% csrf_token %}
   {% if form.non_field_errors %}<div class="alert-error" role="alert">{% for e in form.non_field_errors %}{{ e }} {% endfor %}</div>{% endif %}
   <section class="card grid grid-cols-1 gap-4 md:grid-cols-2">
-    {% for field in form %}
+    {% for field in form.context_bound_fields|default:form %}
     <div class="{% if field.name == 'description' or field.name == 'data_categories' %}md:col-span-2{% endif %}">
       {% if field.name == 'in_scope' %}
         <label class="flex items-center gap-2 text-sm">{{ field }} {{ field.label }}</label>
@@ -50,6 +50,21 @@
     <div id="probe-result"></div>
     {% endif %}
   </section>
+
+  {% if not asset and perms.discovery.run_discovery and form.scope_fields %}
+  <section class="card flex flex-col gap-3">
+    <h3 class="card-title mb-0">Autorización de escaneo</h3>
+    <p class="text-xs text-muted">Dar de alta un equipo ya dice que la organización lo tiene y quiere vigilarlo. Si su IP no cae en un rango registrado, aquí queda la autorización con tu nombre, fecha y referencia; registrar la red completa es un paso aparte.</p>
+    {% for field in form.scope_fields %}
+      {% if field.name == 'register_network' and not perms.assets.manage_scope %}
+      {% elif field.name == 'authorize_scan' or field.name == 'register_network' %}
+      <div><label class="flex items-center gap-2 text-sm">{{ field }} {{ field.label }}</label>{% if field.help_text %}<p class="form-help">{{ field.help_text }}</p>{% endif %}</div>
+      {% else %}
+      <div><label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<p class="form-help">{{ field.help_text }}</p>{% endif %}{% for e in field.errors %}<p class="form-error">{{ e }}</p>{% endfor %}</div>
+      {% endif %}
+    {% endfor %}
+  </section>
+  {% endif %}
   <div class="flex gap-2">
     <button type="submit" class="btn-primary">Guardar</button>
     <a href="{% if asset %}{% url 'assets:detail' asset.pk %}{% else %}{% url 'assets:list' %}{% endif %}" class="btn-secondary">Cancelar</a>
