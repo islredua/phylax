@@ -19,7 +19,7 @@ el PR de este módulo depende del PR #7). **No se hace merge a `main`.**
 | Cliente LLM (`apps.llm`) | `run_structured` + `InferenceLog`; mock determinista solo para criticidad | Se reutiliza tal cual. Se añade: registro de generadores simulados por tarea (`register_mock`), campo `InferenceLog.model_responded` (el modelo que **respondió** según Ollama) para detectar sustitución silenciosa, tareas `DETECTION_PLANNER` y `ORG_PROFILE_DRAFT`. Prompt versionado `prompts/detection_planner/v1.md`. |
 | Celery | Colas `default`, `llm`, `discovery` | Sin colas ni workers nuevos. Planificador → `llm` (concurrencia 1). Herramientas (nuclei, Grype) → `discovery`: es el único worker conectado a las redes del laboratorio y con capabilities; nmap sigue en `discovery` vía `discovery.services.request_discovery`. Beat: sincronización CTI, triage/despacho cada minuto, revisiones por tiempo cada hora. |
 | Roles (`accounts/roles.py`) | admin / operador (Analista) / auditor (Lector) | Permisos custom nuevos: `detection.manage_automation`, `detection.manage_profile` (solo admin); `detection.approve_actions`, `detection.work_findings`, `detection.request_evaluation`, `detection.use_test_panel` (operador). `cti.manage_sources` (admin). Inmutables: `DetectionEvent`, `PlannerDecision`, `FindingEvent`, `ToolExecution`, `CtiSyncRun`. |
-| Navegación (ADR-007) | Secciones + pestañas | Sección **Detección**: Panel · Actividad · Cola de aprobación · Fuentes CTI · Automatización · Organización. Detalle de hallazgo como subpágina del Panel. |
+| Navegación (ADR-007) | Secciones + pestañas | Sección **Detección**: Panel · Actividad · Cola de aprobación · Fuentes CTI · Automatización; el perfil de la organización en **Administración › Organización** (movido el 2026-11-06). Detalle de hallazgo como subpágina del Panel. |
 | Scoring | No existe | `Finding.priority_score` lo llena el motor de scoring cuando exista (`apps.scoring.services.score_findings`, hoy un contrato vacío). Mientras tanto el panel ordena por una **prioridad provisional** (KEV, severidad, EPSS) explícitamente etiquetada como provisional. |
 | Imagen Docker | `nuclei` no quedó instalado (`unzip` ausente; el `RUN` termina en `\|\| true`) | Se corrige el Dockerfile (instalar `unzip`); el wrapper detecta el binario ausente y la ejecución falla con un mensaje claro en lugar de romper el lazo. |
 | Pruebas | pytest contra PostgreSQL en el contenedor; `respx` para HTTP; `Popen` simulado para nmap | Mismo enfoque: fixtures JSON de NVD/EPSS/KEV, JSONL de nuclei y JSON de Grype; `subprocess` simulado; LLM con `LLM_MOCK_MODE` o `respx`. **Una prueba preexistente** (`test_refresh_task_caches_status_and_timeout_adapts`) falla en este equipo porque el contenedor tiene `LLM_ACCELERATOR=gpu`; no es de este módulo. |
@@ -170,7 +170,7 @@ Se documentan aquí conforme aparezcan.
   `discovery.services.can_scan_asset_id`, sustituyen lecturas directas de modelos del inventario
   que habían quedado en el planificador y el perfil.
 - **Pantallas** (sección **Detección**: Panel · Actividad · Cola de aprobación · Fuentes CTI ·
-  Automatización · Organización). El panel ordena por `priority_score` y, a falta de
+  Automatización; Organización pasó a Administración el 2026-11-06). El panel ordena por `priority_score` y, a falta de
   motor de scoring, por prioridad provisional etiquetada como tal. El detalle de hallazgo muestra
   evidencia por herramienta y la línea de tiempo completa; acciones: confirmar, priorizar,
   mitigar, aceptar el riesgo, falso positivo, reabrir y notas. La cola de aprobación tiene

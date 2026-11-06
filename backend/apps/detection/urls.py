@@ -1,4 +1,5 @@
 from django.urls import path
+from django.views.generic import RedirectView
 
 from . import views
 
@@ -25,8 +26,15 @@ urlpatterns = [
     path("queue/bulk/", views.BulkQueueView.as_view(), name="queue_bulk"),
     path("automation/", views.AutomationView.as_view(), name="automation"),
     path("automation/pause/", views.PauseView.as_view(), name="automation_pause"),
-    path("organization/", views.OrganizationView.as_view(), name="organization"),
-    path("organization/draft/", views.DraftView.as_view(), name="organization_draft"),
+    # La pantalla del perfil se movió a Administración; se conservan redirecciones.
+    path(
+        "organization/",
+        RedirectView.as_view(pattern_name="organization", permanent=True, query_string=True),
+    ),
+    path(
+        "organization/draft/",
+        RedirectView.as_view(pattern_name="organization_draft", permanent=True),
+    ),
     path("sources/", views.SourcesView.as_view(), name="sources"),
     path("sources/<str:kind>/sync/", views.SyncSourceView.as_view(), name="source_sync"),
 ]

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Perfil de la organización{% endblock %}
-{% block toolbar %}<div class="toolbar"><h2>Perfil de la organización</h2>{% if can_manage %}<form method="post" action="{% url 'detection:organization_draft' %}">{% csrf_token %}<button class="btn-secondary btn-sm" type="submit" {% if profile.draft_state == 'PENDING' %}disabled{% endif %}>Generar borrador desde el inventario</button></form>{% endif %}</div>{% endblock %}
+{% block toolbar %}<div class="toolbar"><h2>Perfil de la organización</h2>{% if can_manage %}<form method="post" action="{% url 'organization_draft' %}">{% csrf_token %}<button class="btn-secondary btn-sm" type="submit" {% if profile.draft_state == 'PENDING' %}disabled{% endif %}>Generar borrador desde el inventario</button></form>{% endif %}</div>{% endblock %}
 {% block content %}
 <div class="alert-info max-w-3xl">Este perfil da contexto al planificador y a las explicaciones para la dirección: <strong>sube</strong> la relevancia de lo que importa y nunca esconde nada. Si un activo tiene un producto vulnerable, el hallazgo aparece aunque el perfil no lo mencione. Mantén el texto corto: entra en cada consulta al LLM.</div>
 <div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">

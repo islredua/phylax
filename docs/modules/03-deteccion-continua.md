@@ -134,7 +134,7 @@ mientras no exista, el panel ordena por prioridad provisional (KEV, severidad, E
 
 ## I. Perfil de la organización
 
-`Detección › Organización`: nombre, giro, ubicación y un párrafo (≤ 1200 caracteres). Entra al
+`Administración › Organización`: nombre, giro, ubicación y un párrafo (≤ 1200 caracteres). Entra al
 prompt del planificador y decide si una entrada de KEV sobre un producto no inventariado merece
 vigilancia. **Nunca esconde nada.** «Generar borrador desde el inventario» pide al LLM local un
 párrafo a partir de agregados sin IP ni nombres de equipo; el admin lo edita.
@@ -142,7 +142,8 @@ párrafo a partir de agregados sin IP ni nombres de equipo; el admin lo edita.
 ## J. Pantallas
 
 Sección **Detección**: Panel (hallazgos con filtros y resumen) · Actividad (flujo en vivo) · Cola
-de aprobación · Fuentes CTI · Automatización (controles y bitácora) · Organización. Detalle de
+de aprobación · Fuentes CTI · Automatización (controles y bitácora). El perfil de la organización
+vive en **Administración › Organización** (contexto compartido con scoring y reportes). Detalle de
 hallazgo con evidencia y línea de tiempo; detalle de evento, acción y ejecución. En el activo: pestaña «Hallazgos» y
 «Evaluar ahora».
 

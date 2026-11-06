@@ -44,6 +44,7 @@ def test_sidebar_shows_sections_not_subsections(client, admin_user):
     # Las subsecciones viven en las pestañas superiores, no en la barra lateral.
     assert [t.key for t in nav.tabs] == [
         "overview",
+        "organization",
         "users",
         "audit",
         "llm",
@@ -96,7 +97,7 @@ def test_administration_hidden_for_operator(client, make_user):
 def test_auditor_sees_administration_tabs(client, auditor_user):
     client.force_login(auditor_user)
     nav = client.get("/administration/").context["nav"]
-    assert [t.key for t in nav.tabs] == ["overview", "users", "audit"]
+    assert [t.key for t in nav.tabs] == ["overview", "organization", "users", "audit"]
 
 
 def test_tabs_are_filtered_by_permission(make_user):
@@ -109,7 +110,7 @@ def test_tabs_are_filtered_by_permission(make_user):
     user = type(user).objects.get(pk=user.pk)  # limpia la caché de permisos
     nav = build_navigation(user, "accounts:audit_log")
     assert nav.section.key == "administration"
-    assert [t.key for t in nav.tabs] == ["overview", "audit"]
+    assert [t.key for t in nav.tabs] == ["overview", "organization", "audit"]
 
 
 def test_anonymous_navigation_is_empty():

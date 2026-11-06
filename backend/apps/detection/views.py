@@ -495,7 +495,7 @@ class OrganizationView(Perm, View):
                 form.add_error(None, error)
             else:
                 messages.success(request, "Perfil de la organización guardado.")
-                return redirect("detection:organization")
+                return redirect("organization")
         return render(request, self.template_name, self._context(form))
 
 
@@ -506,7 +506,7 @@ class DraftView(Perm, View):
         if request.POST.get("discard"):
             profile.discard_draft(user=request.user)
             messages.success(request, "Borrador descartado.")
-            return redirect("detection:organization")
+            return redirect("organization")
         try:
             profile.request_draft(user=request.user)
             messages.success(
@@ -514,7 +514,7 @@ class DraftView(Perm, View):
             )
         except ValidationError as error:
             _messages_from(request, error)
-        return redirect("detection:organization")
+        return redirect("organization")
 
 
 # --------------------------------------------------------------------------

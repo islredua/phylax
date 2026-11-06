@@ -155,13 +155,6 @@ SECTIONS = (
                 ("detection.view_automationsettings",),
                 ("detection:automation_pause",),
             ),
-            Tab(
-                "organization",
-                "Organización",
-                "detection:organization",
-                ("detection.view_organizationprofile",),
-                ("detection:organization_draft",),
-            ),
         ),
     ),
     Section(
@@ -173,6 +166,17 @@ SECTIONS = (
                 "Resumen",
                 "administration",
                 permissions=("accounts.view_user", "accounts.view_auditlogentry"),
+            ),
+            # Perfil de la organización: contexto para detección, scoring y reportes; lo edita el
+            # administrador (manage_profile). Misma puerta que el resumen de Administración
+            # (administrador y Lector): el Analista no ve esta sección (ADR-004). La vista en sí
+            # exige detection.view_organizationprofile.
+            Tab(
+                "organization",
+                "Organización",
+                "organization",
+                ("accounts.view_user", "accounts.view_auditlogentry"),
+                ("organization_draft",),
             ),
             Tab("users", "Usuarios", "users:list", ("accounts.view_user",), ("users:*",)),
             Tab("audit", "Bitácora", "accounts:audit_log", ("accounts.view_auditlogentry",)),

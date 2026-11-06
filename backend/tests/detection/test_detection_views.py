@@ -29,7 +29,7 @@ READ_PAGES = [
     "/detection/queue/",
     "/detection/sources/",
     "/detection/automation/",
-    "/detection/organization/",
+    "/administration/organization/",
 ]
 
 
@@ -104,7 +104,6 @@ def test_navigation_has_detection_section(client, as_role):
         "queue",
         "sources",
         "automation",
-        "organization",
     ]
     assert [t.key for t in nav.tabs if t.active] == ["queue"]
 
@@ -120,7 +119,7 @@ def test_auditor_cannot_change_anything(client, as_role):
     )
     assert client.post("/detection/automation/", {"mode": "MANUAL"}).status_code == 403
     assert client.post("/detection/automation/pause/", {"paused": "1"}).status_code == 403
-    assert client.post("/detection/organization/", {"name": "x"}).status_code == 403
+    assert client.post("/administration/organization/", {"name": "x"}).status_code == 403
     assert client.post("/detection/sources/", {"kind": "KEV"}).status_code == 403
     assert client.post(f"/detection/assets/{finding.asset_id}/evaluate/").status_code == 403
 
@@ -128,7 +127,7 @@ def test_auditor_cannot_change_anything(client, as_role):
 def test_operator_cannot_manage_but_can_work(client, as_role):
     as_role(OPERATOR)
     assert client.post("/detection/automation/", {"mode": "MANUAL"}).status_code == 403
-    assert client.post("/detection/organization/", {"name": "x"}).status_code == 403
+    assert client.post("/administration/organization/", {"name": "x"}).status_code == 403
     assert client.post("/detection/sources/KEV/sync/").status_code == 403
     finding = _finding()
     response = client.post(f"/detection/findings/{finding.pk}/transition/", {"status": "CONFIRMED"})
@@ -330,7 +329,7 @@ def test_admin_changes_automation_and_pauses(client, as_role):
 def test_admin_edits_profile_and_requests_draft(client, as_role):
     admin = as_role(ADMIN)
     response = client.post(
-        "/detection/organization/",
+        "/administration/organization/",
         {
             "name": "Aseguradora Norte",
             "sector": "Seguros",
@@ -341,14 +340,14 @@ def test_admin_edits_profile_and_requests_draft(client, as_role):
     assert response.status_code == 302
     assert profile.get_profile().name == "Aseguradora Norte"
     assert profile.get_profile().updated_by == admin
-    response = client.post("/detection/organization/draft/", follow=True)
+    response = client.post("/administration/organization/draft/", follow=True)
     body = response.content.decode()
     assert "Borrador" in body and "simulado" in body
-    fragment = client.get("/detection/organization/", HTTP_HX_REQUEST="true").content.decode()
+    fragment = client.get("/administration/organization/", HTTP_HX_REQUEST="true").content.decode()
     assert fragment.lstrip().startswith('<section id="draft-status"')
-    client.post("/detection/organization/draft/", {"discard": "1"})
+    client.post("/administration/organization/draft/", {"discard": "1"})
     assert profile.get_profile().draft_state == "NONE"
-    response = client.post("/detection/organization/", {"description": "x" * 1300})
+    response = client.post("/administration/organization/", {"description": "x" * 1300})
     assert response.status_code == 200 and response.context["form"].errors
 
 
