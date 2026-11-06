@@ -519,6 +519,10 @@ def _upsert_locked(host, identifiers, payload, run):
             asset.os_guess = host.os_guess[:200]
         if asset.status == AssetStatus.STALE:
             asset.status = AssetStatus.ACTIVE
+    # Verlo en un descubrimiento es la prueba de alcance más fuerte que hay.
+    asset.reachable = True
+    asset.reachability_checked_at = host.observed_at
+    asset.reachability_error = ""
     assign_network_range(asset)
     asset.save()
     return UpsertResult(asset=asset, created=created, updated=not created, conflict=None)
@@ -895,15 +899,39 @@ def resolve_conflict(conflict, *, user, resolution, target=None):
     return conflict
 
 
+def record_reachability(asset_id, *, up, at=None, error=""):
+    """Resultado de una sonda o de un escaneo dirigido al activo: responde o no desde Atalaya.
+
+    Informativo: no cambia el estado. ``mark_stale_assets`` lo usa como primera señal para los
+    activos dados de alta a mano que nunca llegaron a verse.
+    """
+    Asset.objects.filter(pk=asset_id).update(
+        reachable=bool(up),
+        reachability_checked_at=at or timezone.now(),
+        reachability_error=(error or "")[:255],
+        updated_at=timezone.now(),
+    )
+
+
+def get_asset_ips_in_scope(asset_id):
+    """IPs del activo dentro del alcance autorizado (para sondas y escaneos dirigidos)."""
+    values = AssetIdentifier.objects.filter(
+        asset_id=asset_id, kind__in=(IdentifierKind.IPV4, IdentifierKind.IPV6)
+    ).values_list("value", flat=True)
+    return [v for v in values if is_in_scope(v)]
+
+
 def mark_stale_assets(now=None):
     """``ACTIVE`` no observados en ``ATALAYA_ASSET_STALE_DAYS`` → ``STALE``.
 
-    Solo aplica a activos observados alguna vez por descubrimiento.
+    Aplica a activos observados alguna vez por descubrimiento y a los dados de alta a mano cuya
+    última verificación de alcance (sonda o escaneo) falló hace más de ese plazo.
     """
     now = now or timezone.now()
     cutoff = now - timedelta(days=settings.ATALAYA_ASSET_STALE_DAYS)
-    stale = Asset.objects.filter(
-        status=AssetStatus.ACTIVE, last_seen__isnull=False, last_seen__lt=cutoff
+    stale = Asset.objects.filter(status=AssetStatus.ACTIVE).filter(
+        Q(last_seen__isnull=False, last_seen__lt=cutoff)
+        | Q(last_seen__isnull=True, reachable=False, reachability_checked_at__lt=cutoff)
     )
     count = 0
     for asset in stale:

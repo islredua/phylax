@@ -161,6 +161,7 @@ def execute_run(run_id):
     if not claimed:
         return DiscoveryRun.objects.filter(pk=run_id).first()
     run = DiscoveryRun.objects.select_related("network_range", "target_asset").get(pk=run_id)
+    hosts = []
     try:
         cidr, ips = _targets_for(run)
         mode = detect_scan_mode()
@@ -199,6 +200,9 @@ def execute_run(run_id):
     if DiscoveryRun.objects.filter(pk=run_id, status=RunStatus.CANCELLED).exists():
         run.status = RunStatus.CANCELLED
     run.save()
+    if run.target_asset_id and run.status == RunStatus.SUCCEEDED:
+        # El escaneo dirigido es también la verificación de alcance del activo.
+        assets_services.record_reachability(run.target_asset_id, up=bool(hosts), at=started)
     if run.target_asset_id and run.status != RunStatus.CANCELLED:
         # Escaneo de un activo: ya con servicios, MAC y hostname, se calcula su criticidad.
         # La huella evita una inferencia nueva si el escaneo no cambió el contexto.

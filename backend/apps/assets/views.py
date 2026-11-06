@@ -1,5 +1,7 @@
 """Vistas del inventario. Toda modificación pasa por ``services`` (que re-verifica permisos)."""
 
+from datetime import datetime
+
 from django.contrib import messages
 from django.contrib.auth.mixins import PermissionRequiredMixin
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -340,6 +342,76 @@ def _identifiers_from(formset):
     ]
 
 
+def _apply_probe(token, asset, identifiers):
+    """Copia al activo el resultado de «Verificar alcance» si corresponde a una de sus IP."""
+    from apps.discovery import probe
+
+    state, result = probe.get_probe(token)
+    if state != "done" or result.ip not in {v for k, v in identifiers if k in ("IPV4", "IPV6")}:
+        return
+    services.record_reachability(
+        asset.pk,
+        up=result.up,
+        at=datetime.fromisoformat(result.checked_at),
+        error=result.error,
+    )
+
+
+class ProbeView(Perm, View):
+    """«Verificar alcance» desde el formulario de alta: sonda la primera IP capturada.
+
+    Devuelve el fragmento que se consulta solo hasta tener resultado. Informativo: el alta
+    nunca depende de él.
+    """
+
+    permission_required = "discovery.run_discovery"
+    template_name = "assets/_probe_result.html"
+
+    def post(self, request):
+        from apps.discovery import probe
+
+        formset = IdentifierFormSet(request.POST, prefix="ident")
+        ips = (
+            [v for k, v in _identifiers_from(formset) if k in ("IPV4", "IPV6")]
+            if formset.is_valid()
+            else []
+        )
+        if not ips:
+            return render(
+                request,
+                self.template_name,
+                {"state": "error", "error": "Captura primero una dirección IP para sondearla."},
+            )
+        try:
+            token = probe.start_probe(ips[0], user=request.user)
+        except ValidationError as error:
+            return render(
+                request,
+                self.template_name,
+                {"state": "error", "error": " ".join(error.messages)},
+            )
+        return _render_probe(request, token)
+
+
+class ProbeStatusView(Perm, View):
+    permission_required = "discovery.run_discovery"
+
+    def get(self, request, token):
+        return _render_probe(request, token)
+
+
+def _render_probe(request, token):
+    from apps.discovery import probe
+
+    state, result = probe.get_probe(token)
+    context = {"state": state, "token": token, "result": result, "match": None}
+    if state == "pending":
+        context["ip"] = probe.probe_ip(token)
+    elif state == "done" and result.up:
+        context["match"] = probe.matching_asset(result)
+    return render(request, "assets/_probe_result.html", context)
+
+
 class AssetCreateView(Perm, View):
     permission_required = "assets.add_asset"
     template_name = "assets/asset_form.html"
@@ -375,6 +447,7 @@ class AssetCreateView(Perm, View):
             except ValidationError as error:
                 form.add_error(None, error)
             else:
+                _apply_probe(request.POST.get("probe_token"), asset, identifiers)
                 note = (
                     _auto_scan(request, asset, fallback_trigger=SuggestionTrigger.CREATE)
                     if will_scan

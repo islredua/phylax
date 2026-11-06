@@ -42,6 +42,13 @@
     <div class="grid grid-cols-1 gap-2 sm:grid-cols-[12rem_1fr]">{{ f.kind }}{{ f.value }}</div>
     {% for e in f.non_field_errors %}<p class="form-error">{{ e }}</p>{% endfor %}
     {% endfor %}
+    {% if not asset and perms.discovery.run_discovery %}
+    <div class="flex flex-wrap items-center gap-2 border-t border-line pt-3">
+      <button type="button" class="btn-secondary btn-sm" hx-post="{% url 'assets:probe' %}" hx-include="closest form" hx-target="#probe-result" hx-swap="innerHTML">Verificar alcance</button>
+      <span class="text-xs text-muted">Comprueba desde Atalaya si la IP responde y si ya está inventariada. No bloquea el alta.</span>
+    </div>
+    <div id="probe-result"></div>
+    {% endif %}
   </section>
   <div class="flex gap-2">
     <button type="submit" class="btn-primary">Guardar</button>

@@ -253,6 +253,17 @@ def _apply_row(data, identifiers, *, user):
     return action, asset
 
 
+def _probe_after_import(asset, user):
+    """Verifica el alcance de los activos nuevos con IP autorizada (informativo, en segundo plano)."""
+    if user is None or not user.has_perm("discovery.run_discovery"):
+        return
+    if not services.get_asset_ips_in_scope(asset.pk):
+        return
+    from apps.discovery.tasks import probe_asset
+
+    probe_asset.delay(str(asset.pk))
+
+
 def execute_import(rows, *, user):
     """Aplica la importación fila por fila (cada fila en su propia transacción)."""
     counts = {CREATE: 0, UPDATE: 0, CONFLICT: 0, ERROR: 0}
@@ -269,6 +280,8 @@ def execute_import(rows, *, user):
         counts[action] += 1
         if asset is not None and asset.criticality is None:
             needs_suggestion.append(asset.pk)
+        if action == CREATE and asset is not None:
+            _probe_after_import(asset, user)
     # Sugerencia automática para los activos sin criticidad (con espera y huella).
     for asset_id in dict.fromkeys(needs_suggestion):
         services.schedule_suggestion(asset_id, trigger=SuggestionTrigger.IMPORT, requested_by=user)

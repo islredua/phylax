@@ -160,6 +160,9 @@ DISCOVERY_SWEEP_SYN_PORTS = "22,80,443,445,3389"
 DISCOVERY_SWEEP_ACK_PORTS = "80,443"
 DISCOVERY_SWEEP_HOST_TIMEOUT = os.environ.get("DISCOVERY_SWEEP_HOST_TIMEOUT", "2m")
 DISCOVERY_SERVICE_HOST_TIMEOUT = os.environ.get("DISCOVERY_SERVICE_HOST_TIMEOUT", "10m")
+# Sonda de alcance («Verificar alcance» al dar de alta): rápida, pocos puertos, sin -sV.
+DISCOVERY_PROBE_HOST_TIMEOUT = os.environ.get("DISCOVERY_PROBE_HOST_TIMEOUT", "5s")
+DISCOVERY_PROBE_PORTS = os.environ.get("DISCOVERY_PROBE_PORTS", "22,80,443,445,3389,8080,8443")
 DISCOVERY_TOP_PORTS = int(os.environ.get("DISCOVERY_TOP_PORTS", "1000"))
 DISCOVERY_TIMING = os.environ.get("DISCOVERY_TIMING", "T4")
 DISCOVERY_RUN_TIMEOUT_S = int(os.environ.get("DISCOVERY_RUN_TIMEOUT_S", "3600"))
@@ -196,6 +199,8 @@ CELERY_TASK_ROUTES = {
     "apps.assets.tasks.suggest_criticality": {"queue": "llm"},
     "apps.assets.tasks.sweep_unclassified_criticality": {"queue": "llm"},
     "apps.discovery.tasks.run_discovery": {"queue": "discovery"},
+    "apps.discovery.tasks.probe_host": {"queue": "discovery"},
+    "apps.discovery.tasks.probe_asset": {"queue": "discovery"},
     # Módulo 3: el planificador infiere en la cola llm; las herramientas corren en el
     # worker de descubrimiento (único con acceso a las redes escaneadas).
     "apps.detection.tasks.plan_event": {"queue": "llm"},

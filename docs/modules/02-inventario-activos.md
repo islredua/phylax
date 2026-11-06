@@ -119,7 +119,15 @@ stateDiagram-v2
 
 - Confirmar sin criticidad programa una sugerencia automática del LLM (ver abajo).
 - `IGNORED`: el descubrimiento actualiza `last_seen` pero no lo devuelve a la cola ni a objetivos.
-- `STALE` solo aplica a activos observados alguna vez (`last_seen` no nulo); `ATALAYA_ASSET_STALE_DAYS`.
+- `STALE` aplica a activos observados alguna vez (`last_seen` no nulo) y a los dados de alta a mano
+  cuya última verificación de alcance falló hace más de `ATALAYA_ASSET_STALE_DAYS`.
+- **Alcance desde Atalaya** (`reachable`, `reachability_checked_at`): el formulario de alta ofrece
+  «Verificar alcance», una sonda rápida en `worker-discovery` (ICMP/SYN a pocos puertos, tope de
+  segundos; `DISCOVERY_PROBE_*`) que informa si la IP responde, qué puertos abre y si la MAC o el
+  nombre ya pertenecen a otro activo. Es informativa: nunca bloquea el alta. El resultado se copia al
+  activo al guardarlo; la importación CSV sondea en segundo plano los activos nuevos con IP autorizada
+  y cualquier escaneo dirigido u observación por descubrimiento lo actualiza. Lista y detalle muestran
+  la insignia «no responde».
 - `RETIRED` nunca se borra físicamente. Fusionar mueve identificadores, servicios (conservando el
   `last_seen` más reciente), SBOM, sugerencias e hijos, y resuelve los conflictos asociados.
 

@@ -49,6 +49,7 @@
       <div><dt class="kv-label">Alcance de escaneo</dt><dd class="kv-value">{% if asset.in_scope %}<span class="badge-low">dentro</span>{% else %}<span class="badge-neutral">excluido</span>{% endif %}</dd></div>
       <div><dt class="kv-label">Origen</dt><dd class="kv-value">{{ asset.get_origin_display }}</dd></div>
       <div><dt class="kv-label">Primera / última vez visto</dt><dd class="kv-value font-mono text-xs">{{ asset.first_seen|date:"Y-m-d H:i"|default:"—" }} · {{ asset.last_seen|date:"Y-m-d H:i"|default:"—" }}</dd></div>
+      <div><dt class="kv-label">Alcance desde Atalaya</dt><dd class="kv-value">{% if asset.reachable is None %}<span class="badge-neutral">sin verificar</span>{% elif asset.reachable %}<span class="badge-low">responde</span>{% else %}<span class="badge-medium">no responde</span>{% endif %}{% if asset.reachability_checked_at %} <span class="font-mono text-xs text-muted">{{ asset.reachability_checked_at|date:"Y-m-d H:i" }}</span>{% endif %}{% if asset.reachability_error %} <span class="text-xs text-muted">{{ asset.reachability_error }}</span>{% endif %}</dd></div>
       <div><dt class="kv-label">SO estimado</dt><dd class="kv-value">{{ asset.os_guess|default:"—" }}</dd></div>
     </dl>
     {% if asset.description %}<div class="mt-4"><p class="kv-label">Descripción</p><p class="mt-1 text-ink-soft">{{ asset.description|linebreaksbr }}</p></div>{% endif %}

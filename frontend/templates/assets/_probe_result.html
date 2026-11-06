@@ -1,0 +1,23 @@
+{# Resultado de «Verificar alcance» (alta manual). Estados: pending (se consulta cada segundo), done, unknown/error. #}
+{% if state == 'pending' %}
+<div class="alert-info text-sm" hx-get="{% url 'assets:probe_status' token %}" hx-trigger="every 1s" hx-swap="outerHTML">Sondeando <span class="font-mono">{{ ip }}</span> desde Atalaya…</div>
+{% elif state == 'done' %}
+<input type="hidden" name="probe_token" value="{{ token }}">
+{% if result.error %}
+<div class="alert-warning text-sm"><strong>No se pudo sondear {{ result.ip }}:</strong> {{ result.error }} Puedes guardar de todos modos.</div>
+{% elif result.up %}
+<div class="alert-success text-sm">
+  <strong>{{ result.ip }} responde desde Atalaya.</strong>
+  {% if result.mac %}MAC <span class="font-mono">{{ result.mac }}</span>.{% endif %}
+  {% if result.hostnames %}Nombre: <span class="font-mono">{{ result.hostnames|join:", " }}</span>.{% endif %}
+  {% if result.open_ports %}Puertos abiertos: <span class="font-mono">{{ result.open_ports|join:", " }}</span>.{% else %}Ningún puerto común abierto.{% endif %}
+  {% if match %}<p class="mt-1"><strong>Ya está inventariado</strong> como <a href="{% url 'assets:detail' match.pk %}">{{ match.name }}</a>: conviene editarlo en lugar de crear otro.</p>{% endif %}
+</div>
+{% else %}
+<div class="alert-warning text-sm"><strong>{{ result.ip }} no responde desde Atalaya</strong> ({{ result.checked_at|slice:":16" }}). Puede estar apagado, filtrado o sin ruta. Si lo guardas, quedará marcado como «no responde» hasta que un descubrimiento lo vea.</div>
+{% endif %}
+{% elif state == 'error' %}
+<div class="alert-error text-sm">{{ error }}</div>
+{% else %}
+<div class="alert-warning text-sm">La verificación caducó; vuelve a lanzarla.</div>
+{% endif %}
