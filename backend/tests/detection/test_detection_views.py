@@ -399,3 +399,11 @@ def test_planner_mock_decisions_render_without_llm(client, as_role, fake_tool):
     as_role(OPERATOR)
     _asset()
     assert planner.planner_calls_this_hour() == 0
+
+
+def test_old_organization_url_redirects_to_administration(client, as_role):
+    as_role(ADMIN)
+    response = client.get("/detection/organization/?x=1")
+    assert response.status_code == 301
+    assert response["Location"] == "/administration/organization/?x=1"
+    assert client.get("/detection/organization/draft/")["Location"] == "/administration/organization/draft/"
