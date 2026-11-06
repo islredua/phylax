@@ -26,7 +26,9 @@ from django.core.management.base import BaseCommand
 from apps.scanners.runner import ToolError, run_command
 
 TIMEOUT_S = 1800
-TEMPLATES_RELEASES = "https://github.com/projectdiscovery/nuclei-templates/archive/refs/tags/{tag}.zip"
+TEMPLATES_RELEASES = (
+    "https://github.com/projectdiscovery/nuclei-templates/archive/refs/tags/{tag}.zip"
+)
 TEMPLATES_MAIN = "https://github.com/projectdiscovery/nuclei-templates/archive/refs/heads/main.zip"
 
 

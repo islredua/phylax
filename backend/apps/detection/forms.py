@@ -50,7 +50,7 @@ class FindingFilterForm(StyledMixin, forms.Form):
 
 
 class FindingTransitionForm(forms.Form):
-    status = forms.ChoiceField(choices=[(k, v) for k, v in TRANSITION_LABELS.items()])
+    status = forms.ChoiceField(choices=list(TRANSITION_LABELS.items()))
     note = forms.CharField(required=False, max_length=2000)
 
 

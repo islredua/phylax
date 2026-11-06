@@ -125,4 +125,3 @@ class AutomationLogEntryAdmin(ReadOnly, admin.ModelAdmin):
 @admin.register(OrganizationProfile)
 class OrganizationProfileAdmin(admin.ModelAdmin):
     list_display = ("name", "sector", "location", "draft_state", "updated_at")
-

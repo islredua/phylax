@@ -112,7 +112,11 @@ def parse_grype_json(text: str) -> list[ToolFinding]:
             for r in match.get("relatedVulnerabilities") or []
             if str(r.get("id") or "").upper().startswith("CVE-")
         ]
-        vuln_id = reported_id if reported_id.startswith("CVE-") else (related[0] if related else reported_id)
+        vuln_id = (
+            reported_id
+            if reported_id.startswith("CVE-")
+            else (related[0] if related else reported_id)
+        )
         aliases = sorted({reported_id, *related} - {vuln_id})
         cvss = vuln.get("cvss") or []
         score = None
