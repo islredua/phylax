@@ -195,10 +195,14 @@ def test_time_reviews_for_stale_assets_and_findings(settings):
     settings.DETECTION_ASSET_REVIEW_DAYS = 14
     settings.DETECTION_FINDING_REVIEW_DAYS = 30
     now = timezone.now()
+    NetworkRangeFactory(cidr="10.9.0.0/24")
     fresh = AssetFactory()
+    AssetIdentifierFactory(asset=fresh, value="10.9.0.10")  # escaneable: su revisión sí llega
     events.touch_state(fresh.pk, last_evaluated_at=True, last_reconciled_at=True)
     stale = AssetFactory()
-    events.touch_state(stale.pk, last_evaluated_at=now - timedelta(days=20), last_reconciled_at=True)
+    events.touch_state(
+        stale.pk, last_evaluated_at=now - timedelta(days=20), last_reconciled_at=True
+    )
     never = AssetFactory()
     type(never).objects.filter(pk=never.pk).update(created_at=now - timedelta(days=15))
     # Inventario previo al módulo: reciente pero nunca reconciliado → se revisa ya.
@@ -223,10 +227,16 @@ def test_time_reviews_for_stale_assets_and_findings(settings):
     }
     assert batch.events.get(asset_id=unindexed.pk).payload["reason"] == "nunca reconciliado"
     events.process_batch(batch.pk)
-    assert set(batch.events.values_list("status", flat=True)) == {EventStatus.READY}
+    # Sin IP autorizada, SBOM ni software no hay nada que el planificador pueda decidir: esas
+    # revisiones se filtran sin gastar LLM y quedan explicadas; la del activo escaneable sigue.
+    by_asset = {e.asset_id: e for e in batch.events.all()}
+    assert by_asset[fresh.pk].status == EventStatus.READY
+    for asset in (stale, never, unindexed):
+        assert by_asset[asset.pk].status == EventStatus.FILTERED
+        assert "sin forma de evaluar" in by_asset[asset.pk].triage_reason
     # La revisión por tiempo indexa y reconcilia: a partir de aquí el activo ya tiene estado.
     assert events.state_for(unindexed.pk).last_reconciled_at is not None
-    # Mientras esperan no se vuelven a emitir.
+    # Mientras esperan (o ya se filtraron hoy) no se vuelven a emitir.
     assert events.emit_time_reviews(now).size == 0
 
 

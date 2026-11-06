@@ -72,6 +72,14 @@ def _badge(style, label, title=""):
 
 
 @register.simple_tag
+def review_facts(action):
+    """Hechos que debe mirar quien revisa una acción (C): se calculan por tarjeta."""
+    from apps.detection import progress
+
+    return progress.review_facts(action)
+
+
+@register.simple_tag
 def severity_badge(value):
     if not value:
         return ""

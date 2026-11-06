@@ -71,13 +71,34 @@ vuelve, «Reaparecido».
 | Emparejó (hallazgos creados/actualizados) | `RECONCILED`, salvo **KEV sobre un activo inventariado** → `READY` con urgencia alta |
 | Activo por confirmar, ignorado, retirado o fuera de alcance | `FILTERED` (el índice se mantiene igual) |
 | Activo confirmado y en alcance | reindexar + reconciliar → `READY` |
+| Activo sin ninguna acción viable (sin IP en rango autorizado, sin SBOM, sin software registrado) | `FILTERED` «sin forma de evaluar: …» y cuenta como evaluado: no se gasta una llamada al LLM |
+
+**Capacidades antes del LLM** (`detection/capabilities.py`). Antes de preguntarle al modelo, el
+sistema calcula qué puede ejecutar sobre el activo: `RECONCILE` exige software registrado;
+`RESCAN_SERVICES` y `DETECT_VULNS` exigen una IP dentro de un rango autorizado vigente;
+`REANALYZE_SBOM` exige imagen o SBOM. El motivo de cada acción no disponible es una frase para
+personas («la autorización del rango X caducó el …», «la IP no pertenece a ningún rango registrado»),
+con el paso que lo arregla (registrar o renovar el rango, escanear servicios, cargar un SBOM).
+«Evaluar ahora» sobre un activo sin acciones viables se rechaza en el acto con ese mensaje, sin
+crear evento.
 
 ## D. Planificador
 
 Entrada compacta (`planner.build_input`): evento, resumen del activo (contexto de negocio,
 software indexado, hallazgos abiertos, fechas de último escaneo), resumen del CVE, perfil de la
-organización. Prompt versionado `apps/llm/prompts/detection_planner/v1.md`, salida con JSON Schema
-(`enum` de acciones) validada con Pydantic. Cola `llm` (concurrencia 1), tope por hora configurable.
+organización, y desde la v2 **`allowed_actions`** (lo que el sistema puede ejecutar sobre ese
+activo) con `unavailable_actions` (por qué no). Prompt versionado
+`apps/llm/prompts/detection_planner/v2.md`, salida con JSON Schema (`enum` de acciones) validada con
+Pydantic. Cola `llm` (concurrencia 1), tope por hora configurable.
+
+**Regla sin LLM.** Si el activo no tiene software registrado ni hallazgos y se puede escanear, la
+evaluación manual, la confirmación y la revisión por tiempo deciden `RESCAN_SERVICES` por regla
+(`planner.rule_decision`), sin consultar al modelo: no hay nada que comparar ni puertos donde buscar,
+primero hay que observar el activo. La decisión queda marcada `fallback` con motivo «regla: …».
+
+Si el modelo elige una acción fuera de `allowed_actions`, la decisión se sustituye por la regla de
+respaldo acotada a las viables (`planner.constrain`) y se marca con el motivo «el modelo eligió X,
+no disponible para este activo».
 
 | Acción | Qué hace |
 |---|---|
@@ -144,8 +165,18 @@ párrafo a partir de agregados sin IP ni nombres de equipo; el admin lo edita.
 Sección **Detección**: Panel (hallazgos con filtros y resumen) · Actividad (flujo en vivo) · Cola
 de aprobación · Fuentes CTI · Automatización (controles y bitácora). El perfil de la organización
 vive en **Administración › Organización** (contexto compartido con scoring y reportes). Detalle de
-hallazgo con evidencia y línea de tiempo; detalle de evento, acción y ejecución. En el activo: pestaña «Hallazgos» y
-«Evaluar ahora».
+hallazgo con evidencia y línea de tiempo; detalle de evento, acción y ejecución.
+
+En el activo (Resumen › Acciones): «Evaluar ahora» y, debajo, la **última evaluación contada como
+pasos** (`detection/progress.py`: recibida, reconciliada, decisión, acción, descubrimiento o
+herramienta) con la frase final que responde si hubo hallazgos o por qué no se pudo evaluar. Se
+refresca sola cada 5 s mientras algo corre y cada 20 s mientras espera a una persona. Si el activo
+no tiene evaluaciones o Atalaya no puede evaluarlo, muestra los motivos y los pasos siguientes.
+
+En la cola de aprobación y en el detalle de cada acción, el bloque **«Qué se revisa»** se calcula
+por reglas, no por el LLM: hallazgos abiertos (y en KEV), software registrado, últimos escaneos,
+alcance desde Atalaya, qué no se pudo hacer y botones con el siguiente paso viable (escanear
+servicios, registrar o renovar el rango, cargar SBOM, editar el activo).
 
 ## Permisos
 
@@ -165,6 +196,13 @@ hallazgo con evidencia y línea de tiempo; detalle de evento, acción y ejecuci�
 
 Beat: `sync-cti-sources` (hh:20), `detection-process-pending` (1 min), `detection-time-reviews`
 (hh:40), `detection-plan-stragglers` (5 min), `detection-dispatch-actions` (1 min).
+
+**Ollama con GPU de 8 GiB** (`docker-compose.gpu.yml`): `OLLAMA_NUM_PARALLEL=1` y
+`OLLAMA_FLASH_ATTENTION=1`. Con los 4 hilos por defecto la caché KV del modelo de 7B (contexto
+4096 × 4) desbordaba la VRAM a RAM compartida (WDDM/WSL2) y Ollama seguía reportando «100% GPU»:
+una decisión del planificador tardaba 117 s (prompt a 15 fichas/s). Con un hilo tarda 5 s (2000
+fichas/s, generación a 66 fichas/s). Si se cambia de modelo, revisar `memory.required` en los
+registros de Ollama frente a `memory.available`.
 
 ## Cómo probar el lazo de punta a punta
 

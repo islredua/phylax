@@ -219,6 +219,50 @@ def can_scan(asset):
     return bool(_asset_ips(asset))
 
 
+def scan_blocker(asset):
+    """``("", None)`` si el activo se puede escanear; si no, ``(motivo, id_del_rango_o_None)``.
+
+    El motivo es una frase para personas: le dice al analista qué arreglar (registrar un rango,
+    renovar una autorización, dar una IP al activo) en lugar de un «fuera del alcance» seco.
+    """
+    from django.utils import timezone
+
+    if not asset.in_scope:
+        return "el activo está excluido del alcance de escaneo", None
+    ips = list(
+        asset.identifiers.filter(kind__in=(IdentifierKind.IPV4, IdentifierKind.IPV6)).values_list(
+            "value", flat=True
+        )
+    )
+    if not ips:
+        return "el activo no tiene dirección IP", None
+    if any(assets_services.is_in_scope(ip) for ip in ips):
+        return "", None
+    now = timezone.now()
+    for ip in ips:
+        rng = assets_services.find_range_for_ip(ip)
+        if rng is None:
+            continue
+        if not rng.in_scope:
+            return f"el rango {rng.cidr} ({rng.name}) está fuera del alcance", rng.pk
+        if rng.authorization_expires_at and rng.authorization_expires_at <= now:
+            return (
+                f"la autorización del rango {rng.cidr} ({rng.name}) caducó el "
+                f"{timezone.localdate(rng.authorization_expires_at):%Y-%m-%d}",
+                rng.pk,
+            )
+    return f"la IP {ips[0]} no pertenece a ningún rango de red registrado", None
+
+
+def scan_blocker_for_asset_id(asset_id):
+    from apps.assets.models import Asset
+
+    asset = Asset.objects.filter(pk=asset_id).first()
+    if asset is None:
+        return "el activo ya no existe", None
+    return scan_blocker(asset)
+
+
 def can_scan_asset_id(asset_id):
     """Variante por id para módulos que no manejan instancias del inventario (D6)."""
     from apps.assets.models import Asset

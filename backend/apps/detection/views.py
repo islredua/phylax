@@ -287,7 +287,7 @@ class EvaluateAssetView(Perm, View):
     permission_required = "detection.request_evaluation"
 
     def post(self, request, pk):
-        back = _safe_next(request, f"{reverse('assets:detail', args=[pk])}?tab=hallazgos")
+        back = _safe_next(request, reverse("assets:detail", args=[pk]))
         try:
             event, batch = events.request_evaluation(pk, user=request.user)
         except ValidationError as error:
@@ -297,9 +297,25 @@ class EvaluateAssetView(Perm, View):
 
         process_event_batch.delay(str(batch.pk))
         messages.success(
-            request, "Evaluación solicitada: el planificador decidirá en breve (ver Actividad)."
+            request,
+            "Evaluación en curso: el avance y el resultado se muestran aquí mismo, en el activo.",
         )
         return HttpResponseRedirect(back)
+
+
+class EvaluationStatusView(Perm, View):
+    """Fragmento «última evaluación» del activo; se consulta solo mientras hay algo en curso."""
+
+    permission_required = "detection.view_detectionevent"
+
+    def get(self, request, pk):
+        from . import progress
+
+        return render(
+            request,
+            "detection/_evaluation_status.html",
+            {"asset_id": pk, "progress": progress.evaluation_progress(pk)},
+        )
 
 
 # --------------------------------------------------------------------------

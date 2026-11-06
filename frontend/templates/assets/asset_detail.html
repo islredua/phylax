@@ -61,6 +61,9 @@
     {% if perms.detection.request_evaluation and asset.status != 'RETIRED' and asset.status != 'UNCONFIRMED' %}
     <form method="post" action="{% url 'detection:evaluate' asset.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}"><button class="btn-secondary w-full" type="submit" title="El planificador decide qué conviene hacer con este activo ahora">Evaluar ahora (detección)</button></form>
     {% endif %}
+    {% if perms.detection.view_detectionevent and asset.status != 'RETIRED' and asset.status != 'UNCONFIRMED' %}
+    <div id="evaluation-status" hx-get="{% url 'detection:evaluation_status' asset.pk %}" hx-trigger="load" hx-swap="outerHTML"><p class="text-xs text-muted">Cargando la última evaluación…</p></div>
+    {% endif %}
     {% if perms.assets.change_asset and asset.status != 'IGNORED' and asset.status != 'RETIRED' %}
     <form method="post" action="{% url 'assets:ignore' asset.pk %}">{% csrf_token %}<button class="btn-secondary w-full" type="submit">Ignorar</button></form>
     {% endif %}

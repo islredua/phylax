@@ -105,7 +105,7 @@ def test_mock_planner_decides_and_records(mock_llm):
     assert decision.category == "cves" and decision.asset == asset
     assert decision.model_requested == decision.model_responded and not decision.model_mismatch
     assert not decision.fallback and decision.inference.accelerator == "mock"
-    assert decision.duration_ms is not None and decision.prompt_version == "v1"
+    assert decision.duration_ms is not None and decision.prompt_version == "v2"
     assert "simulada" in decision.rationale
     assert decision.input_payload["asset"]["name"] == asset.name
     state = asset.detection_state

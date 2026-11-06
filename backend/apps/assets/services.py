@@ -1044,6 +1044,8 @@ def get_asset_summary(asset_id) -> dict:
         "status": asset.status,
         "has_image": hasattr(asset, "container_image"),
         "has_sbom": any(s.is_current for s in asset.sboms.all()),
+        "reachable": asset.reachable,
+        "reachability_checked_at": asset.reachability_checked_at,
     }
 
 

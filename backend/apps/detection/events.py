@@ -156,6 +156,13 @@ def request_evaluation(asset_id, *, user):
     """Vía manual de respaldo: «evalúa este activo ahora»."""
     if user is not None and not user.has_perm("detection.request_evaluation"):
         raise PermissionDenied("No tienes permiso para pedir evaluaciones.")
+    from . import capabilities
+
+    caps = capabilities.for_asset(asset_id)
+    if not caps.can_evaluate:
+        # Sin nada que el sistema pueda hacer, preguntarle al LLM solo produce «revisión
+        # humana» vacía: se explica el motivo y el remedio en el acto, sin crear evento.
+        raise ValidationError(caps.explain(assets_services.get_asset_summary(asset_id)["name"]))
     context = assets_services.get_asset_context(asset_id)
     event, batch = ingest_asset_event(
         EventKind.MANUAL_EVALUATION,
@@ -349,6 +356,19 @@ def _triage_asset(event):
 
             summary["watches_matched"] = len(check_watches(event.asset_id, summary["new_products"]))
         summary.update(_reconcile_asset(event.asset_id))
+    from . import capabilities
+
+    caps = capabilities.for_asset(event.asset_id)
+    if not caps.can_evaluate:
+        # Nada que decidir: no se gasta una llamada al LLM. Cuenta como evaluación para que la
+        # revisión por tiempo no lo vuelva a emitir cada hora; el motivo queda en el evento.
+        touch_state(event.asset_id, last_evaluated_at=True)
+        return _finish(
+            event,
+            EventStatus.FILTERED,
+            "sin forma de evaluar: " + "; ".join(caps.blockers),
+            summary,
+        )
     return _finish(event, EventStatus.READY, "listo para el planificador", summary)
 
 

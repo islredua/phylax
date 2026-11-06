@@ -245,6 +245,10 @@ def test_reject_and_bulk_approve(fake_tool, analyst):
     first = _decide(_asset())
     second_asset = AssetFactory()
     AssetIdentifierFactory(asset=second_asset, value="10.7.0.11")
+    # Con software registrado la regla «observar primero» no aplica: la simulación elige
+    # DETECT_VULNS (herramienta falsa) y la acción puede terminar en DONE.
+    ServiceFactory(asset=second_asset, port=443, product="nginx", version="1.27.3")
+    components.refresh_components(second_asset.pk)
     second = _decide(second_asset)
     rejected = actions.reject(first.pk, user=analyst, note="Ventana de cambios cerrada")
     assert rejected.status == ActionStatus.REJECTED and rejected.rejected_by == analyst
@@ -290,6 +294,8 @@ def test_environment_modes_and_global_manual_override(fake_tool):
     assert prod.status == ActionStatus.PROPOSED
     lab_asset = AssetFactory(environment="LAB")
     AssetIdentifierFactory(asset=lab_asset, value="10.7.0.12")
+    ServiceFactory(asset=lab_asset, port=80, product="nginx", version="1.27.3")
+    components.refresh_components(lab_asset.pk)  # con software: DETECT_VULNS, no «observar primero»
     lab = _decide(lab_asset)
     assert lab.status == ActionStatus.DONE
     automation.update_settings(

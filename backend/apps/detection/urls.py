@@ -22,6 +22,11 @@ urlpatterns = [
     path("actions/<uuid:pk>/cancel/", views.CancelActionView.as_view(), name="action_cancel"),
     path("executions/<uuid:pk>/", views.ExecutionDetailView.as_view(), name="execution"),
     path("assets/<uuid:pk>/evaluate/", views.EvaluateAssetView.as_view(), name="evaluate"),
+    path(
+        "assets/<uuid:pk>/evaluation/",
+        views.EvaluationStatusView.as_view(),
+        name="evaluation_status",
+    ),
     path("queue/", views.QueueView.as_view(), name="queue"),
     path("queue/bulk/", views.BulkQueueView.as_view(), name="queue_bulk"),
     path("automation/", views.AutomationView.as_view(), name="automation"),

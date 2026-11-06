@@ -6,13 +6,14 @@
       <a href="{% url 'detection:action' a.pk %}" class="font-medium">{{ a.get_action_display }}</a>
       {% urgency_badge a.urgency %}{% action_status_badge a.status %}
       {% if a.asset %}<span class="text-sm">sobre <a href="{% url 'assets:detail' a.asset_id %}">{{ a.asset.name }}</a></span>{% endif %}
-      {% if a.decision.fallback %}<span class="badge-medium" title="{{ a.decision.fallback_reason }}">regla de respaldo</span>{% endif %}
+      {% if a.decision.fallback %}<span class="badge-medium" title="{{ a.decision.fallback_reason }}">por regla, sin LLM</span>{% endif %}
       {% model_warning a.decision.model_mismatch a.decision.model_requested a.decision.model_responded %}
     </div>
     <p class="font-mono text-[11px] text-muted">{{ a.event.get_kind_display|lower }} · prioridad {{ a.priority }} · {{ a.created_at|date:"Y-m-d H:i" }}</p>
   </div>
   <p class="text-ink-soft">{{ a.decision.rationale }}</p>
   {% if a.decision.evidence %}<ul class="flex flex-wrap gap-1">{% for e in a.decision.evidence %}<li class="badge-neutral">{{ e }}</li>{% endfor %}</ul>{% endif %}
+  {% review_facts a as facts %}{% if facts %}{% include "detection/_review_facts.html" with caps=facts.caps asset_id=facts.asset_id top_findings=facts.top_findings in_form=selectable %}{% endif %}
   {% if perms.detection.approve_actions %}
   <div class="flex flex-wrap items-center gap-2 border-t border-line-soft pt-2">
     <button type="submit" formaction="{% url 'detection:action_approve' a.pk %}" formmethod="post" class="btn-primary btn-sm">{% if a.status == 'NEEDS_REVIEW' %}Marcar revisada{% else %}Aprobar{% endif %}</button>

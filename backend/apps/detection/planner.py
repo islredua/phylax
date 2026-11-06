@@ -42,7 +42,7 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"
 TEXT_MAX = 400
 MAX_COMPONENTS = 12
 MAX_FINDINGS = 8
@@ -78,8 +78,9 @@ def _cve_summary(cve):
 
 
 def _asset_summary(asset_id):
-    from apps.discovery import services as discovery
+    from . import capabilities
 
+    caps = capabilities.for_asset(asset_id)
     context = assets_services.get_asset_context(asset_id)
     asset = assets_services.get_asset_summary(asset_id)
     components = components_index.current_components([asset_id])[:MAX_COMPONENTS]
@@ -98,8 +99,12 @@ def _asset_summary(asset_id):
         "exposure": context.exposure,
         "business_role": context.business_role,
         "status": asset["status"],
-        "can_scan_network": discovery.can_scan_asset_id(asset_id),
-        "has_image_or_sbom": asset["has_image"] or asset["has_sbom"],
+        "can_scan_network": caps.can_scan_network,
+        "has_image_or_sbom": caps.has_image_or_sbom,
+        "reachable": caps.reachable,
+        # D: el modelo solo elige entre lo que el sistema puede ejecutar para este activo.
+        "allowed_actions": caps.allowed_actions,
+        "unavailable_actions": caps.unavailable_actions,
         "software": [c.label for c in components],
         "open_findings": open_findings.count(),
         "open_findings_in_kev": open_findings.filter(in_kev=True).count(),
@@ -173,8 +178,80 @@ def target_asset_id(event: DetectionEvent):
 # --------------------------------------------------------------------------
 
 
+# Si una acción no está disponible para el activo, la regla baja al siguiente escalón.
+_DEGRADE = {
+    Action.DETECT_VULNS: (Action.RESCAN_SERVICES, Action.RECONCILE, Action.NO_ACTION),
+    Action.RESCAN_SERVICES: (Action.RECONCILE, Action.NO_ACTION),
+    Action.REANALYZE_SBOM: (Action.RECONCILE, Action.NO_ACTION),
+    Action.RECONCILE: (Action.NO_ACTION,),
+}
+
+
+def allowed_actions(data) -> list[str] | None:
+    """Acciones viables según la entrada; ``None`` cuando no hay activo (sin restricción)."""
+    asset = data.get("asset")
+    if not asset or asset.get("allowed_actions") is None:
+        return None
+    return list(asset["allowed_actions"])
+
+
+def constrain(decision: dict, allowed) -> dict:
+    """Ajusta una decisión a las acciones viables; conserva urgencia y evidencia."""
+    if allowed is None or decision["action"] in allowed:
+        return decision
+    for candidate in _DEGRADE.get(decision["action"], (Action.NO_ACTION,)):
+        if candidate in allowed:
+            return {**decision, "action": str(candidate), "category": ""}
+    return {**decision, "action": str(Action.NO_ACTION), "category": ""}
+
+
+def rule_decision(data) -> dict | None:
+    """Decisión por regla, sin LLM, cuando no hay nada que el modelo pueda aportar.
+
+    Sin software registrado no hay inteligencia contra la que comparar ni puertos donde
+    detectar: lo único con sentido es observar el activo. Después, el evento «servicios
+    cambiaron» sí llega al planificador con datos reales.
+    """
+    event = data.get("event") or {}
+    asset = data.get("asset")
+    if not asset or event.get("kind") not in (
+        EventKind.MANUAL_EVALUATION,
+        EventKind.ASSET_CONFIRMED,
+        EventKind.ASSET_STALE_REVIEW,
+    ):
+        return None
+    if asset.get("software") or asset.get("open_findings"):
+        return None
+    if Action.RESCAN_SERVICES not in (asset.get("allowed_actions") or []):
+        return None
+    manual = event.get("kind") == EventKind.MANUAL_EVALUATION
+    return {
+        "action": str(Action.RESCAN_SERVICES),
+        "urgency": str(Urgency.HIGH if manual else Urgency.LOW),
+        "rationale": (
+            "Sin software registrado no hay contra qué comparar la inteligencia ni puertos donde "
+            "buscar vulnerabilidades: primero se observan los servicios del activo (puertos, "
+            "productos, versiones). Con ese resultado el planificador decidirá si conviene "
+            "detectar vulnerabilidades."
+        ),
+        "evidence": [
+            "0 componentes de software registrados",
+            "IP dentro de un rango autorizado",
+            *(
+                ["el activo no respondió en la última sonda"]
+                if asset.get("reachable") is False
+                else []
+            ),
+        ],
+    }
+
+
 def fallback_decision(data) -> dict:
     """Decisión determinista cuando el LLM no está o respondió basura. Conservadora."""
+    return constrain(_fallback_decision(data), allowed_actions(data))
+
+
+def _fallback_decision(data) -> dict:
     event = data.get("event") or {}
     asset = data.get("asset")
     cve = data.get("cve") or {}
@@ -379,6 +456,18 @@ def plan_event(event_id):
     DetectionEvent.objects.filter(pk=event_id).update(status=EventStatus.PLANNING)
     data = build_input(event)
     started = time.monotonic()
+    rule = rule_decision(data)
+    if rule is not None:
+        with transaction.atomic():
+            decision = _record(
+                event,
+                data,
+                rule,
+                duration_ms=round((time.monotonic() - started) * 1000, 1),
+                fallback=True,
+                fallback_reason="regla: sin software registrado, primero hay que observar el activo",
+            )
+            return _after_decision(event, decision)
     _count_call()
     log = run_structured(
         task="DETECTION_PLANNER",
@@ -395,9 +484,21 @@ def plan_event(event_id):
         requested_by=event.requested_by,
     )
     duration_ms = round((time.monotonic() - started) * 1000, 1)
+    allowed = allowed_actions(data)
     with transaction.atomic():
-        if log.parsed_ok:
+        if log.parsed_ok and (allowed is None or log.parsed["action"] in allowed):
             decision = _record(event, data, log.parsed, log=log, duration_ms=duration_ms)
+        elif log.parsed_ok:
+            chosen = Action(log.parsed["action"]).label
+            decision = _record(
+                event,
+                data,
+                constrain(log.parsed, allowed),
+                log=log,
+                duration_ms=duration_ms,
+                fallback=True,
+                fallback_reason=f"el modelo eligió «{chosen}», no disponible para este activo",
+            )
         else:
             output = fallback_decision(data)
             decision = _record(

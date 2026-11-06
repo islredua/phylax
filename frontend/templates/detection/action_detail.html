@@ -22,9 +22,10 @@
 <div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
   <section class="card flex flex-col gap-2">
     <h3 class="card-title mb-0">Por qué</h3>
-    <div class="flex flex-wrap items-center gap-2">{% if action.decision.fallback %}<span class="badge-medium" title="{{ action.decision.fallback_reason }}">regla de respaldo (sin LLM)</span>{% endif %}{% model_warning action.decision.model_mismatch action.decision.model_requested action.decision.model_responded %}</div>
+    <div class="flex flex-wrap items-center gap-2">{% if action.decision.fallback %}<span class="badge-medium">por regla, sin LLM</span> <span class="text-xs text-muted">{{ action.decision.fallback_reason }}</span>{% endif %}{% model_warning action.decision.model_mismatch action.decision.model_requested action.decision.model_responded %}</div>
     <p class="text-ink-soft">{{ action.decision.rationale|linebreaksbr }}</p>
     {% if action.decision.evidence %}<ul class="flex flex-wrap gap-1">{% for e in action.decision.evidence %}<li class="badge-neutral">{{ e }}</li>{% endfor %}</ul>{% endif %}
+    {% review_facts action as facts %}{% if facts %}{% include "detection/_review_facts.html" with caps=facts.caps asset_id=facts.asset_id top_findings=facts.top_findings in_form=False %}{% endif %}
     <p class="font-mono text-[11px] text-muted">modelo {{ action.decision.model_requested|default:"—" }} · prompt {{ action.decision.prompt_version }}{% if action.category %} · categoría {{ action.category }}{% endif %}</p>
   </section>
   <section class="card">

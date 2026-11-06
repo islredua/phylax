@@ -188,7 +188,7 @@ def test_asset_detail_links_findings_and_evaluate(client, as_role, fake_tool):
     body = client.get(f"/inventory/{finding.asset_id}/").content.decode()
     assert f"/detection/?asset={finding.asset_id}" in body and "Evaluar ahora" in body
     response = client.post(f"/detection/assets/{finding.asset_id}/evaluate/", follow=True)
-    assert "Evaluación solicitada" in response.content.decode()
+    assert "Evaluación en curso" in response.content.decode()
     event = DetectionEvent.objects.get(kind=EventKind.MANUAL_EVALUATION, asset_id=finding.asset_id)
     assert event.status == "PLANNED"
     response = client.post(f"/detection/assets/{finding.asset_id}/evaluate/", follow=True)
@@ -406,4 +406,7 @@ def test_old_organization_url_redirects_to_administration(client, as_role):
     response = client.get("/detection/organization/?x=1")
     assert response.status_code == 301
     assert response["Location"] == "/administration/organization/?x=1"
-    assert client.get("/detection/organization/draft/")["Location"] == "/administration/organization/draft/"
+    assert (
+        client.get("/detection/organization/draft/")["Location"]
+        == "/administration/organization/draft/"
+    )
