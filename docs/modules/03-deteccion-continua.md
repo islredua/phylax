@@ -162,6 +162,10 @@ registrar una observación manual (`Observaciones › Registrar observación`, f
 anotar contexto; los estados que importan a la organización no se deciden aquí sino en la
 vulnerabilidad consolidada. Cada observación muestra a qué vulnerabilidad pertenece (o «sin
 consolidar aún»). `apps.scoring.score_findings` le da una prioridad para ordenar la capa cruda.
+Las observaciones **informativas** (detecciones de tecnología o versión sin CVE: `tech-detect`,
+Wappalyzer, favicon, y los patrones regex genéricos `secrets-patterns`/`patterns-pii`, que disparan
+con una hora o una IP en cualquier respuesta) se conservan como contexto y **no se consolidan**
+(`consolidation.INFORMATIONAL_PATTERNS`).
 
 ## H2. Vulnerabilidades consolidadas (`detection/consolidation.py`)
 
@@ -219,8 +223,10 @@ retardo). Varios disparadores cercanos producen una sola corrida.
 
 ## H3. Riesgos (`detection/risks.py`, ISO/IEC 27005:2022)
 
-Tras cada consolidación, las vulnerabilidades abiertas del activo (sin los probables falsos
-positivos) se expresan como **riesgos**: escenarios de amenaza con fuente (atacante externo,
+Tras cada consolidación, las vulnerabilidades **sostenidas** del activo (confirmadas, probables, o
+en verificación con plausibilidad > 0.5; una duda a medias como «software no observado» o una
+versión imprecisa de nmap espera a que alguien la verifique o la IA la suba, y un probable falso
+positivo no entra) se expresan como **riesgos**: escenarios de amenaza con fuente (atacante externo,
 persona interna, malware, cadena de suministro, error, otra), vulnerabilidades ligadas,
 **probabilidad** e **impacto** en escalas cualitativas 1–5 y **nivel** por matriz 5×5
 (producto: 1–4 bajo, 5–9 moderado, 10–14 alto, 15–19 muy alto, 20–25 crítico). El LLM local
@@ -294,7 +300,9 @@ servicios, registrar o renovar el rango, cargar SBOM, editar el activo).
 `.env`: `NVD_API_KEY`, `NVD_API_BASE`, `EPSS_SNAPSHOT_URL`, `KEV_CATALOG_URL`, `CTI_ONLINE`,
 `CTI_NVD_INITIAL_DAYS`, `CTI_PRODUCT_REFRESH_DAYS`, `CTI_EPSS_RISE_DELTA`, `CTI_EPSS_HIGH`,
 `DETECTION_ASSET_REVIEW_DAYS`, `DETECTION_FINDING_REVIEW_DAYS`, `DETECTION_REEVALUATE_MINUTES`,
-`DETECTION_CONSOLIDATE_DELAY_S`, `DETECTION_CONSOLIDATE_CHUNK`, `SCORING_W_*` (pesos del Módulo 4:
+`manage.py rescore_vulnerabilities [--asset N] [--all]` recalcula el contextual de las vulnerabilidades
+abiertas con la versión actual del algoritmo y los factores guardados, sin IA (tras cambiar pesos o
+anclas). `DETECTION_CONSOLIDATE_DELAY_S`, `DETECTION_CONSOLIDATE_CHUNK`, `SCORING_W_*` (pesos del Módulo 4:
 `CVSS`, `EPSS`, `KEV`, `TECHNICAL`, `CRITICALITY`, `EXPOSURE`, `DATA`, `EXPLOITABILITY`), `NUCLEI_TEMPLATES_DIR`,
 `GRYPE_DB_CACHE_DIR`, `SCANNER_TIMEOUT_S`. En BD (UI): fuentes CTI (URL, intervalo, habilitada), `AutomationSettings`,
 `OrganizationProfile`.
@@ -366,7 +374,10 @@ ventana no operativa y los guardarraíles.
   `cves-web` (etiquetas `cve,exposure,panel,default-login,misconfig`: lo que una persona miraría
   primero en una web); si no, todos los puertos TCP abiertos con `cves-network` (`-exclude-type
   http,headless`): una plantilla HTTP contra SMB o SSH espera el tiempo límite y miles de ellas
-  convertían 2 min en media hora. `exposure`/`misconfig` sueltos por etiquetas.
+  convertían 2 min en media hora. `exposure`/`misconfig` sueltos por etiquetas. El JSONL va sin
+  petición/respuesta crudas (`-omit-raw`): una plantilla con comparador global volcaba el HTML de
+  cada respuesta y llenaba 50 MB antes de las detecciones útiles; si aun así la salida excede el
+  límite, se recorta en un salto de línea y se declara en `output_tail`, no se pierde la ejecución.
 - La reconciliación de componentes de SBOM contra NVD depende de que el SBOM traiga CPE o un nombre
   que coincida; el análisis fino lo hace Grype (`REANALYZE_SBOM`). Grype suele reportar el aviso
   GHSA: el hallazgo se identifica por el CVE relacionado (para deduplicar con la CTI) y el GHSA queda

@@ -142,11 +142,19 @@ class Command(BaseCommand):
             if exp["expected_detection"] == "NONE":
                 # Cabeceras ausentes y similares (debilidad INFO/LOW) no son la «vulnerabilidad» que
                 # la verdad de terreno niega en un control: solo cuentan CVE o severidad ≥ MEDIUM.
+                # La severidad que cuenta es la que reportó la herramienta en la observación
+                # (nuclei: cabeceras ausentes = INFO), no la contextual que el scoring derivó.
                 false_alarms = [
                     v
                     for v in open_vulns
                     if v.status in ("CONFIRMED", "LIKELY")
-                    and (not v.key.startswith("WEAKNESS:") or v.severity not in ("INFO", "LOW"))
+                    and (
+                        not v.key.startswith("WEAKNESS:")
+                        or any(
+                            f.severity in ("MEDIUM", "HIGH", "CRITICAL")
+                            for f in v.observations.all()
+                        )
+                    )
                 ]
                 row["verdict"] = "FP" if false_alarms else "TN"
                 row["false_alarms"] = [v.key for v in false_alarms]

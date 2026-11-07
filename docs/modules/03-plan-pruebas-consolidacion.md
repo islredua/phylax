@@ -38,9 +38,9 @@ contra este documento; cuando una fase cambia de criterio, se corrige aquí prim
 
 **Estado:** fase 1 ✔ (`8459811`), fase 2 ✔ (`86b9e4d`), fases 3 y 4 ✔ (`7df0e0c`: observaciones,
 vulnerabilidades consolidadas, scoring M4, pantallas; pruebas en `tests/detection/test_consolidation.py`
-y `test_vulnerability_views.py`), fase 5 ✔ (`aa4f363`: riesgos ISO/IEC 27005, `tests/detection/test_risks.py`), fase 6 herramientas ✔
-(`lab_import`, `evaluate_lab`, `datasets/lab-expected-results.csv`, `datasets/lab-sboms/`;
-`tests/detection/test_lab_commands.py`). Los resultados de la corrida real se anotan al final de este documento.
+y `test_vulnerability_views.py`), fase 5 ✔ (`aa4f363`: riesgos ISO/IEC 27005, `tests/detection/test_risks.py`), fase 6 ✔ (`6a69be3`
+herramientas; cuatro pasadas reales con sus correcciones en `d2814ab`…; resultados al final de este
+documento: precisión y exhaustividad 0.82, api-pagos primero, backup-host en verificación).
 
 ## Fase 2 · Pantalla del activo: un solo hilo de progreso
 
@@ -113,6 +113,90 @@ guarda un JSON en `experiments/`: precisión y exhaustividad por host, vía de d
 backup-host, puesto de api-pagos por puntaje contextual, Spearman del orden frente a la severidad
 esperada (contextual vs. CVSS, EPSS, CVSS×EPSS), criticidad por IA frente a la esperada, segundos de
 IA por activo y, con `--stability N`, estabilidad del JSON y de la plausibilidad.
+
+## Resultados del laboratorio (2026-11-07)
+
+Corridas sobre los 20 hosts reales de «Aseguradora Norte» con `qwen2.5:7b-instruct-q4_K_M` en GPU.
+Cada pasada corrigió lo que la anterior destapó; los JSON están en `experiments/lab-eval-0N-*.json`.
+
+| Pasada | Qué cambió antes de correrla | Prec. | Exh. | Vía esperada | backup-host | api-pagos (puesto) | ρ contextual / CVSS / EPSS | IA s/activo (mediana) |
+|---|---|---|---|---|---|---|---|---|
+| 1 · alta + lazo automático | — | 0.50 | 0.18 | 1/2 | TP (verif.) | 6 | 0.51 / 0.25 / 0.25 | 50 |
+| 2 · reconciliación + Grype | versiones imprecisas y retroportes en verificación; CPE manda sobre la versión del servicio; SBOM nuevo → Grype; nuclei solo a puertos web o perfil de red | 0.50 | 0.18 | 2/2 | TP (verif.) | 3 | 0.57 / 0.42 / 0.61 | 73 |
+| 3 · «Evaluar» escanea (cves-web) | evaluación manual por regla; perfil web con exposiciones; evidencia exacta → piso `LIKELY`; mismatch → verificación; anclas KEV/EPSS y techo por criticidad; esquema tolerante | 0.70 | 0.64 | 6/7 | FN (mitigada por fusión de CVE) | 3 | 0.48 / 0.42 / 0.63 | 95 |
+| 4 · final | una vulnerabilidad por CVE aunque el modelo las junte; salida de nuclei recortada y sin cuerpos crudos (`-omit-raw`); patrones PII informativos; puntajes recalculados | **0.82** | **0.82** | 8/9 | TP (verif. 0.1) | **1** | 0.46 / 0.42 / 0.63 | 129 |
+
+**Lectura de la pasada final (`experiments/lab-eval-04-final.json`).** 9 de 11 vulnerables detectadas
+con el estado aceptable (api-pagos, portal-expuesto-apache, decoy-info, file-server, app-siniestros,
+backup-host, portal-rh, agente-portal, impresora); las 2 que faltan son `crm-legacy` (sin plantilla
+nuclei y WordPress invisible para nmap) y `correo-legacy-agentes` (Exim escucha en localhost, fallo
+del laboratorio). 7 de 9 controles sin falsa alarma; los 2 restantes (`erp-interno`, `proxy-saliente`)
+son versiones que la CTI de 2026 considera afectadas aunque el laboratorio las llame «actuales».
+backup-host termina «requiere verificación» con plausibilidad 0.1 y la señal de parche retroportado.
+api-pagos encabeza el panel (contextual 8.43) pese a no ser detectable por escaneo activo: pesa el
+SBOM con Log4Shell en KEV, la DMZ, los datos restringidos y la criticidad. El orden del contextual
+frente a la severidad esperada (ρ 0.46) supera a CVSS (0.42) y CVSS×EPSS (0.41) pero no a EPSS
+(0.63): la severidad esperada por host está muy correlacionada con «hay un CVE famoso», que es
+justamente lo que EPSS mide; el contextual paga el precio de incluir controles con Samba/OpenLDAP
+imprecisos en verificación. La criticidad por IA acierta 8/20 exactas y 20/20 a un nivel. El tiempo
+de IA por activo (mediana 129 s acumulados en 4 pasadas; 50 s en la primera) rebasa el objetivo de
+60 s en los activos con más de 100 observaciones. Estabilidad (3 corridas en api-pagos y agente-portal,
+`experiments/lab-eval-05-stability.json`): JSON válido 6/6; la plausibilidad varía ≤ 0.05 en los 24
+CVE de api-pagos y ≤ 0.1 en 10 de 11 de agente-portal (lodash CVE-2020-8203 oscila 0.2 entre 0.8 y 1.0).
+
+**Lo que destapó cada pasada y cómo se corrigió** (todo con prueba unitaria):
+
+1. nmap adivina versiones: Samba «4», OpenLDAP «2.2.X - 2.3.X», OpenSSH «9.2p1 Debian 2+deb12u10».
+   La CTI emparejaba y la IA confirmaba. Ahora la versión imprecisa se empareja por el intervalo que
+   deja abierto con confianza `LOW`, y el paquete de distribución marca «posible parche retroportado»;
+   ambas dejan la vulnerabilidad en «requiere verificación» hasta que otra fuente la vea.
+2. «Werkzeug httpd 3.1.9» con CPE `python:3.12.16` indexaba Python 3.1.9 → 46 CVE falsos en
+   erp-interno. Si el CPE nombra otro producto, manda su versión.
+3. El planificador pedía nuclei al cargar un SBOM y Grype nunca corría (Log4Shell, Pillow, lodash
+   invisibles). Con SBOM nuevo la acción es `REANALYZE_SBOM`, anotada como corrección.
+4. nuclei «cves» contra SMB/SSH tardaba 13+ min sin hallazgo posible (plantillas HTTP esperando el
+   tiempo límite). Puertos web → `cves-web` (CVE + exposiciones); sin web → `cves-network`.
+5. El modelo de 7B respondía `RECONCILE` a las 20 evaluaciones manuales. «Evaluar» decide por regla.
+6. El modelo dudaba («requiere verificación», 0.85) de Log4Shell con SBOM + Grype + CTI + KEV, y
+   descartaba PHPUnit (KEV, plantilla disparada) por no ver PHP en banners. La evidencia exacta pone
+   piso `LIKELY`; el software no observado es duda (0.5), no descarte.
+7. Un señuelo `INFORMATIVO` encabezaba el panel con 8.66 porque el modelo infló impacto y
+   sensibilidad. La criticidad del activo pone techo (4/6/8) y KEV/EPSS ponen piso a la
+   explotabilidad; `rescore_vulnerabilities` recalcula sin IA.
+8. El modelo juntó dos CVE de OpenSSH en un ítem y CVE-2024-6387 quedó «mitigada» por huérfana. Un
+   ítem que abarca varios CVE se separa por grupo.
+9. Un tercio de los fragmentos grandes se perdía por plausibilidad «85» (por ciento) o ajuste «5».
+   El esquema los normaliza en vez de desechar la respuesta.
+10. nuclei `cves-web` superó los 50 MB de salida en el señuelo y el proxy abierto y la ejecución
+    entera fallaba. La salida se recorta en un salto de línea y se declara.
+11. `secrets-patterns-pii` disparaba con «04:45» en la respuesta de login.microsoftonline.com.
+    Los patrones regex genéricos son informativos.
+
+**Lo que no es de Atalaya** (queda anotado para el laboratorio):
+
+- `correo-legacy-agentes`: Exim escucha solo en `127.0.0.1:25` dentro del contenedor; nmap ve el
+  puerto cerrado y no hay banner que reconciliar (Dockerfile sin `local_interfaces`).
+- `portal-expuesto-apache`: el traversal `/cgi-bin/.%2e/…/etc/passwd` responde 403 (la raíz
+  `/` sigue con `Require all denied`), así que la plantilla de CVE-2021-41773 no dispara; la CTI sí
+  lo detecta por la versión exacta 2.4.49 (`LIKELY`).
+- `crm-legacy`: nuclei no tiene plantilla para CVE-2017-1001000 y WordPress no es visible para nmap;
+  la correlación multi-método exigiría alimentar el índice de software con las detecciones de
+  tecnología de nuclei (pendiente, ver abajo).
+- `impresora-multifuncion`: el panel estático no coincide con ninguna plantilla `panel` de nuclei;
+  se detecta la debilidad de cabeceras.
+- Controles «actuales» que la CTI considera vulnerables: Squid 6.13 (`< 7.5`, 2026), Python 3.12.16
+  (`< 3.13.13`, 2026). Cuentan como falsos positivos frente a la verdad de terreno, pero la
+  inteligencia es la que dice que esas versiones están afectadas.
+- `secrets-patterns-pii` sobre portal-publico y erp-interno antes de la pasada 4: la plantilla
+  manda el objetivo a `login.microsoftonline.com` (clase C, permitida por decisión) y «detecta» PII en
+  la respuesta de Microsoft.
+
+**Pendiente que sale del laboratorio:** alimentar el índice de software con las detecciones de
+tecnología de nuclei (WordPress 4.7, PHP) para que la CTI las reconcilie (crm-legacy); afinar la
+criticidad por IA (8/20 exactas, 20/20 a un nivel: tiende a `CRITICO` donde se esperaba `ALTO`);
+acortar la consolidación de activos con >100 observaciones (fragmentos de 25 → 400 s en
+app-siniestros); completar el CVSS de registros CTI sin métrica (CVE-2021-44228 llegó sin CVSS y se
+puntuó por severidad).
 
 ## Regresión en cada fase
 

@@ -34,6 +34,10 @@ NUCLEI_COMMON = [
     "-disable-update-check",
     # Sin interactsh: nada de pruebas fuera de banda contra servidores externos (nada sale).
     "-no-interactsh",
+    # Sin petición/respuesta crudas en el JSONL: una plantilla de patrones con comparador global
+    # (secrets-patterns-pii) volcaba el HTML completo de cada respuesta y llenaba 50 MB antes de
+    # que aparecieran las detecciones útiles; la evidencia que guardamos no usa el cuerpo crudo.
+    "-omit-raw",
     "-rate-limit",
     "50",
     "-timeout",
