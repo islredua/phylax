@@ -253,6 +253,13 @@ class Asset(UUIDModel):
 
     first_seen = models.DateTimeField("visto por primera vez", null=True, blank=True)
     last_seen = models.DateTimeField("visto por última vez", null=True, blank=True)
+    # Última sonda o escaneo dirigido al activo: ¿respondió desde Atalaya? (None = nunca probado).
+    reachable = models.BooleanField("responde desde Atalaya", null=True, blank=True)
+    reachability_checked_at = models.DateTimeField(
+        "última verificación de alcance", null=True, blank=True
+    )
+    # db_default: un worker con código anterior sigue insertando historial durante un despliegue.
+    reachability_error = models.CharField(max_length=255, blank=True, db_default="")
     os_guess = models.CharField("sistema operativo (estimado)", max_length=200, blank=True)
     parent = models.ForeignKey(
         "self",

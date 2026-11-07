@@ -10,6 +10,10 @@
     <h3 class="card-title mb-0">Importar CSV</h3>
     <p class="text-sm text-ink-soft">Primero verás una vista previa con la acción de cada fila (crear, actualizar, conflicto o error); nada se escribe hasta confirmar. Máximo 5 MB y 5 000 filas.</p>
     <input type="file" name="file" accept=".csv,text/csv" class="form-input" required aria-label="Archivo CSV">
+    {% if perms.discovery.run_discovery %}
+    <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="authorize_hosts" value="1" class="checkbox" checked> Autorizar el escaneo de los equipos nuevos</label>
+    <p class="form-help">Para cada activo nuevo con IP privada fuera de los rangos registrados se crea una autorización de un solo equipo a tu nombre, con el archivo como referencia. Así Atalaya puede sondearlos, escanearlos y evaluarlos sin registrar antes cada red.</p>
+    {% endif %}
     <div class="flex flex-wrap gap-2"><button class="btn-primary" type="submit">Ver vista previa</button><a href="{% url 'assets:import_template' %}" class="btn-secondary">Descargar plantilla</a></div>
   </form>
   {% endif %}

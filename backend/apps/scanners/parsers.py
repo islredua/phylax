@@ -1,0 +1,196 @@
+"""Salida de nuclei (JSONL) y Grype (JSON) → ``ToolFinding`` normalizados. Datos no confiables."""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+
+SEVERITY_MAP = {
+    "critical": "CRITICAL",
+    "high": "HIGH",
+    "medium": "MEDIUM",
+    "low": "LOW",
+    "info": "INFO",
+    "informational": "INFO",
+    "negligible": "INFO",
+    "unknown": "INFO",
+}
+MAX_RAW = 2000
+# Metadatos de la plantilla que valen para consolidar: tecnología declarada, remediación,
+# impacto, CWE y vector. Se recortan para que la evidencia siga siendo compacta.
+TEMPLATE_META_MAX = 400
+
+
+def host_of(value):
+    """Host (sin esquema, puerto ni ruta) de una URL o de ``host:puerto``; vacío si no se sabe."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if "//" in text:
+        text = text.split("//", 1)[1]
+    for sep in ("/", "?", "#"):
+        text = text.split(sep, 1)[0]
+    if text.startswith("["):
+        return text[1:].split("]", 1)[0].lower()
+    if text.count(":") == 1:
+        text = text.rsplit(":", 1)[0]
+    return text.lower()
+
+
+@dataclass(frozen=True)
+class ToolFinding:
+    vulnerability_id: str
+    title: str
+    severity: str
+    description: str = ""
+    component_name: str = ""
+    component_version: str = ""
+    matched_at: str = ""
+    cvss_score: float | None = None
+    fix: str = ""
+    raw: dict = field(default_factory=dict)
+
+    @property
+    def is_cve(self):
+        return self.vulnerability_id.startswith("CVE-")
+
+    @property
+    def matched_host(self):
+        """Host donde coincidió la plantilla (puede ser un tercero: la plantilla lo consultó)."""
+        return host_of(self.matched_at or self.raw.get("host"))
+
+    def is_foreign_to(self, hosts):
+        """``True`` si coincidió en un host que no es ninguno de los objetivos."""
+        matched = self.matched_host
+        return bool(matched) and matched not in {h.lower() for h in hosts}
+
+
+def _severity(value):
+    return SEVERITY_MAP.get(str(value or "").lower(), "MEDIUM")
+
+
+def _trim(obj):
+    text = json.dumps(obj, ensure_ascii=False)
+    return json.loads(text) if len(text) <= MAX_RAW else {"_truncated": text[:MAX_RAW]}
+
+
+def parse_nuclei_jsonl(text: str) -> list[ToolFinding]:
+    findings = []
+    for line in str(text or "").splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            item = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        info = item.get("info") or {}
+        classification = info.get("classification") or {}
+        cves = classification.get("cve-id") or []
+        if isinstance(cves, str):
+            cves = [cves]
+        template = str(item.get("template-id") or "")[:100]
+        if not template:
+            continue
+        score = classification.get("cvss-score")
+        metadata = info.get("metadata") or {}
+        template_meta = {
+            "tags": [str(t)[:40] for t in (info.get("tags") or [])][:12],
+            "product": str(metadata.get("product") or "")[:80],
+            "vendor": str(metadata.get("vendor") or "")[:80],
+            "cwe": [str(c)[:20] for c in (classification.get("cwe-id") or [])][:4],
+            "cvss_metrics": str(classification.get("cvss-metrics") or "")[:80],
+            "epss": classification.get("epss-score"),
+            "remediation": str(info.get("remediation") or "")[:TEMPLATE_META_MAX],
+            "impact": str(info.get("impact") or "")[:TEMPLATE_META_MAX],
+        }
+        base = {
+            "title": str(info.get("name") or template)[:255],
+            "severity": _severity(info.get("severity")),
+            "description": str(info.get("description") or "")[:2000],
+            "matched_at": str(item.get("matched-at") or item.get("host") or "")[:255],
+            "cvss_score": float(score) if isinstance(score, int | float) else None,
+            "raw": _trim(
+                {
+                    **{
+                        k: item.get(k)
+                        for k in (
+                            "template-id",
+                            "matched-at",
+                            "host",
+                            "type",
+                            "extracted-results",
+                            "matcher-name",
+                        )
+                    },
+                    "template": {k: v for k, v in template_meta.items() if v},
+                }
+            ),
+        }
+        if cves:
+            for cve in cves:
+                findings.append(ToolFinding(vulnerability_id=str(cve).upper()[:100], **base))
+        else:
+            findings.append(ToolFinding(vulnerability_id=f"NUCLEI:{template}"[:100], **base))
+    return findings
+
+
+def parse_grype_json(text: str) -> list[ToolFinding]:
+    try:
+        payload = json.loads(text or "{}")
+    except json.JSONDecodeError:
+        return []
+    findings = []
+    for match in payload.get("matches") or []:
+        vuln = match.get("vulnerability") or {}
+        artifact = match.get("artifact") or {}
+        reported_id = str(vuln.get("id") or "").upper()[:100]
+        if not reported_id:
+            continue
+        # Grype suele reportar el aviso GHSA y deja el CVE en relatedVulnerabilities. Un
+        # hallazgo es (activo, vulnerabilidad): se identifica por el CVE para que coincida con
+        # lo que ya encontró la reconciliación CTI, y el aviso queda como alias en la evidencia.
+        related = [
+            str(r.get("id") or "").upper()
+            for r in match.get("relatedVulnerabilities") or []
+            if str(r.get("id") or "").upper().startswith("CVE-")
+        ]
+        vuln_id = (
+            reported_id
+            if reported_id.startswith("CVE-")
+            else (related[0] if related else reported_id)
+        )
+        aliases = sorted({reported_id, *related} - {vuln_id})
+        cvss = vuln.get("cvss") or []
+        score = None
+        for entry in cvss:
+            metrics = entry.get("metrics") or {}
+            if metrics.get("baseScore") is not None:
+                score = float(metrics["baseScore"])
+        fix = vuln.get("fix") or {}
+        versions = fix.get("versions") or []
+        findings.append(
+            ToolFinding(
+                vulnerability_id=vuln_id,
+                title=f"{vuln_id} en {artifact.get('name', '')} {artifact.get('version', '')}".strip()[
+                    :255
+                ],
+                severity=_severity(vuln.get("severity")),
+                description=str(vuln.get("description") or "")[:2000],
+                component_name=str(artifact.get("name") or "")[:200],
+                component_version=str(artifact.get("version") or "")[:100],
+                cvss_score=score,
+                fix=(f"{fix.get('state', '')} {', '.join(map(str, versions))}").strip()[:255],
+                raw=_trim(
+                    {
+                        "artifact": {
+                            k: artifact.get(k) for k in ("name", "version", "type", "purl")
+                        },
+                        "dataSource": vuln.get("dataSource"),
+                        "aliases": aliases,
+                        "fix": fix,
+                    }
+                ),
+            )
+        )
+    return findings

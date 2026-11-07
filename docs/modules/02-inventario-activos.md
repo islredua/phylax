@@ -119,7 +119,26 @@ stateDiagram-v2
 
 - Confirmar sin criticidad programa una sugerencia automática del LLM (ver abajo).
 - `IGNORED`: el descubrimiento actualiza `last_seen` pero no lo devuelve a la cola ni a objetivos.
-- `STALE` solo aplica a activos observados alguna vez (`last_seen` no nulo); `ATALAYA_ASSET_STALE_DAYS`.
+- `STALE` aplica a activos observados alguna vez (`last_seen` no nulo) y a los dados de alta a mano
+  cuya última verificación de alcance falló hace más de `ATALAYA_ASSET_STALE_DAYS`.
+- **Autorización por equipo** (`services.authorize_host`): dar de alta un equipo ya dice que la
+  organización lo tiene y quiere vigilarlo, así que el formulario trae marcada «Autorizar el escaneo
+  de este equipo». Si la IP no cae en un rango registrado, al guardar se crea un rango de un solo
+  host (/32 o /128) con el usuario como autorizante, fecha, referencia (la escrita o «Alta manual de
+  X por Y el día Z») y caducidad opcional; todo el resto del sistema (sonda, descubrimiento,
+  detección) lo trata como cualquier rango. Reglas: una IP enrutable globalmente exige referencia
+  escrita (un error de captura apuntaría a un tercero); una IP cubierta por un rango registrado
+  pero caducado o fuera de alcance no se «salta» con un /32: se renueva ese rango. Autorizar un
+  equipo requiere `discovery.run_discovery` (Analista); «Registrar también la red completa (/24)»
+  es un paso opcional que exige `assets.manage_scope` y una referencia. La importación CSV ofrece
+  la misma opción para todo el archivo (referencia: el nombre del archivo, quién y cuándo).
+- **Alcance desde Atalaya** (`reachable`, `reachability_checked_at`): el formulario de alta ofrece
+  «Verificar alcance», una sonda rápida en `worker-discovery` (ICMP/SYN a pocos puertos, tope de
+  segundos; `DISCOVERY_PROBE_*`) que informa si la IP responde, qué puertos abre y si la MAC o el
+  nombre ya pertenecen a otro activo. Es informativa: nunca bloquea el alta. El resultado se copia al
+  activo al guardarlo; la importación CSV sondea en segundo plano los activos nuevos con IP autorizada
+  y cualquier escaneo dirigido u observación por descubrimiento lo actualiza. Lista y detalle muestran
+  la insignia «no responde».
 - `RETIRED` nunca se borra físicamente. Fusionar mueve identificadores, servicios (conservando el
   `last_seen` más reciente), SBOM, sugerencias e hijos, y resuelve los conflictos asociados.
 
@@ -219,8 +238,9 @@ carecer de entorno y función hasta confirmarse.
 ## Interfaz
 
 Sección **Inventario** (Activos · Por confirmar · Clasificación · Conflictos · Imágenes ·
-Importar/Exportar), sección **Descubrimiento** (Rangos de red · Ejecuciones) y pestañas
-**LLM**, **Catálogos** y **Registries** en Administración. Migas de pan en todas las
+Rangos de red · Descubrimiento · Importar/Exportar) y pestañas **LLM**, **Catálogos** y
+**Registries** en Administración. El descubrimiento no es una sección aparte: es el mecanismo
+que llena el inventario y sus pantallas (rangos y ejecuciones de nmap) viven en esa sección. Migas de pan en todas las
 pantallas (ADR-007). El detalle de una ejecución de descubrimiento muestra la salida legible
 de nmap (`-oN`) en vivo. Detalle de activo con subpestañas Resumen, Identificadores,
 Servicios, SBOM, Sugerencias LLM, Historial y Descubrimientos (Hallazgos y Riesgo reservados).

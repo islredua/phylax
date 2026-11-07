@@ -1,0 +1,945 @@
+"""Vistas del módulo de detección. Toda modificación pasa por los servicios (re-verifican permisos)."""
+
+from django.contrib import messages
+from django.contrib.auth.mixins import PermissionRequiredMixin
+from django.core.exceptions import PermissionDenied, ValidationError
+from django.db.models import Q
+from django.http import HttpResponseRedirect
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
+from django.views import View
+from django.views.generic import ListView, TemplateView
+
+from apps.assets import catalogs
+from apps.cti import services as cti
+from apps.cti.models import CtiSource, CtiSyncRun, SourceKind
+from apps.scanners.models import ToolExecution
+from apps.scoring import services as scoring
+
+from . import (
+    actions,
+    activity,
+    automation,
+    consolidation,
+    events,
+    findings,
+    planner,
+    profile,
+    risks,
+)
+from .forms import (
+    HUMAN_STATUS_LABELS,
+    AutomationForm,
+    FindingFilterForm,
+    FindingTransitionForm,
+    NoteForm,
+    ObservationForm,
+    PauseForm,
+    ProfileForm,
+    ReviewForm,
+    RiskFilterForm,
+    RiskTreatmentForm,
+    SourceForm,
+    VulnerabilityFilterForm,
+    VulnerabilityStatusForm,
+)
+from .models import (
+    OPEN_STATUSES,
+    VULN_OPEN_STATUSES,
+    DetectionEvent,
+    Finding,
+    FindingSeverity,
+    PlannedAction,
+    Risk,
+    Vulnerability,
+)
+
+
+class Perm(PermissionRequiredMixin):
+    raise_exception = True
+
+
+def _messages_from(request, error):
+    for message in getattr(error, "messages", [str(error)]):
+        messages.error(request, message)
+
+
+def _safe_next(request, default):
+    target = request.POST.get("next") or request.GET.get("next")
+    if target and url_has_allowed_host_and_scheme(target, {request.get_host()}):
+        return target
+    return default
+
+
+# --------------------------------------------------------------------------
+# Panel de detección
+# --------------------------------------------------------------------------
+
+
+def filter_findings(params):
+    qs = Finding.objects.select_related("asset", "cve", "component")
+    form = FindingFilterForm(params or None)
+    status = ""
+    if form.is_valid():
+        data = form.cleaned_data
+        status = data["status"]
+        if data["q"]:
+            qs = qs.filter(
+                Q(vulnerability_id__icontains=data["q"])
+                | Q(title__icontains=data["q"])
+                | Q(asset__name__icontains=data["q"])
+            )
+        if data["severity"]:
+            qs = qs.filter(severity=data["severity"])
+        if data["in_kev"]:
+            qs = qs.filter(in_kev=data["in_kev"] == "1")
+        if data["environment"]:
+            qs = qs.filter(environment=data["environment"])
+        if data["source"]:
+            qs = qs.filter(sources__contains=[data["source"]])
+        if data["asset"]:
+            qs = qs.filter(asset_id=data["asset"])
+    if status == "all":
+        pass
+    elif status:
+        qs = qs.filter(status=status)
+    else:
+        qs = qs.filter(status__in=OPEN_STATUSES)
+    return qs, form
+
+
+SEVERITY_ORDER = {s: i for i, s in enumerate(reversed(FindingSeverity.values))}
+
+
+def filter_vulnerabilities(params):
+    qs = Vulnerability.objects.select_related("asset", "cve", "component")
+    form = VulnerabilityFilterForm(params or None)
+    status = ""
+    if form.is_valid():
+        data = form.cleaned_data
+        status = data["status"]
+        if data["q"]:
+            qs = qs.filter(
+                Q(key__icontains=data["q"])
+                | Q(title__icontains=data["q"])
+                | Q(asset__name__icontains=data["q"])
+            )
+        if data["severity"]:
+            qs = qs.filter(severity=data["severity"])
+        if data["in_kev"]:
+            qs = qs.filter(in_kev=data["in_kev"] == "1")
+        if data["environment"]:
+            qs = qs.filter(environment=data["environment"])
+        if data["asset"]:
+            qs = qs.filter(asset_id=data["asset"])
+    if status == "all":
+        pass
+    elif status:
+        qs = qs.filter(status=status)
+    else:
+        qs = qs.filter(status__in=VULN_OPEN_STATUSES)
+    return qs, form
+
+
+class PanelView(Perm, ListView):
+    """Panel = vulnerabilidades consolidadas, ordenadas por puntaje contextual."""
+
+    permission_required = "detection.view_vulnerability"
+    template_name = "detection/panel.html"
+    context_object_name = "vulnerabilities"
+    paginate_by = 25
+
+    def get_queryset(self):
+        qs, self.filter_form = filter_vulnerabilities(self.request.GET)
+        return qs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        asset_id = (
+            self.filter_form.cleaned_data.get("asset") if self.filter_form.is_valid() else None
+        )
+        context.update(
+            filter_form=self.filter_form,
+            summary=consolidation.summary(asset_id),
+            observations_open=findings.open_findings(asset_id).count(),
+            unconsolidated=consolidation.consolidable(findings.open_findings(asset_id))
+            .filter(consolidated__isnull=True)
+            .count(),
+            asset_id=asset_id,
+            consolidation_pending=consolidation.is_pending(asset_id) if asset_id else False,
+            queue_size=actions.approval_queue().count(),
+            automation=automation.summary(),
+        )
+        return context
+
+
+class VulnerabilityDetailView(Perm, TemplateView):
+    permission_required = "detection.view_vulnerability"
+    template_name = "detection/vulnerability_detail.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        vuln = get_object_or_404(
+            Vulnerability.objects.select_related(
+                "asset", "cve", "component", "status_by", "inference"
+            ),
+            pk=kwargs["pk"],
+        )
+        context.update(
+            vuln=vuln,
+            observations=vuln.observations.select_related("component").prefetch_related("evidence"),
+            timeline=vuln.events.select_related("actor").order_by("-occurred_at", "-id"),
+            statuses=[(s, HUMAN_STATUS_LABELS[s]) for s in HUMAN_STATUS_LABELS if s != vuln.status],
+            consolidation_pending=consolidation.is_pending(vuln.asset_id),
+            baselines=scoring.baselines(
+                cvss=vuln.cvss_score, epss=vuln.epss_score, severity=vuln.severity
+            ),
+        )
+        return context
+
+
+class VulnerabilityStatusView(Perm, View):
+    permission_required = "detection.work_findings"
+
+    def post(self, request, pk):
+        form = VulnerabilityStatusForm(request.POST)
+        back = _safe_next(request, reverse("detection:vulnerability", args=[pk]))
+        if not form.is_valid():
+            messages.error(request, "Elige un estado válido.")
+            return HttpResponseRedirect(back)
+        try:
+            vuln = consolidation.set_status(
+                pk,
+                user=request.user,
+                status=form.cleaned_data["status"],
+                note=form.cleaned_data["note"],
+            )
+            messages.success(
+                request,
+                f"Estado fijado por ti: {vuln.get_status_display().lower()}. La IA ya no lo cambiará.",
+            )
+        except ValueError as error:
+            messages.error(request, str(error))
+        return HttpResponseRedirect(back)
+
+
+class VulnerabilityReleaseView(Perm, View):
+    permission_required = "detection.work_findings"
+
+    def post(self, request, pk):
+        consolidation.release_to_ai(pk, user=request.user)
+        messages.success(request, "El estado vuelve a decidirlo la IA en la próxima consolidación.")
+        return redirect("detection:vulnerability", pk=pk)
+
+
+class VulnerabilityNoteView(Perm, View):
+    permission_required = "detection.work_findings"
+
+    def post(self, request, pk):
+        form = NoteForm(request.POST)
+        if form.is_valid():
+            consolidation.add_note(pk, user=request.user, text=form.cleaned_data["text"])
+            messages.success(request, "Nota agregada a la línea de tiempo.")
+        else:
+            messages.error(request, "La nota está vacía.")
+        return redirect("detection:vulnerability", pk=pk)
+
+
+class ConsolidateAssetView(Perm, View):
+    """«Reevaluar con IA»: consolida ahora las observaciones del activo (cola llm, sin retardo)."""
+
+    permission_required = "detection.request_evaluation"
+
+    def post(self, request, pk):
+        back = _safe_next(request, f"{reverse('detection:panel')}?asset={pk}")
+        if consolidation.is_pending(pk):
+            messages.info(request, "Ya hay una consolidación en cola para este activo.")
+        elif consolidation.request_consolidation(
+            pk, reason="reevaluación pedida a mano", requested_by=request.user, delay=0
+        ):
+            messages.success(
+                request, "Consolidación con IA en cola; la página se actualizará sola."
+            )
+        else:
+            messages.info(request, "El activo no tiene observaciones que consolidar.")
+        return HttpResponseRedirect(back)
+
+
+def filter_risks(params):
+    qs = Risk.objects.select_related("asset", "decided_by").prefetch_related("vulnerabilities")
+    form = RiskFilterForm(params or None)
+    status = ""
+    if form.is_valid():
+        data = form.cleaned_data
+        status = data["status"]
+        if data["q"]:
+            qs = qs.filter(
+                Q(title__icontains=data["q"])
+                | Q(scenario__icontains=data["q"])
+                | Q(asset__name__icontains=data["q"])
+            )
+        if data["level"]:
+            qs = qs.filter(level=data["level"])
+        if data["treatment"] == "none":
+            qs = qs.filter(treatment="")
+        elif data["treatment"]:
+            qs = qs.filter(treatment=data["treatment"])
+        if data["asset"]:
+            qs = qs.filter(asset_id=data["asset"])
+    if status == "all":
+        pass
+    elif status:
+        qs = qs.filter(status=status)
+    else:
+        qs = qs.filter(status__in=("OPEN", "TREATED", "ACCEPTED"))
+    return qs, form
+
+
+class RiskRegisterView(Perm, ListView):
+    """Registro de riesgos (ISO/IEC 27005) con la matriz 5×5 de los riesgos listados."""
+
+    permission_required = "detection.view_risk"
+    template_name = "detection/risks.html"
+    context_object_name = "risks"
+    paginate_by = 25
+
+    def get_queryset(self):
+        qs, self.filter_form = filter_risks(self.request.GET)
+        return qs.order_by("-likelihood", "-impact", "-first_identified_at")
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        asset_id = (
+            self.filter_form.cleaned_data.get("asset") if self.filter_form.is_valid() else None
+        )
+        listed = list(self.object_list)
+        context.update(
+            filter_form=self.filter_form,
+            summary=risks.summary(asset_id),
+            matrix=risks.matrix(listed),
+            asset_id=asset_id,
+            asset=listed[0].asset if asset_id and listed else None,
+            consolidation_pending=consolidation.is_pending(asset_id) if asset_id else False,
+        )
+        if asset_id and context["asset"] is None:
+            from apps.assets.models import Asset
+
+            context["asset"] = Asset.objects.filter(pk=asset_id).first()
+        return context
+
+
+class RiskDetailView(Perm, TemplateView):
+    permission_required = "detection.view_risk"
+    template_name = "detection/risk_detail.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        risk = get_object_or_404(
+            Risk.objects.select_related("asset", "decided_by"), pk=kwargs["pk"]
+        )
+        context.update(
+            risk=risk,
+            vulnerabilities=risk.vulnerabilities.select_related("component").order_by(
+                "-contextual_score"
+            ),
+            timeline=risk.events.select_related("actor").order_by("-occurred_at", "-id"),
+            matrix=risks.matrix([risk]),
+            treatment_form=RiskTreatmentForm(
+                initial={
+                    "treatment": risk.treatment,
+                    "owner": risk.owner,
+                    "residual_likelihood": risk.residual_likelihood,
+                    "residual_impact": risk.residual_impact,
+                }
+            ),
+        )
+        return context
+
+
+class RiskTreatmentView(Perm, View):
+    permission_required = "detection.work_findings"
+
+    def post(self, request, pk):
+        form = RiskTreatmentForm(request.POST)
+        back = _safe_next(request, reverse("detection:risk", args=[pk]))
+        if not form.is_valid():
+            messages.error(request, "Revisa el tratamiento: faltan datos o no son válidos.")
+            return HttpResponseRedirect(back)
+        try:
+            risk = risks.set_treatment(pk, user=request.user, **form.cleaned_data)
+            messages.success(
+                request, f"Tratamiento registrado: {risk.get_treatment_display().lower()}."
+            )
+        except ValueError as error:
+            messages.error(request, str(error))
+        return HttpResponseRedirect(back)
+
+
+class RiskNoteView(Perm, View):
+    permission_required = "detection.work_findings"
+
+    def post(self, request, pk):
+        form = NoteForm(request.POST)
+        if form.is_valid():
+            risks.add_note(pk, user=request.user, text=form.cleaned_data["text"])
+            messages.success(request, "Nota agregada a la línea de tiempo.")
+        else:
+            messages.error(request, "La nota está vacía.")
+        return redirect("detection:risk", pk=pk)
+
+
+class ObservationsView(Perm, ListView):
+    """Capa cruda: lo que cada herramienta, la reconciliación o una persona reportó."""
+
+    permission_required = "detection.view_finding"
+    template_name = "detection/observations.html"
+    context_object_name = "findings"
+    paginate_by = 25
+
+    def get_queryset(self):
+        qs, self.filter_form = filter_findings(self.request.GET)
+        # Prioridad del motor de scoring si existe; si no, provisional: KEV, severidad, EPSS.
+        items = list(qs)
+        items.sort(
+            key=lambda f: (
+                f.priority_score if f.priority_score is not None else -1,
+                int(f.in_kev),
+                SEVERITY_ORDER.get(f.severity, 0),
+                f.epss_score or 0,
+                f.first_detected_at,
+            ),
+            reverse=True,
+        )
+        return items
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update(
+            filter_form=self.filter_form,
+            summary=findings.summary(),
+            asset_id=self.filter_form.cleaned_data.get("asset")
+            if self.filter_form.is_valid()
+            else None,
+        )
+        return context
+
+
+class ObservationCreateView(Perm, TemplateView):
+    permission_required = "detection.work_findings"
+    template_name = "detection/observation_form.html"
+
+    def _asset(self, request):
+        from apps.assets.models import Asset
+
+        return get_object_or_404(Asset, pk=request.GET.get("asset") or request.POST.get("asset"))
+
+    def get(self, request):
+        asset = self._asset(request)
+        return render(request, self.template_name, {"asset": asset, "form": ObservationForm()})
+
+    def post(self, request):
+        asset = self._asset(request)
+        form = ObservationForm(request.POST)
+        if form.is_valid():
+            try:
+                finding = findings.add_manual_observation(
+                    user=request.user, asset_id=asset.pk, **form.cleaned_data
+                )
+            except ValidationError as error:
+                _messages_from(request, error)
+            else:
+                messages.success(
+                    request,
+                    "Observación registrada; la consolidación con IA la tomará en cuenta en breve.",
+                )
+                return redirect("detection:finding", pk=finding.pk)
+        return render(request, self.template_name, {"asset": asset, "form": form})
+
+
+class FindingDetailView(Perm, TemplateView):
+    permission_required = "detection.view_finding"
+    template_name = "detection/finding_detail.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        finding = get_object_or_404(
+            Finding.objects.select_related("asset", "cve", "component", "status_changed_by"),
+            pk=kwargs["pk"],
+        )
+        context.update(
+            finding=finding,
+            evidence=finding.evidence.select_related("component"),
+            timeline=finding.events.select_related("actor").order_by("-occurred_at", "-id"),
+            consolidated=finding.consolidated,
+            consolidation_pending=consolidation.is_pending(finding.asset_id),
+        )
+        return context
+
+
+class FindingTransitionView(Perm, View):
+    permission_required = "detection.work_findings"
+
+    def post(self, request, pk):
+        form = FindingTransitionForm(request.POST)
+        back = _safe_next(request, reverse("detection:finding", args=[pk]))
+        if not form.is_valid():
+            messages.error(request, "Elige una acción válida.")
+            return HttpResponseRedirect(back)
+        try:
+            finding = findings.transition(
+                pk,
+                user=request.user,
+                status=form.cleaned_data["status"],
+                note=form.cleaned_data["note"],
+            )
+            messages.success(
+                request, f"Hallazgo marcado como {finding.get_status_display().lower()}."
+            )
+        except ValidationError as error:
+            _messages_from(request, error)
+        return HttpResponseRedirect(back)
+
+
+class FindingNoteView(Perm, View):
+    permission_required = "detection.work_findings"
+
+    def post(self, request, pk):
+        form = NoteForm(request.POST)
+        if form.is_valid():
+            try:
+                findings.add_note(pk, user=request.user, text=form.cleaned_data["text"])
+                messages.success(request, "Nota agregada a la línea de tiempo.")
+            except ValidationError as error:
+                _messages_from(request, error)
+        else:
+            messages.error(request, "La nota está vacía.")
+        return redirect("detection:finding", pk=pk)
+
+
+# --------------------------------------------------------------------------
+# Actividad, eventos, acciones y ejecuciones
+# --------------------------------------------------------------------------
+
+
+class ActivityView(Perm, TemplateView):
+    permission_required = "detection.view_detectionevent"
+    template_name = "detection/activity.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        kind = self.request.GET.get("kind", "")
+        kinds = [kind] if kind in ("event", "decision", "action", "execution", "log") else None
+        context.update(
+            entries=activity.recent(kinds=kinds),
+            kind=kind,
+            kinds=(
+                ("", "Todo"),
+                ("event", "Eventos"),
+                ("decision", "Decisiones"),
+                ("action", "Acciones"),
+                ("execution", "Herramientas"),
+                ("log", "Bitácora"),
+            ),
+            automation=automation.summary(),
+            open_actions=actions.open_actions().count(),
+            planner_calls=planner.planner_calls_this_hour(),
+        )
+        return context
+
+    def get(self, request, *args, **kwargs):
+        context = self.get_context_data(**kwargs)
+        if request.htmx:
+            return render(request, "detection/_activity_feed.html", context)
+        return self.render_to_response(context)
+
+
+class EventDetailView(Perm, TemplateView):
+    permission_required = "detection.view_detectionevent"
+    template_name = "detection/event_detail.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        event = get_object_or_404(
+            DetectionEvent.objects.select_related("asset", "cve", "batch"), pk=kwargs["pk"]
+        )
+        context.update(
+            event=event,
+            decisions=event.decisions.select_related("inference", "asset"),
+            actions=event.actions.select_related("asset"),
+        )
+        return context
+
+
+class ActionDetailView(Perm, TemplateView):
+    permission_required = "detection.view_plannedaction"
+    template_name = "detection/action_detail.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        action = get_object_or_404(
+            PlannedAction.objects.select_related(
+                "decision", "event", "asset", "approved_by", "rejected_by", "discovery_run"
+            ),
+            pk=kwargs["pk"],
+        )
+        context.update(
+            action=action,
+            executions=action.executions.all(),
+            log_entries=action.log_entries.select_related("user"),
+        )
+        return context
+
+
+class ExecutionDetailView(Perm, TemplateView):
+    permission_required = "scanners.view_toolexecution"
+    template_name = "detection/execution_detail.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        execution = get_object_or_404(
+            ToolExecution.objects.select_related("asset", "action"), pk=kwargs["pk"]
+        )
+        context.update(
+            execution=execution,
+            findings=Finding.objects.filter(evidence__execution_ref=str(execution.pk)).distinct(),
+        )
+        return context
+
+
+class EvaluateAssetView(Perm, View):
+    """Vía manual de respaldo: «evalúa este activo ahora»."""
+
+    permission_required = "detection.request_evaluation"
+
+    def post(self, request, pk):
+        back = _safe_next(request, reverse("assets:detail", args=[pk]))
+        try:
+            event, batch = events.request_evaluation(pk, user=request.user)
+        except ValidationError as error:
+            _messages_from(request, error)
+            return HttpResponseRedirect(back)
+        from .tasks import process_event_batch
+
+        process_event_batch.delay(str(batch.pk))
+        messages.success(
+            request,
+            "Evaluación en curso: el avance y el resultado se muestran aquí mismo, en el activo.",
+        )
+        return HttpResponseRedirect(back)
+
+
+class AssetPipelineView(Perm, View):
+    """Fragmento «Proceso del activo»: escaneo → criticidad → evaluación, con sus botones."""
+
+    permission_required = "detection.view_detectionevent"
+
+    def get(self, request, pk):
+        from . import progress
+
+        return render(
+            request, "detection/_asset_pipeline.html", {"pipeline": progress.asset_pipeline(pk)}
+        )
+
+
+class EvaluationStatusView(Perm, View):
+    """Fragmento «última evaluación» del activo; se consulta solo mientras hay algo en curso."""
+
+    permission_required = "detection.view_detectionevent"
+
+    def get(self, request, pk):
+        from . import progress
+
+        return render(
+            request,
+            "detection/_evaluation_status.html",
+            {"asset_id": pk, "progress": progress.evaluation_progress(pk)},
+        )
+
+
+# --------------------------------------------------------------------------
+# Cola de aprobación
+# --------------------------------------------------------------------------
+
+
+class QueueView(Perm, TemplateView):
+    permission_required = "detection.view_plannedaction"
+    template_name = "detection/queue.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update(
+            queue=list(actions.approval_queue()),
+            waiting=PlannedAction.objects.filter(status__in=("APPROVED", "QUEUED", "RUNNING"))
+            .select_related("asset")
+            .order_by("-priority")[:25],
+            automation=automation.summary(),
+        )
+        return context
+
+
+class ApproveActionView(Perm, View):
+    permission_required = "detection.approve_actions"
+
+    def post(self, request, pk):
+        form = ReviewForm(request.POST)
+        note = form.cleaned_data["note"] if form.is_valid() else ""
+        try:
+            action = actions.approve(pk, user=request.user, note=note)
+            messages.success(
+                request, f"{action.get_action_display()}: {action.get_status_display().lower()}."
+            )
+        except ValidationError as error:
+            _messages_from(request, error)
+        return HttpResponseRedirect(_safe_next(request, reverse("detection:queue")))
+
+
+class RejectActionView(Perm, View):
+    permission_required = "detection.approve_actions"
+
+    def post(self, request, pk):
+        form = ReviewForm(request.POST)
+        note = form.cleaned_data["note"] if form.is_valid() else ""
+        try:
+            actions.reject(pk, user=request.user, note=note)
+            messages.success(request, "Acción rechazada.")
+        except ValidationError as error:
+            _messages_from(request, error)
+        return HttpResponseRedirect(_safe_next(request, reverse("detection:queue")))
+
+
+class BulkQueueView(Perm, View):
+    permission_required = "detection.approve_actions"
+
+    def post(self, request):
+        ids = request.POST.getlist("ids")
+        decision = request.POST.get("decision", "approve")
+        if not ids:
+            messages.error(request, "Selecciona al menos una acción.")
+            return redirect("detection:queue")
+        if decision == "reject":
+            done, failed = [], []
+            for action_id in ids:
+                try:
+                    done.append(
+                        actions.reject(action_id, user=request.user, note="Rechazada en lote")
+                    )
+                except (ValidationError, PlannedAction.DoesNotExist) as exc:
+                    failed.append((action_id, str(exc)))
+            label = "rechazada(s)"
+        else:
+            done, failed = actions.approve_many(ids, user=request.user)
+            label = "aprobada(s) en lote"
+        if done:
+            messages.success(request, f"{len(done)} acción(es) {label}.")
+        if failed:
+            messages.warning(request, f"{len(failed)} acción(es) ya no esperaban aprobación.")
+        return redirect("detection:queue")
+
+
+class CancelActionView(Perm, View):
+    permission_required = "detection.approve_actions"
+
+    def post(self, request, pk):
+        try:
+            actions.cancel(pk, user=request.user)
+            messages.success(request, "Acción cancelada.")
+        except ValidationError as error:
+            _messages_from(request, error)
+        return HttpResponseRedirect(_safe_next(request, reverse("detection:queue")))
+
+
+# --------------------------------------------------------------------------
+# Automatización
+# --------------------------------------------------------------------------
+
+
+class AutomationView(Perm, View):
+    permission_required = "detection.view_automationsettings"
+    template_name = "detection/automation.html"
+
+    def _context(self, form=None):
+        config = automation.current_settings()
+        environments = catalogs.choices(catalogs.ENVIRONMENT)
+        return {
+            "config": config,
+            "summary": automation.summary(config),
+            "form": form
+            or AutomationForm(
+                initial=AutomationForm.initial_for(config, environments), environments=environments
+            ),
+            "pause_form": PauseForm(),
+            "log_entries": automation.AutomationLogEntry.objects.select_related(
+                "user", "asset", "action"
+            )[:40],
+            "planner_calls": planner.planner_calls_this_hour(),
+            "can_manage": self.request.user.has_perm("detection.manage_automation"),
+        }
+
+    def get(self, request):
+        return render(request, self.template_name, self._context())
+
+    def post(self, request):
+        if not request.user.has_perm("detection.manage_automation"):
+            raise PermissionDenied
+        environments = catalogs.choices(catalogs.ENVIRONMENT)
+        form = AutomationForm(request.POST, environments=environments)
+        if form.is_valid():
+            try:
+                automation.update_settings(user=request.user, fields=form.settings_fields())
+            except ValidationError as error:
+                form.add_error(None, error)
+            else:
+                messages.success(request, "Configuración de automatización guardada.")
+                return redirect("detection:automation")
+        return render(request, self.template_name, self._context(form))
+
+
+class PauseView(Perm, View):
+    permission_required = "detection.manage_automation"
+
+    def post(self, request):
+        form = PauseForm(request.POST)
+        reason = form.cleaned_data["reason"] if form.is_valid() else ""
+        paused = request.POST.get("paused") == "1"
+        automation.set_paused(paused, user=request.user, reason=reason)
+        messages.success(
+            request, "Pausa de emergencia activada." if paused else "Automatización reanudada."
+        )
+        return redirect("detection:automation")
+
+
+# --------------------------------------------------------------------------
+# Perfil de la organización
+# --------------------------------------------------------------------------
+
+
+class OrganizationView(Perm, View):
+    permission_required = "detection.view_organizationprofile"
+    template_name = "detection/organization.html"
+
+    def _context(self, form=None):
+        current = profile.get_profile()
+        return {
+            "profile": current,
+            "form": form
+            or ProfileForm(
+                initial={
+                    "name": current.name,
+                    "sector": current.sector,
+                    "location": current.location,
+                    "description": current.description,
+                }
+            ),
+            "can_manage": self.request.user.has_perm("detection.manage_profile"),
+        }
+
+    def get(self, request):
+        if request.htmx:
+            return render(request, "detection/_draft_status.html", self._context())
+        return render(request, self.template_name, self._context())
+
+    def post(self, request):
+        if not request.user.has_perm("detection.manage_profile"):
+            raise PermissionDenied
+        form = ProfileForm(request.POST)
+        if form.is_valid():
+            try:
+                profile.update_profile(user=request.user, fields=form.cleaned_data)
+            except ValidationError as error:
+                form.add_error(None, error)
+            else:
+                messages.success(request, "Perfil de la organización guardado.")
+                return redirect("organization")
+        return render(request, self.template_name, self._context(form))
+
+
+class DraftView(Perm, View):
+    permission_required = "detection.manage_profile"
+
+    def post(self, request):
+        if request.POST.get("discard"):
+            profile.discard_draft(user=request.user)
+            messages.success(request, "Borrador descartado.")
+            return redirect("organization")
+        try:
+            profile.request_draft(user=request.user)
+            messages.success(
+                request, "Generando el borrador con el LLM local; la página se actualizará sola."
+            )
+        except ValidationError as error:
+            _messages_from(request, error)
+        return redirect("organization")
+
+
+# --------------------------------------------------------------------------
+# Fuentes CTI
+# --------------------------------------------------------------------------
+
+
+class SourcesView(Perm, View):
+    permission_required = "cti.view_ctisource"
+    template_name = "detection/sources.html"
+
+    def _context(self, forms=None):
+        sources = cti.ensure_sources()
+        forms = forms or {}
+        rows = []
+        for source in sources:
+            form = forms.get(source.kind) or SourceForm(
+                initial={
+                    "url": source.url,
+                    "enabled": source.enabled,
+                    "interval_hours": source.interval_hours,
+                },
+                prefix=source.kind,
+            )
+            rows.append((source, form))
+        return {
+            "rows": rows,
+            "stats": cti.summary(),
+            "runs": CtiSyncRun.objects.select_related("requested_by")[:20],
+            "can_manage": self.request.user.has_perm("cti.manage_sources"),
+            "online": cti.settings.CTI_ONLINE,
+        }
+
+    def get(self, request):
+        return render(request, self.template_name, self._context())
+
+    def post(self, request):
+        if not request.user.has_perm("cti.manage_sources"):
+            raise PermissionDenied
+        kind = request.POST.get("kind", "")
+        if kind not in SourceKind.values:
+            messages.error(request, "Fuente desconocida.")
+            return redirect("detection:sources")
+        form = SourceForm(request.POST, prefix=kind)
+        if form.is_valid():
+            try:
+                cti.update_source(kind, user=request.user, fields=form.cleaned_data)
+            except ValidationError as error:
+                form.add_error(None, error)
+            else:
+                messages.success(request, f"Fuente {SourceKind(kind).label} actualizada.")
+                return redirect("detection:sources")
+        return render(request, self.template_name, self._context({kind: form}))
+
+
+class SyncSourceView(Perm, View):
+    permission_required = "cti.manage_sources"
+
+    def post(self, request, kind):
+        if kind not in SourceKind.values:
+            messages.error(request, "Fuente desconocida.")
+            return redirect("detection:sources")
+        source = get_object_or_404(CtiSource, kind=kind)
+        if not source.enabled:
+            messages.error(request, "La fuente está deshabilitada.")
+            return redirect("detection:sources")
+        from apps.cti.tasks import sync_cti_source
+
+        sync_cti_source.delay(kind, request.user.pk)
+        messages.success(
+            request, f"Sincronización de {source.get_kind_display()} en curso (ver Actividad)."
+        )
+        return redirect("detection:sources")

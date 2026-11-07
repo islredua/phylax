@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Fuentes CTI{% endblock %}
+{% block toolbar %}<div class="toolbar"><div class="flex flex-wrap items-center gap-2"><h2>Fuentes de inteligencia</h2>{% if not online %}<span class="badge-medium" title="CTI_ONLINE=0: usa datos de ejemplo con load_cti_fixture">sin descargas</span>{% endif %}</div></div>{% endblock %}
+{% block content %}
+<div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+  <div class="card"><p class="stat-label">CVE en el espejo</p><p class="stat-value">{{ stats.cves }}</p></div>
+  <div class="card"><p class="stat-label">En KEV</p><p class="stat-value">{{ stats.in_kev }}</p></div>
+  <div class="card"><p class="stat-label">Con EPSS</p><p class="stat-value">{{ stats.with_epss }}</p></div>
+  <div class="card"><p class="stat-label">Productos con cobertura NVD</p><p class="stat-value">{{ stats.products }}</p></div>
+</div>
+<p class="text-xs text-muted">Las fuentes se descargan hacia Atalaya; nada del inventario sale. NVD se trae de forma incremental y por producto del inventario; KEV completo; EPSS para los CVE del espejo.</p>
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+  {% for source, form in rows %}
+  <form method="post" class="card flex flex-col gap-3" novalidate>
+    {% csrf_token %}<input type="hidden" name="kind" value="{{ source.kind }}">
+    <div class="flex flex-wrap items-center justify-between gap-2"><h3 class="card-title mb-0">{{ source.get_kind_display }}</h3>{% if source.last_status == 'SUCCEEDED' %}<span class="badge-low">ok</span>{% elif source.last_status == 'FAILED' %}<span class="badge-critical" title="{{ source.last_detail }}">falló</span>{% elif not source.enabled %}<span class="badge-neutral">deshabilitada</span>{% else %}<span class="badge-neutral">sin sincronizar</span>{% endif %}</div>
+    <p class="text-xs text-muted">Última sincronización: {{ source.last_success_at|date:"Y-m-d H:i"|default:"nunca" }}{% if source.last_detail %} · {{ source.last_detail }}{% endif %}</p>
+    {% if form.non_field_errors %}<div class="alert-error text-sm">{% for e in form.non_field_errors %}{{ e }} {% endfor %}</div>{% endif %}
+    {% for field in form %}<div>{% if field.widget_type == 'checkbox' %}<label class="flex items-center gap-2 text-sm">{{ field }} {{ field.label }}</label>{% else %}<label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% endif %}{% for e in field.errors %}<p class="form-error">{{ e }}</p>{% endfor %}</div>{% endfor %}
+    {% if can_manage %}<div class="flex gap-2"><button class="btn-primary btn-sm" type="submit">Guardar</button><button class="btn-secondary btn-sm" type="submit" formaction="{% url 'detection:source_sync' source.kind %}" {% if not source.enabled or not online %}disabled{% endif %}>Sincronizar ahora</button></div>{% endif %}
+  </form>
+  {% endfor %}
+</div>
+<section class="flex flex-col gap-2"><h3 class="eyebrow">Sincronizaciones recientes</h3>
+<div class="table-wrap"><table class="data-table"><thead><tr><th>Cuándo</th><th>Fuente</th><th>Disparo</th><th>Estado</th><th>Registros</th><th>Nuevos</th><th>Cambios</th><th>Detalle</th></tr></thead><tbody>
+{% for r in runs %}<tr><td class="font-mono text-xs whitespace-nowrap">{{ r.started_at|date:"Y-m-d H:i:s" }}</td><td>{{ r.get_source_display }}</td><td class="text-xs">{{ r.get_trigger_display }}</td><td>{% if r.status == 'SUCCEEDED' %}<span class="badge-low">ok</span>{% elif r.status == 'FAILED' %}<span class="badge-critical">falló</span>{% else %}<span class="badge-primary">en curso</span>{% endif %}</td><td class="font-mono text-xs">{{ r.records_seen }}</td><td class="font-mono text-xs">{{ r.created }}</td><td class="font-mono text-xs">{{ r.changes }}</td><td class="text-xs text-ink-soft">{{ r.error|default:r.detail }}</td></tr>{% empty %}<tr><td colspan="8" class="table-empty">Sin sincronizaciones.</td></tr>{% endfor %}
+</tbody></table></div></section>
+{% endblock %}

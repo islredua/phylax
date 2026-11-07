@@ -1,0 +1,47 @@
+{% load detection_tags %}
+{% comment %}
+Proceso del activo como un solo hilo (fase 2 del plan de consolidación): escaneo de servicios →
+criticidad con IA → evaluación de detección. Cada paso dice en qué estado está, qué hace y, si
+procede, ofrece el botón del siguiente paso. Se refresca solo cada 5 s mientras algo corre y
+cada 20 s mientras espera a una persona.
+{% endcomment %}
+<div id="asset-pipeline" class="flex flex-col gap-3 text-sm"{% if pipeline.poll %} hx-get="{% url 'detection:asset_pipeline' pipeline.asset_id %}" hx-trigger="every {{ pipeline.poll }}s" hx-swap="outerHTML"{% endif %}>
+  {% if pipeline.in_flight %}<p class="text-xs text-primary">Atalaya está trabajando en este activo; la tarjeta se actualiza sola.</p>
+  {% elif pipeline.waiting %}<p class="text-xs text-muted">Hay un paso esperando; la tarjeta se actualiza sola.</p>{% endif %}
+  <ol class="flex flex-col gap-2">
+    {% for s in pipeline.steps %}
+    <li class="flex flex-col gap-1">
+      <div class="flex flex-wrap items-baseline gap-2">
+        <span class="font-mono text-xs text-muted">{{ forloop.counter }}</span>
+        <span class="{% if s.state == 'done' %}badge-low{% elif s.state == 'active' %}badge-primary{% elif s.state == 'waiting' %}badge-medium{% elif s.state == 'failed' or s.state == 'blocked' %}badge-critical{% else %}badge-neutral{% endif %}" title="{{ s.state }}">{{ s.label }}</span>
+        {% if s.state == 'active' %}<span class="text-xs text-primary">en curso…</span>{% elif s.state == 'waiting' %}<span class="text-xs text-muted">esperando</span>{% elif s.state == 'pending' %}<span class="text-xs text-muted">pendiente</span>{% elif s.state == 'stopped' %}<span class="text-xs text-muted">no se evaluó</span>{% elif s.state == 'blocked' %}<span class="text-xs text-critical">no se puede</span>{% endif %}
+      </div>
+      <p class="pl-5 text-ink-soft">{% if s.url %}<a href="{{ s.url }}">{{ s.detail }}</a>{% else %}{{ s.detail }}{% endif %}</p>
+      {% if s.action == 'scan' or s.action == 'rescan' %}{% if perms.discovery.run_discovery %}
+      <form method="post" action="{% url 'discovery:rescan' pipeline.asset_id %}" class="pl-5">{% csrf_token %}<input type="hidden" name="next" value="{% url 'assets:detail' pipeline.asset_id %}"><button class="{% if s.action == 'scan' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm" type="submit">{{ s.action_label }}</button></form>
+      {% endif %}{% elif s.action == 'suggest' %}{% if perms.assets.decide_criticality %}
+      <form method="post" action="{% url 'assets:suggest' pipeline.asset_id %}" class="pl-5">{% csrf_token %}<input type="hidden" name="next" value="{% url 'assets:detail' pipeline.asset_id %}"><button class="{% if s.state == 'pending' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm" type="submit">{{ s.action_label }}</button></form>
+      {% endif %}{% elif s.action == 'evaluate' %}{% if perms.detection.request_evaluation %}
+      <form method="post" action="{% url 'detection:evaluate' pipeline.asset_id %}" class="pl-5">{% csrf_token %}<input type="hidden" name="next" value="{% url 'assets:detail' pipeline.asset_id %}"><button class="btn-primary btn-sm" type="submit" title="El planificador decide qué conviene hacer con este activo ahora">{{ s.action_label }}</button></form>
+      {% endif %}{% elif s.action == 'consolidate' %}{% if perms.detection.request_evaluation %}
+      <form method="post" action="{% url 'detection:asset_consolidate' pipeline.asset_id %}" class="pl-5">{% csrf_token %}<input type="hidden" name="next" value="{% url 'assets:detail' pipeline.asset_id %}"><button class="{% if s.state == 'pending' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm" type="submit" title="Vuelve a pasar las observaciones del activo por la IA: agrupa, explica, puntúa y fija el estado">{{ s.action_label }}</button></form>
+      {% endif %}{% endif %}
+    </li>
+    {% endfor %}
+  </ol>
+  {% if pipeline.evaluation.event %}
+  <div class="flex flex-wrap items-center gap-2 border-t border-line-soft pt-2">
+    {% if pipeline.can_reevaluate and perms.detection.request_evaluation %}
+    <form method="post" action="{% url 'detection:evaluate' pipeline.asset_id %}">{% csrf_token %}<input type="hidden" name="next" value="{% url 'assets:detail' pipeline.asset_id %}"><button class="btn-secondary btn-sm" type="submit" title="Pide al planificador una decisión nueva aunque nada haya cambiado">Volver a evaluar</button></form>
+    {% elif pipeline.evaluated_minutes_ago is not None and not pipeline.in_flight %}
+    <span class="text-xs text-muted" title="Se podrá pedir otra evaluación pasados {{ pipeline.reevaluate_after }} minutos; el lazo evalúa de nuevo por sí solo cuando algo cambia">evaluada hace {{ pipeline.evaluated_minutes_ago }} min</span>
+    {% endif %}
+    <details class="w-full">
+      <summary class="cursor-pointer text-xs text-muted">Ver el detalle de la última evaluación</summary>
+      <div class="mt-2">{% include "detection/_evaluation_status.html" with progress=pipeline.evaluation asset_id=pipeline.asset_id embedded=True %}</div>
+    </details>
+  </div>
+  {% elif not pipeline.caps.can_evaluate %}
+  {% include "detection/_review_facts.html" with caps=pipeline.caps asset_id=pipeline.asset_id in_form=False only_remedies=True %}
+  {% endif %}
+</div>

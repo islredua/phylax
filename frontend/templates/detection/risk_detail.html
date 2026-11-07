@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% load detection_tags inventory %}
+{% block title %}{{ risk.title }}{% endblock %}
+{% block breadcrumb_tail %}<li>{{ risk.title|truncatechars:60 }}</li>{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <div class="flex flex-wrap items-center gap-2">
+    <h2>{{ risk.title }}</h2>
+    {% risk_level_badge risk.level %}{% risk_status_badge risk.status %}{% status_source_badge risk.assessment_source %}
+  </div>
+  <div class="page-actions"><a href="{% url 'detection:risks' %}?asset={{ risk.asset_id }}" class="btn-secondary btn-sm">← Riesgos del activo</a></div>
+</div>
+{% endblock %}
+{% block content %}
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+  <div class="flex flex-col gap-4">
+    <section class="card">
+      <h3 class="card-title">Escenario</h3>
+      <p class="text-ink-soft">{{ risk.scenario }}</p>
+      <dl class="kv-grid mt-4 text-sm">
+        <div><dt class="kv-label">Fuente de amenaza</dt><dd class="kv-value">{{ risk.get_threat_source_display }}</dd></div>
+        <div><dt class="kv-label">Activo</dt><dd class="kv-value"><a href="{% url 'assets:detail' risk.asset_id %}">{{ risk.asset.name }}</a> · {{ risk.environment|catalog:"ENVIRONMENT" }}</dd></div>
+        <div><dt class="kv-label">Probabilidad</dt><dd class="kv-value font-mono">{{ risk.likelihood }} / 5</dd></div>
+        <div><dt class="kv-label">Impacto</dt><dd class="kv-value font-mono">{{ risk.impact }} / 5</dd></div>
+        <div><dt class="kv-label">Nivel</dt><dd class="kv-value">{% risk_level_badge risk.level %} <span class="font-mono text-xs text-muted">{{ risk.likelihood }} × {{ risk.impact }} = {{ risk.score }}</span></dd></div>
+        <div><dt class="kv-label">Identificado / valorado</dt><dd class="kv-value font-mono text-xs">{{ risk.first_identified_at|date:"Y-m-d H:i" }} · {{ risk.assessed_at|date:"Y-m-d H:i" }}</dd></div>
+      </dl>
+      {% if risk.rationale %}<p class="kv-label mt-4">Por qué estos valores</p><p class="mt-1 text-sm text-ink-soft">{{ risk.rationale }}</p>{% endif %}
+      <p class="mt-4 text-xs text-muted">{% if risk.assessment_source == 'AI' %}Valorado por IA ({{ risk.model }}, prompt {{ risk.prompt_version }}); se revalora en cada consolidación del activo. El tratamiento es siempre decisión de una persona.{% else %}Valorado por regla (sin IA): se revalora cuando el modelo esté disponible.{% endif %}</p>
+    </section>
+
+    <section class="card">
+      <h3 class="card-title">Vulnerabilidades que lo alimentan <span class="font-mono text-xs font-normal text-muted">{{ vulnerabilities|length }}</span></h3>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Vulnerabilidad</th><th>Puntaje contextual</th><th>Plausibilidad</th><th>Estado</th></tr></thead>
+          <tbody>
+            {% for v in vulnerabilities %}
+            <tr>
+              <td><a href="{% url 'detection:vulnerability' v.pk %}">{{ v.title|truncatechars:80 }}</a> {% kev_badge v.in_kev %}<p class="font-mono text-xs text-muted">{{ v.key }}</p></td>
+              <td>{% score_badge v.contextual_score %}</td>
+              <td class="font-mono text-xs">{{ v.plausibility|pct }}</td>
+              <td>{% vuln_status_badge v.status %} {% status_source_badge v.status_source %}</td>
+            </tr>
+            {% empty %}<tr><td colspan="4" class="table-empty">Ninguna vulnerabilidad ligada.</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <div class="flex flex-col gap-4">
+    <section class="card flex flex-col gap-2">
+      <h3 class="card-title mb-0">Posición en la matriz</h3>
+      {% include "detection/_risk_matrix.html" with matrix=matrix compact=True %}
+    </section>
+
+    <section class="card flex flex-col gap-3">
+      <h3 class="card-title mb-0">Tratamiento</h3>
+      {% if risk.treatment %}
+      <p class="text-sm">{{ risk.get_treatment_display }}{% if risk.owner %} · responsable <strong>{{ risk.owner }}</strong>{% endif %}</p>
+      <p class="text-xs text-muted">Decidido por <span class="font-mono">{{ risk.decided_by.get_username|default:"—" }}</span> el {{ risk.decided_at|date:"Y-m-d H:i" }}.{% if risk.treatment_note %} «{{ risk.treatment_note }}»{% endif %}</p>
+      {% if risk.residual_level %}<p class="text-sm">Riesgo residual: {% risk_level_badge risk.residual_level %} <span class="font-mono text-xs text-muted">{{ risk.residual_likelihood }} × {{ risk.residual_impact }}</span></p>{% endif %}
+      {% else %}<p class="text-xs text-muted">Nadie ha decidido todavía qué hacer con este riesgo. La IA no decide tratamientos.</p>{% endif %}
+      {% if perms.detection.work_findings %}
+      <form method="post" action="{% url 'detection:risk_treatment' risk.pk %}" class="flex flex-col gap-2 border-t border-line-soft pt-3">
+        {% csrf_token %}
+        <label class="form-label" for="treatment">Opción (ISO/IEC 27005)</label>
+        <select id="treatment" name="treatment" class="form-input">{% for value, label in treatment_form.fields.treatment.choices %}<option value="{{ value }}"{% if value == risk.treatment %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+        <label class="form-label" for="owner">Responsable</label>
+        <input id="owner" name="owner" class="form-input" maxlength="120" value="{{ risk.owner }}" placeholder="Equipo o persona">
+        <div class="grid grid-cols-2 gap-2">
+          <div><label class="form-label" for="residual_likelihood">Probabilidad residual</label><select id="residual_likelihood" name="residual_likelihood" class="form-input"><option value="">—</option>{% for i in "12345" %}<option value="{{ i }}"{% if risk.residual_likelihood|stringformat:"s" == i %} selected{% endif %}>{{ i }}</option>{% endfor %}</select></div>
+          <div><label class="form-label" for="residual_impact">Impacto residual</label><select id="residual_impact" name="residual_impact" class="form-input"><option value="">—</option>{% for i in "12345" %}<option value="{{ i }}"{% if risk.residual_impact|stringformat:"s" == i %} selected{% endif %}>{{ i }}</option>{% endfor %}</select></div>
+        </div>
+        <label class="form-label" for="treatment-note">Nota (obligatoria para aceptar)</label>
+        <textarea id="treatment-note" name="note" class="form-input" rows="3" maxlength="2000"></textarea>
+        <button class="btn-primary" type="submit">Registrar tratamiento</button>
+      </form>
+      <form method="post" action="{% url 'detection:risk_note' risk.pk %}" class="flex flex-col gap-2 border-t border-line-soft pt-3">
+        {% csrf_token %}
+        <label class="form-label" for="note-text">Agregar nota</label>
+        <textarea id="note-text" name="text" class="form-input" rows="2" maxlength="2000" required></textarea>
+        <button class="btn-secondary btn-sm" type="submit">Guardar nota</button>
+      </form>
+      {% else %}<p class="text-sm text-muted">Solo lectura.</p>{% endif %}
+    </section>
+  </div>
+</div>
+
+<section class="flex flex-col gap-2">
+  <h3 class="eyebrow">Línea de tiempo</h3>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th>Cuándo</th><th>Qué pasó</th><th>Detalle</th><th>Quién</th></tr></thead>
+      <tbody>
+        {% for ev in timeline %}
+        <tr>
+          <td class="font-mono text-xs whitespace-nowrap">{{ ev.occurred_at|date:"Y-m-d H:i:s" }}</td>
+          <td><span class="badge-neutral">{{ ev.get_kind_display }}</span></td>
+          <td class="text-xs text-ink-soft">{{ ev.message }}</td>
+          <td class="font-mono text-xs">{{ ev.actor.get_username|default:"sistema" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

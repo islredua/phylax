@@ -61,6 +61,9 @@ class ImportExportView(Perm, View):
                 "plan": plan,
                 "counts": csv_io.summarize(plan),
                 "rows": len(rows),
+                # Autorizar el escaneo de los equipos nuevos (IP privada) con el archivo como referencia.
+                "authorize_hosts": bool(request.POST.get("authorize_hosts"))
+                and request.user.has_perm("discovery.run_discovery"),
             },
         )
         pending.file.save(f"{pending.pk}.csv", ContentFile(raw), save=False)
@@ -100,7 +103,9 @@ class ImportPreviewView(Perm, View):
         else:
             with upload.file.open("rb") as fh:
                 rows = csv_io.read_rows(fh.read())
-            upload.result = csv_io.execute_import(rows, user=request.user)
+            upload.result = csv_io.execute_import(
+                rows, user=request.user, authorize_reference=csv_io.authorize_reference(upload)
+            )
             upload.status = UploadStatus.DONE
             upload.save(update_fields=["status", "result", "updated_at"])
         return redirect("assets:import_status", token=upload.pk)

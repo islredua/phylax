@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential \
       libpq-dev \
       libcap2-bin \
+      unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # nmap como usuario no root: capabilities de archivo para raw sockets (-sS, -O).
@@ -24,12 +25,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # nmap no se ejecuta. Sin capabilities, Atalaya lo detecta y degrada a -sT.
 RUN setcap cap_net_raw,cap_net_admin,cap_net_bind_service+eip /usr/bin/nmap
 
-# nuclei: descarga del release oficial de ProjectDiscovery
+# nuclei: descarga del release oficial de ProjectDiscovery (falla el build si no se instala:
+# el ejecutor del Módulo 3 lo necesita en worker-discovery).
 RUN NUCLEI_VERSION=3.3.5 && \
-    curl -L "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/nuclei_${NUCLEI_VERSION}_linux_amd64.zip" -o /tmp/nuclei.zip && \
-    unzip /tmp/nuclei.zip -d /usr/local/bin/ && \
+    curl -fsSL "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/nuclei_${NUCLEI_VERSION}_linux_amd64.zip" -o /tmp/nuclei.zip && \
+    unzip -o /tmp/nuclei.zip nuclei -d /usr/local/bin/ && \
     chmod +x /usr/local/bin/nuclei && \
-    rm /tmp/nuclei.zip || true
+    rm /tmp/nuclei.zip
 
 # Grype: instalador oficial de Anchore
 RUN curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin

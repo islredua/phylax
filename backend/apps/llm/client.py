@@ -79,6 +79,7 @@ class OllamaClient:
 
 
 def _apply_metrics(log, data):
+    log.model_responded = str(data.get("model") or "")[:100]
     log.total_duration_ms = _ms(data.get("total_duration"))
     log.load_duration_ms = _ms(data.get("load_duration"))
     log.prompt_eval_count = data.get("prompt_eval_count")
@@ -90,8 +91,24 @@ def _apply_metrics(log, data):
         log.tokens_per_second = round(log.eval_count / (eval_ns / 1e9), 3)
 
 
+# Generadores de respuesta simulada por tarea (``LLM_MOCK_MODE``). Cada módulo registra el
+# suyo con ``register_mock``; la criticidad conserva el comportamiento original.
+MOCK_GENERATORS = {}
+
+
+def register_mock(task):
+    def decorator(fn):
+        MOCK_GENERATORS[task] = fn
+        return fn
+
+    return decorator
+
+
 def _mock_content(task, request_payload):
     """Respuesta simulada, válida y determinista para desarrollar sin Ollama."""
+    generator = MOCK_GENERATORS.get(task)
+    if generator is not None:
+        return json.dumps(generator(request_payload), ensure_ascii=False)
     digest = hashlib.sha256(json.dumps(request_payload, sort_keys=True).encode()).digest()
     classes = ("CRITICO", "ALTO", "MEDIO", "BAJO", "INFORMATIVO")
     data = request_payload.get("asset", request_payload)
@@ -149,6 +166,7 @@ def run_structured(
         if settings.LLM_MOCK_MODE:
             log.accelerator = "mock"
             log.attempts = 1
+            log.model_responded = model
             log.response_raw = _mock_content(task, request_payload)
             log.parsed = validator.model_validate_json(log.response_raw).model_dump()
             log.parsed_ok = True

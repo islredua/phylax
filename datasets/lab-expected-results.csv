@@ -1,0 +1,21 @@
+name,ip,expected_criticality,expected_keys,expected_detection,expected_severity,expected_via,note
+portal-publico,10.60.10.10,ALTO,,NONE,0,control,
+api-pagos,10.60.10.11,CRITICO,CVE-2021-44228,CONFIRMED|LIKELY,4,GRYPE,debe tener el puntaje contextual más alto
+portal-expuesto-apache,10.60.10.12,CRITICO,CVE-2021-41773|CVE-2021-42013,CONFIRMED|LIKELY,4,NUCLEI,
+vpn-agentes,10.60.10.13,ALTO,,NONE,0,control,
+lb-dmz,10.60.10.14,MEDIO,,NONE,0,control,
+decoy-info,10.60.10.15,INFORMATIVO,WEAKNESS:*,CONFIRMED|LIKELY|NEEDS_VERIFICATION,1,NUCLEI,phpinfo expuesto
+file-server,10.60.20.10,ALTO,CVE-2017-7494,CONFIRMED|LIKELY|NEEDS_VERIFICATION,3,CTI_MATCH,
+correo-interno,10.60.20.11,ALTO,,NONE,0,control,
+app-siniestros,10.60.20.12,ALTO,CVE-2021-25287|CVE-2021-25288|CVE-2021-25289|CVE-2021-25290,CONFIRMED|LIKELY,2,GRYPE,
+backup-host,10.60.20.13,ALTO,CVE-2024-6387,NEEDS_VERIFICATION|LIKELY_FALSE_POSITIVE,0,CTI_MATCH,falso positivo por backport: no debe quedar confirmada
+ldap-ad,10.60.20.14,CRITICO,,NONE,0,control,
+erp-interno,10.60.20.15,ALTO,,NONE,0,control,
+portal-rh,10.60.20.16,ALTO,CVE-2017-9841,CONFIRMED|LIKELY|NEEDS_VERIFICATION,4,NUCLEI,"la plantilla dispara pero nmap no ve PHP ni PHPUnit: queda en verificación con la señal «software no observado»"
+crm-legacy,10.60.30.10,ALTO,CVE-2017-1001000,CONFIRMED|LIKELY|NEEDS_VERIFICATION,3,NUCLEI|CTI_MATCH,correlación multi-método
+agente-portal,10.60.30.11,MEDIO,CVE-2020-8203,CONFIRMED|LIKELY,2,GRYPE,
+impresora-multifuncion,10.60.30.12,BAJO,WEAKNESS:*,CONFIRMED|LIKELY|NEEDS_VERIFICATION,1,NUCLEI,panel sin autenticación
+nas-agentes,10.60.30.13,MEDIO,,NONE,0,control,
+proxy-saliente,10.60.30.14,MEDIO,,NONE,0,control,
+correo-legacy-agentes,10.60.30.15,ALTO,CVE-2019-10149,CONFIRMED|LIKELY|NEEDS_VERIFICATION,3,CTI_MATCH,
+backup-agentes,10.60.30.16,BAJO,,NONE,0,control,

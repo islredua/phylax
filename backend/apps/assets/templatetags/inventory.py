@@ -34,9 +34,7 @@ RUN_STYLE = {
 @register.simple_tag
 def criticality_badge(value, source=None):
     if not value:
-        return mark_safe(
-            '<span class="badge-neutral">sin clasificar</span>'
-        )  # noqa: S308 (literal)
+        return mark_safe('<span class="badge-neutral">sin clasificar</span>')  # noqa: S308 (literal)
     label = Criticality(value).label
     title = CriticalitySource(source).label if source else ""
     badge = format_html(

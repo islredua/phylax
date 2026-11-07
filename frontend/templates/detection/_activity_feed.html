@@ -1,0 +1,20 @@
+{% load detection_tags %}
+{# Se refresca cada 10 s: es la ventana a «el sistema está trabajando solo». #}
+<div id="activity-feed" hx-get="{% url 'detection:activity' %}?kind={{ kind }}" hx-trigger="every 10s" hx-swap="outerHTML" class="table-wrap">
+  <table class="data-table">
+    <thead><tr><th>Cuándo</th><th>Qué</th><th>Sobre</th><th>Detalle</th></tr></thead>
+    <tbody>
+      {% for e in entries %}
+      <tr>
+        <td class="font-mono text-xs whitespace-nowrap text-ink-soft">{{ e.at|date:"Y-m-d H:i:s" }}</td>
+        <td>
+          {% if e.url %}<a href="{{ e.url }}" class="font-medium">{{ e.label }}</a>{% else %}<span class="font-medium">{{ e.label }}</span>{% endif %}
+          {% if e.kind == 'event' %}{% event_status_badge e.badge %}{% elif e.kind == 'decision' %}{% urgency_badge e.badge %}{% elif e.kind == 'action' %}{% action_status_badge e.badge %}{% elif e.kind == 'execution' %}{% execution_status_badge e.badge %}{% else %}<span class="badge-neutral">bitácora</span>{% endif %}
+        </td>
+        <td class="text-xs">{{ e.subject|default:"—" }}</td>
+        <td class="text-xs text-ink-soft">{{ e.text|truncatechars:160 }}</td>
+      </tr>
+      {% empty %}<tr><td colspan="4" class="table-empty">Aún no hay actividad. Sincroniza una fuente CTI, confirma un activo o pide una evaluación.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>

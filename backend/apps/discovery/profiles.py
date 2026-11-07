@@ -108,3 +108,31 @@ def build_argv(profile, targets, *, mode, text_output=None):
             *ips,
         ]
     raise ValidationError(f"Perfil desconocido: {profile}.")
+
+
+def build_probe_argv(ip, *, mode):
+    """Sonda de alcance de un host: ¿responde desde Atalaya? (ICMP/SYN + pocos puertos).
+
+    Sin ``-sV`` ni ``-O``: termina en segundos. Con raw sockets usa SYN y ping ICMP; sin
+    ellos, TCP connect. El resultado se informa, nunca bloquea el alta.
+    """
+    ip = validate_host_ip(ip)
+    nmap = settings.DISCOVERY_NMAP_BIN
+    ports = settings.DISCOVERY_PROBE_PORTS
+    argv = [nmap]
+    if ":" in ip:
+        argv.append("-6")
+    if mode == PRIVILEGED:
+        argv += ["--privileged", "-PE", f"-PS{ports}", "-sS"]
+    else:
+        argv += [f"-PS{ports}", "-sT"]
+    return argv + [
+        "-p",
+        ports,
+        "-T4",
+        "--host-timeout",
+        settings.DISCOVERY_PROBE_HOST_TIMEOUT,
+        "-oX",
+        "-",
+        ip,
+    ]
