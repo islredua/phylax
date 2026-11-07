@@ -11,6 +11,7 @@ from apps.cti.models import CveRecord
 from apps.detection import components, consolidation, findings
 from apps.detection.models import (
     Finding,
+    SoftwareComponent,
     StatusSource,
     Vulnerability,
     VulnerabilityEventKind,
@@ -338,3 +339,63 @@ def test_informational_observations_stay_as_context():
     consolidation.consolidate_asset(asset.pk)
     info.refresh_from_db()
     assert info.consolidated_id is None
+
+
+def test_version_precision_and_distro_packages():
+    from apps.cti.versions import is_distro_package, precision
+
+    assert precision("1.27.3") == "EXACT" and precision("9.2p1") == "EXACT"
+    assert precision("4") == "IMPRECISE" and precision("2.2.X - 2.3.X") == "IMPRECISE"
+    assert precision("7.x") == "IMPRECISE" and precision("") == "NONE"
+    assert is_distro_package("9.2p1 Debian 2+deb12u10") and is_distro_package("1:1.2.13.dfsg-1")
+    assert is_distro_package("2.4.52-1ubuntu4") and not is_distro_package("1.27.3")
+
+
+def test_cpe_version_wins_when_cpe_names_another_product():
+    asset = AssetFactory()
+    ServiceFactory(
+        asset=asset,
+        port=5000,
+        product="Werkzeug httpd",
+        version="3.1.9",
+        cpe="cpe:/a:python:python:3.12.16",
+    )
+    components.refresh_components(asset.pk)
+    component = SoftwareComponent.objects.get(asset=asset)
+    assert component.product_key == "python" and component.version == "3.12.16"
+
+
+def test_backported_and_imprecise_versions_need_verification(lab_cti):
+    from apps.detection import matching
+
+    asset = AssetFactory(criticality="ALTO")
+    ServiceFactory(
+        asset=asset,
+        port=22,
+        product="OpenSSH",
+        version="9.2p1 Debian 2+deb12u10",
+        cpe="cpe:/a:openbsd:openssh:9.2p1",
+    )
+    # nmap solo acertó la rama: «1.6.X» cae dentro del rango 1.5.0–1.27.4.
+    ServiceFactory(asset=asset, port=8080, product="nginx", version="1.6", cpe="cpe:/a:f5:nginx:1")
+    components.refresh_components(asset.pk)
+    SoftwareComponent.objects.filter(asset=asset, product_key="nginx").update(version="1.6.X")
+    result = matching.reconcile_assets([asset.pk])
+    by_key = {m.product_key: m for m in result.matches}
+    assert by_key["nginx"].confidence == "LOW" and by_key["openssh"].confidence == "HIGH"
+    findings.apply_matches(result)
+    consolidation.consolidate_asset(asset.pk)
+    vulns = {v.key: v for v in Vulnerability.objects.filter(asset=asset)}
+    assert set(vulns) == {"CVE-2024-6387", "CVE-2025-23419"}
+    for vuln in vulns.values():
+        assert vuln.status == VulnerabilityStatus.NEEDS_VERIFICATION, (vuln.key, vuln.rule_flags)
+        assert vuln.plausibility <= 0.6
+    assert any("retroportado" in f for f in vulns["CVE-2024-6387"].rule_flags)
+    assert any("imprecisa" in f for f in vulns["CVE-2025-23419"].rule_flags)
+    # Si otra fuente lo ve de verdad, la duda se disipa.
+    _observe(asset, "CVE-2024-6387", "NUCLEI", title="OpenSSH regreSSHion")
+    consolidation.consolidate_asset(asset.pk)
+    ssh = Vulnerability.objects.get(asset=asset, key="CVE-2024-6387")
+    assert ssh.status == VulnerabilityStatus.CONFIRMED and "retroportado" not in " ".join(
+        ssh.rule_flags
+    )

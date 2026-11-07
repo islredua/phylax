@@ -17,7 +17,7 @@ from dataclasses import dataclass
 
 from apps.cti import services as cti
 from apps.cti.products import parse_cpe, vendors_compatible
-from apps.cti.versions import Range, describe_range, in_range
+from apps.cti.versions import Range, describe_range, in_range, precision
 
 from . import components as components_index
 
@@ -78,6 +78,8 @@ def _range_of(product):
 
 
 def _confidence(component, product):
+    if precision(component.version) == "IMPRECISE":
+        return "LOW"  # nmap adivinó «4» o «2.2.X - 2.3.X»: el rango afectado dice poco
     parts = parse_cpe(component.cpe)
     if parts is not None and parts.vendor and parts.vendor == product.vendor:
         return "HIGH"

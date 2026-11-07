@@ -163,10 +163,15 @@ N observaciones → 1 `Vulnerability` por `(activo, clave)`; la clave es el CVE 
 cabeceras, credenciales por defecto, exposición de información). El flujo:
 
 1. **Reglas** agrupan las observaciones abiertas del activo y marcan señales deterministas
-   (`rule_flags`): coinciden N fuentes, en KEV, y «software no observado» cuando la plantilla declara
+   (`rule_flags`): coinciden N fuentes, en KEV, «software no observado» cuando la plantilla declara
    un producto o etiqueta tecnológica (Next.js, WordPress…) que no está en el software del activo
-   → tope de plausibilidad 0.3.
-2. **El LLM local** (`apps/llm/prompts/vuln_assessment/v1.md`, salida con JSON Schema y Pydantic,
+   → tope de plausibilidad 0.3; y, para coincidencias que solo vienen de la CTI, «versión imprecisa
+   según nmap» («4», «2.2.X - 2.3.X» → tope 0.5) o «paquete de distribución: posible parche
+   retroportado» («9.2p1 Debian 2+deb12u10» → tope 0.6), ambas con tope de estado
+   `NEEDS_VERIFICATION` (`rule_status_cap`): la IA no puede afirmar `CONFIRMED` hasta que otra
+   fuente lo vea de verdad. Las mismas señales bajan la confianza del emparejamiento CTI a `LOW`
+   (`apps.cti.versions.precision`, `is_distro_package`). El panel muestra las señales bajo el estado.
+2. **El LLM local** (`apps/llm/prompts/vuln_assessment/v2.md`, salida con JSON Schema y Pydantic,
    `InferenceLog` con tarea `VULN_ASSESSMENT`) recibe organización, activo, software y
    observaciones numeradas, y devuelve por vulnerabilidad: observaciones que la sustentan, título,
    explicación de negocio, impacto, acciones ordenadas, plausibilidad, factores (explotabilidad en

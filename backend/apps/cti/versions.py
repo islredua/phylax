@@ -25,6 +25,34 @@ def upstream(version: str | None) -> str:
     return text
 
 
+_IMPRECISE = re.compile(r"(^|[.\s])x(\b|$)|\s-\s|\?|\bor\b|\bo\b", re.IGNORECASE)
+_DISTRO = re.compile(r"debian|ubuntu|[~+-]deb\d|\d+ubuntu\d|\.el\d|\.fc\d|alpine|freebsd", re.I)
+
+
+def precision(version: str | None) -> str:
+    """``EXACT`` (1.27.3), ``IMPRECISE`` («2.2.X - 2.3.X», «4», «7.x») o ``NONE`` (vacía).
+
+    nmap adivina versiones por banner: cuando solo da el mayor o un rango, emparejar contra
+    rangos afectados dice más de lo que se sabe.
+    """
+    text = (version or "").strip()
+    if not text:
+        return "NONE"
+    if _IMPRECISE.search(text):
+        return "IMPRECISE"
+    numeric = [s for s in parse(text) if s[0] == 0]
+    return "IMPRECISE" if len(numeric) < 2 else "EXACT"
+
+
+def is_distro_package(version: str | None) -> bool:
+    """«9.2p1 Debian 2+deb12u10», «1:1.2.13.dfsg-1», «2.4.52-1ubuntu4»: la distribución puede
+    haber retroportado el parche sin cambiar la versión upstream que se anuncia."""
+    text = (version or "").strip()
+    return bool(text) and (
+        bool(_DISTRO.search(text)) or (":" in text and text.split(":", 1)[0].isdigit())
+    )
+
+
 def parse(version: str | None) -> tuple:
     """Segmentos comparables: enteros y cadenas en minúsculas. Vacío si no hay versión."""
     text = upstream(version).lower()

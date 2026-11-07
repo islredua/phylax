@@ -37,7 +37,13 @@ def _identity(item):
     if parts is not None and parts.product:
         vendor = parts.vendor
         key = product_key(parts.product, parts.vendor)
-        version = item.version or parts.version
+        named = product_key(item.name, item.vendor)
+        # «Werkzeug httpd 3.1.9» con cpe python:3.12.16: la versión del servicio es de Werkzeug,
+        # la de Python viene en el CPE. Si el CPE habla de otro producto, manda su versión.
+        if parts.version and named and named != key:
+            version = parts.version
+        else:
+            version = item.version or parts.version
     else:
         vendor = normalize_name(item.vendor)
         key = product_key(item.name, item.vendor)

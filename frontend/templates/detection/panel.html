@@ -48,7 +48,7 @@
         <td class="whitespace-nowrap">{% score_badge v.contextual_score %} <span class="text-xs text-muted">técnico</span> <span class="font-mono text-xs">{{ v.technical_score|default_if_none:"—" }}</span></td>
         <td>{% severity_badge v.severity %}</td>
         <td class="font-mono text-xs">{{ v.plausibility|pct }}</td>
-        <td class="whitespace-nowrap">{% vuln_status_badge v.status %} {% status_source_badge v.status_source %}</td>
+        <td class="whitespace-nowrap">{% vuln_status_badge v.status %} {% status_source_badge v.status_source %}{% if v.rule_flags %}<p class="mt-0.5 max-w-[18rem] truncate text-xs text-muted" title="{% for flag in v.rule_flags %}{{ flag }}{% if not forloop.last %} · {% endif %}{% endfor %}">{{ v.rule_flags|join:" · " }}</p>{% endif %}</td>
         <td class="font-mono text-xs">{{ v.observations.count }}</td>
         <td class="font-mono text-xs whitespace-nowrap text-ink-soft">{{ v.assessed_at|date:"Y-m-d H:i"|default:"—" }}</td>
       </tr>

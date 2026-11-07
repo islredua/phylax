@@ -27,6 +27,7 @@ from django.utils import timezone
 
 from apps.assets import services as assets_services
 from apps.cti.products import product_key
+from apps.cti.versions import is_distro_package, precision
 from apps.llm.client import register_mock, run_structured
 from apps.llm.prompts import load_prompt
 from apps.llm.schemas import VULN_ASSESSMENT_SCHEMA, VulnAssessmentOutput
@@ -49,7 +50,7 @@ from .models import (
 
 log = logging.getLogger(__name__)
 
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"
 TASK = "VULN_ASSESSMENT"
 TEXT_MAX = 300
 LOW_PLAUSIBILITY = 0.3
@@ -133,6 +134,8 @@ class Group:
     findings: list = field(default_factory=list)
     rule_flags: list = field(default_factory=list)
     plausibility_cap: float = 1.0
+    # Estado máximo que las reglas permiten afirmar ("" = sin tope).
+    status_cap: str = ""
 
     @property
     def lead(self):
@@ -260,14 +263,33 @@ def build_groups(asset_id):
             if flag not in group.rule_flags:
                 group.rule_flags.append(flag)
             group.plausibility_cap = min(group.plausibility_cap, LOW_PLAUSIBILITY)
+        component_version = finding.component.version if finding.component else ""
+        if finding.sources == [FindingSource.CTI_MATCH] and component_version:
+            if precision(component_version) == "IMPRECISE":
+                _flag(group, f"versión imprecisa según nmap: «{component_version}»", 0.5)
+                group.status_cap = VulnerabilityStatus.NEEDS_VERIFICATION
+            elif is_distro_package(component_version):
+                _flag(
+                    group,
+                    f"paquete de distribución «{component_version}»: posible parche retroportado",
+                    0.6,
+                )
+                group.status_cap = VulnerabilityStatus.NEEDS_VERIFICATION
     for group in groups.values():
         sources = {s for f in group.findings for s in (f.sources or [])}
         if len(sources) > 1:
             group.rule_flags.append(f"coinciden {len(sources)} fuentes")
             group.plausibility_cap = 1.0
+            group.status_cap = ""  # otra fuente lo vio de verdad: la duda de versión se disipa
         if group.in_kev:
             group.rule_flags.append("en KEV: explotación activa conocida")
     return list(groups.values()), components
+
+
+def _flag(group, flag, cap):
+    if flag not in group.rule_flags:
+        group.rule_flags.append(flag)
+    group.plausibility_cap = min(group.plausibility_cap, cap)
 
 
 def _observation_payload(index, finding):
@@ -328,6 +350,7 @@ def build_payload(asset_id, groups, components):
                 "observations": [index[f.pk] for f in g.findings],
                 "rule_flags": g.rule_flags,
                 "rule_plausibility_cap": g.plausibility_cap,
+                "rule_status_cap": g.status_cap or None,
             }
             for g in groups
         ],
@@ -489,6 +512,8 @@ def _apply_item(asset_id, item, group, context, *, by_rule, log_obj, now):
     status = item["status"]
     if plausibility <= LOW_PLAUSIBILITY and status in ("CONFIRMED", "LIKELY"):
         status = VulnerabilityStatus.LIKELY_FALSE_POSITIVE
+    elif group and group.status_cap and status in ("CONFIRMED", "LIKELY"):
+        status = group.status_cap
     cve = next((f.cve for f in findings if f.cve_id), None)
     key = group.key if group else _key_for(item, {})
     vuln, created = Vulnerability.objects.get_or_create(
