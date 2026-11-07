@@ -13,6 +13,7 @@ class InferenceTask(models.TextChoices):
     EXEC_NARRATIVE = "EXEC_NARRATIVE", "Narrativa ejecutiva"
     DETECTION_PLANNER = "DETECTION_PLANNER", "Planificador de detección"
     ORG_PROFILE_DRAFT = "ORG_PROFILE_DRAFT", "Borrador del perfil de la organización"
+    VULN_ASSESSMENT = "VULN_ASSESSMENT", "Consolidación de vulnerabilidades"
 
 
 class InferenceLog(UUIDModel):

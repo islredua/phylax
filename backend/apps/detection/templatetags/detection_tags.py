@@ -8,7 +8,9 @@ from apps.detection.models import (
     EventStatus,
     FindingSeverity,
     FindingStatus,
+    StatusSource,
     Urgency,
+    VulnerabilityStatus,
 )
 
 register = template.Library()
@@ -138,3 +140,107 @@ def epss_pct(value):
     if value is None:
         return "—"
     return f"{float(value) * 100:.1f} %"
+
+
+# --- Fase 4: vulnerabilidades consolidadas ---------------------------------------------------
+
+VULN_STATUS_STYLE = {
+    VulnerabilityStatus.CONFIRMED: "badge-critical",
+    VulnerabilityStatus.LIKELY: "badge-high",
+    VulnerabilityStatus.NEEDS_VERIFICATION: "badge-medium",
+    VulnerabilityStatus.LIKELY_FALSE_POSITIVE: "badge-neutral",
+    VulnerabilityStatus.FALSE_POSITIVE: "badge-neutral",
+    VulnerabilityStatus.MITIGATED: "badge-low",
+    VulnerabilityStatus.ACCEPTED: "badge-neutral",
+}
+VULN_STATUS_HELP = {
+    VulnerabilityStatus.CONFIRMED: "La evidencia es directa: versión en rango, varias fuentes o comparador específico.",
+    VulnerabilityStatus.LIKELY: "Evidencia indirecta pero coherente con el software observado.",
+    VulnerabilityStatus.NEEDS_VERIFICATION: "Falta un dato clave (versión, parche retroportado, CVE) para afirmarla.",
+    VulnerabilityStatus.LIKELY_FALSE_POSITIVE: "El software o el contexto no cuadran con lo que reporta la herramienta.",
+    VulnerabilityStatus.FALSE_POSITIVE: "Una persona verificó que no aplica.",
+    VulnerabilityStatus.MITIGATED: "Ya no se observa o se corrigió.",
+    VulnerabilityStatus.ACCEPTED: "Una persona aceptó el riesgo con una nota.",
+}
+SOURCE_LABEL = {
+    StatusSource.AI: (
+        "por IA",
+        "Lo decidió el modelo local en la consolidación; puedes corregirlo.",
+    ),
+    StatusSource.RULE: (
+        "por regla",
+        "Lo fijó una regla porque la IA no pudo evaluar; puedes corregirlo.",
+    ),
+    StatusSource.HUMAN: ("por una persona", "Lo fijó una persona; la IA ya no lo cambia."),
+}
+
+
+@register.simple_tag
+def vuln_status_badge(value):
+    return _badge(
+        VULN_STATUS_STYLE.get(value, "badge-neutral"),
+        VulnerabilityStatus(value).label,
+        VULN_STATUS_HELP.get(value, ""),
+    )
+
+
+@register.simple_tag
+def status_source_badge(value):
+    label, help_text = SOURCE_LABEL.get(value, (value, ""))
+    style = "badge-primary" if value in (StatusSource.AI, StatusSource.RULE) else "badge-neutral"
+    return _badge(style, label, help_text)
+
+
+@register.simple_tag
+def score_badge(value, kind="contextual"):
+    """Puntaje 0–10 coloreado por su severidad equivalente."""
+    if value is None:
+        return format_html('<span class="text-xs text-muted">—</span>')
+    from apps.scoring.services import severity_for
+
+    style = SEVERITY_STYLE.get(severity_for(value), "badge-neutral")
+    title = (
+        "Puntaje contextual (con el negocio)"
+        if kind == "contextual"
+        else "Puntaje técnico (CVSS, EPSS, KEV)"
+    )
+    return format_html('<span class="{} font-mono" title="{}">{}</span>', style, title, value)
+
+
+@register.filter
+def pct(value):
+    try:
+        return f"{float(value) * 100:.0f} %"
+    except (TypeError, ValueError):
+        return "—"
+
+
+@register.filter
+def pretty_json(value):
+    import json
+
+    try:
+        return json.dumps(value, ensure_ascii=False, indent=1, default=str)
+    except (TypeError, ValueError):
+        return str(value)
+
+
+@register.filter
+def factor_label(value):
+    return {
+        "NONE": "ninguna",
+        "LOW": "baja",
+        "MEDIUM": "media",
+        "HIGH": "alta",
+        "CRITICAL": "crítica",
+        "PARTIAL": "parciales",
+        "STRONG": "fuertes",
+    }.get(value, (value or "—").lower())
+
+
+@register.filter
+def get_item(mapping, key):
+    try:
+        return mapping.get(key)
+    except AttributeError:
+        return None

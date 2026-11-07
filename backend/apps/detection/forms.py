@@ -170,3 +170,66 @@ class SourceForm(StyledMixin, forms.Form):
     url = forms.URLField(label="URL", max_length=500, required=False, assume_scheme="https")
     enabled = forms.BooleanField(label="Habilitada", required=False)
     interval_hours = forms.IntegerField(label="Intervalo (horas)", min_value=1, max_value=720)
+
+
+# --- Fase 4: vulnerabilidades consolidadas y observaciones manuales -----------------------------
+
+from .models import VulnerabilityStatus  # noqa: E402
+
+HUMAN_STATUS_LABELS = {
+    VulnerabilityStatus.CONFIRMED: "Confirmar",
+    VulnerabilityStatus.NEEDS_VERIFICATION: "Requiere verificación",
+    VulnerabilityStatus.MITIGATED: "Marcar mitigada",
+    VulnerabilityStatus.ACCEPTED: "Aceptar el riesgo",
+    VulnerabilityStatus.FALSE_POSITIVE: "Falso positivo",
+}
+
+
+class VulnerabilityFilterForm(StyledMixin, forms.Form):
+    q = forms.CharField(
+        label="Buscar",
+        required=False,
+        widget=forms.TextInput(attrs={"placeholder": "CVE, título o activo"}),
+    )
+    severity = forms.ChoiceField(
+        label="Severidad", required=False, choices=[("", "Todas"), *FindingSeverity.choices]
+    )
+    status = forms.ChoiceField(
+        label="Estado",
+        required=False,
+        choices=[("", "Abiertas"), ("all", "Todas"), *VulnerabilityStatus.choices],
+    )
+    in_kev = forms.ChoiceField(
+        label="KEV",
+        required=False,
+        choices=[("", "Todas"), ("1", "Solo en KEV"), ("0", "Fuera de KEV")],
+    )
+    environment = forms.ChoiceField(
+        label="Entorno", required=False, choices=catalog_choices(catalogs.ENVIRONMENT, "Todos")
+    )
+    asset = forms.UUIDField(required=False, widget=forms.HiddenInput())
+
+
+class VulnerabilityStatusForm(forms.Form):
+    status = forms.ChoiceField(choices=list(HUMAN_STATUS_LABELS.items()))
+    note = forms.CharField(required=False, max_length=2000)
+
+
+class ObservationForm(StyledMixin, forms.Form):
+    """Observación manual: lo que una persona vio (pentest, aviso del fabricante, revisión)."""
+
+    vulnerability_id = forms.CharField(
+        label="Identificador",
+        max_length=100,
+        help_text="CVE (CVE-2025-1234) o una clave corta de la debilidad (p. ej. BACKUP-SIN-CIFRAR).",
+    )
+    title = forms.CharField(label="Título", max_length=255)
+    severity = forms.ChoiceField(label="Severidad estimada", choices=FindingSeverity.choices)
+    description = forms.CharField(
+        label="Descripción", required=False, widget=forms.Textarea(attrs={"rows": 3})
+    )
+    evidence = forms.CharField(
+        label="Evidencia",
+        max_length=255,
+        help_text="Qué viste y dónde: comando, respuesta, captura, referencia del aviso.",
+    )

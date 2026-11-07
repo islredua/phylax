@@ -251,7 +251,8 @@ def test_scoring_contract_sets_priority(monkeypatch, analyst):
     finding = findings.upsert_finding(
         asset_id=AssetFactory().pk, vulnerability_id="CVE-2020-0004", source="MANUAL"
     ).finding
-    assert finding.priority_score is None and not scoring.is_available()
+    # El Módulo 4 ya está disponible; upsert_finding no puntúa por sí mismo (lo hace quien ingiere).
+    assert finding.priority_score is None and scoring.is_available()
     findings.transition(finding.pk, user=analyst, status="CONFIRMED")
     monkeypatch.setattr(
         scoring,

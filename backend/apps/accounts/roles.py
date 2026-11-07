@@ -41,6 +41,7 @@ IMMUTABLE_MODELS = {
     ("cti", "ctisyncrun"),
     ("cti", "ctichange"),
     ("detection", "findingevent"),
+    ("detection", "vulnerabilityevent"),
     ("detection", "findingevidence"),
     ("detection", "detectionevent"),
     ("detection", "eventbatch"),

@@ -17,25 +17,29 @@ from apps.cti.models import CtiSource, CtiSyncRun, SourceKind
 from apps.scanners.models import ToolExecution
 from apps.scoring import services as scoring
 
-from . import actions, activity, automation, events, findings, planner, profile
+from . import actions, activity, automation, consolidation, events, findings, planner, profile
 from .forms import (
-    TRANSITION_LABELS,
+    HUMAN_STATUS_LABELS,
     AutomationForm,
     FindingFilterForm,
     FindingTransitionForm,
     NoteForm,
+    ObservationForm,
     PauseForm,
     ProfileForm,
     ReviewForm,
     SourceForm,
+    VulnerabilityFilterForm,
+    VulnerabilityStatusForm,
 )
 from .models import (
     OPEN_STATUSES,
+    VULN_OPEN_STATUSES,
     DetectionEvent,
     Finding,
     FindingSeverity,
-    FindingStatus,
     PlannedAction,
+    Vulnerability,
 )
 
 
@@ -95,9 +99,165 @@ def filter_findings(params):
 SEVERITY_ORDER = {s: i for i, s in enumerate(reversed(FindingSeverity.values))}
 
 
+def filter_vulnerabilities(params):
+    qs = Vulnerability.objects.select_related("asset", "cve", "component")
+    form = VulnerabilityFilterForm(params or None)
+    status = ""
+    if form.is_valid():
+        data = form.cleaned_data
+        status = data["status"]
+        if data["q"]:
+            qs = qs.filter(
+                Q(key__icontains=data["q"])
+                | Q(title__icontains=data["q"])
+                | Q(asset__name__icontains=data["q"])
+            )
+        if data["severity"]:
+            qs = qs.filter(severity=data["severity"])
+        if data["in_kev"]:
+            qs = qs.filter(in_kev=data["in_kev"] == "1")
+        if data["environment"]:
+            qs = qs.filter(environment=data["environment"])
+        if data["asset"]:
+            qs = qs.filter(asset_id=data["asset"])
+    if status == "all":
+        pass
+    elif status:
+        qs = qs.filter(status=status)
+    else:
+        qs = qs.filter(status__in=VULN_OPEN_STATUSES)
+    return qs, form
+
+
 class PanelView(Perm, ListView):
-    permission_required = "detection.view_finding"
+    """Panel = vulnerabilidades consolidadas, ordenadas por puntaje contextual."""
+
+    permission_required = "detection.view_vulnerability"
     template_name = "detection/panel.html"
+    context_object_name = "vulnerabilities"
+    paginate_by = 25
+
+    def get_queryset(self):
+        qs, self.filter_form = filter_vulnerabilities(self.request.GET)
+        return qs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        asset_id = (
+            self.filter_form.cleaned_data.get("asset") if self.filter_form.is_valid() else None
+        )
+        context.update(
+            filter_form=self.filter_form,
+            summary=consolidation.summary(asset_id),
+            observations_open=findings.open_findings(asset_id).count(),
+            unconsolidated=consolidation.consolidable(findings.open_findings(asset_id))
+            .filter(consolidated__isnull=True)
+            .count(),
+            asset_id=asset_id,
+            consolidation_pending=consolidation.is_pending(asset_id) if asset_id else False,
+            queue_size=actions.approval_queue().count(),
+            automation=automation.summary(),
+        )
+        return context
+
+
+class VulnerabilityDetailView(Perm, TemplateView):
+    permission_required = "detection.view_vulnerability"
+    template_name = "detection/vulnerability_detail.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        vuln = get_object_or_404(
+            Vulnerability.objects.select_related(
+                "asset", "cve", "component", "status_by", "inference"
+            ),
+            pk=kwargs["pk"],
+        )
+        context.update(
+            vuln=vuln,
+            observations=vuln.observations.select_related("component").prefetch_related("evidence"),
+            timeline=vuln.events.select_related("actor").order_by("-occurred_at", "-id"),
+            statuses=[(s, HUMAN_STATUS_LABELS[s]) for s in HUMAN_STATUS_LABELS if s != vuln.status],
+            consolidation_pending=consolidation.is_pending(vuln.asset_id),
+            baselines=scoring.baselines(
+                cvss=vuln.cvss_score, epss=vuln.epss_score, severity=vuln.severity
+            ),
+        )
+        return context
+
+
+class VulnerabilityStatusView(Perm, View):
+    permission_required = "detection.work_findings"
+
+    def post(self, request, pk):
+        form = VulnerabilityStatusForm(request.POST)
+        back = _safe_next(request, reverse("detection:vulnerability", args=[pk]))
+        if not form.is_valid():
+            messages.error(request, "Elige un estado válido.")
+            return HttpResponseRedirect(back)
+        try:
+            vuln = consolidation.set_status(
+                pk,
+                user=request.user,
+                status=form.cleaned_data["status"],
+                note=form.cleaned_data["note"],
+            )
+            messages.success(
+                request,
+                f"Estado fijado por ti: {vuln.get_status_display().lower()}. La IA ya no lo cambiará.",
+            )
+        except ValueError as error:
+            messages.error(request, str(error))
+        return HttpResponseRedirect(back)
+
+
+class VulnerabilityReleaseView(Perm, View):
+    permission_required = "detection.work_findings"
+
+    def post(self, request, pk):
+        consolidation.release_to_ai(pk, user=request.user)
+        messages.success(request, "El estado vuelve a decidirlo la IA en la próxima consolidación.")
+        return redirect("detection:vulnerability", pk=pk)
+
+
+class VulnerabilityNoteView(Perm, View):
+    permission_required = "detection.work_findings"
+
+    def post(self, request, pk):
+        form = NoteForm(request.POST)
+        if form.is_valid():
+            consolidation.add_note(pk, user=request.user, text=form.cleaned_data["text"])
+            messages.success(request, "Nota agregada a la línea de tiempo.")
+        else:
+            messages.error(request, "La nota está vacía.")
+        return redirect("detection:vulnerability", pk=pk)
+
+
+class ConsolidateAssetView(Perm, View):
+    """«Reevaluar con IA»: consolida ahora las observaciones del activo (cola llm, sin retardo)."""
+
+    permission_required = "detection.request_evaluation"
+
+    def post(self, request, pk):
+        back = _safe_next(request, f"{reverse('detection:panel')}?asset={pk}")
+        if consolidation.is_pending(pk):
+            messages.info(request, "Ya hay una consolidación en cola para este activo.")
+        elif consolidation.request_consolidation(
+            pk, reason="reevaluación pedida a mano", requested_by=request.user, delay=0
+        ):
+            messages.success(
+                request, "Consolidación con IA en cola; la página se actualizará sola."
+            )
+        else:
+            messages.info(request, "El activo no tiene observaciones que consolidar.")
+        return HttpResponseRedirect(back)
+
+
+class ObservationsView(Perm, ListView):
+    """Capa cruda: lo que cada herramienta, la reconciliación o una persona reportó."""
+
+    permission_required = "detection.view_finding"
+    template_name = "detection/observations.html"
     context_object_name = "findings"
     paginate_by = 25
 
@@ -122,11 +282,43 @@ class PanelView(Perm, ListView):
         context.update(
             filter_form=self.filter_form,
             summary=findings.summary(),
-            queue_size=actions.approval_queue().count(),
-            automation=automation.summary(),
-            scoring_available=scoring.is_available(),
+            asset_id=self.filter_form.cleaned_data.get("asset")
+            if self.filter_form.is_valid()
+            else None,
         )
         return context
+
+
+class ObservationCreateView(Perm, TemplateView):
+    permission_required = "detection.work_findings"
+    template_name = "detection/observation_form.html"
+
+    def _asset(self, request):
+        from apps.assets.models import Asset
+
+        return get_object_or_404(Asset, pk=request.GET.get("asset") or request.POST.get("asset"))
+
+    def get(self, request):
+        asset = self._asset(request)
+        return render(request, self.template_name, {"asset": asset, "form": ObservationForm()})
+
+    def post(self, request):
+        asset = self._asset(request)
+        form = ObservationForm(request.POST)
+        if form.is_valid():
+            try:
+                finding = findings.add_manual_observation(
+                    user=request.user, asset_id=asset.pk, **form.cleaned_data
+                )
+            except ValidationError as error:
+                _messages_from(request, error)
+            else:
+                messages.success(
+                    request,
+                    "Observación registrada; la consolidación con IA la tomará en cuenta en breve.",
+                )
+                return redirect("detection:finding", pk=finding.pk)
+        return render(request, self.template_name, {"asset": asset, "form": form})
 
 
 class FindingDetailView(Perm, TemplateView):
@@ -139,14 +331,12 @@ class FindingDetailView(Perm, TemplateView):
             Finding.objects.select_related("asset", "cve", "component", "status_changed_by"),
             pk=kwargs["pk"],
         )
-        allowed = findings.TRANSITIONS.get(finding.status, set())
         context.update(
             finding=finding,
             evidence=finding.evidence.select_related("component"),
             timeline=finding.events.select_related("actor").order_by("-occurred_at", "-id"),
-            transitions=[(s, TRANSITION_LABELS[s]) for s in TRANSITION_LABELS if s in allowed],
-            can_reopen=FindingStatus.CONFIRMED in allowed and not finding.is_open,
-            scoring_available=scoring.is_available(),
+            consolidated=finding.consolidated,
+            consolidation_pending=consolidation.is_pending(finding.asset_id),
         )
         return context
 

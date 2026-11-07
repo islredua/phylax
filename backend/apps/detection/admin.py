@@ -12,6 +12,8 @@ from .models import (
     PlannedAction,
     PlannerDecision,
     SoftwareComponent,
+    Vulnerability,
+    VulnerabilityEvent,
     WatchItem,
 )
 
@@ -125,3 +127,34 @@ class AutomationLogEntryAdmin(ReadOnly, admin.ModelAdmin):
 @admin.register(OrganizationProfile)
 class OrganizationProfileAdmin(admin.ModelAdmin):
     list_display = ("name", "sector", "location", "draft_state", "updated_at")
+
+
+class VulnerabilityEventInline(ReadOnly, admin.TabularInline):
+    model = VulnerabilityEvent
+    extra = 0
+
+
+@admin.register(Vulnerability)
+class VulnerabilityAdmin(admin.ModelAdmin):
+    list_display = (
+        "title",
+        "asset",
+        "key",
+        "severity",
+        "technical_score",
+        "contextual_score",
+        "plausibility",
+        "status",
+        "status_source",
+        "assessed_at",
+    )
+    list_filter = ("status", "status_source", "assessment_source", "severity", "in_kev")
+    search_fields = ("title", "key", "asset__name")
+    readonly_fields = [f.name for f in Vulnerability._meta.fields if f.name != "status"]
+    inlines = [VulnerabilityEventInline]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

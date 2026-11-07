@@ -144,14 +144,54 @@ vigente y en alcance; objetivos válidos; ejecuciones simultáneas; escaneos por
 con acceso a las redes escaneadas. nmap sigue en el descubrimiento. Si falta el binario, la
 ejecución falla con un mensaje claro.
 
-## H. Hallazgos
+## H. Observaciones (capa cruda)
 
-`Finding` único por `(activo, vulnerabilidad)`; cada herramienta añade `FindingEvidence`. Ciclo:
-Nuevo → Confirmado → Priorizado → (Mitigado · Aceptado · Falso positivo); un mitigado que reaparece
-→ **Reaparecido**. Aceptar el riesgo y falso positivo exigen nota. `FindingEvent` es solo de
-inserción: detección, otra herramienta, visto de nuevo, reescaneo, EPSS/KEV/CVSS, prioridad, estado,
-nota. El puntaje de prioridad lo entrega el motor de scoring (`apps.scoring.services.score_findings`);
-mientras no exista, el panel ordena por prioridad provisional (KEV, severidad, EPSS) y lo dice.
+`Finding` es una **observación**: lo que una herramienta, la reconciliación CTI o una persona
+reportó sobre un activo. Única por `(activo, identificador)`; cada fuente añade `FindingEvidence`
+(con los metadatos de la plantilla de nuclei: etiquetas, producto declarado, CWE, vector CVSS,
+remediación, impacto). **Nunca se borra**: cuando nadie la reporta ya pasa a mitigada con evento, y
+si reaparece queda **Reaparecida**. `FindingEvent` es solo de inserción. El analista puede
+registrar una observación manual (`Observaciones › Registrar observación`, fuente `MANUAL`) y
+anotar contexto; los estados que importan a la organización no se deciden aquí sino en la
+vulnerabilidad consolidada. Cada observación muestra a qué vulnerabilidad pertenece (o «sin
+consolidar aún»). `apps.scoring.score_findings` le da una prioridad para ordenar la capa cruda.
+
+## H2. Vulnerabilidades consolidadas (`detection/consolidation.py`)
+
+N observaciones → 1 `Vulnerability` por `(activo, clave)`; la clave es el CVE o
+`WEAKNESS:<familia>[:<producto>]` para debilidades sin CVE (software sin soporte, TLS débil,
+cabeceras, credenciales por defecto, exposición de información). El flujo:
+
+1. **Reglas** agrupan las observaciones abiertas del activo y marcan señales deterministas
+   (`rule_flags`): coinciden N fuentes, en KEV, y «software no observado» cuando la plantilla declara
+   un producto o etiqueta tecnológica (Next.js, WordPress…) que no está en el software del activo
+   → tope de plausibilidad 0.3.
+2. **El LLM local** (`apps/llm/prompts/vuln_assessment/v1.md`, salida con JSON Schema y Pydantic,
+   `InferenceLog` con tarea `VULN_ASSESSMENT`) recibe organización, activo, software y
+   observaciones numeradas, y devuelve por vulnerabilidad: observaciones que la sustentan, título,
+   explicación de negocio, impacto, acciones ordenadas, plausibilidad, factores (explotabilidad en
+   contexto, sensibilidad de datos, impacto de negocio, controles compensatorios), ajuste acotado
+   ±1 con justificación y **estado** (confirmada, probable, requiere verificación, probable falso
+   positivo). Se trabaja en lotes de `DETECTION_CONSOLIDATE_CHUNK` observaciones.
+3. **Validación**: toda referencia a una observación inexistente se descarta y registra; las
+   observaciones que el modelo no cubrió se consolidan por regla con «requiere verificación». Si
+   el modelo no responde, todo se crea por regla y queda «evaluada por regla (sin IA)».
+4. **Scoring (Módulo 4, `apps.scoring`)**: `technical_score` (CVSS, EPSS, KEV con piso 7.0) y
+   `contextual_score` (técnico × criticidad, exposición y clasificación de datos del activo ×
+   factores del LLM, con plausibilidad que reduce hasta el 40 %, controles compensatorios y
+   ajuste). Determinista y versionado (`algorithm_version`); `baselines` da CVSS, EPSS y CVSS×EPSS
+   para comparar. La severidad mostrada deriva del puntaje contextual.
+5. **Estado por IA**: la vulnerabilidad nace con el estado que eligió el modelo
+   (`status_source = AI`, etiqueta «por IA»). Una persona puede corregirlo (`HUMAN`): desde entonces
+   la consolidación actualiza explicación y puntajes pero **no el estado**, hasta que «Devolver la
+   decisión a la IA». Aceptar el riesgo y falso positivo exigen nota. Una vulnerabilidad que pierde
+   todas sus observaciones abiertas pasa a mitigada con evento. `VulnerabilityEvent` es solo de
+   inserción.
+
+**Disparadores** (`request_consolidation`, cola `llm`, retardo agrupador
+`DETECTION_CONSOLIDATE_DELAY_S`): fin de una herramienta con activo, reconciliación con cambios,
+cambio CTI que toca observaciones del activo, observación manual y «Reevaluar con IA» (sin
+retardo). Varios disparadores cercanos producen una sola corrida.
 
 ## I. Perfil de la organización
 
@@ -162,16 +202,31 @@ párrafo a partir de agregados sin IP ni nombres de equipo; el admin lo edita.
 
 ## J. Pantallas
 
-Sección **Detección**: Panel (hallazgos con filtros y resumen) · Actividad (flujo en vivo) · Cola
-de aprobación · Fuentes CTI · Automatización (controles y bitácora). El perfil de la organización
-vive en **Administración › Organización** (contexto compartido con scoring y reportes). Detalle de
-hallazgo con evidencia y línea de tiempo; detalle de evento, acción y ejecución.
+Sección **Detección**: Vulnerabilidades (consolidadas, ordenadas por puntaje contextual, con
+resumen y filtros) · Observaciones (capa cruda con filtros, enlace a su vulnerabilidad y
+«Registrar observación») · Actividad (flujo en vivo) · Cola de aprobación · Fuentes CTI ·
+Automatización. El perfil de la organización vive en **Administración › Organización**.
 
-En el activo (Resumen › Acciones): «Evaluar ahora» y, debajo, la **última evaluación contada como
-pasos** (`detection/progress.py`: recibida, reconciliada, decisión, acción, descubrimiento o
-herramienta) con la frase final que responde si hubo hallazgos o por qué no se pudo evaluar. Se
-refresca sola cada 5 s mientras algo corre y cada 20 s mientras espera a una persona. Si el activo
-no tiene evaluaciones o Atalaya no puede evaluarlo, muestra los motivos y los pasos siguientes.
+Detalle de vulnerabilidad: qué significa, impacto para la organización, acciones sugeridas,
+señales de las reglas, dos puntajes con su desglose (contextual: criticidad, exposición, datos,
+plausibilidad, factores y ajuste de la IA; técnico: CVSS, EPSS, KEV, líneas base, algoritmo),
+observaciones que la sustentan, estado con etiqueta «por IA / por regla / por una persona» y
+formulario de corrección con nota, «Devolver la decisión a la IA», notas, línea de tiempo y
+«Reevaluar con IA». Detalle de observación: evidencia desplegable por fuente (dónde coincidió,
+plantilla, comparador, datos extraídos, producto declarado, etiquetas, CWE, vector, remediación,
+datos crudos), aviso de a qué vulnerabilidad pertenece y solo notas.
+
+En el activo (Resumen › **Proceso del activo**, `detection/progress.asset_pipeline`) el activo se
+cuenta como **un solo hilo** de cuatro pasos encadenados: escaneo de servicios → criticidad con IA
+→ evaluación de detección → vulnerabilidades con IA. Cada paso dice su estado (hecho, en curso,
+esperando, pendiente, falló, no se puede), su detalle (herramienta, inicio, duración típica,
+resultado) y ofrece el botón que toca: «Escanear servicios» / «Re-escanear», «Sugerir con IA» /
+«Recalcular», «Evaluar ahora», «Consolidar con IA» / «Reevaluar con IA». Mientras corre el escaneo,
+la criticidad dice que se calcula al terminar y la evaluación que arranca sola. «Volver a evaluar»
+solo aparece pasados `DETECTION_REEVALUATE_MINUTES`; antes se lee «evaluada hace N min». La última
+evaluación contada como pasos queda desplegable. La tarjeta se refresca sola cada 5 s mientras algo
+corre y cada 20 s mientras espera a una persona. Las pestañas del activo enlazan sus
+vulnerabilidades y observaciones con conteos.
 
 En la cola de aprobación y en el detalle de cada acción, el bloque **«Qué se revisa»** se calcula
 por reglas, no por el LLM: hallazgos abiertos (y en KEV), software registrado, últimos escaneos,
@@ -183,14 +238,16 @@ servicios, registrar o renovar el rango, cargar SBOM, editar el activo).
 | Rol | Puede |
 |---|---|
 | Administrador | Todo: modo y guardarraíles, perfil, fuentes CTI, además de lo del Analista |
-| Analista (`operador`) | Aprobar/rechazar acciones, trabajar hallazgos, pedir evaluaciones |
+| Analista (`operador`) | Aprobar/rechazar acciones, corregir estados de vulnerabilidades, registrar observaciones y notas, pedir evaluaciones y consolidaciones |
 | Lector (`auditor`) | Solo ver |
 
 ## Configuración
 
 `.env`: `NVD_API_KEY`, `NVD_API_BASE`, `EPSS_SNAPSHOT_URL`, `KEV_CATALOG_URL`, `CTI_ONLINE`,
 `CTI_NVD_INITIAL_DAYS`, `CTI_PRODUCT_REFRESH_DAYS`, `CTI_EPSS_RISE_DELTA`, `CTI_EPSS_HIGH`,
-`DETECTION_ASSET_REVIEW_DAYS`, `DETECTION_FINDING_REVIEW_DAYS`, `NUCLEI_TEMPLATES_DIR`,
+`DETECTION_ASSET_REVIEW_DAYS`, `DETECTION_FINDING_REVIEW_DAYS`, `DETECTION_REEVALUATE_MINUTES`,
+`DETECTION_CONSOLIDATE_DELAY_S`, `DETECTION_CONSOLIDATE_CHUNK`, `SCORING_W_*` (pesos del Módulo 4:
+`CVSS`, `EPSS`, `KEV`, `TECHNICAL`, `CRITICALITY`, `EXPOSURE`, `DATA`, `EXPLOITABILITY`), `NUCLEI_TEMPLATES_DIR`,
 `GRYPE_DB_CACHE_DIR`, `SCANNER_TIMEOUT_S`. En BD (UI): fuentes CTI (URL, intervalo, habilitada), `AutomationSettings`,
 `OrganizationProfile`.
 

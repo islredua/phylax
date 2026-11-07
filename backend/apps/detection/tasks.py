@@ -76,6 +76,18 @@ def dispatch_actions():
 
 
 @shared_task(acks_late=True, soft_time_limit=1900, time_limit=2000)
+def consolidate_asset(asset_id, reason="", user_id=None):
+    """Consolidación de observaciones en vulnerabilidades (cola llm, con retardo agrupador)."""
+    from django.contrib.auth import get_user_model
+
+    from . import consolidation
+
+    consolidation.clear_pending(asset_id)
+    user = get_user_model().objects.filter(pk=user_id).first() if user_id else None
+    return consolidation.consolidate_asset(asset_id, requested_by=user, reason=reason).__dict__
+
+
+@shared_task(acks_late=True, soft_time_limit=1900, time_limit=2000)
 def draft_org_profile(user_id=None):
     """Cola ``llm``: borrador del perfil de la organización a partir del inventario."""
     try:

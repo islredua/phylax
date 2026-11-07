@@ -318,6 +318,8 @@ def _reconcile_asset(asset_id):
     stats = findings.apply_matches(result)
     resolved = findings.resolve_vanished(asset_id, result)
     touch_state(asset_id, last_reconciled_at=True)
+    if stats.created or stats.reopened or resolved:
+        _request_consolidation(asset_id, "reconciliación con cambios")
     return {
         "matches": len(result.matches),
         "candidates": len(result.candidates),
@@ -400,6 +402,7 @@ def process_batch(batch_id):
         stats = findings.apply_matches(result)
         for asset_id in result.asset_ids:
             touch_state(asset_id, last_reconciled_at=True)
+            _request_consolidation(asset_id, "cambio en la inteligencia de amenazas")
         inventory_keys = components_index.product_keys_in_inventory()
         for event in cti_events:
             _triage_cti(event, result, stats, inventory_keys)
@@ -445,3 +448,9 @@ def ready_events(limit=50):
         DetectionEvent.objects.filter(status=EventStatus.READY).order_by("created_at")[:limit]
     )
     return sorted(events, key=lambda e: (order.get(e.urgency_hint, 2), e.created_at))
+
+
+def _request_consolidation(asset_id, reason):
+    from . import consolidation
+
+    consolidation.request_consolidation(asset_id, reason=reason)

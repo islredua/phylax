@@ -23,6 +23,8 @@ cada 20 s mientras espera a una persona.
       <form method="post" action="{% url 'assets:suggest' pipeline.asset_id %}" class="pl-5">{% csrf_token %}<input type="hidden" name="next" value="{% url 'assets:detail' pipeline.asset_id %}"><button class="{% if s.state == 'pending' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm" type="submit">{{ s.action_label }}</button></form>
       {% endif %}{% elif s.action == 'evaluate' %}{% if perms.detection.request_evaluation %}
       <form method="post" action="{% url 'detection:evaluate' pipeline.asset_id %}" class="pl-5">{% csrf_token %}<input type="hidden" name="next" value="{% url 'assets:detail' pipeline.asset_id %}"><button class="btn-primary btn-sm" type="submit" title="El planificador decide qué conviene hacer con este activo ahora">{{ s.action_label }}</button></form>
+      {% endif %}{% elif s.action == 'consolidate' %}{% if perms.detection.request_evaluation %}
+      <form method="post" action="{% url 'detection:asset_consolidate' pipeline.asset_id %}" class="pl-5">{% csrf_token %}<input type="hidden" name="next" value="{% url 'assets:detail' pipeline.asset_id %}"><button class="{% if s.state == 'pending' %}btn-primary{% else %}btn-secondary{% endif %} btn-sm" type="submit" title="Vuelve a pasar las observaciones del activo por la IA: agrupa, explica, puntúa y fija el estado">{{ s.action_label }}</button></form>
       {% endif %}{% endif %}
     </li>
     {% endfor %}

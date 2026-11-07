@@ -21,7 +21,7 @@ from django.utils import timezone
 
 from apps.assets import services as assets_services
 
-from . import automation, events, findings, matching
+from . import automation, consolidation, events, findings, matching
 from .models import (
     ACTION_OPEN_STATUSES,
     HEAVY_ACTIONS,
@@ -367,6 +367,8 @@ def _run_reconcile(action):
     stats = findings.apply_matches(result)
     resolved = findings.resolve_vanished(action.asset_id, result)
     events.touch_state(action.asset_id, last_reconciled_at=True)
+    if stats.created or stats.reopened or resolved:
+        consolidation.request_consolidation(action.asset_id, reason="reconciliación con cambios")
     action.result = {
         "matches": len(result.matches),
         "created": stats.created,
@@ -409,6 +411,9 @@ def on_execution_finished(execution):
     if action.asset_id and ok:
         field = "last_sbom_scan_at" if execution.tool == "GRYPE" else "last_vuln_scan_at"
         events.touch_state(action.asset_id, **{field: True})
+        consolidation.request_consolidation(
+            action.asset_id, reason=f"{execution.get_tool_display()} {execution.profile}"
+        )
     automation.log(
         LogKind.FINISHED if ok else LogKind.FAILED,
         action=action,

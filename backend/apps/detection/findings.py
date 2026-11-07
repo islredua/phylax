@@ -452,6 +452,36 @@ def apply_cti_changes(changes) -> list:
 # --------------------------------------------------------------------------
 
 
+def add_manual_observation(
+    *, user, asset_id, vulnerability_id, title, severity, description="", evidence=""
+):
+    """Una persona registra lo que vio. Alimenta la consolidación igual que una herramienta."""
+    from apps.cti.services import get_cve
+
+    from . import consolidation
+
+    _require(user)
+    vulnerability_id = (vulnerability_id or "").strip().upper()
+    if not vulnerability_id or not (title or "").strip():
+        raise ValidationError("La observación necesita identificador y título.")
+    cve = get_cve(vulnerability_id) if vulnerability_id.startswith("CVE-") else None
+    outcome = upsert_finding(
+        asset_id=asset_id,
+        vulnerability_id=vulnerability_id,
+        source=FindingSource.MANUAL,
+        title=title.strip(),
+        description=(description or "").strip(),
+        severity=severity,
+        cve=cve,
+        confidence="HIGH",
+        evidence_summary=f"Observación manual de {user.get_username()}: {evidence.strip()}"[:255],
+        evidence_data={"recorded_by": user.get_username(), "evidence": evidence.strip()},
+    )
+    request_scoring([outcome.finding.pk])
+    consolidation.request_consolidation(asset_id, reason="observación manual", requested_by=user)
+    return outcome.finding
+
+
 def request_scoring(finding_ids):
     from apps.scoring import services as scoring
 

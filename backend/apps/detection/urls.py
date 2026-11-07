@@ -7,6 +7,31 @@ app_name = "detection"
 
 urlpatterns = [
     path("", views.PanelView.as_view(), name="panel"),
+    path(
+        "vulnerabilities/<uuid:pk>/", views.VulnerabilityDetailView.as_view(), name="vulnerability"
+    ),
+    path(
+        "vulnerabilities/<uuid:pk>/status/",
+        views.VulnerabilityStatusView.as_view(),
+        name="vulnerability_status",
+    ),
+    path(
+        "vulnerabilities/<uuid:pk>/release/",
+        views.VulnerabilityReleaseView.as_view(),
+        name="vulnerability_release",
+    ),
+    path(
+        "vulnerabilities/<uuid:pk>/note/",
+        views.VulnerabilityNoteView.as_view(),
+        name="vulnerability_note",
+    ),
+    path("observations/", views.ObservationsView.as_view(), name="observations"),
+    path("observations/new/", views.ObservationCreateView.as_view(), name="observation_new"),
+    path(
+        "assets/<uuid:pk>/consolidate/",
+        views.ConsolidateAssetView.as_view(),
+        name="asset_consolidate",
+    ),
     path("findings/<uuid:pk>/", views.FindingDetailView.as_view(), name="finding"),
     path(
         "findings/<uuid:pk>/transition/",

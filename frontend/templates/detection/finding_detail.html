@@ -9,20 +9,27 @@
     {% severity_badge finding.severity %}{% finding_status_badge finding.status %}{% kev_badge finding.in_kev %}
     {% if finding.reopened_count %}<span class="badge-high" title="Veces que reapareció tras marcarse mitigado">reapareció ×{{ finding.reopened_count }}</span>{% endif %}
   </div>
-  <div class="page-actions"><a href="{% url 'detection:panel' %}" class="btn-secondary btn-sm">← Panel</a></div>
+  <div class="page-actions"><a href="{% url 'detection:observations' %}?asset={{ finding.asset_id }}" class="btn-secondary btn-sm">← Observaciones del activo</a></div>
 </div>
 {% endblock %}
 {% block content %}
 <div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
   <section class="card">
+    <p class="eyebrow mb-0">Observación</p>
     <h3 class="card-title">{{ finding.title }}</h3>
+    <div class="alert-info mb-3 text-sm">
+      {% if consolidated %}Forma parte de la vulnerabilidad <a href="{% url 'detection:vulnerability' consolidated.pk %}" class="font-medium">{{ consolidated.title }}</a> ({{ consolidated.get_status_display|lower }}, puntaje contextual {{ consolidated.contextual_score|default_if_none:"—" }}). Los estados se deciden ahí.
+      {% elif finding.is_informational %}Observación <strong>informativa</strong> (detección de tecnología o versión, sin CVE): es contexto que la IA usa para juzgar las demás, no una vulnerabilidad en sí.
+      {% elif consolidation_pending %}La IA está consolidando las observaciones de este activo; en breve dirá a qué vulnerabilidad pertenece.
+      {% else %}Sin consolidar aún: la IA la agrupará con el resto de observaciones del activo tras el siguiente escaneo o reconciliación{% if perms.detection.request_evaluation %}, o al pulsar «Reevaluar con IA» en las vulnerabilidades del activo{% endif %}.{% endif %}
+    </div>
     <dl class="kv-grid">
       <div><dt class="kv-label">Activo</dt><dd class="kv-value"><a href="{% url 'assets:detail' finding.asset_id %}">{{ finding.asset.name }}</a> · {{ finding.environment|catalog:"ENVIRONMENT" }}</dd></div>
       <div><dt class="kv-label">Software afectado</dt><dd class="kv-value">{% if finding.component %}{{ finding.component.label }}{% if not finding.component.is_current %} <span class="badge-neutral">ya no se observa</span>{% endif %}{% else %}—{% endif %}</dd></div>
       <div><dt class="kv-label">Severidad / CVSS</dt><dd class="kv-value">{% severity_badge finding.severity %} <span class="font-mono text-xs">{{ finding.cvss_score|default:"—" }}{% if finding.cve.cvss_vector %} · {{ finding.cve.cvss_vector }}{% endif %}</span></dd></div>
       <div><dt class="kv-label">EPSS</dt><dd class="kv-value font-mono text-xs">{{ finding.epss_score|epss_pct }}{% if finding.cve.epss_percentile %} (percentil {{ finding.cve.epss_percentile|floatformat:2 }}){% endif %}</dd></div>
       <div><dt class="kv-label">KEV</dt><dd class="kv-value">{% if finding.in_kev %}<span class="badge-critical">explotación activa</span> desde {{ finding.cve.kev_added_at }}{% if finding.kev_due_at %} · remediar antes de {{ finding.kev_due_at }}{% endif %}{% if finding.cve.kev_ransomware == 'Known' %} · <span class="badge-high">ransomware</span>{% endif %}{% else %}no{% endif %}</dd></div>
-      <div><dt class="kv-label">Prioridad</dt><dd class="kv-value">{% if finding.priority_score is not None %}<span class="font-mono">{{ finding.priority_score }}</span> <span class="text-xs text-muted">{{ finding.priority_computed_at|date:"Y-m-d H:i" }}</span>{% else %}<span class="text-muted">provisional (sin motor de scoring)</span>{% endif %}</dd></div>
+      <div><dt class="kv-label">Prioridad de la observación</dt><dd class="kv-value">{% if finding.priority_score is not None %}<span class="font-mono">{{ finding.priority_score }}</span> <span class="text-xs text-muted">{{ finding.priority_computed_at|date:"Y-m-d H:i" }} · solo ordena la capa cruda; el puntaje real está en la vulnerabilidad</span>{% else %}<span class="text-muted">sin calcular todavía</span>{% endif %}</dd></div>
       <div><dt class="kv-label">Fuentes</dt><dd class="kv-value">{% for s in finding.sources %}<span class="badge-neutral">{{ s|lower }}</span> {% endfor %} <span class="text-xs text-muted">confianza {{ finding.confidence|default:"—"|lower }}</span></dd></div>
       <div><dt class="kv-label">Detectado / visto / resuelto</dt><dd class="kv-value font-mono text-xs">{{ finding.first_detected_at|date:"Y-m-d H:i" }} · {{ finding.last_seen_at|date:"Y-m-d H:i" }} · {{ finding.resolved_at|date:"Y-m-d H:i"|default:"—" }}</dd></div>
     </dl>
@@ -31,20 +38,11 @@
     {% if finding.cve.kev_action %}<div class="alert-warning mt-3 text-sm"><strong>Acción requerida (CISA):</strong> {{ finding.cve.kev_action }}</div>{% endif %}
   </section>
   <section class="card flex flex-col gap-3">
-    <h3 class="card-title mb-0">Acciones</h3>
+    <h3 class="card-title mb-0">Notas</h3>
+    <p class="text-xs text-muted">Aquí solo se anota contexto (qué se revisó, con quién se habló). Confirmar, marcar falso positivo o aceptar el riesgo se hace en la vulnerabilidad consolidada.</p>
     {% if finding.note %}<div class="alert-info text-sm"><strong>Última nota:</strong> {{ finding.note }}</div>{% endif %}
     {% if perms.detection.work_findings %}
-    {% if transitions %}
-    <form method="post" action="{% url 'detection:finding_transition' finding.pk %}" class="flex flex-col gap-2">
-      {% csrf_token %}
-      <label class="form-label" for="transition-status">Nuevo estado</label>
-      <select id="transition-status" name="status" class="form-input">{% for value, label in transitions %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select>
-      <label class="form-label" for="transition-note">Nota (obligatoria para aceptar el riesgo o falso positivo)</label>
-      <textarea id="transition-note" name="note" class="form-input" rows="3" maxlength="2000"></textarea>
-      <button class="btn-primary" type="submit">Aplicar</button>
-    </form>
-    {% else %}<p class="text-sm text-muted">Sin transiciones disponibles desde este estado.</p>{% endif %}
-    <form method="post" action="{% url 'detection:finding_note' finding.pk %}" class="flex flex-col gap-2 border-t border-line-soft pt-3">
+    <form method="post" action="{% url 'detection:finding_note' finding.pk %}" class="flex flex-col gap-2">
       {% csrf_token %}
       <label class="form-label" for="note-text">Agregar nota</label>
       <textarea id="note-text" name="text" class="form-input" rows="2" maxlength="2000" required></textarea>
@@ -58,23 +56,34 @@
 </div>
 
 <section class="flex flex-col gap-2">
-  <h3 class="eyebrow">Evidencia de las herramientas</h3>
-  <div class="table-wrap">
-    <table class="data-table">
-      <thead><tr><th>Fuente</th><th>Resumen</th><th>Visto</th><th>Veces</th><th>Ejecución</th></tr></thead>
-      <tbody>
-        {% for e in evidence %}
-        <tr>
-          <td>{{ e.get_source_display }}</td>
-          <td class="text-xs">{{ e.summary }}{% if e.data.affected_range %}<p class="text-muted">rango afectado: {{ e.data.affected_range }}</p>{% endif %}{% if e.data.fix %}<p class="text-muted">corrección: {{ e.data.fix }}</p>{% endif %}</td>
-          <td class="font-mono text-xs whitespace-nowrap">{{ e.observed_at|date:"Y-m-d H:i" }}</td>
-          <td class="font-mono text-xs">{{ e.times_seen }}</td>
-          <td class="text-xs">{% if e.execution_ref %}<a href="{% url 'detection:execution' e.execution_ref %}" class="font-mono">{{ e.execution_ref|truncatechars:13 }}</a>{% else %}—{% endif %}</td>
-        </tr>
-        {% empty %}<tr><td colspan="5" class="table-empty">Sin evidencia registrada.</td></tr>{% endfor %}
-      </tbody>
-    </table>
-  </div>
+  <h3 class="eyebrow">Evidencia <span class="font-mono text-xs font-normal text-muted">{{ evidence|length }}</span></h3>
+  {% for e in evidence %}
+  <details class="card">
+    <summary class="flex cursor-pointer flex-wrap items-center gap-2 text-sm">
+      <span class="badge-neutral">{{ e.get_source_display }}</span>
+      <span class="text-ink-soft">{{ e.summary }}</span>
+      <span class="ml-auto font-mono text-xs text-muted">{{ e.observed_at|date:"Y-m-d H:i" }} · ×{{ e.times_seen }}</span>
+    </summary>
+    <dl class="kv-grid mt-3 text-xs">
+      {% if e.data|get_item:"matched-at" %}<div><dt class="kv-label">Dónde coincidió</dt><dd class="kv-value font-mono break-all">{{ e.data|get_item:"matched-at" }}</dd></div>{% endif %}
+      {% if e.data|get_item:"template-id" %}<div><dt class="kv-label">Plantilla</dt><dd class="kv-value font-mono">{{ e.data|get_item:"template-id" }}{% if e.data|get_item:"matcher-name" %} · comparador {{ e.data|get_item:"matcher-name" }}{% endif %}</dd></div>{% endif %}
+      {% if e.data|get_item:"extracted-results" %}<div><dt class="kv-label">Datos extraídos</dt><dd class="kv-value font-mono break-all">{{ e.data|get_item:"extracted-results"|join:", "|truncatechars:300 }}</dd></div>{% endif %}
+      {% if e.data.template.product or e.data.template.vendor %}<div><dt class="kv-label">Producto declarado por la plantilla</dt><dd class="kv-value">{{ e.data.template.product|default:"—" }}{% if e.data.template.vendor %} ({{ e.data.template.vendor }}){% endif %}</dd></div>{% endif %}
+      {% if e.data.template.tags %}<div><dt class="kv-label">Etiquetas</dt><dd class="kv-value">{% for t in e.data.template.tags %}<span class="badge-neutral">{{ t }}</span> {% endfor %}</dd></div>{% endif %}
+      {% if e.data.template.cwe %}<div><dt class="kv-label">CWE</dt><dd class="kv-value font-mono">{{ e.data.template.cwe|join:", " }}</dd></div>{% endif %}
+      {% if e.data.template.cvss_metrics %}<div><dt class="kv-label">Vector CVSS</dt><dd class="kv-value font-mono">{{ e.data.template.cvss_metrics }}</dd></div>{% endif %}
+      {% if e.data.cvss_score %}<div><dt class="kv-label">CVSS reportado</dt><dd class="kv-value font-mono">{{ e.data.cvss_score }}</dd></div>{% endif %}
+      {% if e.data.affected_range %}<div><dt class="kv-label">Rango afectado</dt><dd class="kv-value font-mono">{{ e.data.affected_range }}</dd></div>{% endif %}
+      {% if e.data.fix %}<div><dt class="kv-label">Corrección</dt><dd class="kv-value">{{ e.data.fix }}</dd></div>{% endif %}
+      {% if e.data.template.remediation %}<div><dt class="kv-label">Remediación (plantilla)</dt><dd class="kv-value">{{ e.data.template.remediation }}</dd></div>{% endif %}
+      {% if e.data.template.impact %}<div><dt class="kv-label">Impacto (plantilla)</dt><dd class="kv-value">{{ e.data.template.impact }}</dd></div>{% endif %}
+      {% if e.data.evidence %}<div><dt class="kv-label">Evidencia registrada</dt><dd class="kv-value">{{ e.data.evidence }}</dd></div>{% endif %}
+      {% if e.component %}<div><dt class="kv-label">Componente</dt><dd class="kv-value">{{ e.component.label }}</dd></div>{% endif %}
+      {% if e.execution_ref %}<div><dt class="kv-label">Ejecución</dt><dd class="kv-value"><a href="{% url 'detection:execution' e.execution_ref %}" class="font-mono">{{ e.execution_ref|truncatechars:13 }}</a></dd></div>{% endif %}
+    </dl>
+    <details class="mt-2"><summary class="cursor-pointer text-xs text-muted">Datos crudos</summary><pre class="code-block mt-2 text-xs">{{ e.data|pretty_json|truncatechars:4000 }}</pre></details>
+  </details>
+  {% empty %}<p class="table-empty">Sin evidencia registrada.</p>{% endfor %}
 </section>
 
 <section class="flex flex-col gap-2">

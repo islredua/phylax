@@ -24,6 +24,7 @@ LAB_CTI = Path(__file__).resolve().parents[3] / "datasets/cti-lab-sample.json"
 NUCLEI = (Path(__file__).resolve().parents[1] / "scanners/fixtures/nuclei.jsonl").read_text()
 READ_PAGES = [
     "/detection/",
+    "/detection/observations/",
     "/detection/activity/",
     "/detection/activity/?kind=decision",
     "/detection/queue/",
@@ -100,6 +101,7 @@ def test_navigation_has_detection_section(client, as_role):
     assert nav.section.key == "detection"
     assert [t.key for t in nav.tabs] == [
         "panel",
+        "observations",
         "activity",
         "queue",
         "sources",
@@ -139,20 +141,26 @@ def test_operator_cannot_manage_but_can_work(client, as_role):
 # --- Panel y detalle ----------------------------------------------------------------
 
 
-def test_panel_lists_and_filters(client, as_role):
+def test_observations_list_and_filters(client, as_role):
     as_role(OPERATOR)
     finding = _finding()
-    body = client.get("/detection/").content.decode()
-    assert "CVE-2025-23419" in body and "web-norte" in body and "provisional" in body
-    response = client.get("/detection/?severity=CRITICAL")
+    body = client.get("/detection/observations/").content.decode()
+    # Con Celery en modo inmediato la consolidación ya corrió: la observación enlaza su vulnerabilidad.
+    assert (
+        "CVE-2025-23419" in body and "web-norte" in body and "/detection/vulnerabilities/" in body
+    )
+    response = client.get("/detection/observations/?severity=CRITICAL")
     assert response.context["paginator"].count == 0
-    response = client.get(f"/detection/?asset={finding.asset_id}&q=nginx")
+    response = client.get(f"/detection/observations/?asset={finding.asset_id}&q=nginx")
     assert response.context["paginator"].count == 1
     findings.transition(finding.pk, user=None, status="MITIGATED")
-    assert client.get("/detection/").context["paginator"].count == 0
-    assert client.get("/detection/?status=all").context["paginator"].count == 1
-    assert client.get("/detection/?status=MITIGATED").context["paginator"].count == 1
-    assert client.get("/detection/?in_kev=1&source=CTI_MATCH").status_code == 200
+    assert client.get("/detection/observations/").context["paginator"].count == 0
+    assert client.get("/detection/observations/?status=all").context["paginator"].count == 1
+    assert client.get("/detection/observations/?status=MITIGATED").context["paginator"].count == 1
+    assert client.get("/detection/observations/?in_kev=1&source=CTI_MATCH").status_code == 200
+    # El panel ahora son vulnerabilidades: sin consolidar, explica que hay observaciones esperando.
+    body = client.get(f"/detection/?asset={finding.asset_id}").content.decode()
+    assert "Vulnerabilidades" in body and "Reevaluar con IA" in body
 
 
 def test_finding_detail_actions_and_escaping(client, as_role):
@@ -161,7 +169,9 @@ def test_finding_detail_actions_and_escaping(client, as_role):
     findings.add_note(finding.pk, user=operator, text="<script>alert(1)</script>")
     body = client.get(f"/detection/findings/{finding.pk}/").content.decode()
     assert "&lt;script&gt;" in body and "<script>alert" not in body
-    assert "Línea de tiempo" in body and "rango afectado" in body
+    assert "Línea de tiempo" in body and "Rango afectado" in body
+    # La observación ya no ofrece el flujo humano de estados (vive en la vulnerabilidad).
+    assert "/transition/" not in body
     response = client.post(
         f"/detection/findings/{finding.pk}/transition/",
         {"status": "ACCEPTED", "note": ""},

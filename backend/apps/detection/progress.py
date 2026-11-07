@@ -402,6 +402,54 @@ def _evaluation_step(asset_id, caps, evaluation, scan_active):
     )
 
 
+def _consolidation_step(asset_id, evaluation, scan_active):
+    from . import consolidation, findings
+    from .models import VULN_OPEN_STATUSES, Vulnerability
+
+    label = "Vulnerabilidades con IA"
+    url = f"{reverse('detection:panel')}?asset={asset_id}"
+    open_obs = findings.open_findings(asset_id).count()
+    if consolidation.is_pending(asset_id):
+        return PipelineStep(
+            "consolidation", label, "active", "la IA consolida las observaciones del activo…", url
+        )
+    if scan_active or evaluation["in_flight"]:
+        return PipelineStep(
+            "consolidation",
+            label,
+            "waiting",
+            "arranca sola cuando terminen las herramientas",
+        )
+    vulns = Vulnerability.objects.filter(asset_id=asset_id)
+    open_vulns = vulns.filter(status__in=VULN_OPEN_STATUSES).count()
+    last = consolidation.last_consolidated_at(asset_id)
+    if vulns.exists():
+        unconsolidated = (
+            consolidation.consolidable(findings.open_findings(asset_id))
+            .filter(consolidated__isnull=True)
+            .count()
+        )
+        detail = f"{open_vulns} abierta(s) de {open_obs} observación(es)"
+        if last:
+            detail += f" · {timezone.localtime(last):%Y-%m-%d %H:%M}"
+        if unconsolidated:
+            detail += f" · {unconsolidated} sin consolidar"
+        return PipelineStep(
+            "consolidation", label, "done", detail, url, "consolidate", "Reevaluar con IA"
+        )
+    if consolidation.consolidable(findings.open_findings(asset_id)).exists():
+        return PipelineStep(
+            "consolidation",
+            label,
+            "pending",
+            f"{open_obs} observación(es) esperan consolidarse",
+            f"{reverse('detection:observations')}?asset={asset_id}",
+            "consolidate",
+            "Consolidar con IA",
+        )
+    return PipelineStep("consolidation", label, "pending", "sin observaciones que consolidar")
+
+
 def asset_pipeline(asset_id):
     """El activo contado como un solo hilo, para la tarjeta Acciones del activo."""
     from apps.discovery import services as discovery
@@ -416,6 +464,7 @@ def asset_pipeline(asset_id):
         _scan_step(asset_id, caps, run, scan_active),
         _criticality_step(asset_id, summary, scan_active, active_model_ready()),
         _evaluation_step(asset_id, caps, evaluation, scan_active),
+        _consolidation_step(asset_id, evaluation, scan_active),
     ]
     states = {s.state for s in steps}
     now = timezone.now()

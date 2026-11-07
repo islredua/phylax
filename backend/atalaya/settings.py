@@ -205,6 +205,7 @@ CELERY_TASK_ROUTES = {
     # worker de descubrimiento (único con acceso a las redes escaneadas).
     "apps.detection.tasks.plan_event": {"queue": "llm"},
     "apps.detection.tasks.draft_org_profile": {"queue": "llm"},
+    "apps.detection.tasks.consolidate_asset": {"queue": "llm"},
     "apps.scanners.tasks.run_tool": {"queue": "discovery"},
 }
 CELERY_TIMEZONE = TIME_ZONE
@@ -326,6 +327,9 @@ DETECTION_ASSET_REVIEW_DAYS = int(os.environ.get("DETECTION_ASSET_REVIEW_DAYS", 
 DETECTION_FINDING_REVIEW_DAYS = int(os.environ.get("DETECTION_FINDING_REVIEW_DAYS", "30"))
 # «Volver a evaluar» se ofrece solo si la última decisión del planificador es más vieja que esto.
 DETECTION_REEVALUATE_MINUTES = int(os.environ.get("DETECTION_REEVALUATE_MINUTES", "30"))
+# Consolidación de observaciones → vulnerabilidades: retardo agrupador y observaciones por llamada.
+DETECTION_CONSOLIDATE_DELAY_S = int(os.environ.get("DETECTION_CONSOLIDATE_DELAY_S", "20"))
+DETECTION_CONSOLIDATE_CHUNK = int(os.environ.get("DETECTION_CONSOLIDATE_CHUNK", "25"))
 
 # --- Scoring weights ---
 SCORING_WEIGHTS = {

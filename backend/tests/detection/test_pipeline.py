@@ -50,6 +50,7 @@ def test_fresh_asset_offers_scan_and_waits_for_the_rest(client, as_role):
         "scan": "pending",
         "criticality": "pending",
         "evaluation": "pending",
+        "consolidation": "pending",
     }
     body = client.get(f"/detection/assets/{asset.pk}/pipeline/").content.decode()
     assert "Escanear servicios" in body and "Sugerir con IA" in body and "Evaluar ahora" in body
@@ -57,7 +58,7 @@ def test_fresh_asset_offers_scan_and_waits_for_the_rest(client, as_role):
     # Con el escaneo en cola, criticidad y evaluación explican que esperan al escaneo.
     DiscoveryRun.objects.create(target_asset=asset, profile="SERVICE_SCAN", status="QUEUED")
     pipeline = progress.asset_pipeline(asset.pk)
-    assert [s.state for s in pipeline["steps"]] == ["active", "waiting", "waiting"]
+    assert [s.state for s in pipeline["steps"]] == ["active", "waiting", "waiting", "waiting"]
     assert pipeline["poll"] == 5 and pipeline["in_flight"]
     body = client.get(f"/detection/assets/{asset.pk}/pipeline/").content.decode()
     assert "se calcula al terminar el escaneo" in body and "arranca sola al terminar" in body
@@ -85,7 +86,12 @@ def test_done_steps_show_results_and_reevaluate_waits_the_cooldown(client, as_ro
         asset=asset, defaults={"last_evaluated_at": now - timedelta(minutes=5)}
     )
     pipeline = progress.asset_pipeline(asset.pk)
-    assert _states(asset.pk) == {"scan": "done", "criticality": "done", "evaluation": "done"}
+    assert _states(asset.pk) == {
+        "scan": "done",
+        "criticality": "done",
+        "evaluation": "done",
+        "consolidation": "pending",
+    }
     assert pipeline["poll"] == 0 and not pipeline["can_reevaluate"]
     body = client.get(f"/detection/assets/{asset.pk}/pipeline/").content.decode()
     assert "2 servicio(s)" in body and "Re-escanear" in body and "Recalcular" in body

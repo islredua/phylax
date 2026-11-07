@@ -22,15 +22,27 @@ la instancia del activo, por lo que `actions._launch` la obtiene por id.
 ## Lo que la detección entrega al scoring (`apps.scoring.services`)
 
 ```python
+ALGORITHM_VERSION = "m4-2026.11"
+
 @dataclass(frozen=True)
 class ScoreResult:
     score: float
     algorithm_version: str
     breakdown: dict
 
+def technical_score(*, cvss, epss, in_kev, severity) -> ScoreResult: ...
+def contextual_score(*, technical, criticality, exposure, data_classification, plausibility,
+                     exploitability, data_sensitivity, business_impact_level,
+                     compensating_controls, adjustment, in_kev) -> ScoreResult: ...
+def baselines(*, cvss, epss, severity) -> dict: ...   # cvss, epss, cvss_x_epss
+def severity_for(score) -> str: ...
 def score_findings(finding_ids) -> dict[UUID, ScoreResult]: ...
 def is_available() -> bool: ...
 ```
+
+La consolidación (`detection/consolidation.py`) llama a `technical_score` y `contextual_score` por
+vulnerabilidad con los factores que el LLM estimó; la fórmula es determinista y el ajuste del
+modelo se acota a ±1.0. `score_findings` puntúa la capa cruda (sin factores del LLM) para ordenarla.
 
 La detección llama a `score_findings` tras crear o actualizar hallazgos (reconciliación,
 herramientas, cambios CTI). Por cada resultado registra `Finding.priority_score`,
@@ -43,7 +55,10 @@ la fecha de detección). Mientras `is_available()` sea `False`, el panel ordena 
 
 ## Lo que la presentación puede consumir
 
-- `apps.detection.findings.summary()` — conteos de abiertos, nuevos, críticos, altos y en KEV.
+- `apps.detection.consolidation.summary(asset_id=None)` — vulnerabilidades abiertas, confirmadas, críticas, en KEV, por verificar, probables falsos positivos.
+- `apps.detection.consolidation.request_consolidation(asset_id, reason=…)` — encola la consolidación con IA (agrupa disparadores cercanos).
+- `apps.detection.progress.asset_pipeline(asset_id)` — el activo como un solo hilo (escaneo → criticidad → evaluación → vulnerabilidades).
+- `apps.detection.findings.summary()` — conteos de observaciones abiertas, nuevas, críticas, altas y en KEV.
 - `apps.detection.findings.open_findings(asset_id=None)` — hallazgos abiertos ordenados por prioridad.
 - `apps.detection.activity.recent(limit, kinds)` — flujo de actividad unificado.
 - `apps.detection.automation.summary()` — modo, pausa, ventana.

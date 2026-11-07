@@ -165,11 +165,20 @@ class Finding(UUIDModel):
     )
     status_changed_at = models.DateTimeField(null=True, blank=True)
     note = models.TextField(blank=True, help_text="Última nota de quien lo trabajó.")
+    # Capa consolidada (fase 4): a qué vulnerabilidad real pertenece esta observación.
+    # (Se llama ``consolidated`` porque ``vulnerability_id`` ya es el CVE/clave del hallazgo.)
+    consolidated = models.ForeignKey(
+        "detection.Vulnerability",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="observations",
+    )
 
     class Meta:
         ordering = ["-priority_score", "-in_kev", "-severity", "-epss_score", "-first_detected_at"]
-        verbose_name = "hallazgo"
-        verbose_name_plural = "hallazgos"
+        verbose_name = "observación"
+        verbose_name_plural = "observaciones"
         constraints = [
             models.UniqueConstraint(fields=["asset", "vulnerability_id"], name="unique_finding")
         ]
@@ -188,6 +197,13 @@ class Finding(UUIDModel):
     @property
     def is_open(self):
         return self.status in OPEN_STATUSES
+
+    @property
+    def is_informational(self):
+        """Detección de tecnología o versión sin CVE: contexto para la IA, no una vulnerabilidad."""
+        from .consolidation import is_informational
+
+        return is_informational(self)
 
     @property
     def severity_rank(self):
@@ -264,6 +280,189 @@ class FindingEvent(models.Model):
 
     def delete(self, *args, **kwargs):
         raise ValueError("La línea de tiempo de un hallazgo no se borra.")
+
+
+# --------------------------------------------------------------------------
+# Vulnerabilidades consolidadas (fase 4 del plan de consolidación)
+# --------------------------------------------------------------------------
+
+
+class VulnerabilityStatus(models.TextChoices):
+    CONFIRMED = "CONFIRMED", "Confirmada"
+    LIKELY = "LIKELY", "Probable"
+    NEEDS_VERIFICATION = "NEEDS_VERIFICATION", "Requiere verificación"
+    LIKELY_FALSE_POSITIVE = "LIKELY_FALSE_POSITIVE", "Probable falso positivo"
+    FALSE_POSITIVE = "FALSE_POSITIVE", "Falso positivo"
+    MITIGATED = "MITIGATED", "Mitigada"
+    ACCEPTED = "ACCEPTED", "Riesgo aceptado"
+
+
+VULN_OPEN_STATUSES = (
+    VulnerabilityStatus.CONFIRMED,
+    VulnerabilityStatus.LIKELY,
+    VulnerabilityStatus.NEEDS_VERIFICATION,
+    VulnerabilityStatus.LIKELY_FALSE_POSITIVE,
+)
+VULN_CLOSED_STATUSES = (
+    VulnerabilityStatus.FALSE_POSITIVE,
+    VulnerabilityStatus.MITIGATED,
+    VulnerabilityStatus.ACCEPTED,
+)
+# Lo que la IA puede fijar por sí sola; «falso positivo» y «riesgo aceptado» son de una persona.
+AI_STATUSES = (
+    VulnerabilityStatus.CONFIRMED,
+    VulnerabilityStatus.LIKELY,
+    VulnerabilityStatus.NEEDS_VERIFICATION,
+    VulnerabilityStatus.LIKELY_FALSE_POSITIVE,
+)
+
+
+class StatusSource(models.TextChoices):
+    AI = "AI", "IA"
+    RULE = "RULE", "Regla"
+    HUMAN = "HUMAN", "Persona"
+
+
+class Vulnerability(UUIDModel):
+    """Vulnerabilidad **real** de un activo: N observaciones (herramientas, CTI, manual) → una.
+
+    La produce la consolidación (``detection.consolidation``): reglas deterministas + LLM local.
+    Lleva dos puntajes del Módulo 4 (``apps.scoring``): el técnico (CVSS, EPSS, KEV) y el
+    contextual (criticidad, exposición, datos, factores que el LLM estima y un ajuste acotado).
+    El estado lo pone la IA; una persona puede corregirlo y entonces la IA ya no lo toca.
+    """
+
+    asset = models.ForeignKey(
+        "assets.Asset", on_delete=models.CASCADE, related_name="vulnerabilities"
+    )
+    # Clave estable por activo: el CVE, o «WEAKNESS:<plantilla>» cuando no hay CVE.
+    key = models.CharField(max_length=120)
+    cve = models.ForeignKey(
+        "cti.CveRecord", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    component = models.ForeignKey(
+        SoftwareComponent, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    title = models.CharField(max_length=200)
+    summary = models.TextField(blank=True, help_text="Qué significa, en lenguaje de negocio.")
+    business_impact = models.TextField(blank=True)
+    actions = models.JSONField(default=list, blank=True, help_text="Pasos de mitigación.")
+
+    severity = models.CharField(
+        max_length=8, choices=FindingSeverity.choices, default=FindingSeverity.MEDIUM
+    )
+    technical_score = models.FloatField(null=True, blank=True)
+    contextual_score = models.FloatField(null=True, blank=True)
+    score_breakdown = models.JSONField(default=dict, blank=True)
+    algorithm_version = models.CharField(max_length=20, blank=True)
+    plausibility = models.FloatField(default=0.5)
+    factors = models.JSONField(default=dict, blank=True)
+    adjustment = models.FloatField(default=0.0)
+    adjustment_reason = models.CharField(max_length=255, blank=True)
+    rule_flags = models.JSONField(default=list, blank=True)
+
+    status = models.CharField(
+        max_length=24,
+        choices=VulnerabilityStatus.choices,
+        default=VulnerabilityStatus.NEEDS_VERIFICATION,
+        db_index=True,
+    )
+    status_source = models.CharField(
+        max_length=5, choices=StatusSource.choices, default=StatusSource.RULE
+    )
+    status_by = models.ForeignKey(
+        USER, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    status_at = models.DateTimeField(null=True, blank=True)
+    status_note = models.TextField(blank=True)
+
+    assessment_source = models.CharField(
+        max_length=5, choices=StatusSource.choices, default=StatusSource.RULE
+    )
+    inference = models.ForeignKey(
+        "llm.InferenceLog", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    model = models.CharField(max_length=100, blank=True)
+    prompt_version = models.CharField(max_length=20, blank=True)
+    assessed_at = models.DateTimeField(null=True, blank=True)
+
+    cvss_score = models.FloatField(null=True, blank=True)
+    epss_score = models.FloatField(null=True, blank=True)
+    in_kev = models.BooleanField(default=False, db_index=True)
+    kev_due_at = models.DateField(null=True, blank=True)
+    environment = models.CharField(max_length=30, blank=True)
+
+    first_detected_at = models.DateTimeField()
+    last_seen_at = models.DateTimeField()
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-contextual_score", "-in_kev", "-technical_score", "-first_detected_at"]
+        verbose_name = "vulnerabilidad"
+        verbose_name_plural = "vulnerabilidades"
+        constraints = [
+            models.UniqueConstraint(fields=["asset", "key"], name="unique_vulnerability")
+        ]
+        indexes = [models.Index(fields=["severity"]), models.Index(fields=["environment"])]
+
+    def __str__(self):
+        return f"{self.title} · {self.asset}"
+
+    @property
+    def is_open(self):
+        return self.status in VULN_OPEN_STATUSES
+
+    @property
+    def status_is_ai(self):
+        return self.status_source in (StatusSource.AI, StatusSource.RULE)
+
+    @property
+    def human_locked(self):
+        """Una persona fijó el estado: la consolidación conserva su decisión."""
+        return self.status_source == StatusSource.HUMAN
+
+
+class VulnerabilityEventKind(models.TextChoices):
+    CREATED = "CREATED", "Consolidada"
+    ASSESSED = "ASSESSED", "Evaluada"
+    STATUS_AI = "STATUS_AI", "Estado puesto por IA"
+    STATUS_HUMAN = "STATUS_HUMAN", "Estado corregido por una persona"
+    OBSERVATIONS = "OBSERVATIONS", "Observaciones ligadas"
+    SCORE = "SCORE", "Puntajes recalculados"
+    RESOLVED = "RESOLVED", "Resuelta"
+    REOPENED = "REOPENED", "Reabierta"
+    NOTE = "NOTE", "Nota"
+
+
+class VulnerabilityEvent(models.Model):
+    """Línea de tiempo de la vulnerabilidad. **Solo se agrega**."""
+
+    vulnerability = models.ForeignKey(
+        Vulnerability, on_delete=models.CASCADE, related_name="events"
+    )
+    kind = models.CharField(max_length=14, choices=VulnerabilityEventKind.choices)
+    occurred_at = models.DateTimeField(db_index=True)
+    actor = models.ForeignKey(
+        USER, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    message = models.CharField(max_length=500, blank=True)
+    data = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["occurred_at", "id"]
+        verbose_name = "evento de vulnerabilidad"
+        verbose_name_plural = "eventos de vulnerabilidad"
+
+    def __str__(self):
+        return f"{self.get_kind_display()} · {self.occurred_at:%Y-%m-%d %H:%M}"
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            raise ValueError("La línea de tiempo de una vulnerabilidad no se reescribe.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("La línea de tiempo de una vulnerabilidad no se borra.")
 
 
 # --------------------------------------------------------------------------

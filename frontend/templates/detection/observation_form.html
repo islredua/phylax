@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Registrar observación{% endblock %}
+{% block breadcrumb_tail %}<li><a href="{% url 'assets:detail' asset.pk %}">{{ asset.name }}</a></li><li>Registrar observación</li>{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <h2>Registrar observación en {{ asset.name }}</h2>
+  <a href="{% url 'detection:observations' %}?asset={{ asset.pk }}" class="btn-secondary btn-sm">← Volver</a>
+</div>
+{% endblock %}
+{% block content %}
+<form method="post" class="flex flex-col gap-4" novalidate>
+  {% csrf_token %}
+  <input type="hidden" name="asset" value="{{ asset.pk }}">
+  <p class="text-sm text-ink-soft">Lo que una persona vio cuenta igual que lo que ve una herramienta: queda como observación con fuente «manual» y la IA la consolida con el resto para decidir si es una vulnerabilidad real y qué peso tiene.</p>
+  {% if form.non_field_errors %}<div class="alert-error" role="alert">{% for e in form.non_field_errors %}{{ e }} {% endfor %}</div>{% endif %}
+  <section class="card grid grid-cols-1 gap-4 md:grid-cols-2">
+    {% for field in form %}
+    <div class="{% if field.name == 'description' or field.name == 'evidence' or field.name == 'title' %}md:col-span-2{% endif %}">
+      <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+      {{ field }}
+      {% if field.help_text %}<p class="form-help">{{ field.help_text }}</p>{% endif %}
+      {% for e in field.errors %}<p class="form-error">{{ e }}</p>{% endfor %}
+    </div>
+    {% endfor %}
+  </section>
+  <div class="flex gap-2">
+    <button type="submit" class="btn-primary">Registrar</button>
+    <a href="{% url 'detection:observations' %}?asset={{ asset.pk }}" class="btn-secondary">Cancelar</a>
+  </div>
+</form>
+{% endblock %}

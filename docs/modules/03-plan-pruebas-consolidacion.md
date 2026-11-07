@@ -36,6 +36,10 @@ contra este documento; cuando una fase cambia de criterio, se corrige aquí prim
 | Categoría «all» | El planificador ya no la ofrece al LLM (prompt v3); si el modelo la pidiera se sustituye por `cves` y queda anotado. El perfil sigue disponible para uso manual. |
 | Regresión | Suite completa verde; ninguna prueba toca red real. |
 
+**Estado:** fase 1 ✔ (`8459811`), fase 2 ✔ (`86b9e4d`), fases 3 y 4 ✔ (este commit: observaciones,
+vulnerabilidades consolidadas, scoring M4, pantallas; pruebas en `tests/detection/test_consolidation.py`
+y `test_vulnerability_views.py`). Pendientes: fase 5 (riesgos) y fase 6 (laboratorio).
+
 ## Fase 2 · Pantalla del activo: un solo hilo de progreso
 
 | Prueba | Criterio |
