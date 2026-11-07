@@ -432,3 +432,27 @@ def test_imprecise_versions_match_as_low_confidence_when_ranges_overlap(lab_cti)
     vuln = Vulnerability.objects.get(asset=asset, key="CVE-2025-23419")
     assert vuln.status == VulnerabilityStatus.NEEDS_VERIFICATION
     assert any("imprecisa" in f for f in vuln.rule_flags)
+
+
+def test_assessment_schema_tolerates_percent_plausibility_and_out_of_range_adjustment():
+    from apps.llm.schemas import VulnerabilityItem
+
+    item = VulnerabilityItem.model_validate(
+        {
+            "observations": [1],
+            "title": "t",
+            "summary": "s",
+            "plausibility": 85,
+            "exploitability": "HIGH",
+            "data_sensitivity": "HIGH",
+            "business_impact_level": "HIGH",
+            "compensating_controls": "NONE",
+            "adjustment": 5,
+            "status": "LIKELY",
+        }
+    )
+    assert item.plausibility == 0.85 and item.adjustment == 1.0
+    assert (
+        VulnerabilityItem.model_validate({**item.model_dump(), "plausibility": 0.4}).plausibility
+        == 0.4
+    )

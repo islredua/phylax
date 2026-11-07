@@ -96,12 +96,12 @@ def test_build_input_is_compact_and_escapes(mock_llm, monkeypatch):
 
 def test_mock_planner_decides_and_records(mock_llm):
     asset = _scannable_asset()
-    event, batch = _ready_event(EventKind.MANUAL_EVALUATION, asset)
+    event, batch = _ready_event(EventKind.ASSET_SERVICES_CHANGED, asset)
     events.process_batch(batch.pk)  # encola plan_event (eager)
     event.refresh_from_db()
     assert event.status == EventStatus.PLANNED
     decision = event.decisions.get()
-    assert decision.action == "DETECT_VULNS" and decision.urgency == "HIGH"
+    assert decision.action == "DETECT_VULNS" and decision.urgency == "NORMAL"
     assert decision.category == "cves" and decision.asset == asset
     assert decision.model_requested == decision.model_responded and not decision.model_mismatch
     assert not decision.fallback and decision.inference.accelerator == "mock"
@@ -183,7 +183,7 @@ def test_invalid_or_out_of_list_output_falls_back(ollama):
             json.dumps({"action": "RUN_SHELL", "urgency": "HIGH", "rationale": "rm -rf"})
         )
     )
-    event, batch = _ready_event(EventKind.MANUAL_EVALUATION, asset)
+    event, batch = _ready_event(EventKind.ASSET_SERVICES_CHANGED, asset)
     events.process_batch(batch.pk)
     decision = event.decisions.get()
     assert decision.fallback and "inválida" in decision.fallback_reason
@@ -197,7 +197,7 @@ def test_model_unavailable_falls_back_and_event_is_planned(ollama):
 
     ollama.post(f"{BASE}/api/chat").mock(side_effect=httpx.ConnectError("caído"))
     asset = _scannable_asset()
-    event, batch = _ready_event(EventKind.MANUAL_EVALUATION, asset)
+    event, batch = _ready_event(EventKind.ASSET_SERVICES_CHANGED, asset)
     events.process_batch(batch.pk)
     event.refresh_from_db()
     decision = event.decisions.get()
@@ -210,11 +210,11 @@ def test_rate_limit_leaves_event_ready_for_stragglers(mock_llm):
 
     automation.update_settings(user=None, fields={"max_planner_calls_per_hour": 1})
     first = _scannable_asset()
-    event1, batch1 = _ready_event(EventKind.MANUAL_EVALUATION, first)
+    event1, batch1 = _ready_event(EventKind.ASSET_SERVICES_CHANGED, first)
     events.process_batch(batch1.pk)
     second = AssetFactory()
     AssetIdentifierFactory(asset=second, value="10.7.0.11")
-    event2, batch2 = _ready_event(EventKind.MANUAL_EVALUATION, second)
+    event2, batch2 = _ready_event(EventKind.ASSET_SERVICES_CHANGED, second)
     events.process_batch(batch2.pk)
     event1.refresh_from_db()
     event2.refresh_from_db()
@@ -233,7 +233,7 @@ def test_worker_failure_marks_event_failed(mock_llm, monkeypatch):
     from apps.detection import tasks
 
     asset = _scannable_asset()
-    event, _ = _ready_event(EventKind.MANUAL_EVALUATION, asset)
+    event, _ = _ready_event(EventKind.ASSET_SERVICES_CHANGED, asset)
     DetectionEvent.objects.filter(pk=event.pk).update(status=EventStatus.READY)
     monkeypatch.setattr(planner, "plan_event", lambda event_id: 1 / 0)
     DetectionEvent.objects.filter(pk=event.pk).update(status=EventStatus.PLANNING)
@@ -267,7 +267,7 @@ def test_watch_item_is_created_and_matches_later(mock_llm, monkeypatch):
 
 def test_plan_event_is_idempotent(mock_llm):
     asset = _scannable_asset()
-    event, batch = _ready_event(EventKind.MANUAL_EVALUATION, asset)
+    event, batch = _ready_event(EventKind.ASSET_SERVICES_CHANGED, asset)
     events.process_batch(batch.pk)
     assert planner.plan_event(event.pk) is None
     assert event.decisions.count() == 1
@@ -319,3 +319,14 @@ def test_new_sbom_is_analyzed_with_grype_even_if_the_model_asks_for_a_scan(mock_
     assert decision.action == "REANALYZE_SBOM" and decision.fallback
     assert "primero se analiza" in decision.fallback_reason
     assert "SBOM nuevo: se analiza con Grype primero" in decision.evidence
+
+
+def test_manual_evaluation_scans_by_rule_without_asking_the_model(mock_llm):
+    asset = _scannable_asset()
+    event, batch = _ready_event(EventKind.MANUAL_EVALUATION, asset)
+    events.process_batch(batch.pk)
+    decision = event.decisions.get()
+    assert decision.action == "DETECT_VULNS" and decision.urgency == "HIGH"
+    assert decision.category == "cves" and decision.fallback and decision.inference is None
+    assert "pedida por una persona" in decision.fallback_reason
+    assert InferenceLog.objects.filter(task="DETECTION_PLANNER").count() == 0

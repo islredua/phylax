@@ -244,6 +244,25 @@ def rule_decision(data) -> dict | None:
     ):
         return None
     if asset.get("software") or asset.get("open_findings"):
+        if event.get("kind") == EventKind.MANUAL_EVALUATION and str(Action.DETECT_VULNS) in (
+            asset.get("allowed_actions") or []
+        ):
+            # Una persona pidió evaluar: lo que espera es un escaneo de vulnerabilidades, no
+            # otra reconciliación (el modelo de 7B elegía RECONCILE «porque ya se escaneó»).
+            return {
+                "action": str(Action.DETECT_VULNS),
+                "urgency": str(Urgency.HIGH),
+                "rationale": (
+                    "Evaluación pedida por una persona: se escanean vulnerabilidades en los "
+                    "servicios conocidos del activo y después se reconcilia y consolida."
+                ),
+                "evidence": [
+                    f"{len(asset.get('software') or [])} componentes conocidos",
+                    f"último escaneo de vulnerabilidades: {asset.get('last_vuln_scan') or 'nunca'}",
+                ],
+                "category": "cves",
+                "reason": "regla: evaluación pedida por una persona → escaneo de vulnerabilidades",
+            }
         return None
     if Action.RESCAN_SERVICES not in (asset.get("allowed_actions") or []):
         return None
@@ -481,6 +500,9 @@ def plan_event(event_id):
     started = time.monotonic()
     rule = rule_decision(data)
     if rule is not None:
+        reason = rule.pop(
+            "reason", "regla: sin software registrado, primero hay que observar el activo"
+        )
         with transaction.atomic():
             decision = _record(
                 event,
@@ -488,7 +510,7 @@ def plan_event(event_id):
                 rule,
                 duration_ms=round((time.monotonic() - started) * 1000, 1),
                 fallback=True,
-                fallback_reason="regla: sin software registrado, primero hay que observar el activo",
+                fallback_reason=reason,
             )
             return _after_decision(event, decision)
     _count_call()

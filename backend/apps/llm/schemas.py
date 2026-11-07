@@ -2,7 +2,7 @@
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 CRITICALITY_CLASSES = ("CRITICO", "ALTO", "MEDIO", "BAJO", "INFORMATIVO")
 
@@ -167,6 +167,22 @@ class VulnerabilityItem(BaseModel):
     adjustment: float = Field(ge=-1, le=1, default=0)
     adjustment_reason: str = Field(max_length=240, default="")
     status: Literal["CONFIRMED", "LIKELY", "NEEDS_VERIFICATION", "LIKELY_FALSE_POSITIVE"]
+
+    @field_validator("plausibility", mode="before")
+    @classmethod
+    def _percent_to_fraction(cls, value):
+        """«10» o «85» (por ciento) → 0.10 / 0.85: el modelo pequeño lo confunde a veces."""
+        if isinstance(value, int | float) and 1 < value <= 100:
+            return value / 100
+        return value
+
+    @field_validator("adjustment", mode="before")
+    @classmethod
+    def _clamp_adjustment(cls, value):
+        """El ajuste está acotado a ±1 por diseño; un «5» se recorta en vez de tirar la respuesta."""
+        if isinstance(value, int | float) and not isinstance(value, bool):
+            return max(-1.0, min(1.0, float(value)))
+        return value
 
 
 class VulnAssessmentOutput(BaseModel):
