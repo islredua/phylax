@@ -271,6 +271,29 @@ def can_scan_asset_id(asset_id):
     return asset is not None and can_scan(asset)
 
 
+def latest_service_scan(asset_id):
+    """Último escaneo de servicios dirigido al activo (en curso primero), o ``None``."""
+    return (
+        DiscoveryRun.objects.filter(target_asset_id=asset_id, profile=DiscoveryProfile.SERVICE_SCAN)
+        .order_by("-created_at")
+        .first()
+    )
+
+
+def typical_service_scan_seconds():
+    """Mediana de los últimos escaneos de servicios terminados, para decir «suele tardar…»."""
+    from statistics import median
+
+    runs = DiscoveryRun.objects.filter(
+        profile=DiscoveryProfile.SERVICE_SCAN,
+        status=RunStatus.SUCCEEDED,
+        started_at__isnull=False,
+        finished_at__isnull=False,
+    ).order_by("-finished_at")[:5]
+    values = [(r.finished_at - r.started_at).total_seconds() for r in runs]
+    return round(median(values)) if values else None
+
+
 def has_service_scan(asset):
     """``True`` si alguna vez se lanzó un escaneo de servicios sobre el activo."""
     return DiscoveryRun.objects.filter(target_asset=asset).exists()

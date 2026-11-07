@@ -14,8 +14,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from statistics import median
 
+from django.conf import settings
 from django.urls import reverse
 from django.utils import timezone
+
+from apps.assets import services as assets_services
 
 from . import capabilities
 from .models import (
@@ -243,6 +246,203 @@ def evaluation_progress(asset_id):
         "outcome": outcome,
         "outcome_class": outcome_class,
         "outcome_url": outcome_url,
+    }
+
+
+# --------------------------------------------------------------------------
+# El activo como un solo hilo: escaneo → criticidad → evaluación (→ consolidación)
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PipelineStep:
+    key: str
+    label: str
+    state: str  # done | active | waiting | pending | failed | stopped | blocked
+    detail: str = ""
+    url: str = ""
+    # Botón que cabe junto al paso: scan | rescan | suggest | evaluate | "" (y su rótulo).
+    action: str = ""
+    action_label: str = ""
+
+
+def _hhmm(value):
+    return timezone.localtime(value).strftime("%H:%M") if value else ""
+
+
+def _scan_step(asset_id, caps, run, scan_active):
+    from apps.discovery import services as discovery
+
+    if scan_active:
+        typical = discovery.typical_service_scan_seconds()
+        detail = f"nmap sobre el activo · desde {_hhmm(run.started_at or run.created_at)}"
+        detail += f" · suele tardar ~{typical} s" if typical else " · en cola"
+        return PipelineStep(
+            "scan",
+            "Escaneo de servicios",
+            "active",
+            detail,
+            reverse("discovery:run_detail", args=[run.pk]),
+        )
+    if run is not None and run.status == "SUCCEEDED":
+        return PipelineStep(
+            "scan",
+            "Escaneo de servicios",
+            "done",
+            f"{run.services_seen} servicio(s) · {timezone.localtime(run.finished_at):%Y-%m-%d %H:%M}"
+            if run.finished_at
+            else f"{run.services_seen} servicio(s)",
+            reverse("discovery:run_detail", args=[run.pk]),
+            "rescan" if caps.can_scan_network else "",
+            "Re-escanear",
+        )
+    if run is not None and run.status in ("FAILED", "CANCELLED"):
+        return PipelineStep(
+            "scan",
+            "Escaneo de servicios",
+            "failed",
+            f"{run.get_status_display().lower()}"
+            + (f": {run.error[:120]}" if getattr(run, "error", "") else ""),
+            reverse("discovery:run_detail", args=[run.pk]),
+            "rescan" if caps.can_scan_network else "",
+            "Reintentar",
+        )
+    if caps.can_scan_network:
+        return PipelineStep(
+            "scan",
+            "Escaneo de servicios",
+            "pending",
+            "aún no se ha observado el activo",
+            "",
+            "scan",
+            "Escanear servicios",
+        )
+    return PipelineStep(
+        "scan", "Escaneo de servicios", "blocked", caps.scan_blocker or "sin IP autorizada"
+    )
+
+
+def _criticality_step(asset_id, summary, scan_active, llm_ready):
+    label = "Criticidad con IA"
+    if not llm_ready:
+        return PipelineStep("criticality", label, "failed", "el modelo LLM no está descargado")
+    if summary["suggestion_in_flight"]:
+        return PipelineStep(
+            "criticality", label, "active", "el modelo analiza el contexto del activo…"
+        )
+    if summary["criticality"]:
+        detail = f"{summary['criticality_label']} · {summary['criticality_source_label']}"
+        return PipelineStep(
+            "criticality",
+            label,
+            "done",
+            detail,
+            f"{reverse('assets:detail', args=[asset_id])}?tab=sugerencias",
+            "suggest",
+            "Recalcular",
+        )
+    if not summary["has_minimum_context"]:
+        return PipelineStep(
+            "criticality",
+            label,
+            "waiting",
+            "falta descripción o función de negocio para pedirla",
+            reverse("assets:edit", args=[asset_id]),
+        )
+    if scan_active:
+        return PipelineStep(
+            "criticality",
+            label,
+            "waiting",
+            "se calcula al terminar el escaneo, con los servicios ya observados",
+        )
+    return PipelineStep(
+        "criticality", label, "pending", "sin criticidad", "", "suggest", "Sugerir con IA"
+    )
+
+
+def _evaluation_step(asset_id, caps, evaluation, scan_active):
+    label = "Evaluación de detección"
+    event = evaluation["event"]
+    if event is None:
+        if scan_active:
+            return PipelineStep(
+                "evaluation", label, "waiting", "arranca sola al terminar el escaneo de servicios"
+            )
+        if not caps.can_evaluate:
+            return PipelineStep("evaluation", label, "blocked", "; ".join(caps.blockers))
+        return PipelineStep(
+            "evaluation", label, "pending", "sin evaluaciones", "", "evaluate", "Evaluar ahora"
+        )
+    url = reverse("detection:event", args=[event.pk])
+    if evaluation["in_flight"]:
+        active = next((s for s in evaluation["steps"] if s.state == "active"), None)
+        detail = f"{active.label.lower()}: {active.detail}" if active else "en curso"
+        return PipelineStep("evaluation", label, "active", detail, url)
+    action = evaluation["action"]
+    if action is not None and action.status in WAITING_ACTION:
+        return PipelineStep(
+            "evaluation",
+            label,
+            "waiting",
+            "esperando a una persona en la cola de aprobación",
+            reverse("detection:action", args=[action.pk]),
+        )
+    if event.status == EventStatus.FILTERED:
+        return PipelineStep("evaluation", label, "stopped", event.triage_reason, url)
+    if event.status == EventStatus.FAILED:
+        return PipelineStep("evaluation", label, "failed", "falló; revisa la actividad", url)
+    outcome = evaluation["outcome"] or "terminada"
+    return PipelineStep(
+        "evaluation",
+        label,
+        "done",
+        f"{timezone.localtime(event.created_at):%Y-%m-%d %H:%M} · {outcome}",
+        evaluation["outcome_url"] or url,
+    )
+
+
+def asset_pipeline(asset_id):
+    """El activo contado como un solo hilo, para la tarjeta Acciones del activo."""
+    from apps.discovery import services as discovery
+    from apps.llm.status import active_model_ready
+
+    summary = assets_services.get_asset_summary(asset_id)
+    caps = capabilities.for_asset(asset_id)
+    run = discovery.latest_service_scan(asset_id)
+    scan_active = run is not None and run.status in ("QUEUED", "RUNNING")
+    evaluation = evaluation_progress(asset_id)
+    steps = [
+        _scan_step(asset_id, caps, run, scan_active),
+        _criticality_step(asset_id, summary, scan_active, active_model_ready()),
+        _evaluation_step(asset_id, caps, evaluation, scan_active),
+    ]
+    states = {s.state for s in steps}
+    now = timezone.now()
+    last = caps.last_evaluated_at
+    minutes_ago = round((now - last).total_seconds() / 60) if last else None
+    recent = minutes_ago is not None and minutes_ago < settings.DETECTION_REEVALUATE_MINUTES
+    can_reevaluate = (
+        caps.can_evaluate
+        and evaluation["event"] is not None
+        and not evaluation["in_flight"]
+        and not scan_active
+        and not recent
+        and steps[2].state != "waiting"
+    )
+    return {
+        "asset_id": str(asset_id),
+        "summary": summary,
+        "caps": caps,
+        "steps": steps,
+        "evaluation": evaluation,
+        "scan_active": scan_active,
+        "in_flight": "active" in states,
+        "waiting": "waiting" in states,
+        "poll": 5 if "active" in states else (20 if "waiting" in states else 0),
+        "can_reevaluate": can_reevaluate,
+        "evaluated_minutes_ago": minutes_ago,
+        "reevaluate_after": settings.DETECTION_REEVALUATE_MINUTES,
     }
 
 

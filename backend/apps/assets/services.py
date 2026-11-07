@@ -1047,6 +1047,16 @@ def get_asset_summary(asset_id) -> dict:
         "has_sbom": any(s.is_current for s in asset.sboms.all()),
         "reachable": asset.reachable,
         "reachability_checked_at": asset.reachability_checked_at,
+        "in_scope": asset.in_scope,
+        "criticality": asset.criticality,
+        "criticality_label": asset.get_criticality_display() if asset.criticality else "",
+        "criticality_source": asset.criticality_source,
+        "criticality_source_label": (
+            asset.get_criticality_source_display() if asset.criticality_source else ""
+        ),
+        "has_minimum_context": asset.has_minimum_context,
+        "suggestion_in_flight": processing_suggestion(asset) is not None
+        or suggestion_queued(asset.pk),
     }
 
 

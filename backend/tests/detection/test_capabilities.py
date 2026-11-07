@@ -187,7 +187,7 @@ def test_model_receives_allowed_actions_and_cannot_pick_an_unavailable_one(ollam
     assert "allowed_actions" in sent["messages"][0]["content"]  # prompt v2
     decision = event.decisions.get()
     assert decision.action == "RECONCILE" and decision.fallback
-    assert "no disponible" in decision.fallback_reason and decision.prompt_version == "v2"
+    assert "no disponible" in decision.fallback_reason and decision.prompt_version == "v3"
 
 
 def test_constrain_degrades_to_the_next_viable_action():
@@ -223,7 +223,9 @@ def test_evaluation_status_fragment_and_review_facts(client, as_role, monkeypatc
     assert "Registrar el rango" not in body  # requiere assets.manage_scope (admin)
     # La página del activo carga el fragmento con HTMX.
     page = client.get(f"/inventory/{asset.pk}/").content.decode()
-    assert f"/detection/assets/{asset.pk}/evaluation/" in page
+    assert f"/detection/assets/{asset.pk}/pipeline/" in page
+    strip = client.get(f"/detection/assets/{asset.pk}/pipeline/").content.decode()
+    assert "ningún rango" in strip and "Cargar un SBOM" in strip
     # Pedir evaluar sin capacidad: mensaje con motivo y remedio, sin evento.
     response = client.post(f"/detection/assets/{asset.pk}/evaluate/", follow=True)
     assert "No se puede evaluar" in response.content.decode()

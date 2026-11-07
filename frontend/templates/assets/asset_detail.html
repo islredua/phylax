@@ -55,14 +55,13 @@
     {% if asset.description %}<div class="mt-4"><p class="kv-label">Descripción</p><p class="mt-1 text-ink-soft">{{ asset.description|linebreaksbr }}</p></div>{% endif %}
   </section>
   <section class="card flex flex-col gap-3">
-    <h3 class="card-title mb-0">Acciones</h3>
+    <h3 class="card-title mb-0">Proceso del activo</h3>
+    {% if asset.status != 'RETIRED' and asset.status != 'UNCONFIRMED' and perms.detection.view_detectionevent %}
+    {# Un solo hilo: escaneo de servicios → criticidad con IA → evaluación de detección. Se refresca solo mientras algo corre. #}
+    <div id="asset-pipeline" hx-get="{% url 'detection:asset_pipeline' asset.pk %}" hx-trigger="load" hx-swap="outerHTML"><p class="text-xs text-muted">Cargando el proceso del activo…</p></div>
+    {% else %}
     {% if asset.status != 'RETIRED' %}{% include "assets/_suggest_action.html" %}{% endif %}
     {% include "assets/_scan_action.html" with extra_class="w-full" %}
-    {% if perms.detection.request_evaluation and asset.status != 'RETIRED' and asset.status != 'UNCONFIRMED' %}
-    <form method="post" action="{% url 'detection:evaluate' asset.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}"><button class="btn-secondary w-full" type="submit" title="El planificador decide qué conviene hacer con este activo ahora">Evaluar ahora (detección)</button></form>
-    {% endif %}
-    {% if perms.detection.view_detectionevent and asset.status != 'RETIRED' and asset.status != 'UNCONFIRMED' %}
-    <div id="evaluation-status" hx-get="{% url 'detection:evaluation_status' asset.pk %}" hx-trigger="load" hx-swap="outerHTML"><p class="text-xs text-muted">Cargando la última evaluación…</p></div>
     {% endif %}
     {% if perms.assets.change_asset and asset.status != 'IGNORED' and asset.status != 'RETIRED' %}
     <form method="post" action="{% url 'assets:ignore' asset.pk %}">{% csrf_token %}<button class="btn-secondary w-full" type="submit">Ignorar</button></form>

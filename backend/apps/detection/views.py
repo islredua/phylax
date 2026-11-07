@@ -303,6 +303,19 @@ class EvaluateAssetView(Perm, View):
         return HttpResponseRedirect(back)
 
 
+class AssetPipelineView(Perm, View):
+    """Fragmento «Proceso del activo»: escaneo → criticidad → evaluación, con sus botones."""
+
+    permission_required = "detection.view_detectionevent"
+
+    def get(self, request, pk):
+        from . import progress
+
+        return render(
+            request, "detection/_asset_pipeline.html", {"pipeline": progress.asset_pipeline(pk)}
+        )
+
+
 class EvaluationStatusView(Perm, View):
     """Fragmento «última evaluación» del activo; se consulta solo mientras hay algo en curso."""
 

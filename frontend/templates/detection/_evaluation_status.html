@@ -1,6 +1,6 @@
 {% load detection_tags %}
 {# Última evaluación del activo contada como pasos (B). Se refresca sola mientras hay algo en curso. #}
-<div id="evaluation-status" class="flex flex-col gap-2 text-sm"{% if progress.poll %} hx-get="{% url 'detection:evaluation_status' asset_id %}" hx-trigger="every {{ progress.poll }}s" hx-swap="outerHTML"{% endif %}>
+<div id="evaluation-status" class="flex flex-col gap-2 text-sm"{% if progress.poll and not embedded %} hx-get="{% url 'detection:evaluation_status' asset_id %}" hx-trigger="every {{ progress.poll }}s" hx-swap="outerHTML"{% endif %}>
 {% if not progress.event %}
   <p class="text-xs text-muted">Sin evaluaciones todavía.</p>
   {% if not progress.caps.can_evaluate %}

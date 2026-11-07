@@ -324,6 +324,8 @@ CTI_EPSS_HIGH = float(os.environ.get("CTI_EPSS_HIGH", "0.5"))
 # que una fuente vuelva a ver un hallazgo abierto.
 DETECTION_ASSET_REVIEW_DAYS = int(os.environ.get("DETECTION_ASSET_REVIEW_DAYS", "14"))
 DETECTION_FINDING_REVIEW_DAYS = int(os.environ.get("DETECTION_FINDING_REVIEW_DAYS", "30"))
+# «Volver a evaluar» se ofrece solo si la última decisión del planificador es más vieja que esto.
+DETECTION_REEVALUATE_MINUTES = int(os.environ.get("DETECTION_REEVALUATE_MINUTES", "30"))
 
 # --- Scoring weights ---
 SCORING_WEIGHTS = {

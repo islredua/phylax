@@ -7,6 +7,7 @@ from django.db.models import Count, Q
 from django.http import FileResponse, Http404
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.http import url_has_allowed_host_and_scheme
 from django.views import View
 from django.views.generic import ListView
 
@@ -130,7 +131,11 @@ class RescanView(Perm, View):
             request,
             f"{'Escaneo' if first else 'Re-escaneo'} de servicios en cola.",
         )
-        # Se queda en el activo: su pestaña Descubrimientos muestra la ejecución en vivo.
+        # Se queda en el activo: el hilo de progreso (Resumen) o la pestaña Descubrimientos
+        # muestran la ejecución en vivo.
+        target = request.POST.get("next", "")
+        if target and url_has_allowed_host_and_scheme(target, {request.get_host()}):
+            return redirect(target)
         return redirect(f"{reverse('assets:detail', args=[asset.pk])}?tab=descubrimientos")
 
 

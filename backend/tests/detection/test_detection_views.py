@@ -186,7 +186,10 @@ def test_asset_detail_links_findings_and_evaluate(client, as_role, fake_tool):
     as_role(OPERATOR)
     finding = _finding()
     body = client.get(f"/inventory/{finding.asset_id}/").content.decode()
-    assert f"/detection/?asset={finding.asset_id}" in body and "Evaluar ahora" in body
+    assert f"/detection/?asset={finding.asset_id}" in body
+    assert f"/detection/assets/{finding.asset_id}/pipeline/" in body
+    strip = client.get(f"/detection/assets/{finding.asset_id}/pipeline/").content.decode()
+    assert "Evaluar ahora" in strip
     response = client.post(f"/detection/assets/{finding.asset_id}/evaluate/", follow=True)
     assert "Evaluación en curso" in response.content.decode()
     event = DetectionEvent.objects.get(kind=EventKind.MANUAL_EVALUATION, asset_id=finding.asset_id)
