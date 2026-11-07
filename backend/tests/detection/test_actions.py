@@ -440,3 +440,29 @@ def test_settings_permissions_and_validation(analyst, admin):
         entry.delete()
     summary = automation.summary()
     assert summary["mode"] == "AUTO" and "next_window" in summary
+
+
+def test_nuclei_targets_prefer_web_ports_and_fall_back_to_network_profile(fake_tool):
+    # Mixto: web 80 + SSH 22 → solo el puerto web, perfil normal.
+    asset = _asset()
+    ServiceFactory(asset=asset, port=22, service_name="ssh", product="OpenSSH", version="9.2p1")
+    components.refresh_components(asset.pk)
+    action = _decide(asset)
+    execution = ToolExecution.objects.get(action=action)
+    assert execution.profile == "cves" and execution.targets == ["10.7.0.10:80"]
+    # Sin web (SMB + SSH): todos los puertos, perfil de red sin plantillas HTTP.
+    smb = AssetFactory()
+    AssetIdentifierFactory(asset=smb, value="10.7.0.11")
+    ServiceFactory(
+        asset=smb, port=445, service_name="microsoft-ds", product="Samba smbd", version="4"
+    )
+    ServiceFactory(asset=smb, port=22, service_name="ssh", product="OpenSSH", version="9.2p1")
+    components.refresh_components(smb.pk)
+    action = _decide(smb)
+    execution = ToolExecution.objects.get(action=action)
+    assert execution.profile == "cves-network"
+    assert execution.targets == ["10.7.0.11:22", "10.7.0.11:445"]
+    from apps.scanners import profiles
+
+    argv = profiles.build_nuclei_argv("cves-network", execution.targets)
+    assert argv[argv.index("-exclude-type") + 1] == "http,headless"

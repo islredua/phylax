@@ -30,7 +30,6 @@ from .models import (
     ActionStatus,
     LogKind,
     PlannedAction,
-    SoftwareComponent,
     Urgency,
 )
 
@@ -214,22 +213,44 @@ def _check(action, name, ok, detail=""):
     return ok
 
 
+WEB_PORTS = frozenset({80, 443, 3000, 5000, 8000, 8008, 8080, 8081, 8443, 8888, 9000, 9090})
+
+
+def _is_web(service):
+    text = f"{service.service_name} {service.product}".lower()
+    return "http" in text or service.port in WEB_PORTS
+
+
+def _web_and_other_ports(asset_id):
+    from apps.assets.models import Service
+
+    web, other = set(), set()
+    for service in Service.objects.filter(asset_id=asset_id, state="open").exclude(protocol="udp"):
+        (web if _is_web(service) else other).add(service.port)
+    return sorted(web), sorted(other)
+
+
+def nuclei_profile(action):
+    """``cves`` con puertos web; ``cves-network`` (sin plantillas HTTP) si el equipo no tiene web.
+
+    Una plantilla HTTP contra SMB o SSH espera la respuesta hasta el tiempo límite: miles de
+    plantillas × 10 s convertían un escaneo de 2 min en uno de media hora sin hallazgo posible.
+    """
+    category = action.category or "cves"
+    web, other = _web_and_other_ports(action.asset_id)
+    return category if web or not other else f"{category}-network"
+
+
 def _targets_for(action):
     """Objetivos concretos del activo para la herramienta, ya filtrados por alcance."""
     targets = [t for t in assets_services.get_scan_targets() if t.asset_id == action.asset_id]
     if action.action == Action.DETECT_VULNS:
         ips = [t.value for t in targets if t.kind == "ip"]
-        # nuclei solo prueba 80/443 si recibe la IP pelada: se le dan los puertos TCP abiertos
-        # que el inventario conoce (índice de software) para que mire donde hay servicio.
-        ports = sorted(
-            set(
-                SoftwareComponent.objects.filter(
-                    asset_id=action.asset_id, is_current=True, port__isnull=False
-                )
-                .exclude(protocol="udp")
-                .values_list("port", flat=True)
-            )
-        )
+        # nuclei solo prueba 80/443 si recibe la IP pelada: se le dan los puertos TCP abiertos.
+        # Si hay servicios web, solo esos (las plantillas HTTP cuelgan en SMB/SSH); si no hay,
+        # todos los puertos con el perfil de red (ver nuclei_profile).
+        web, other = _web_and_other_ports(action.asset_id)
+        ports = web or other
         if not ports:
             return ips
         return [f"{ip}:{port}" for ip in ips for port in ports]
@@ -329,7 +350,7 @@ def _launch(action):
         elif action.action == Action.DETECT_VULNS:
             execution = scanners.request_execution(
                 tool="NUCLEI",
-                profile=action.category or "cves",
+                profile=nuclei_profile(action),
                 asset_id=action.asset_id,
                 targets=_targets_for(action),
                 action=action,

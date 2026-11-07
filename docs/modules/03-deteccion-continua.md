@@ -104,7 +104,7 @@ no disponible para este activo».
 |---|---|
 | `RECONCILE` | Recomparar con el software conocido; se ejecuta de inmediato en cualquier modo |
 | `RESCAN_SERVICES` | nmap `SERVICE_SCAN` vía `discovery.request_discovery` |
-| `DETECT_VULNS` | nuclei con la categoría indicada (`cves`, `exposure`, `misconfig`, `all`) |
+| `DETECT_VULNS` | nuclei con la categoría indicada (`cves`, `exposure`, `misconfig`, `all`); si el equipo no tiene servicio web, variante `<categoría>-network` sin plantillas HTTP |
 | `REANALYZE_SBOM` | Grype sobre el SBOM vigente o la imagen |
 | `CREATE_WATCH` | `WatchItem`: avisar si aparece el producto |
 | `FLAG_HUMAN` | A la cola como «revisión humana» |
@@ -342,8 +342,11 @@ ventana no operativa y los guardarraíles.
 - Plantillas de nuclei y base de Grype: no se descargan en el build; `update_scanner_data` una vez
   (o montarlas) en despliegues sin internet.
 - Motor de scoring (Módulo 4): hoy `score_findings` devuelve vacío.
-- Escaneo de red vía nuclei por `ip:puerto` (los puertos TCP abiertos que conoce el inventario; sin
-  hostnames/URL); `exposure`/`misconfig` por etiquetas.
+- Escaneo de red vía nuclei por `ip:puerto` (sin hostnames/URL). Si el inventario conoce servicios
+  web (nombre o producto con «http», o puertos 80/443/8080…), solo esos puertos; si no, todos los
+  puertos TCP abiertos con el perfil `-network` (`-exclude-type http,headless`): una plantilla HTTP
+  contra SMB o SSH espera el tiempo límite y miles de ellas convertían 2 min en media hora.
+  `exposure`/`misconfig` por etiquetas.
 - La reconciliación de componentes de SBOM contra NVD depende de que el SBOM traiga CPE o un nombre
   que coincida; el análisis fino lo hace Grype (`REANALYZE_SBOM`). Grype suele reportar el aviso
   GHSA: el hallazgo se identifica por el CVE relacionado (para deduplicar con la CTI) y el GHSA queda

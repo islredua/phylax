@@ -18,6 +18,8 @@ from apps.assets.normalization import normalize_image_ref
 # Categoría del planificador → etiquetas de plantillas de nuclei.
 NUCLEI_PROFILES = {
     "cves": ["-tags", "cve"],
+    # Equipos sin servicio web: solo plantillas de red/TLS/JS; las HTTP cuelgan contra SMB o SSH.
+    "cves-network": ["-tags", "cve", "-exclude-type", "http,headless"],
     "exposure": ["-tags", "exposure,panel,default-login,misconfig"],
     "misconfig": ["-tags", "misconfig"],
     "all": [],
