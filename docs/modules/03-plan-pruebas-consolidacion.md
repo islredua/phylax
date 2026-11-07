@@ -38,8 +38,9 @@ contra este documento; cuando una fase cambia de criterio, se corrige aquí prim
 
 **Estado:** fase 1 ✔ (`8459811`), fase 2 ✔ (`86b9e4d`), fases 3 y 4 ✔ (`7df0e0c`: observaciones,
 vulnerabilidades consolidadas, scoring M4, pantallas; pruebas en `tests/detection/test_consolidation.py`
-y `test_vulnerability_views.py`), fase 5 ✔ (este commit: riesgos ISO/IEC 27005, `tests/detection/test_risks.py`).
-Pendiente: fase 6 (laboratorio).
+y `test_vulnerability_views.py`), fase 5 ✔ (`aa4f363`: riesgos ISO/IEC 27005, `tests/detection/test_risks.py`), fase 6 herramientas ✔
+(`lab_import`, `evaluate_lab`, `datasets/lab-expected-results.csv`, `datasets/lab-sboms/`;
+`tests/detection/test_lab_commands.py`). Los resultados de la corrida real se anotan al final de este documento.
 
 ## Fase 2 · Pantalla del activo: un solo hilo de progreso
 
@@ -102,8 +103,16 @@ agente-portal, y comparar con la tabla esperada derivada de `GROUND-TRUTH.md`.
 | Tiempo por activo (planificador + consolidación) | < 60 s con GPU |
 | Estabilidad (10 corridas por activo) | JSON válido ≥ 95 %; plausibilidad dentro de ±0.1 |
 
-Se añade un comando `evaluate_lab` que calcula estas métricas desde la base y un archivo
-`lab/expected-results.csv` con lo esperado por host.
+Comandos: `lab_import --user <admin>` da de alta los 20 hosts desde `datasets/lab-inventario-hosts.csv`
+(copia del inventario del laboratorio), crea los tres rangos autorizados, adjunta los SBOM escritos a
+mano de `datasets/lab-sboms/` (api-pagos: log4j-core 2.14.1; app-siniestros: Pillow 8.1.0;
+agente-portal: lodash 4.17.15) y pide el escaneo de servicios de cada equipo; el resto del hilo
+(criticidad, evaluación, herramientas, consolidación, riesgos) corre solo. `evaluate_lab` compara con
+`datasets/lab-expected-results.csv` (clave esperada, estados aceptables, severidad ordinal, vía) y
+guarda un JSON en `experiments/`: precisión y exhaustividad por host, vía de detección, veredicto de
+backup-host, puesto de api-pagos por puntaje contextual, Spearman del orden frente a la severidad
+esperada (contextual vs. CVSS, EPSS, CVSS×EPSS), criticidad por IA frente a la esperada, segundos de
+IA por activo y, con `--stability N`, estabilidad del JSON y de la plausibilidad.
 
 ## Regresión en cada fase
 

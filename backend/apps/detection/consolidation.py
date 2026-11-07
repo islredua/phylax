@@ -104,7 +104,10 @@ WEAKNESS_FAMILIES = (
     (("tls", "ssl", "cipher", "certificate", "certificado"), "TLS_DEBIL"),
     (("header", "cabecera", "hsts", "csp", "x-frame"), "CABECERAS_HTTP"),
     (("default", "credencial", "password", "contraseña", "login"), "CREDENCIALES_POR_DEFECTO"),
-    (("exposure", "expuesto", "disclosure", "listing", "panel"), "EXPOSICION_DE_INFORMACION"),
+    (
+        ("exposure", "exposed", "expuesto", "disclosure", "listing", "panel", "phpinfo", "unauth"),
+        "EXPOSICION_DE_INFORMACION",
+    ),
 )
 
 

@@ -285,6 +285,14 @@ una decisión del planificador tardaba 117 s (prompt a 15 fichas/s). Con un hilo
 fichas/s, generación a 66 fichas/s). Si se cambia de modelo, revisar `memory.required` en los
 registros de Ollama frente a `memory.available`.
 
+## Laboratorio de punta a punta
+
+`python manage.py lab_import --user <admin>` da de alta el laboratorio «Aseguradora Norte» (20 hosts
+en `datasets/lab-inventario-hosts.csv`, tres rangos autorizados, SBOM de `datasets/lab-sboms/`) y pide
+el escaneo de servicios de cada equipo; el hilo del activo hace el resto. `python manage.py
+evaluate_lab` compara lo consolidado con `datasets/lab-expected-results.csv` y guarda las métricas en
+`experiments/`. Ver `03-plan-pruebas-consolidacion.md`, fase 6.
+
 ## Cómo probar el lazo de punta a punta
 
 Sin internet ni LLM real (`LLM_MOCK_MODE=1`, `CTI_ONLINE=0`):
