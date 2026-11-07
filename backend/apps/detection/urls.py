@@ -25,6 +25,10 @@ urlpatterns = [
         views.VulnerabilityNoteView.as_view(),
         name="vulnerability_note",
     ),
+    path("risks/", views.RiskRegisterView.as_view(), name="risks"),
+    path("risks/<uuid:pk>/", views.RiskDetailView.as_view(), name="risk"),
+    path("risks/<uuid:pk>/treatment/", views.RiskTreatmentView.as_view(), name="risk_treatment"),
+    path("risks/<uuid:pk>/note/", views.RiskNoteView.as_view(), name="risk_note"),
     path("observations/", views.ObservationsView.as_view(), name="observations"),
     path("observations/new/", views.ObservationCreateView.as_view(), name="observation_new"),
     path(

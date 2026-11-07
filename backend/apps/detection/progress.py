@@ -429,7 +429,10 @@ def _consolidation_step(asset_id, evaluation, scan_active):
             .filter(consolidated__isnull=True)
             .count()
         )
-        detail = f"{open_vulns} abierta(s) de {open_obs} observación(es)"
+        from .models import RISK_OPEN_STATUSES, Risk
+
+        open_risks = Risk.objects.filter(asset_id=asset_id, status__in=RISK_OPEN_STATUSES).count()
+        detail = f"{open_vulns} abierta(s) de {open_obs} observación(es) · {open_risks} riesgo(s)"
         if last:
             detail += f" · {timezone.localtime(last):%Y-%m-%d %H:%M}"
         if unconsolidated:

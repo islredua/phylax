@@ -25,6 +25,7 @@ NUCLEI = (Path(__file__).resolve().parents[1] / "scanners/fixtures/nuclei.jsonl"
 READ_PAGES = [
     "/detection/",
     "/detection/observations/",
+    "/detection/risks/",
     "/detection/activity/",
     "/detection/activity/?kind=decision",
     "/detection/queue/",
@@ -101,6 +102,7 @@ def test_navigation_has_detection_section(client, as_role):
     assert nav.section.key == "detection"
     assert [t.key for t in nav.tabs] == [
         "panel",
+        "risks",
         "observations",
         "activity",
         "queue",

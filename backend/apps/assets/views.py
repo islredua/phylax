@@ -309,6 +309,9 @@ class AssetDetailView(Perm, TemplateView):
         context["open_vulnerabilities"] = asset.vulnerabilities.filter(
             status__in=("CONFIRMED", "LIKELY", "NEEDS_VERIFICATION", "LIKELY_FALSE_POSITIVE")
         ).count()
+        context["open_risks"] = asset.risks.filter(
+            status__in=("OPEN", "TREATED", "ACCEPTED")
+        ).count()
         runs = discovery.runs_for_asset(asset)
         context.update(
             can_scan=discovery.can_scan(asset),

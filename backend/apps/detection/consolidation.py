@@ -666,6 +666,13 @@ def consolidate_asset(asset_id, *, requested_by=None, reason="", use_llm=True):
         resolved = _resolve_orphans(asset_id, touched, now)
     llm_ok = llm_ok and use_llm
     cache.set(_last_key(asset_id), now.isoformat(), None)
+    # Fase 5: las vulnerabilidades consolidadas se expresan como riesgos (ISO/IEC 27005).
+    try:
+        from . import risks
+
+        risks.derive_risks(asset_id, requested_by=requested_by, use_llm=use_llm)
+    except Exception:  # pragma: no cover - un fallo en riesgos no deshace la consolidación
+        log.exception("derivación de riesgos del activo %s", asset_id)
     return ConsolidationResult(
         len(groups), len(touched), by_rule_count, rejected_total, resolved, calls, llm_ok, reason
     )

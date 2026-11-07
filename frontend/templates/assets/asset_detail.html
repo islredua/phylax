@@ -29,7 +29,7 @@
   {% endfor %}
   {% if perms.detection.view_vulnerability %}<a href="{% url 'detection:panel' %}?asset={{ asset.pk }}&amp;status=" class="subtab" title="Vulnerabilidades reales del activo, consolidadas por la IA">Vulnerabilidades{% if open_vulnerabilities %} <span class="font-mono text-xs">{{ open_vulnerabilities }}</span>{% endif %}</a>{% endif %}
   {% if perms.detection.view_finding %}<a href="{% url 'detection:observations' %}?asset={{ asset.pk }}&amp;status=" class="subtab" title="Lo que reportó cada herramienta, la inteligencia o una persona">Observaciones{% if open_findings %} <span class="font-mono text-xs">{{ open_findings }}</span>{% endif %}</a>{% endif %}
-  <span class="subtab-disabled" title="Disponible en la siguiente fase (riesgos ISO/IEC 27005)">Riesgo</span>
+  {% if perms.detection.view_risk %}<a href="{% url 'detection:risks' %}?asset={{ asset.pk }}&amp;status=" class="subtab" title="Riesgos del activo según ISO/IEC 27005, con matriz 5×5">Riesgo{% if open_risks %} <span class="font-mono text-xs">{{ open_risks }}</span>{% endif %}</a>{% endif %}
 </nav>
 
 {% if tab == "resumen" %}

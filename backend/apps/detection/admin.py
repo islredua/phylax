@@ -11,6 +11,8 @@ from .models import (
     OrganizationProfile,
     PlannedAction,
     PlannerDecision,
+    Risk,
+    RiskEvent,
     SoftwareComponent,
     Vulnerability,
     VulnerabilityEvent,
@@ -152,6 +154,35 @@ class VulnerabilityAdmin(admin.ModelAdmin):
     search_fields = ("title", "key", "asset__name")
     readonly_fields = [f.name for f in Vulnerability._meta.fields if f.name != "status"]
     inlines = [VulnerabilityEventInline]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+class RiskEventInline(ReadOnly, admin.TabularInline):
+    model = RiskEvent
+    extra = 0
+
+
+@admin.register(Risk)
+class RiskAdmin(admin.ModelAdmin):
+    list_display = (
+        "title",
+        "asset",
+        "threat_source",
+        "likelihood",
+        "impact",
+        "level",
+        "status",
+        "treatment",
+        "owner",
+    )
+    list_filter = ("level", "status", "treatment", "threat_source", "assessment_source")
+    search_fields = ("title", "key", "asset__name")
+    inlines = [RiskEventInline]
 
     def has_add_permission(self, request):
         return False

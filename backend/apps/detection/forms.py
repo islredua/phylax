@@ -233,3 +233,44 @@ class ObservationForm(StyledMixin, forms.Form):
         max_length=255,
         help_text="Qué viste y dónde: comando, respuesta, captura, referencia del aviso.",
     )
+
+
+# --- Fase 5: riesgos ----------------------------------------------------------------------------
+
+from .models import RiskLevel, RiskStatus, RiskTreatment  # noqa: E402
+
+SCALE = [(i, f"{i}") for i in range(1, 6)]
+
+
+class RiskFilterForm(StyledMixin, forms.Form):
+    q = forms.CharField(
+        label="Buscar",
+        required=False,
+        widget=forms.TextInput(attrs={"placeholder": "Escenario o activo"}),
+    )
+    level = forms.ChoiceField(
+        label="Nivel", required=False, choices=[("", "Todos"), *RiskLevel.choices]
+    )
+    status = forms.ChoiceField(
+        label="Estado",
+        required=False,
+        choices=[("", "Abiertos"), ("all", "Todos"), *RiskStatus.choices],
+    )
+    treatment = forms.ChoiceField(
+        label="Tratamiento",
+        required=False,
+        choices=[("", "Todos"), ("none", "Sin decidir"), *RiskTreatment.choices],
+    )
+    asset = forms.UUIDField(required=False, widget=forms.HiddenInput())
+
+
+class RiskTreatmentForm(forms.Form):
+    treatment = forms.ChoiceField(choices=RiskTreatment.choices)
+    owner = forms.CharField(required=False, max_length=120)
+    note = forms.CharField(required=False, max_length=2000)
+    residual_likelihood = forms.TypedChoiceField(
+        required=False, choices=[("", "—"), *SCALE], coerce=int, empty_value=None
+    )
+    residual_impact = forms.TypedChoiceField(
+        required=False, choices=[("", "—"), *SCALE], coerce=int, empty_value=None
+    )

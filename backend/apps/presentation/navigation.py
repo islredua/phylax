@@ -142,6 +142,13 @@ SECTIONS = (
                 ),
             ),
             Tab(
+                "risks",
+                "Riesgos",
+                "detection:risks",
+                ("detection.view_risk",),
+                ("detection:risk", "detection:risk_treatment", "detection:risk_note"),
+            ),
+            Tab(
                 "observations",
                 "Observaciones",
                 "detection:observations",

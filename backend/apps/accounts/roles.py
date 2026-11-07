@@ -42,6 +42,7 @@ IMMUTABLE_MODELS = {
     ("cti", "ctichange"),
     ("detection", "findingevent"),
     ("detection", "vulnerabilityevent"),
+    ("detection", "riskevent"),
     ("detection", "findingevidence"),
     ("detection", "detectionevent"),
     ("detection", "eventbatch"),

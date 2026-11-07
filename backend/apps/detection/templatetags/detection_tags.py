@@ -244,3 +244,46 @@ def get_item(mapping, key):
         return mapping.get(key)
     except AttributeError:
         return None
+
+
+# --- Fase 5: riesgos ---------------------------------------------------------------------------
+
+from apps.detection.models import RiskLevel, RiskStatus  # noqa: E402
+
+RISK_LEVEL_STYLE = {
+    RiskLevel.CRITICAL: "badge-critical",
+    RiskLevel.VERY_HIGH: "badge-critical",
+    RiskLevel.HIGH: "badge-high",
+    RiskLevel.MODERATE: "badge-medium",
+    RiskLevel.LOW: "badge-low",
+}
+RISK_CELL_STYLE = {
+    RiskLevel.CRITICAL: "bg-critical text-white",
+    RiskLevel.VERY_HIGH: "bg-critical/70 text-white",
+    RiskLevel.HIGH: "bg-high/70 text-ink",
+    RiskLevel.MODERATE: "bg-medium/60 text-ink",
+    RiskLevel.LOW: "bg-low/50 text-ink",
+}
+RISK_STATUS_STYLE = {
+    RiskStatus.OPEN: "badge-high",
+    RiskStatus.TREATED: "badge-primary",
+    RiskStatus.ACCEPTED: "badge-neutral",
+    RiskStatus.CLOSED: "badge-low",
+}
+
+
+@register.simple_tag
+def risk_level_badge(value):
+    if not value:
+        return ""
+    return _badge(RISK_LEVEL_STYLE.get(value, "badge-neutral"), RiskLevel(value).label)
+
+
+@register.simple_tag
+def risk_status_badge(value):
+    return _badge(RISK_STATUS_STYLE.get(value, "badge-neutral"), RiskStatus(value).label)
+
+
+@register.filter
+def risk_cell_class(level):
+    return RISK_CELL_STYLE.get(level, "")

@@ -193,6 +193,25 @@ cabeceras, credenciales por defecto, exposición de información). El flujo:
 cambio CTI que toca observaciones del activo, observación manual y «Reevaluar con IA» (sin
 retardo). Varios disparadores cercanos producen una sola corrida.
 
+## H3. Riesgos (`detection/risks.py`, ISO/IEC 27005:2022)
+
+Tras cada consolidación, las vulnerabilidades abiertas del activo (sin los probables falsos
+positivos) se expresan como **riesgos**: escenarios de amenaza con fuente (atacante externo,
+persona interna, malware, cadena de suministro, error, otra), vulnerabilidades ligadas,
+**probabilidad** e **impacto** en escalas cualitativas 1–5 y **nivel** por matriz 5×5
+(producto: 1–4 bajo, 5–9 moderado, 10–14 alto, 15–19 muy alto, 20–25 crítico). El LLM local
+(`apps/llm/prompts/risk_assessment/v1.md`, tarea `RISK_ASSESSMENT`) propone entre 1 y 5
+escenarios agrupando vulnerabilidades que llevan a la misma consecuencia; las referencias
+inválidas se descartan y lo no cubierto se valora por regla (explotabilidad, KEV y exposición →
+probabilidad; criticidad, datos e impacto de negocio → impacto). Idempotente por `(activo,
+fuente:escenario)`. Un riesgo sin vulnerabilidades abiertas se **cierra** con evento y se reabre si
+vuelven.
+
+El **tratamiento** es siempre de una persona: mitigar, aceptar, transferir o evitar, con
+responsable, nota (obligatoria para aceptar) y riesgo residual (probabilidad e impacto residuales
+→ nivel). La IA revalora probabilidad e impacto en cada corrida pero nunca toca el tratamiento.
+`RiskEvent` es solo de inserción.
+
 ## I. Perfil de la organización
 
 `Administración › Organización`: nombre, giro, ubicación y un párrafo (≤ 1200 caracteres). Entra al
@@ -203,9 +222,13 @@ párrafo a partir de agregados sin IP ni nombres de equipo; el admin lo edita.
 ## J. Pantallas
 
 Sección **Detección**: Vulnerabilidades (consolidadas, ordenadas por puntaje contextual, con
-resumen y filtros) · Observaciones (capa cruda con filtros, enlace a su vulnerabilidad y
-«Registrar observación») · Actividad (flujo en vivo) · Cola de aprobación · Fuentes CTI ·
-Automatización. El perfil de la organización vive en **Administración › Organización**.
+resumen y filtros) · Riesgos (registro ISO/IEC 27005 con matriz 5×5 de los riesgos listados,
+filtros por nivel, estado y tratamiento) · Observaciones (capa cruda con filtros, enlace a su
+vulnerabilidad y «Registrar observación») · Actividad (flujo en vivo) · Cola de aprobación ·
+Fuentes CTI · Automatización. El perfil de la organización vive en **Administración ›
+Organización**. Detalle de riesgo: escenario, fuente, probabilidad × impacto = nivel, por qué,
+posición en la matriz, vulnerabilidades que lo alimentan, tratamiento (opción, responsable,
+residual, nota), notas y línea de tiempo.
 
 Detalle de vulnerabilidad: qué significa, impacto para la organización, acciones sugeridas,
 señales de las reglas, dos puntajes con su desglose (contextual: criticidad, exposición, datos,
@@ -221,12 +244,13 @@ cuenta como **un solo hilo** de cuatro pasos encadenados: escaneo de servicios �
 → evaluación de detección → vulnerabilidades con IA. Cada paso dice su estado (hecho, en curso,
 esperando, pendiente, falló, no se puede), su detalle (herramienta, inicio, duración típica,
 resultado) y ofrece el botón que toca: «Escanear servicios» / «Re-escanear», «Sugerir con IA» /
-«Recalcular», «Evaluar ahora», «Consolidar con IA» / «Reevaluar con IA». Mientras corre el escaneo,
+«Recalcular», «Evaluar ahora», «Consolidar con IA» / «Reevaluar con IA» (el paso 4 cuenta también
+los riesgos abiertos). Mientras corre el escaneo,
 la criticidad dice que se calcula al terminar y la evaluación que arranca sola. «Volver a evaluar»
 solo aparece pasados `DETECTION_REEVALUATE_MINUTES`; antes se lee «evaluada hace N min». La última
 evaluación contada como pasos queda desplegable. La tarjeta se refresca sola cada 5 s mientras algo
 corre y cada 20 s mientras espera a una persona. Las pestañas del activo enlazan sus
-vulnerabilidades y observaciones con conteos.
+vulnerabilidades, riesgos (pestaña «Riesgo», antes deshabilitada) y observaciones con conteos.
 
 En la cola de aprobación y en el detalle de cada acción, el bloque **«Qué se revisa»** se calcula
 por reglas, no por el LLM: hallazgos abiertos (y en KEV), software registrado, últimos escaneos,
@@ -238,7 +262,7 @@ servicios, registrar o renovar el rango, cargar SBOM, editar el activo).
 | Rol | Puede |
 |---|---|
 | Administrador | Todo: modo y guardarraíles, perfil, fuentes CTI, además de lo del Analista |
-| Analista (`operador`) | Aprobar/rechazar acciones, corregir estados de vulnerabilidades, registrar observaciones y notas, pedir evaluaciones y consolidaciones |
+| Analista (`operador`) | Aprobar/rechazar acciones, corregir estados de vulnerabilidades, decidir el tratamiento de riesgos, registrar observaciones y notas, pedir evaluaciones y consolidaciones |
 | Lector (`auditor`) | Solo ver |
 
 ## Configuración

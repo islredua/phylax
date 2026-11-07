@@ -14,6 +14,7 @@ class InferenceTask(models.TextChoices):
     DETECTION_PLANNER = "DETECTION_PLANNER", "Planificador de detección"
     ORG_PROFILE_DRAFT = "ORG_PROFILE_DRAFT", "Borrador del perfil de la organización"
     VULN_ASSESSMENT = "VULN_ASSESSMENT", "Consolidación de vulnerabilidades"
+    RISK_ASSESSMENT = "RISK_ASSESSMENT", "Valoración de riesgos"
 
 
 class InferenceLog(UUIDModel):

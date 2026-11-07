@@ -173,3 +173,45 @@ class VulnAssessmentOutput(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     vulnerabilities: list[VulnerabilityItem] = Field(default_factory=list)
+
+
+# --- Riesgos (fase 5, ISO/IEC 27005): vulnerabilidades consolidadas → escenarios valorados ------
+
+THREAT_SOURCES = ("EXTERNAL", "INSIDER", "MALWARE", "SUPPLY_CHAIN", "ERROR", "OTHER")
+
+_RISK_ITEM_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "vulnerabilities": {"type": "array", "items": {"type": "integer"}, "minItems": 1},
+        "title": {"type": "string", "maxLength": 160},
+        "scenario": {"type": "string", "maxLength": 700},
+        "threat_source": {"type": "string", "enum": list(THREAT_SOURCES)},
+        "likelihood": {"type": "integer", "minimum": 1, "maximum": 5},
+        "impact": {"type": "integer", "minimum": 1, "maximum": 5},
+        "rationale": {"type": "string", "maxLength": 500},
+    },
+    "required": ["vulnerabilities", "title", "scenario", "threat_source", "likelihood", "impact"],
+}
+RISK_ASSESSMENT_SCHEMA = {
+    "type": "object",
+    "properties": {"risks": {"type": "array", "items": _RISK_ITEM_SCHEMA}},
+    "required": ["risks"],
+}
+
+
+class RiskItem(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    vulnerabilities: list[int] = Field(min_length=1)
+    title: str = Field(max_length=160)
+    scenario: str = Field(max_length=700)
+    threat_source: Literal["EXTERNAL", "INSIDER", "MALWARE", "SUPPLY_CHAIN", "ERROR", "OTHER"]
+    likelihood: int = Field(ge=1, le=5)
+    impact: int = Field(ge=1, le=5)
+    rationale: str = Field(max_length=500, default="")
+
+
+class RiskAssessmentOutput(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    risks: list[RiskItem] = Field(default_factory=list)

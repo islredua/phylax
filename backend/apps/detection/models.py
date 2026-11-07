@@ -466,6 +466,168 @@ class VulnerabilityEvent(models.Model):
 
 
 # --------------------------------------------------------------------------
+# Riesgos (fase 5 · ISO/IEC 27005:2022, escalas cualitativas 1–5 y matriz 5×5)
+# --------------------------------------------------------------------------
+
+
+class ThreatSource(models.TextChoices):
+    EXTERNAL = "EXTERNAL", "Atacante externo"
+    INSIDER = "INSIDER", "Persona interna"
+    MALWARE = "MALWARE", "Malware / ransomware"
+    SUPPLY_CHAIN = "SUPPLY_CHAIN", "Cadena de suministro"
+    ERROR = "ERROR", "Error humano o de configuración"
+    OTHER = "OTHER", "Otra"
+
+
+class RiskLevel(models.TextChoices):
+    LOW = "LOW", "Bajo"
+    MODERATE = "MODERATE", "Moderado"
+    HIGH = "HIGH", "Alto"
+    VERY_HIGH = "VERY_HIGH", "Muy alto"
+    CRITICAL = "CRITICAL", "Crítico"
+
+
+class RiskTreatment(models.TextChoices):
+    MITIGATE = "MITIGATE", "Mitigar"
+    ACCEPT = "ACCEPT", "Aceptar"
+    TRANSFER = "TRANSFER", "Transferir"
+    AVOID = "AVOID", "Evitar"
+
+
+class RiskStatus(models.TextChoices):
+    OPEN = "OPEN", "Abierto"
+    TREATED = "TREATED", "En tratamiento"
+    ACCEPTED = "ACCEPTED", "Aceptado"
+    CLOSED = "CLOSED", "Cerrado"
+
+
+RISK_OPEN_STATUSES = (RiskStatus.OPEN, RiskStatus.TREATED, RiskStatus.ACCEPTED)
+
+
+def risk_level_for(likelihood, impact):
+    """Matriz 5×5 (ISO/IEC 27005, anexo A): producto probabilidad × impacto."""
+    product = int(likelihood) * int(impact)
+    if product >= 20:
+        return RiskLevel.CRITICAL
+    if product >= 15:
+        return RiskLevel.VERY_HIGH
+    if product >= 10:
+        return RiskLevel.HIGH
+    if product >= 5:
+        return RiskLevel.MODERATE
+    return RiskLevel.LOW
+
+
+class Risk(UUIDModel):
+    """Escenario de amenaza sobre un activo, alimentado por sus vulnerabilidades consolidadas.
+
+    Probabilidad e impacto en escalas cualitativas 1–5; nivel por matriz 5×5. El LLM propone
+    escenario y valoraciones (``assessment_source = AI``) o una regla lo hace si no responde.
+    El tratamiento, el responsable y el riesgo residual los fija una persona.
+    """
+
+    asset = models.ForeignKey("assets.Asset", on_delete=models.CASCADE, related_name="risks")
+    key = models.CharField(max_length=120, help_text="Estable por activo: escenario + fuente.")
+    title = models.CharField(max_length=200)
+    scenario = models.TextField(help_text="Qué podría pasar, cómo y a qué.")
+    threat_source = models.CharField(
+        max_length=14, choices=ThreatSource.choices, default=ThreatSource.EXTERNAL
+    )
+    vulnerabilities = models.ManyToManyField(Vulnerability, related_name="risks", blank=True)
+    likelihood = models.PositiveSmallIntegerField(default=3)
+    impact = models.PositiveSmallIntegerField(default=3)
+    level = models.CharField(max_length=10, choices=RiskLevel.choices, default=RiskLevel.MODERATE)
+    rationale = models.TextField(blank=True)
+
+    status = models.CharField(
+        max_length=10, choices=RiskStatus.choices, default=RiskStatus.OPEN, db_index=True
+    )
+    treatment = models.CharField(max_length=10, choices=RiskTreatment.choices, blank=True)
+    owner = models.CharField(max_length=120, blank=True, help_text="Responsable del tratamiento.")
+    treatment_note = models.TextField(blank=True)
+    residual_likelihood = models.PositiveSmallIntegerField(null=True, blank=True)
+    residual_impact = models.PositiveSmallIntegerField(null=True, blank=True)
+    residual_level = models.CharField(max_length=10, choices=RiskLevel.choices, blank=True)
+    decided_by = models.ForeignKey(
+        USER, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    decided_at = models.DateTimeField(null=True, blank=True)
+
+    assessment_source = models.CharField(
+        max_length=5, choices=StatusSource.choices, default=StatusSource.RULE
+    )
+    inference = models.ForeignKey(
+        "llm.InferenceLog", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    model = models.CharField(max_length=100, blank=True)
+    prompt_version = models.CharField(max_length=20, blank=True)
+    assessed_at = models.DateTimeField(null=True, blank=True)
+    environment = models.CharField(max_length=30, blank=True)
+    first_identified_at = models.DateTimeField()
+    closed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-likelihood", "-impact", "-first_identified_at"]
+        verbose_name = "riesgo"
+        verbose_name_plural = "riesgos"
+        constraints = [models.UniqueConstraint(fields=["asset", "key"], name="unique_risk")]
+
+    def __str__(self):
+        return f"{self.title} · {self.asset}"
+
+    @property
+    def score(self):
+        return self.likelihood * self.impact
+
+    @property
+    def is_open(self):
+        return self.status in RISK_OPEN_STATUSES
+
+    @property
+    def human_decided(self):
+        return self.decided_by_id is not None or bool(self.treatment)
+
+
+class RiskEventKind(models.TextChoices):
+    IDENTIFIED = "IDENTIFIED", "Identificado"
+    ASSESSED = "ASSESSED", "Valorado"
+    TREATMENT = "TREATMENT", "Tratamiento decidido"
+    VULNERABILITIES = "VULNS", "Vulnerabilidades ligadas"
+    CLOSED = "CLOSED", "Cerrado"
+    REOPENED = "REOPENED", "Reabierto"
+    NOTE = "NOTE", "Nota"
+
+
+class RiskEvent(models.Model):
+    """Línea de tiempo del riesgo. **Solo se agrega**."""
+
+    risk = models.ForeignKey(Risk, on_delete=models.CASCADE, related_name="events")
+    kind = models.CharField(max_length=10, choices=RiskEventKind.choices)
+    occurred_at = models.DateTimeField(db_index=True)
+    actor = models.ForeignKey(
+        USER, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    message = models.CharField(max_length=500, blank=True)
+    data = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["occurred_at", "id"]
+        verbose_name = "evento de riesgo"
+        verbose_name_plural = "eventos de riesgo"
+
+    def __str__(self):
+        return f"{self.get_kind_display()} · {self.occurred_at:%Y-%m-%d %H:%M}"
+
+    def save(self, *args, **kwargs):
+        if self.pk is not None:
+            raise ValueError("La línea de tiempo de un riesgo no se reescribe.")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise ValueError("La línea de tiempo de un riesgo no se borra.")
+
+
+# --------------------------------------------------------------------------
 # Eventos del lazo (etapa 4)
 # --------------------------------------------------------------------------
 

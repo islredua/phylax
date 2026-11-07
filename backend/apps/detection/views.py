@@ -17,7 +17,17 @@ from apps.cti.models import CtiSource, CtiSyncRun, SourceKind
 from apps.scanners.models import ToolExecution
 from apps.scoring import services as scoring
 
-from . import actions, activity, automation, consolidation, events, findings, planner, profile
+from . import (
+    actions,
+    activity,
+    automation,
+    consolidation,
+    events,
+    findings,
+    planner,
+    profile,
+    risks,
+)
 from .forms import (
     HUMAN_STATUS_LABELS,
     AutomationForm,
@@ -28,6 +38,8 @@ from .forms import (
     PauseForm,
     ProfileForm,
     ReviewForm,
+    RiskFilterForm,
+    RiskTreatmentForm,
     SourceForm,
     VulnerabilityFilterForm,
     VulnerabilityStatusForm,
@@ -39,6 +51,7 @@ from .models import (
     Finding,
     FindingSeverity,
     PlannedAction,
+    Risk,
     Vulnerability,
 )
 
@@ -251,6 +264,129 @@ class ConsolidateAssetView(Perm, View):
         else:
             messages.info(request, "El activo no tiene observaciones que consolidar.")
         return HttpResponseRedirect(back)
+
+
+def filter_risks(params):
+    qs = Risk.objects.select_related("asset", "decided_by").prefetch_related("vulnerabilities")
+    form = RiskFilterForm(params or None)
+    status = ""
+    if form.is_valid():
+        data = form.cleaned_data
+        status = data["status"]
+        if data["q"]:
+            qs = qs.filter(
+                Q(title__icontains=data["q"])
+                | Q(scenario__icontains=data["q"])
+                | Q(asset__name__icontains=data["q"])
+            )
+        if data["level"]:
+            qs = qs.filter(level=data["level"])
+        if data["treatment"] == "none":
+            qs = qs.filter(treatment="")
+        elif data["treatment"]:
+            qs = qs.filter(treatment=data["treatment"])
+        if data["asset"]:
+            qs = qs.filter(asset_id=data["asset"])
+    if status == "all":
+        pass
+    elif status:
+        qs = qs.filter(status=status)
+    else:
+        qs = qs.filter(status__in=("OPEN", "TREATED", "ACCEPTED"))
+    return qs, form
+
+
+class RiskRegisterView(Perm, ListView):
+    """Registro de riesgos (ISO/IEC 27005) con la matriz 5×5 de los riesgos listados."""
+
+    permission_required = "detection.view_risk"
+    template_name = "detection/risks.html"
+    context_object_name = "risks"
+    paginate_by = 25
+
+    def get_queryset(self):
+        qs, self.filter_form = filter_risks(self.request.GET)
+        return qs.order_by("-likelihood", "-impact", "-first_identified_at")
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        asset_id = (
+            self.filter_form.cleaned_data.get("asset") if self.filter_form.is_valid() else None
+        )
+        listed = list(self.object_list)
+        context.update(
+            filter_form=self.filter_form,
+            summary=risks.summary(asset_id),
+            matrix=risks.matrix(listed),
+            asset_id=asset_id,
+            asset=listed[0].asset if asset_id and listed else None,
+            consolidation_pending=consolidation.is_pending(asset_id) if asset_id else False,
+        )
+        if asset_id and context["asset"] is None:
+            from apps.assets.models import Asset
+
+            context["asset"] = Asset.objects.filter(pk=asset_id).first()
+        return context
+
+
+class RiskDetailView(Perm, TemplateView):
+    permission_required = "detection.view_risk"
+    template_name = "detection/risk_detail.html"
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        risk = get_object_or_404(
+            Risk.objects.select_related("asset", "decided_by"), pk=kwargs["pk"]
+        )
+        context.update(
+            risk=risk,
+            vulnerabilities=risk.vulnerabilities.select_related("component").order_by(
+                "-contextual_score"
+            ),
+            timeline=risk.events.select_related("actor").order_by("-occurred_at", "-id"),
+            matrix=risks.matrix([risk]),
+            treatment_form=RiskTreatmentForm(
+                initial={
+                    "treatment": risk.treatment,
+                    "owner": risk.owner,
+                    "residual_likelihood": risk.residual_likelihood,
+                    "residual_impact": risk.residual_impact,
+                }
+            ),
+        )
+        return context
+
+
+class RiskTreatmentView(Perm, View):
+    permission_required = "detection.work_findings"
+
+    def post(self, request, pk):
+        form = RiskTreatmentForm(request.POST)
+        back = _safe_next(request, reverse("detection:risk", args=[pk]))
+        if not form.is_valid():
+            messages.error(request, "Revisa el tratamiento: faltan datos o no son válidos.")
+            return HttpResponseRedirect(back)
+        try:
+            risk = risks.set_treatment(pk, user=request.user, **form.cleaned_data)
+            messages.success(
+                request, f"Tratamiento registrado: {risk.get_treatment_display().lower()}."
+            )
+        except ValueError as error:
+            messages.error(request, str(error))
+        return HttpResponseRedirect(back)
+
+
+class RiskNoteView(Perm, View):
+    permission_required = "detection.work_findings"
+
+    def post(self, request, pk):
+        form = NoteForm(request.POST)
+        if form.is_valid():
+            risks.add_note(pk, user=request.user, text=form.cleaned_data["text"])
+            messages.success(request, "Nota agregada a la línea de tiempo.")
+        else:
+            messages.error(request, "La nota está vacía.")
+        return redirect("detection:risk", pk=pk)
 
 
 class ObservationsView(Perm, ListView):

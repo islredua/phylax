@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% load detection_tags inventory %}
+{% block title %}Riesgos{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <div class="flex flex-wrap items-center gap-2">
+    <h2>Riesgos{% if asset %} de {{ asset.name }}{% endif %} <span class="ml-1 font-mono text-xs font-normal text-muted">{{ paginator.count }}</span></h2>
+    <span class="text-xs text-muted">escenarios de amenaza según ISO/IEC 27005, derivados de las vulnerabilidades consolidadas</span>
+    {% if consolidation_pending %}<span class="badge-primary">la IA está reevaluando</span>{% endif %}
+  </div>
+  <div class="page-actions">
+    {% if asset_id %}
+      {% if perms.detection.request_evaluation %}<form method="post" action="{% url 'detection:asset_consolidate' asset_id %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn-secondary btn-sm" type="submit" title="Vuelve a consolidar vulnerabilidades y a derivar riesgos con la IA">Reevaluar con IA</button></form>{% endif %}
+      <a href="{% url 'detection:panel' %}?asset={{ asset_id }}" class="btn-secondary btn-sm">Vulnerabilidades</a>
+      <a href="{% url 'assets:detail' asset_id %}" class="btn-secondary btn-sm">← Activo</a>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block content %}
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_auto]">
+  <div class="flex flex-col gap-4">
+    <div class="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <a href="?status={% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Abiertos</p><p class="stat-value">{{ summary.open }}</p></a>
+      <a href="?level=CRITICAL{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Críticos</p><p class="stat-value {% if summary.critical %}text-critical{% endif %}">{{ summary.critical }}</p></a>
+      <a href="?level=VERY_HIGH{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Muy altos</p><p class="stat-value {% if summary.very_high %}text-critical{% endif %}">{{ summary.very_high }}</p></a>
+      <a href="?treatment=none{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Sin tratamiento decidido</p><p class="stat-value {% if summary.untreated %}text-high{% endif %}">{{ summary.untreated }}</p></a>
+      <a href="?status=ACCEPTED{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Aceptados</p><p class="stat-value">{{ summary.accepted }}</p></a>
+    </div>
+    <form method="get" class="card grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5 lg:items-end">
+      {% for field in filter_form %}{% if field.name != 'asset' %}
+      <div class="{% if field.name == 'q' %}lg:col-span-2{% endif %}"><label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}</div>
+      {% else %}{{ field }}{% endif %}{% endfor %}
+      <div class="flex gap-2"><button type="submit" class="btn-primary">Filtrar</button><a href="{% url 'detection:risks' %}{% if asset_id %}?asset={{ asset_id }}{% endif %}" class="btn-secondary">Limpiar</a></div>
+    </form>
+  </div>
+  <section class="card flex flex-col gap-2">
+    <h3 class="card-title mb-0">Matriz de los riesgos listados</h3>
+    {% include "detection/_risk_matrix.html" with matrix=matrix compact=True %}
+    <p class="text-xs text-muted">Nivel = probabilidad × impacto: 1–4 bajo · 5–9 moderado · 10–14 alto · 15–19 muy alto · 20–25 crítico.</p>
+  </section>
+</div>
+
+<div class="table-wrap">
+  <table class="data-table">
+    <thead><tr><th>Riesgo</th><th>Activo</th><th>Fuente de amenaza</th><th title="Probabilidad × impacto">P × I</th><th>Nivel</th><th>Estado</th><th>Tratamiento</th><th>Vulnerabilidades</th><th>Valorado</th></tr></thead>
+    <tbody>
+      {% for r in risks %}
+      <tr>
+        <td><a href="{% url 'detection:risk' r.pk %}" class="font-medium">{{ r.title|truncatechars:70 }}</a><p class="text-xs text-muted">{{ r.scenario|truncatechars:110 }}</p></td>
+        <td><a href="{% url 'assets:detail' r.asset_id %}">{{ r.asset.name }}</a></td>
+        <td class="text-xs text-ink-soft">{{ r.get_threat_source_display }}</td>
+        <td class="font-mono text-xs whitespace-nowrap">{{ r.likelihood }} × {{ r.impact }} = {{ r.score }}</td>
+        <td>{% risk_level_badge r.level %}{% if r.residual_level %}<p class="text-xs text-muted">residual: {{ r.get_residual_level_display|lower }}</p>{% endif %}</td>
+        <td>{% risk_status_badge r.status %} {% status_source_badge r.assessment_source %}</td>
+        <td class="text-xs">{% if r.treatment %}{{ r.get_treatment_display }}{% if r.owner %} · {{ r.owner }}{% endif %}{% else %}<span class="text-muted">sin decidir</span>{% endif %}</td>
+        <td class="font-mono text-xs">{{ r.vulnerabilities.count }}</td>
+        <td class="font-mono text-xs whitespace-nowrap text-ink-soft">{{ r.assessed_at|date:"Y-m-d H:i"|default:"—" }}</td>
+      </tr>
+      {% empty %}<tr><td colspan="9" class="table-empty">Sin riesgos para estos filtros. Los riesgos se derivan solos de las vulnerabilidades consolidadas de cada activo{% if asset_id %}; si el activo aún no tiene vulnerabilidades consolidadas, primero verás sus observaciones{% endif %}.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+{% include "_pagination.html" %}
+{% endblock %}
