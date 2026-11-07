@@ -399,3 +399,36 @@ def test_backported_and_imprecise_versions_need_verification(lab_cti):
     assert ssh.status == VulnerabilityStatus.CONFIRMED and "retroportado" not in " ".join(
         ssh.rule_flags
     )
+
+
+def test_imprecise_versions_match_as_low_confidence_when_ranges_overlap(lab_cti):
+    from apps.cti.versions import Range, implied_interval, in_range
+    from apps.detection import matching
+
+    assert implied_interval("3.X - 4.X") == ("3", "5") and implied_interval("4") == ("4", "5")
+    assert implied_interval("2.2.X - 2.3.X") == ("2.2", "2.4") and implied_interval("7.x") == (
+        "7",
+        "8",
+    )
+    assert implied_interval("1.27.3") is None
+    rng = Range(start_including="3.5.0", end_excluding="4.4.0")
+    assert in_range("3.X - 4.X", rng) is None  # se solapan: puede ser
+    assert (
+        in_range("2.2.X - 2.3.X", Range(end_excluding="2.4.57")) is True
+    )  # todo el intervalo cabe
+    assert in_range("5", rng) is False and in_range("4", Range(exact="4.4.0")) is None
+    # Samba «3.X - 4.X» (file-server del laboratorio) frente a un rango de OpenSSH no toca; frente a
+    # un rango que solapa, coincidencia de confianza baja que la consolidación deja en verificación.
+    asset = AssetFactory(criticality="ALTO")
+    ServiceFactory(
+        asset=asset, port=8080, product="nginx", version="1.X - 2.X", cpe="cpe:/a:f5:nginx"
+    )
+    components.refresh_components(asset.pk)
+    result = matching.reconcile_assets([asset.pk])
+    nginx = [m for m in result.matches if m.product_key == "nginx"]
+    assert nginx and nginx[0].confidence == "LOW" and nginx[0].cve_id == "CVE-2025-23419"
+    findings.apply_matches(result)
+    consolidation.consolidate_asset(asset.pk)
+    vuln = Vulnerability.objects.get(asset=asset, key="CVE-2025-23419")
+    assert vuln.status == VulnerabilityStatus.NEEDS_VERIFICATION
+    assert any("imprecisa" in f for f in vuln.rule_flags)

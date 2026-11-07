@@ -17,7 +17,7 @@ from dataclasses import dataclass
 
 from apps.cti import services as cti
 from apps.cti.products import parse_cpe, vendors_compatible
-from apps.cti.versions import Range, describe_range, in_range, precision
+from apps.cti.versions import Range, describe_range, implied_interval, in_range, precision
 
 from . import components as components_index
 
@@ -94,6 +94,9 @@ def _evaluate(components_by_key, cve_products):
                 continue
             rng = _range_of(product)
             decision = in_range(component.version, rng)
+            if decision is None and implied_interval(component.version) and not rng.exact:
+                # nmap dio «3.X - 4.X» y el rango afectado cae dentro: puede ser; confianza baja.
+                decision = not rng.is_unbounded
             key = (component.pk, product.cve_id)
             if decision is True:
                 confidence = _confidence(component, product)

@@ -118,7 +118,7 @@ def test_auto_mode_executes_detect_vulns_end_to_end(fake_tool):
     # Un objetivo por puerto TCP conocido: nuclei no se limita a 80/443.
     assert (
         execution.tool == "NUCLEI"
-        and execution.profile == "cves"
+        and execution.profile == "cves-web"
         and execution.targets == ["10.7.0.10:80"]
     )
     assert asset.detection_state.last_vuln_scan_at is not None
@@ -449,7 +449,7 @@ def test_nuclei_targets_prefer_web_ports_and_fall_back_to_network_profile(fake_t
     components.refresh_components(asset.pk)
     action = _decide(asset)
     execution = ToolExecution.objects.get(action=action)
-    assert execution.profile == "cves" and execution.targets == ["10.7.0.10:80"]
+    assert execution.profile == "cves-web" and execution.targets == ["10.7.0.10:80"]
     # Sin web (SMB + SSH): todos los puertos, perfil de red sin plantillas HTTP.
     smb = AssetFactory()
     AssetIdentifierFactory(asset=smb, value="10.7.0.11")

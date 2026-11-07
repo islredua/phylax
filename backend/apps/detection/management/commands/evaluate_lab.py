@@ -130,7 +130,14 @@ class Command(BaseCommand):
                 crit_exact += int(diff == 0)
                 crit_near += int(diff <= 1)
             if exp["expected_detection"] == "NONE":
-                false_alarms = [v for v in open_vulns if v.status in ("CONFIRMED", "LIKELY")]
+                # Cabeceras ausentes y similares (debilidad INFO/LOW) no son la «vulnerabilidad» que
+                # la verdad de terreno niega en un control: solo cuentan CVE o severidad ≥ MEDIUM.
+                false_alarms = [
+                    v
+                    for v in open_vulns
+                    if v.status in ("CONFIRMED", "LIKELY")
+                    and (not v.key.startswith("WEAKNESS:") or v.severity not in ("INFO", "LOW"))
+                ]
                 row["verdict"] = "FP" if false_alarms else "TN"
                 row["false_alarms"] = [v.key for v in false_alarms]
                 fp += int(bool(false_alarms))

@@ -98,13 +98,17 @@ primero hay que observar el activo. La decisión queda marcada `fallback` con mo
 
 Si el modelo elige una acción fuera de `allowed_actions`, la decisión se sustituye por la regla de
 respaldo acotada a las viables (`planner.constrain`) y se marca con el motivo «el modelo eligió X,
-no disponible para este activo».
+no disponible para este activo». Con un SBOM recién cargado (`ASSET_SBOM_UPDATED`) la acción es siempre
+`REANALYZE_SBOM` (`planner.sbom_first`): analizarlo con Grype es lo barato y lo que responde a la
+pregunta; si el modelo pidió otra cosa, se corrige y la decisión queda `fallback` con el motivo
+«…con un SBOM nuevo primero se analiza». En el laboratorio el modelo pedía un escaneo nuclei para
+los tres hosts con SBOM y Log4Shell, Pillow y lodash no se analizaban nunca.
 
 | Acción | Qué hace |
 |---|---|
 | `RECONCILE` | Recomparar con el software conocido; se ejecuta de inmediato en cualquier modo |
 | `RESCAN_SERVICES` | nmap `SERVICE_SCAN` vía `discovery.request_discovery` |
-| `DETECT_VULNS` | nuclei con la categoría indicada (`cves`, `exposure`, `misconfig`, `all`); si el equipo no tiene servicio web, variante `<categoría>-network` sin plantillas HTTP |
+| `DETECT_VULNS` | nuclei con la categoría indicada (`cves`, `exposure`, `misconfig`, `all`). Con `cves`: `cves-web` (CVE + exposiciones, paneles, credenciales por defecto, cabeceras) si el equipo tiene servicio web; `cves-network` (sin plantillas HTTP) si no lo tiene |
 | `REANALYZE_SBOM` | Grype sobre el SBOM vigente o la imagen |
 | `CREATE_WATCH` | `WatchItem`: avisar si aparece el producto |
 | `FLAG_HUMAN` | A la cola como «revisión humana» |
@@ -170,7 +174,10 @@ cabeceras, credenciales por defecto, exposición de información). El flujo:
    retroportado» («9.2p1 Debian 2+deb12u10» → tope 0.6), ambas con tope de estado
    `NEEDS_VERIFICATION` (`rule_status_cap`): la IA no puede afirmar `CONFIRMED` hasta que otra
    fuente lo vea de verdad. Las mismas señales bajan la confianza del emparejamiento CTI a `LOW`
-   (`apps.cti.versions.precision`, `is_distro_package`). El panel muestra las señales bajo el estado.
+   (`apps.cti.versions.precision`, `is_distro_package`). Una versión imprecisa se empareja por el
+   intervalo que deja abierto (`implied_interval`: «3.X - 4.X» → [3, 5)): si todo el intervalo cae
+   en el rango afectado coincide; si solo se solapa, coincide con confianza `LOW` (puede ser); si
+   no se tocan, no. El panel muestra las señales bajo el estado.
 2. **El LLM local** (`apps/llm/prompts/vuln_assessment/v2.md`, salida con JSON Schema y Pydantic,
    `InferenceLog` con tarea `VULN_ASSESSMENT`) recibe organización, activo, software y
    observaciones numeradas, y devuelve por vulnerabilidad: observaciones que la sustentan, título,
@@ -343,10 +350,11 @@ ventana no operativa y los guardarraíles.
   (o montarlas) en despliegues sin internet.
 - Motor de scoring (Módulo 4): hoy `score_findings` devuelve vacío.
 - Escaneo de red vía nuclei por `ip:puerto` (sin hostnames/URL). Si el inventario conoce servicios
-  web (nombre o producto con «http», o puertos 80/443/8080…), solo esos puertos; si no, todos los
-  puertos TCP abiertos con el perfil `-network` (`-exclude-type http,headless`): una plantilla HTTP
-  contra SMB o SSH espera el tiempo límite y miles de ellas convertían 2 min en media hora.
-  `exposure`/`misconfig` por etiquetas.
+  web (nombre o producto con «http», o puertos 80/443/8080…), solo esos puertos con el perfil
+  `cves-web` (etiquetas `cve,exposure,panel,default-login,misconfig`: lo que una persona miraría
+  primero en una web); si no, todos los puertos TCP abiertos con `cves-network` (`-exclude-type
+  http,headless`): una plantilla HTTP contra SMB o SSH espera el tiempo límite y miles de ellas
+  convertían 2 min en media hora. `exposure`/`misconfig` sueltos por etiquetas.
 - La reconciliación de componentes de SBOM contra NVD depende de que el SBOM traiga CPE o un nombre
   que coincida; el análisis fino lo hace Grype (`REANALYZE_SBOM`). Grype suele reportar el aviso
   GHSA: el hallazgo se identifica por el CVE relacionado (para deduplicar con la CTI) y el GHSA queda

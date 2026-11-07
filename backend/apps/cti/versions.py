@@ -53,6 +53,31 @@ def is_distro_package(version: str | None) -> bool:
     )
 
 
+_X_SUFFIX = re.compile(r"[.\-_\s]*[xX*?]+(?=\b|$)")
+_SPLIT_RANGE = re.compile(r"\s+-\s+|\s+(?:or|o)\s+|/")
+
+
+def _numeric_prefix(piece: str) -> list[str] | None:
+    match = re.match(r"\s*(\d+(?:\.\d+)*)", _X_SUFFIX.sub("", piece))
+    return match.group(1).split(".") if match else None
+
+
+def implied_interval(version: str | None) -> tuple[str, str] | None:
+    """Intervalo ``[bajo, alto)`` que una versión imprecisa de nmap deja abierto.
+
+    «3.X - 4.X» → ("3", "5"); «4» → ("4", "5"); «2.2.X - 2.3.X» → ("2.2", "2.4"); «7.x» → ("7", "8").
+    ``None`` si la versión es exacta o no tiene números.
+    """
+    if precision(version) != "IMPRECISE":
+        return None
+    pieces = [p for p in _SPLIT_RANGE.split((version or "").strip()) if p.strip()]
+    low, high = _numeric_prefix(pieces[0]), _numeric_prefix(pieces[-1])
+    if not low or not high:
+        return None
+    high = [*high[:-1], str(int(high[-1]) + 1)]
+    return ".".join(low), ".".join(high)
+
+
 def parse(version: str | None) -> tuple:
     """Segmentos comparables: enteros y cadenas en minúsculas. Vacío si no hay versión."""
     text = upstream(version).lower()
@@ -110,6 +135,9 @@ def in_range(version: str | None, rng: Range) -> bool | None:
     """``True``/``False`` si se puede decidir; ``None`` si falta la versión o el rango es abierto."""
     if not parse(version):
         return None
+    interval = implied_interval(version)
+    if interval is not None:
+        return _interval_in_range(interval, rng)
     if rng.exact:
         return compare(version, rng.exact) == 0
     if rng.is_unbounded:
@@ -121,6 +149,30 @@ def in_range(version: str | None, rng: Range) -> bool | None:
     if rng.end_including and compare(version, rng.end_including) > 0:
         return False
     return not (rng.end_excluding and compare(version, rng.end_excluding) >= 0)
+
+
+def _interval_in_range(interval, rng: Range) -> bool | None:
+    """``True`` si todo el intervalo cae en el rango, ``False`` si no se tocan, ``None`` si se solapan."""
+    low, high = interval
+    if rng.exact:
+        return None if compare(low, rng.exact) <= 0 < compare(high, rng.exact) else False
+    if rng.is_unbounded:
+        return None
+    disjoint = (
+        (rng.start_including and compare(high, rng.start_including) <= 0)
+        or (rng.start_excluding and compare(high, rng.start_excluding) <= 0)
+        or (rng.end_including and compare(low, rng.end_including) > 0)
+        or (rng.end_excluding and compare(low, rng.end_excluding) >= 0)
+    )
+    if disjoint:
+        return False
+    inside = (
+        (not rng.start_including or compare(low, rng.start_including) >= 0)
+        and (not rng.start_excluding or compare(low, rng.start_excluding) > 0)
+        and (not rng.end_including or compare(high, rng.end_including) <= 0)
+        and (not rng.end_excluding or compare(high, rng.end_excluding) <= 0)
+    )
+    return True if inside else None
 
 
 def describe_range(rng: Range) -> str:

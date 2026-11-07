@@ -289,3 +289,33 @@ def test_category_all_is_no_longer_offered_and_gets_normalized():
     assert (
         planner.normalize_category({"action": "RECONCILE", "category": "all"})["category"] == "all"
     )
+
+
+def test_new_sbom_is_analyzed_with_grype_even_if_the_model_asks_for_a_scan(mock_llm, monkeypatch):
+    from django.core.files.uploadedfile import SimpleUploadedFile
+
+    from apps.assets import services as assets_services
+    from apps.llm import client as llm_client
+
+    asset = _scannable_asset()
+    sbom = LAB_CTI.parent / "lab-sboms" / "agente-portal.cdx.json"
+    assets_services.attach_sbom(
+        asset, SimpleUploadedFile(sbom.name, sbom.read_bytes(), "application/json"), user=None
+    )
+    monkeypatch.setitem(
+        llm_client.MOCK_GENERATORS,
+        "DETECTION_PLANNER",
+        lambda payload: {
+            "action": "DETECT_VULNS",
+            "urgency": "NORMAL",
+            "rationale": "El SBOM cambió; conviene escanear.",
+            "evidence": ["SBOM"],
+            "category": "cves",
+        },
+    )
+    event, batch = _ready_event(EventKind.ASSET_SBOM_UPDATED, asset)
+    events.process_batch(batch.pk)
+    decision = event.decisions.get()
+    assert decision.action == "REANALYZE_SBOM" and decision.fallback
+    assert "primero se analiza" in decision.fallback_reason
+    assert "SBOM nuevo: se analiza con Grype primero" in decision.evidence

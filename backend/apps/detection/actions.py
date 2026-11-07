@@ -231,14 +231,19 @@ def _web_and_other_ports(asset_id):
 
 
 def nuclei_profile(action):
-    """``cves`` con puertos web; ``cves-network`` (sin plantillas HTTP) si el equipo no tiene web.
+    """``cves-web`` (CVE + exposiciones) con puertos web; ``cves-network`` (sin plantillas HTTP) si
+    el equipo no tiene web; la categoría tal cual en los demás casos.
 
     Una plantilla HTTP contra SMB o SSH espera la respuesta hasta el tiempo límite: miles de
     plantillas × 10 s convertían un escaneo de 2 min en uno de media hora sin hallazgo posible.
     """
     category = action.category or "cves"
     web, other = _web_and_other_ports(action.asset_id)
-    return category if web or not other else f"{category}-network"
+    if category != "cves":
+        return category
+    if web:
+        return "cves-web"
+    return "cves-network" if other else category
 
 
 def _targets_for(action):

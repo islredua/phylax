@@ -203,6 +203,20 @@ def normalize_category(decision: dict) -> dict:
     return decision
 
 
+def sbom_first(data: dict, decision: dict, allowed) -> dict | None:
+    """Con un SBOM recién cargado, analizarlo con Grype es lo barato y lo que responde a la pregunta;
+    si el modelo pide otra cosa, se corrige y se anota. ``None`` si no aplica."""
+    event, asset = data.get("event") or {}, data.get("asset") or {}
+    if event.get("kind") != EventKind.ASSET_SBOM_UPDATED or not asset.get("has_image_or_sbom"):
+        return None
+    if decision.get("action") == str(Action.REANALYZE_SBOM):
+        return None
+    if allowed is not None and str(Action.REANALYZE_SBOM) not in allowed:
+        return None
+    evidence = [*(decision.get("evidence") or []), "SBOM nuevo: se analiza con Grype primero"][:6]
+    return {**decision, "action": str(Action.REANALYZE_SBOM), "category": "", "evidence": evidence}
+
+
 def constrain(decision: dict, allowed) -> dict:
     """Ajusta una decisión a las acciones viables; conserva urgencia y evidencia."""
     decision = normalize_category(decision)
@@ -494,8 +508,20 @@ def plan_event(event_id):
     )
     duration_ms = round((time.monotonic() - started) * 1000, 1)
     allowed = allowed_actions(data)
+    corrected = sbom_first(data, log.parsed, allowed) if log.parsed_ok else None
     with transaction.atomic():
-        if log.parsed_ok and (allowed is None or log.parsed["action"] in allowed):
+        if corrected is not None:
+            chosen = Action(log.parsed["action"]).label
+            decision = _record(
+                event,
+                data,
+                corrected,
+                log=log,
+                duration_ms=duration_ms,
+                fallback=True,
+                fallback_reason=f"el modelo eligió «{chosen}»; con un SBOM nuevo primero se analiza",
+            )
+        elif log.parsed_ok and (allowed is None or log.parsed["action"] in allowed):
             decision = _record(
                 event, data, normalize_category(log.parsed), log=log, duration_ms=duration_ms
             )
