@@ -191,8 +191,9 @@ def test_partial_scan_never_closes_services():
 
 
 def test_upsert_returns_stale_to_active_and_keeps_ignored():
-    stale, ignored = AssetFactory(status=AssetStatus.STALE), AssetFactory(
-        status=AssetStatus.IGNORED
+    stale, ignored = (
+        AssetFactory(status=AssetStatus.STALE),
+        AssetFactory(status=AssetStatus.IGNORED),
     )
     ident(stale, IdentifierKind.IPV4, "10.90.0.1")
     ident(ignored, IdentifierKind.IPV4, "10.90.0.2")

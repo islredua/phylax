@@ -16,6 +16,25 @@ SEVERITY_MAP = {
     "unknown": "INFO",
 }
 MAX_RAW = 2000
+# Metadatos de la plantilla que valen para consolidar: tecnología declarada, remediación,
+# impacto, CWE y vector. Se recortan para que la evidencia siga siendo compacta.
+TEMPLATE_META_MAX = 400
+
+
+def host_of(value):
+    """Host (sin esquema, puerto ni ruta) de una URL o de ``host:puerto``; vacío si no se sabe."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if "//" in text:
+        text = text.split("//", 1)[1]
+    for sep in ("/", "?", "#"):
+        text = text.split(sep, 1)[0]
+    if text.startswith("["):
+        return text[1:].split("]", 1)[0].lower()
+    if text.count(":") == 1:
+        text = text.rsplit(":", 1)[0]
+    return text.lower()
 
 
 @dataclass(frozen=True)
@@ -34,6 +53,16 @@ class ToolFinding:
     @property
     def is_cve(self):
         return self.vulnerability_id.startswith("CVE-")
+
+    @property
+    def matched_host(self):
+        """Host donde coincidió la plantilla (puede ser un tercero: la plantilla lo consultó)."""
+        return host_of(self.matched_at or self.raw.get("host"))
+
+    def is_foreign_to(self, hosts):
+        """``True`` si coincidió en un host que no es ninguno de los objetivos."""
+        matched = self.matched_host
+        return bool(matched) and matched not in {h.lower() for h in hosts}
 
 
 def _severity(value):
@@ -64,6 +93,17 @@ def parse_nuclei_jsonl(text: str) -> list[ToolFinding]:
         if not template:
             continue
         score = classification.get("cvss-score")
+        metadata = info.get("metadata") or {}
+        template_meta = {
+            "tags": [str(t)[:40] for t in (info.get("tags") or [])][:12],
+            "product": str(metadata.get("product") or "")[:80],
+            "vendor": str(metadata.get("vendor") or "")[:80],
+            "cwe": [str(c)[:20] for c in (classification.get("cwe-id") or [])][:4],
+            "cvss_metrics": str(classification.get("cvss-metrics") or "")[:80],
+            "epss": classification.get("epss-score"),
+            "remediation": str(info.get("remediation") or "")[:TEMPLATE_META_MAX],
+            "impact": str(info.get("impact") or "")[:TEMPLATE_META_MAX],
+        }
         base = {
             "title": str(info.get("name") or template)[:255],
             "severity": _severity(info.get("severity")),
@@ -72,15 +112,18 @@ def parse_nuclei_jsonl(text: str) -> list[ToolFinding]:
             "cvss_score": float(score) if isinstance(score, int | float) else None,
             "raw": _trim(
                 {
-                    k: item.get(k)
-                    for k in (
-                        "template-id",
-                        "matched-at",
-                        "host",
-                        "type",
-                        "extracted-results",
-                        "matcher-name",
-                    )
+                    **{
+                        k: item.get(k)
+                        for k in (
+                            "template-id",
+                            "matched-at",
+                            "host",
+                            "type",
+                            "extracted-results",
+                            "matcher-name",
+                        )
+                    },
+                    "template": {k: v for k, v in template_meta.items() if v},
                 }
             ),
         }

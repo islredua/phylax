@@ -105,7 +105,7 @@ def test_mock_planner_decides_and_records(mock_llm):
     assert decision.category == "cves" and decision.asset == asset
     assert decision.model_requested == decision.model_responded and not decision.model_mismatch
     assert not decision.fallback and decision.inference.accelerator == "mock"
-    assert decision.duration_ms is not None and decision.prompt_version == "v2"
+    assert decision.duration_ms is not None and decision.prompt_version == "v3"
     assert "simulada" in decision.rationale
     assert decision.input_payload["asset"]["name"] == asset.name
     state = asset.detection_state
@@ -168,7 +168,10 @@ def test_real_model_output_is_validated_and_mismatch_flagged(ollama):
     assert decision.model_requested == MODEL and decision.model_responded == "otro:modelo"
     assert decision.model_mismatch  # sustitución visible, nunca silenciosa
     assert InferenceLog.objects.get(task="DETECTION_PLANNER").model_mismatch
-    body = json.loads(route.calls.last.request.content)
+    # La decisión RESCAN_SERVICES lanza el escaneo y este, al cerrar, pide la criticidad al mismo
+    # Ollama simulado: se busca la llamada del planificador, no la última.
+    bodies = [json.loads(c.request.content) for c in route.calls]
+    body = next(b for b in bodies if "action" in b["format"]["properties"])
     assert body["format"]["properties"]["action"]["enum"] == list(PLANNER_ACTIONS)
     assert body["messages"][1]["content"].startswith("<evento>")
 
@@ -273,3 +276,16 @@ def test_plan_event_is_idempotent(mock_llm):
 @pytest.fixture
 def operator_user(make_user):
     return make_user(OPERATOR)
+
+
+def test_category_all_is_no_longer_offered_and_gets_normalized():
+    from apps.llm.schemas import PLANNER_SCHEMA
+
+    assert "all" not in PLANNER_SCHEMA["properties"]["category"]["enum"]
+    decision = {"action": "DETECT_VULNS", "urgency": "HIGH", "rationale": "x", "category": "all"}
+    fixed = planner.normalize_category(decision)
+    assert fixed["category"] == "cves" and "sustituida" in fixed["evidence"][0]
+    assert planner.constrain(decision, ["DETECT_VULNS", "NO_ACTION"])["category"] == "cves"
+    assert (
+        planner.normalize_category({"action": "RECONCILE", "category": "all"})["category"] == "all"
+    )

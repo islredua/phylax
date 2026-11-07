@@ -45,7 +45,9 @@ PLANNER_ACTIONS = (
     "NO_ACTION",
 )
 PLANNER_URGENCIES = ("LOW", "NORMAL", "HIGH", "CRITICAL")
-PLANNER_CATEGORIES = ("cves", "exposure", "misconfig", "all")
+# «all» sigue siendo válido al validar (compatibilidad con decisiones viejas y perfiles
+# manuales) pero ya no se ofrece al modelo en el esquema: el planificador lo sustituye.
+PLANNER_CATEGORIES = ("cves", "exposure", "misconfig")
 
 PLANNER_SCHEMA = {
     "type": "object",

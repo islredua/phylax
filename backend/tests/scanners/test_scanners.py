@@ -85,7 +85,11 @@ def test_nuclei_argv_is_fixed_and_validates_targets(settings):
     assert "/data/templates" in profiles.build_nuclei_argv("all", ["10.7.0.10"])
     # ip:puerto para servicios fuera de 80/443; IPv6 con corchetes.
     argv = profiles.build_nuclei_argv("all", ["10.7.0.10:8080", "[fd00::1]:8443", "fd00::2"])
-    assert argv[argv.index("-target") + 1 :: 2][:3] == ["10.7.0.10:8080", "[fd00::1]:8443", "fd00::2"]
+    assert argv[argv.index("-target") + 1 :: 2][:3] == [
+        "10.7.0.10:8080",
+        "[fd00::1]:8443",
+        "fd00::2",
+    ]
     for bad in ("10.7.0.10:0", "10.7.0.10:70000", "10.7.0.10:x", "[fd00::1]8443", "web:80"):
         with pytest.raises(ValidationError):
             profiles.build_nuclei_argv("all", [bad])
@@ -157,6 +161,7 @@ def test_execute_nuclei_creates_findings_with_evidence(fake_tool, settings):
     assert execution.status == "SUCCEEDED" and execution.exit_code == 0
     assert execution.argv == calls[0]["argv"] and execution.argv[0] == settings.NUCLEI_BIN
     assert execution.findings_seen == 3 and execution.findings_created == 3
+    assert execution.raw_results == 3 and execution.external_hosts == {}
     assert (
         execution.raw_output.name.startswith("scans/") and "CVE-2021-41773" in execution.output_tail
     )
@@ -191,7 +196,9 @@ def test_execute_grype_on_sbom(fake_tool, make_user):
     )
     execution.refresh_from_db()
     assert execution.status == "SUCCEEDED" and calls[0]["argv"][1].startswith("sbom:")
-    assert execution.findings_seen == 3 and Finding.objects.filter(asset=asset).count() == 2
+    # Tres coincidencias de Grype, dos vulnerabilidades distintas (openssl y libssl3 comparten CVE).
+    assert execution.raw_results == 3 and execution.findings_seen == 2
+    assert Finding.objects.filter(asset=asset).count() == 2
     openssl = Finding.objects.get(asset=asset, vulnerability_id="CVE-2024-9143")
     assert openssl.evidence.count() == 2  # openssl y libssl3: un hallazgo, dos evidencias
 
@@ -313,7 +320,12 @@ def test_update_scanner_data_command_uses_configured_dirs(monkeypatch, settings,
     monkeypatch.setattr(cmd, "run_command", nuclei_ok)
     out = StringIO()
     call_command("update_scanner_data", stdout=out)
-    assert calls[0] == [settings.NUCLEI_BIN, "-update-templates", "-update-template-dir", str(templates)]
+    assert calls[0] == [
+        settings.NUCLEI_BIN,
+        "-update-templates",
+        "-update-template-dir",
+        str(templates),
+    ]
     assert calls[1] == [settings.GRYPE_BIN, "db", "update"]
     assert "actualizados" in out.getvalue()
 
@@ -336,7 +348,10 @@ def test_update_scanner_data_command_uses_configured_dirs(monkeypatch, settings,
                 zf.extractall(argv[-1])
             return CommandResult(stdout="", stderr="", exit_code=0, duration_s=0.1)
         return CommandResult(
-            stdout="", stderr="[WRN] failed to install nuclei templates: timeout", exit_code=0, duration_s=0.1
+            stdout="",
+            stderr="[WRN] failed to install nuclei templates: timeout",
+            exit_code=0,
+            duration_s=0.1,
         )
 
     monkeypatch.setattr(cmd, "run_command", nuclei_silent_failure)
@@ -351,3 +366,66 @@ def test_update_scanner_data_command_uses_configured_dirs(monkeypatch, settings,
     monkeypatch.setattr(cmd, "run_command", failing)
     with pytest.raises(SystemExit):
         call_command("update_scanner_data", only="grype", stdout=StringIO(), stderr=StringIO())
+
+
+# --- Fase 1: metadatos de plantilla, resultados ajenos al objetivo y conteos ------------
+
+FOREIGN = (
+    '{"template-id":"azure-domain-tenant","info":{"name":"Azure tenant","severity":"info",'
+    '"tags":["azure","cloud"]},"type":"http","host":"10.7.0.10:80",'
+    '"matched-at":"https://login.microsoftonline.com:443/10.7.0.10/v2.0/.well-known/openid-configuration"}\n'
+    '{"template-id":"rdap-whois","info":{"name":"RDAP","severity":"info","tags":["osint"]},'
+    '"type":"http","host":"10.7.0.10:80","matched-at":"https://www.rdap.net/domain/10.7.0.10"}\n'
+    '{"template-id":"azure-domain-tenant","info":{"name":"Azure tenant","severity":"info"},'
+    '"type":"http","host":"10.7.0.10:80","matched-at":"https://login.microsoftonline.com:443/x"}\n'
+    '{"template-id":"global-waf-detect","info":{"name":"WAF","severity":"info"},"type":"http",'
+    '"host":"10.7.0.10:80","matched-at":"http://10.7.0.10:80/a"}\n'
+    '{"template-id":"global-waf-detect","info":{"name":"WAF","severity":"info"},"type":"http",'
+    '"host":"10.7.0.10:80","matched-at":"http://10.7.0.10:80/b"}\n'
+)
+REAL = (
+    '{"template-id":"CVE-2025-29927","info":{"name":"Next.js Middleware Bypass","severity":"critical",'
+    '"tags":["cve","cve2025","nextjs","vkev"],"impact":"Bypass de autorización.",'
+    '"metadata":{"product":"next.js","vendor":"zeit"},'
+    '"classification":{"cve-id":null,"cwe-id":["cwe-287"],"cvss-metrics":"CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N",'
+    '"cvss-score":9.1,"epss-score":0.99},"remediation":"Actualizar a Next.js 14.2.25."},'
+    '"type":"http","host":"10.7.0.10:80","matched-at":"http://10.7.0.10:80"}\n'
+)
+
+
+def test_parser_keeps_template_metadata_and_matched_host():
+    (item,) = parsers.parse_nuclei_jsonl(REAL)
+    assert item.vulnerability_id == "NUCLEI:CVE-2025-29927" and item.matched_host == "10.7.0.10"
+    template = item.raw["template"]
+    assert template["product"] == "next.js" and "nextjs" in template["tags"]
+    assert template["remediation"].startswith("Actualizar") and template["cwe"] == ["cwe-287"]
+    assert template["cvss_metrics"].startswith("CVSS:3.1") and template["epss"] == 0.99
+    foreign = parsers.parse_nuclei_jsonl(FOREIGN)
+    assert foreign[0].matched_host == "login.microsoftonline.com"
+    assert foreign[0].is_foreign_to({"10.7.0.10"}) and not foreign[3].is_foreign_to({"10.7.0.10"})
+    assert parsers.host_of("[::1]:8443") == "::1" and parsers.host_of("") == ""
+    assert parsers.host_of("http://10.7.0.10:80?url=ws://x") == "10.7.0.10"
+
+
+def test_execute_counts_distinct_findings_and_logs_external_hosts(fake_tool):
+    asset = _scannable_asset()
+    fake_tool(FOREIGN + REAL)
+    execution = services.request_execution(
+        tool="NUCLEI", profile="cves", asset_id=asset.pk, targets=["10.7.0.10:80"]
+    )
+    execution.refresh_from_db()
+    assert execution.status == "SUCCEEDED"
+    # 6 líneas crudas; 2 hallazgos distintos del activo (WAF repetido cuenta una vez; lo ajeno no).
+    assert execution.raw_results == 6 and execution.findings_seen == 2
+    assert execution.findings_created == 2 and execution.external_queries == 3
+    assert execution.external_hosts["login.microsoftonline.com"] == {
+        "count": 2,
+        "templates": ["azure-domain-tenant"],
+    }
+    assert execution.external_hosts["www.rdap.net"]["templates"] == ["rdap-whois"]
+    assert set(Finding.objects.filter(asset=asset).values_list("vulnerability_id", flat=True)) == {
+        "NUCLEI:CVE-2025-29927",
+        "NUCLEI:GLOBAL-WAF-DETECT",
+    }
+    waf = Finding.objects.get(vulnerability_id="NUCLEI:GLOBAL-WAF-DETECT")
+    assert waf.evidence.count() == 2  # dos URL distintas del mismo activo

@@ -401,6 +401,8 @@ def on_execution_finished(execution):
         "findings_seen": execution.findings_seen,
         "findings_created": execution.findings_created,
         "findings_updated": execution.findings_updated,
+        "raw_results": execution.raw_results,
+        "external_queries": execution.external_queries,
         "tool_status": execution.status,
     }
     action.save()
@@ -410,7 +412,15 @@ def on_execution_finished(execution):
     automation.log(
         LogKind.FINISHED if ok else LogKind.FAILED,
         action=action,
-        message=f"{execution.get_tool_display()} {execution.profile}: {execution.findings_seen} hallazgo(s)",
+        message=(
+            f"{execution.get_tool_display()} {execution.profile}: {execution.findings_seen} "
+            f"hallazgo(s) distintos de {execution.raw_results} resultado(s)"
+            + (
+                f" · {execution.external_queries} consulta(s) a terceros"
+                if execution.external_queries
+                else ""
+            )
+        ),
         **action.result,
     )
     return action

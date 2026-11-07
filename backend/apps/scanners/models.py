@@ -55,10 +55,16 @@ class ToolExecution(UUIDModel):
     exit_code = models.IntegerField(null=True, blank=True)
     raw_output = models.FileField(upload_to="scans/", blank=True)
     output_tail = models.TextField(blank=True, help_text="Últimos bytes de stdout/stderr.")
+    # Líneas o coincidencias crudas que devolvió la herramienta (una plantilla informativa puede
+    # repetirse miles de veces). ``findings_seen`` son las vulnerabilidades distintas ingeridas.
+    raw_results = models.PositiveIntegerField(default=0, db_default=0)
     findings_seen = models.PositiveIntegerField(default=0)
     findings_created = models.PositiveIntegerField(default=0)
     findings_updated = models.PositiveIntegerField(default=0)
     error = models.TextField(blank=True)
+    # Hosts externos que las plantillas consultaron durante el escaneo (RDAP, inquilino Azure...):
+    # {host: {"count": n, "templates": [...]}}. Se permite, pero queda registrado para evaluarlo.
+    external_hosts = models.JSONField(default=dict, blank=True, db_default={})
 
     class Meta:
         ordering = ["-created_at"]
@@ -71,6 +77,10 @@ class ToolExecution(UUIDModel):
     @property
     def is_active(self):
         return self.status in ACTIVE_STATUSES
+
+    @property
+    def external_queries(self):
+        return sum(v.get("count", 0) for v in (self.external_hosts or {}).values())
 
     @property
     def duration_s(self):

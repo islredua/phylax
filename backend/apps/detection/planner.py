@@ -42,7 +42,7 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
-PROMPT_VERSION = "v2"
+PROMPT_VERSION = "v3"
 TEXT_MAX = 400
 MAX_COMPONENTS = 12
 MAX_FINDINGS = 8
@@ -195,8 +195,17 @@ def allowed_actions(data) -> list[str] | None:
     return list(asset["allowed_actions"])
 
 
+def normalize_category(decision: dict) -> dict:
+    """«all» ya no se ofrece al modelo (v3): si aun así lo pide, se acota a `cves` y se anota."""
+    if decision.get("action") == str(Action.DETECT_VULNS) and decision.get("category") == "all":
+        evidence = [*(decision.get("evidence") or []), "categoría «all» sustituida por «cves»"][:6]
+        return {**decision, "category": "cves", "evidence": evidence}
+    return decision
+
+
 def constrain(decision: dict, allowed) -> dict:
     """Ajusta una decisión a las acciones viables; conserva urgencia y evidencia."""
+    decision = normalize_category(decision)
     if allowed is None or decision["action"] in allowed:
         return decision
     for candidate in _DEGRADE.get(decision["action"], (Action.NO_ACTION,)):
@@ -487,7 +496,9 @@ def plan_event(event_id):
     allowed = allowed_actions(data)
     with transaction.atomic():
         if log.parsed_ok and (allowed is None or log.parsed["action"] in allowed):
-            decision = _record(event, data, log.parsed, log=log, duration_ms=duration_ms)
+            decision = _record(
+                event, data, normalize_category(log.parsed), log=log, duration_ms=duration_ms
+            )
         elif log.parsed_ok:
             chosen = Action(log.parsed["action"]).label
             decision = _record(

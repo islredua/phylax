@@ -86,7 +86,16 @@ def recent(limit=60, kinds=None):
                     label=f"{execution.get_tool_display()} · {execution.profile}",
                     badge=execution.status,
                     subject=_asset_name(execution),
-                    text=execution.error or f"{execution.findings_seen} hallazgo(s) reportados",
+                    text=execution.error
+                    or (
+                        f"{execution.findings_seen} hallazgo(s) distintos · "
+                        f"{execution.raw_results} resultado(s) crudos"
+                        + (
+                            f" · {execution.external_queries} consulta(s) a terceros"
+                            if execution.external_queries
+                            else ""
+                        )
+                    ),
                     url=reverse("detection:execution", args=[execution.pk]),
                 )
             )

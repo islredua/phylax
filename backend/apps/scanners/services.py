@@ -80,6 +80,33 @@ def _registry_env(execution):
     return {}
 
 
+def _target_hosts(execution):
+    if execution.tool != Tool.NUCLEI:
+        return set()
+    return {profiles.split_host_port(t)[0].lower() for t in execution.targets}
+
+
+def split_foreign(execution, tool_findings):
+    """Separa lo que coincidió en el objetivo de lo que coincidió en un tercero.
+
+    Algunas plantillas consultan servicios externos (RDAP, inquilino Azure) y nuclei reporta la
+    coincidencia **en ese host**: eso no es una observación del activo. Se deja pasar el tráfico
+    (decisión 2026-11-07) pero queda contabilizado por host y plantilla en la ejecución.
+    """
+    hosts = _target_hosts(execution)
+    own, external = [], {}
+    for item in tool_findings:
+        if hosts and item.is_foreign_to(hosts):
+            entry = external.setdefault(item.matched_host, {"count": 0, "templates": []})
+            entry["count"] += 1
+            template = str(item.raw.get("template-id") or item.vulnerability_id)[:100]
+            if template not in entry["templates"] and len(entry["templates"]) < 10:
+                entry["templates"].append(template)
+            continue
+        own.append(item)
+    return own, external
+
+
 def _ingest(execution, tool_findings):
     from apps.cti.services import get_cve
     from apps.detection import findings
@@ -106,9 +133,10 @@ def _ingest(execution, tool_findings):
             execution_ref=str(execution.pk),
             observed_at=observed_at,
         )
-        created += int(outcome.created)
-        updated += int(not outcome.created)
-        ids.append(outcome.finding.pk)
+        if outcome.finding.pk not in ids:
+            created += int(outcome.created)
+            updated += int(not outcome.created)
+            ids.append(outcome.finding.pk)
     if ids:
         findings.request_scoring(ids)
     # Los hallazgos abiertos que la herramienta no volvió a ver quedan con el reescaneo anotado.
@@ -119,7 +147,7 @@ def _ingest(execution, tool_findings):
         message=f"Reescaneado con {execution.get_tool_display()} ({execution.profile}); no reportado en esta pasada.",
         at=observed_at,
     )
-    return created, updated
+    return created, updated, len(ids)
 
 
 def execute(execution_id):
@@ -150,9 +178,14 @@ def execute(execution_id):
             if execution.tool == Tool.NUCLEI
             else parse_grype_json(result.stdout)
         )
-        execution.findings_seen = len(parsed)
+        execution.raw_results = len(parsed)
+        parsed, execution.external_hosts = split_foreign(execution, parsed)
+        # Sin activo no se ingiere nada: se cuentan vulnerabilidades distintas reportadas.
+        execution.findings_seen = len({p.vulnerability_id for p in parsed})
         if execution.asset_id:
-            execution.findings_created, execution.findings_updated = _ingest(execution, parsed)
+            execution.findings_created, execution.findings_updated, execution.findings_seen = (
+                _ingest(execution, parsed)
+            )
         execution.status = ExecutionStatus.SUCCEEDED
     except (ToolError, ValidationError) as exc:
         execution.status = ExecutionStatus.FAILED
