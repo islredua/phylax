@@ -22,7 +22,7 @@ la instancia del activo, por lo que `actions._launch` la obtiene por id.
 ## Lo que la detección entrega al scoring (`apps.scoring.services`)
 
 ```python
-ALGORITHM_VERSION = "m4-2026.11"
+ALGORITHM_VERSION = "m4-2026.11.2"
 
 @dataclass(frozen=True)
 class ScoreResult:
@@ -33,7 +33,7 @@ class ScoreResult:
 def technical_score(*, cvss, epss, in_kev, severity) -> ScoreResult: ...
 def contextual_score(*, technical, criticality, exposure, data_classification, plausibility,
                      exploitability, data_sensitivity, business_impact_level,
-                     compensating_controls, adjustment, in_kev) -> ScoreResult: ...
+                     compensating_controls, adjustment, in_kev, epss=None) -> ScoreResult: ...
 def baselines(*, cvss, epss, severity) -> dict: ...   # cvss, epss, cvss_x_epss
 def severity_for(score) -> str: ...
 def score_findings(finding_ids) -> dict[UUID, ScoreResult]: ...
@@ -41,8 +41,10 @@ def is_available() -> bool: ...
 ```
 
 La consolidación (`detection/consolidation.py`) llama a `technical_score` y `contextual_score` por
-vulnerabilidad con los factores que el LLM estimó; la fórmula es determinista y el ajuste del
-modelo se acota a ±1.0. `score_findings` puntúa la capa cruda (sin factores del LLM) para ordenarla.
+vulnerabilidad con los factores que el LLM estimó; la fórmula es determinista, el ajuste del
+modelo se acota a ±1.0, KEV/EPSS ponen piso a la explotabilidad y la criticidad del activo pone
+techo al contextual (`CRITICALITY_CAP`); el desglose registra `exploitability_floor` y
+`criticality_cap_applied`. `score_findings` puntúa la capa cruda (sin factores del LLM) para ordenarla.
 
 La detección llama a `score_findings` tras crear o actualizar hallazgos (reconciliación,
 herramientas, cambios CTI). Por cada resultado registra `Finding.priority_score`,

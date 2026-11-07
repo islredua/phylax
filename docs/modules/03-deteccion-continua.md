@@ -94,7 +94,10 @@ Pydantic. Cola `llm` (concurrencia 1), tope por hora configurable.
 **Regla sin LLM.** Si el activo no tiene software registrado ni hallazgos y se puede escanear, la
 evaluación manual, la confirmación y la revisión por tiempo deciden `RESCAN_SERVICES` por regla
 (`planner.rule_decision`), sin consultar al modelo: no hay nada que comparar ni puertos donde buscar,
-primero hay que observar el activo. La decisión queda marcada `fallback` con motivo «regla: …».
+primero hay que observar el activo. La decisión queda marcada `fallback` con motivo «regla: …». Y si una persona pide evaluar un activo con software conocido y `DETECT_VULNS` viable, la regla
+decide `DETECT_VULNS` (urgencia alta) sin consultar al modelo: quien pulsa «Evaluar» espera un
+escaneo de vulnerabilidades, no otra reconciliación (el modelo de 7B la elegía «porque ya se
+escaneó»). Los eventos automáticos siguen pasando por el modelo.
 
 Si el modelo elige una acción fuera de `allowed_actions`, la decisión se sustituye por la regla de
 respaldo acotada a las viables (`planner.constrain`) y se marca con el motivo «el modelo eligió X,
@@ -169,7 +172,12 @@ cabeceras, credenciales por defecto, exposición de información). El flujo:
 1. **Reglas** agrupan las observaciones abiertas del activo y marcan señales deterministas
    (`rule_flags`): coinciden N fuentes, en KEV, «software no observado» cuando la plantilla declara
    un producto o etiqueta tecnológica (Next.js, WordPress…) que no está en el software del activo
-   → tope de plausibilidad 0.3; y, para coincidencias que solo vienen de la CTI, «versión imprecisa
+   → tope de plausibilidad 0.5 y estado `NEEDS_VERIFICATION` (nmap no ve librerías ni frameworks:
+   PHPUnit sobre Apache dispara igual, así que es duda, no descarte); «versión exacta en el rango
+   afectado» cuando el SBOM analizado por Grype, un banner exacto con fabricante coincidente o
+   varias fuentes sostienen la coincidencia → piso de estado `LIKELY` (`rule_status_floor`): si el
+   modelo dice «requiere verificación» con plausibilidad ≥ 0.7, la evidencia manda; sin LLM el ítem
+   por regla sale `LIKELY` 0.8 en vez de 0.5; y, para coincidencias que solo vienen de la CTI, «versión imprecisa
    según nmap» («4», «2.2.X - 2.3.X» → tope 0.5) o «paquete de distribución: posible parche
    retroportado» («9.2p1 Debian 2+deb12u10» → tope 0.6), ambas con tope de estado
    `NEEDS_VERIFICATION` (`rule_status_cap`): la IA no puede afirmar `CONFIRMED` hasta que otra
@@ -178,7 +186,7 @@ cabeceras, credenciales por defecto, exposición de información). El flujo:
    intervalo que deja abierto (`implied_interval`: «3.X - 4.X» → [3, 5)): si todo el intervalo cae
    en el rango afectado coincide; si solo se solapa, coincide con confianza `LOW` (puede ser); si
    no se tocan, no. El panel muestra las señales bajo el estado.
-2. **El LLM local** (`apps/llm/prompts/vuln_assessment/v2.md`, salida con JSON Schema y Pydantic,
+2. **El LLM local** (`apps/llm/prompts/vuln_assessment/v3.md`, salida con JSON Schema y Pydantic,
    `InferenceLog` con tarea `VULN_ASSESSMENT`) recibe organización, activo, software y
    observaciones numeradas, y devuelve por vulnerabilidad: observaciones que la sustentan, título,
    explicación de negocio, impacto, acciones ordenadas, plausibilidad, factores (explotabilidad en
@@ -191,8 +199,12 @@ cabeceras, credenciales por defecto, exposición de información). El flujo:
 4. **Scoring (Módulo 4, `apps.scoring`)**: `technical_score` (CVSS, EPSS, KEV con piso 7.0) y
    `contextual_score` (técnico × criticidad, exposición y clasificación de datos del activo ×
    factores del LLM, con plausibilidad que reduce hasta el 40 %, controles compensatorios y
-   ajuste). Determinista y versionado (`algorithm_version`); `baselines` da CVSS, EPSS y CVSS×EPSS
-   para comparar. La severidad mostrada deriva del puntaje contextual.
+   ajuste). Dos anclas deterministas sobre los factores del modelo: la explotabilidad no baja de
+   HIGH con el CVE en KEV ni de MEDIUM con EPSS ≥ 0.3, y la criticidad del activo pone techo al
+   contextual (INFORMATIVO 4.0, BAJO 6.0, MEDIO 8.0): un señuelo con Apache viejo no encabeza el
+   panel por mucho que el modelo infle «impacto crítico». Determinista y versionado
+   (`algorithm_version` `m4-2026.11.2`); `baselines` da CVSS, EPSS y CVSS×EPSS para comparar. La
+   severidad mostrada deriva del puntaje contextual.
 5. **Estado por IA**: la vulnerabilidad nace con el estado que eligió el modelo
    (`status_source = AI`, etiqueta «por IA»). Una persona puede corregirlo (`HUMAN`): desde entonces
    la consolidación actualiza explicación y puntajes pero **no el estado**, hasta que «Devolver la

@@ -317,11 +317,16 @@ def derive_risks(asset_id, *, requested_by=None, use_llm=True):
 
     now = timezone.now()
     context = assets_services.get_asset_context(asset_id)
-    vulns = list(
-        Vulnerability.objects.filter(asset_id=asset_id, status__in=VULN_OPEN_STATUSES).exclude(
-            status=VulnerabilityStatus.LIKELY_FALSE_POSITIVE, plausibility__lte=0.3
-        )
-    )
+    # Al registro de riesgos entran las vulnerabilidades sostenidas: confirmadas, probables, o en
+    # verificación con plausibilidad por encima de la mitad. Una duda a medias (plantilla sin
+    # software observado, versión imprecisa de nmap: 0.5) espera a que alguien la verifique o la
+    # IA la suba; un probable falso positivo no entra.
+    vulns = [
+        v
+        for v in Vulnerability.objects.filter(asset_id=asset_id, status__in=VULN_OPEN_STATUSES)
+        if v.status in (VulnerabilityStatus.CONFIRMED, VulnerabilityStatus.LIKELY)
+        or (v.status == VulnerabilityStatus.NEEDS_VERIFICATION and v.plausibility > 0.5)
+    ]
     touched, by_rule_count, llm_ok, rejected = [], 0, False, 0
     if vulns:
         data, index = build_payload(asset_id, vulns, context)

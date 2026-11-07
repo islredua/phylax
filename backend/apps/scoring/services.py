@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 
 from django.conf import settings
 
-ALGORITHM_VERSION = "m4-2026.11"
+ALGORITHM_VERSION = "m4-2026.11.2"
 
 # Normalizaciones a [0, 1] de los valores categóricos del inventario.
 CRITICALITY_NORM = {"CRITICO": 1.0, "ALTO": 0.75, "MEDIO": 0.5, "BAJO": 0.25, "INFORMATIVO": 0.1}
@@ -29,6 +29,11 @@ LEVEL_NORM = {"LOW": 0.25, "MEDIUM": 0.5, "HIGH": 0.75, "CRITICAL": 1.0}
 CONTROLS_PENALTY = {"NONE": 0.0, "PARTIAL": 0.5, "STRONG": 1.0}
 KEV_FLOOR = 7.0
 MAX_ADJUSTMENT = 1.0
+# Techo del puntaje contextual según la criticidad del activo: un señuelo o un equipo de pruebas
+# no puede encabezar el panel aunque el CVE sea crítico y explotado; el técnico lo sigue diciendo.
+CRITICALITY_CAP = {"INFORMATIVO": 4.0, "BAJO": 6.0, "MEDIO": 8.0}
+# Explotabilidad mínima por evidencia externa: KEV = explotación en curso; EPSS alto = probable.
+EPSS_MEDIUM_FLOOR = 0.3
 
 
 def _w(name, default):
@@ -98,8 +103,14 @@ def contextual_score(
     compensating_controls="NONE",
     adjustment=0.0,
     in_kev=False,
+    epss=None,
 ) -> ScoreResult:
-    """Puntaje real: técnico × contexto del activo × factores del caso, con ajuste acotado."""
+    """Puntaje real: técnico × contexto del activo × factores del caso, con ajuste acotado.
+
+    Dos anclas deterministas sobre los factores del modelo: la explotabilidad no baja de HIGH si el
+    CVE está en KEV (ni de MEDIUM con EPSS ≥ 0.3), y la criticidad del activo pone techo al puntaje
+    (`CRITICALITY_CAP`): el modelo matiza, pero no puede convertir un señuelo en lo más urgente.
+    """
     w_tech = _w("SCORING_W_TECHNICAL", 0.4)
     w_crit = _w("SCORING_W_CRITICALITY", 0.2)
     w_exp = _w("SCORING_W_EXPOSURE", 0.15)
@@ -113,6 +124,18 @@ def contextual_score(
     if business_impact_level:
         crit = max(crit, LEVEL_NORM.get(business_impact_level, 0.5))
     expl = EXPLOITABILITY_NORM.get(exploitability, 0.6)
+    exploitability_floor = ""
+    if in_kev and expl < EXPLOITABILITY_NORM["HIGH"]:
+        expl, exploitability_floor = EXPLOITABILITY_NORM["HIGH"], "HIGH (KEV)"
+    elif (
+        epss is not None
+        and float(epss) >= EPSS_MEDIUM_FLOOR
+        and expl < EXPLOITABILITY_NORM["MEDIUM"]
+    ):
+        expl, exploitability_floor = (
+            EXPLOITABILITY_NORM["MEDIUM"],
+            f"MEDIUM (EPSS {float(epss):.2f})",
+        )
     base = 10 * (
         w_tech * technical / 10 + w_crit * crit + w_exp * expo + w_data * data + w_expl * expl
     )
@@ -123,6 +146,10 @@ def contextual_score(
     raw = weighted - penalty + adj
     floor_applied = bool(in_kev) and plaus >= 0.5 and raw < KEV_FLOOR
     score = _clamp(KEV_FLOOR if floor_applied else raw)
+    cap = CRITICALITY_CAP.get(criticality)
+    cap_applied = cap is not None and score > cap
+    if cap_applied:
+        score = cap
     return ScoreResult(
         score,
         ALGORITHM_VERSION,
@@ -146,6 +173,9 @@ def contextual_score(
                 "exploitability": w_expl,
             },
             "kev_floor_applied": floor_applied,
+            "exploitability_floor": exploitability_floor,
+            "criticality_cap_applied": cap_applied,
+            "epss": epss,
         },
     )
 

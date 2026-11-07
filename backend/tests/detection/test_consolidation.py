@@ -94,15 +94,19 @@ def test_contextual_score_clamps_adjustment_and_honours_plausibility():
     controlled = scoring.contextual_score(**base, compensating_controls="STRONG")
     assert controlled.score == pytest.approx(plain.score - 1.0, abs=0.01)
     assert (
-        scoring.contextual_score(technical=2.0, criticality="BAJO", in_kev=True).score
+        scoring.contextual_score(technical=2.0, criticality="ALTO", in_kev=True).score
         >= scoring.KEV_FLOOR
     )
     assert (
         scoring.contextual_score(
-            technical=2.0, criticality="BAJO", in_kev=True, plausibility=0.1
+            technical=2.0, criticality="ALTO", in_kev=True, plausibility=0.1
         ).score
         < scoring.KEV_FLOOR
     )
+    # La criticidad del activo pone techo incluso al piso KEV: un equipo BAJO no pasa de 6.0.
+    capped = scoring.contextual_score(technical=2.0, criticality="BAJO", in_kev=True)
+    assert capped.score == scoring.CRITICALITY_CAP["BAJO"]
+    assert capped.breakdown["criticality_cap_applied"]
     assert scoring.baselines(cvss=9.8, epss=0.5) == {"cvss": 9.8, "epss": 5.0, "cvss_x_epss": 4.9}
 
 
@@ -152,7 +156,7 @@ def test_same_cve_from_three_sources_becomes_one_vulnerability(lab_cti):
     assert Vulnerability.objects.filter(asset=asset).count() == 2
 
 
-def test_template_for_absent_technology_is_likely_false_positive():
+def test_template_for_absent_technology_needs_verification():
     asset = _nginx_asset()
     _observe(
         asset,
@@ -164,7 +168,8 @@ def test_template_for_absent_technology_is_likely_false_positive():
     )
     consolidation.consolidate_asset(asset.pk)
     vuln = Vulnerability.objects.get(asset=asset)
-    assert vuln.plausibility <= 0.3 and vuln.status == VulnerabilityStatus.LIKELY_FALSE_POSITIVE
+    # nmap no ve frameworks: es duda (en verificación con la señal), no descarte.
+    assert vuln.plausibility <= 0.5 and vuln.status == VulnerabilityStatus.NEEDS_VERIFICATION
     assert any("software no observado" in flag for flag in vuln.rule_flags)
     assert vuln.contextual_score < vuln.technical_score
 
@@ -308,7 +313,7 @@ def test_title_names_absent_technology_even_without_template_metadata():
     )
     consolidation.consolidate_asset(asset.pk)
     for vuln in Vulnerability.objects.filter(asset=asset):
-        assert vuln.plausibility <= 0.3 and vuln.status == VulnerabilityStatus.LIKELY_FALSE_POSITIVE
+        assert vuln.plausibility <= 0.5 and vuln.status == VulnerabilityStatus.NEEDS_VERIFICATION
 
 
 def test_informational_observations_stay_as_context():
@@ -456,3 +461,60 @@ def test_assessment_schema_tolerates_percent_plausibility_and_out_of_range_adjus
         VulnerabilityItem.model_validate({**item.model_dump(), "plausibility": 0.4}).plausibility
         == 0.4
     )
+
+
+def test_exact_evidence_floors_status_and_scoring_anchors(lab_cti, monkeypatch):
+    from apps.llm import client as llm_client
+
+    # El modelo duda («requiere verificación») pese a nginx 1.27.3 exacto con fabricante en rango.
+    def doubtful(payload):
+        items = consolidation.mock_assessment(payload)
+        for item in items["vulnerabilities"]:
+            item["status"] = "NEEDS_VERIFICATION"
+            item["plausibility"] = 0.8
+            item["exploitability"] = "NONE"
+        return items
+
+    monkeypatch.setitem(llm_client.MOCK_GENERATORS, "VULN_ASSESSMENT", doubtful)
+    asset = _nginx_asset(criticality="INFORMATIVO")
+    from apps.detection import matching
+
+    findings.apply_matches(matching.reconcile_assets([asset.pk]))
+    consolidation.consolidate_asset(asset.pk)
+    vuln = Vulnerability.objects.get(asset=asset, key="CVE-2025-23419")
+    assert vuln.status == VulnerabilityStatus.LIKELY and vuln.status_source == StatusSource.AI
+    assert "versión exacta en el rango afectado" in vuln.rule_flags
+    # Un señuelo (INFORMATIVO) no encabeza el panel aunque el CVE sea grave.
+    assert vuln.contextual_score <= scoring.CRITICALITY_CAP["INFORMATIVO"]
+    assert vuln.score_breakdown["contextual"]["criticality_cap_applied"]
+    # KEV ancla la explotabilidad aunque el modelo diga NONE.
+    ctx = scoring.contextual_score(
+        technical=9.0, criticality="CRITICO", exploitability="NONE", in_kev=True, plausibility=0.9
+    )
+    assert ctx.breakdown["exploitability_floor"] == "HIGH (KEV)" and ctx.score >= 7.5
+    ctx2 = scoring.contextual_score(
+        technical=6.0, criticality="ALTO", exploitability="LOW", epss=0.5, plausibility=0.9
+    )
+    assert ctx2.breakdown["exploitability_floor"].startswith("MEDIUM")
+
+
+def test_rule_item_strength_follows_evidence(lab_cti):
+    from apps.detection import matching
+
+    # Sin LLM: versión exacta con fabricante → probable 0.8; plantilla sin software → verificación.
+    asset = _nginx_asset(criticality="ALTO")
+    findings.apply_matches(matching.reconcile_assets([asset.pk]))
+    _observe(
+        asset,
+        "CVE-2024-34351",
+        "NUCLEI",
+        title="Next.js SSRF",
+        severity="CRITICAL",
+        template={"tags": ["cve", "nextjs"], "product": "next.js", "vendor": "vercel"},
+    )
+    consolidation.consolidate_asset(asset.pk, use_llm=False)
+    exact = Vulnerability.objects.get(asset=asset, key="CVE-2025-23419")
+    doubt = Vulnerability.objects.get(asset=asset, key="CVE-2024-34351")
+    assert exact.status == VulnerabilityStatus.LIKELY and exact.plausibility == 0.8
+    assert exact.status_source == StatusSource.RULE
+    assert doubt.status == VulnerabilityStatus.NEEDS_VERIFICATION and doubt.plausibility <= 0.5

@@ -50,10 +50,12 @@ from .models import (
 
 log = logging.getLogger(__name__)
 
-PROMPT_VERSION = "v2"
+PROMPT_VERSION = "v3"
 TASK = "VULN_ASSESSMENT"
 TEXT_MAX = 300
 LOW_PLAUSIBILITY = 0.3
+MISMATCH_PLAUSIBILITY = 0.5  # plantilla cuyo producto no aparece en el software del activo
+EXACT_PLAUSIBILITY = 0.8  # versión exacta en rango, SBOM/Grype o varias fuentes, sin LLM
 # Etiquetas de plantilla que nombran una tecnología concreta (si no está en el software
 # observado, la observación es poco plausible).
 TECH_TAGS = {
@@ -136,6 +138,9 @@ class Group:
     plausibility_cap: float = 1.0
     # Estado máximo que las reglas permiten afirmar ("" = sin tope).
     status_cap: str = ""
+    # Estado mínimo cuando la evidencia es exacta (SBOM/Grype, versión exacta, varias fuentes).
+    status_floor: str = ""
+    exact_evidence: bool = False
 
     @property
     def lead(self):
@@ -258,13 +263,14 @@ def build_groups(asset_id):
         mismatch = _tech_mismatch(
             meta, software_keys, software_text, f"{finding.vulnerability_id} {finding.title}"
         )
-        if mismatch and FindingSource.CTI_MATCH not in (finding.sources or []):
-            flag = f"software no observado: {', '.join(mismatch)}"
-            if flag not in group.rule_flags:
-                group.rule_flags.append(flag)
-            group.plausibility_cap = min(group.plausibility_cap, LOW_PLAUSIBILITY)
+        sources = set(finding.sources or [])
+        if mismatch and FindingSource.CTI_MATCH not in sources:
+            # La plantilla habla de un producto que nadie vio en el activo. nmap no ve librerías
+            # ni frameworks (PHPUnit, Next.js), así que es duda, no descarte: queda en verificación.
+            _flag(group, f"software no observado: {', '.join(mismatch)}", MISMATCH_PLAUSIBILITY)
+            group.status_cap = VulnerabilityStatus.NEEDS_VERIFICATION
         component_version = finding.component.version if finding.component else ""
-        if finding.sources == [FindingSource.CTI_MATCH] and component_version:
+        if sources == {FindingSource.CTI_MATCH} and component_version:
             if precision(component_version) == "IMPRECISE":
                 _flag(group, f"versión imprecisa según nmap: «{component_version}»", 0.5)
                 group.status_cap = VulnerabilityStatus.NEEDS_VERIFICATION
@@ -275,12 +281,20 @@ def build_groups(asset_id):
                     0.6,
                 )
                 group.status_cap = VulnerabilityStatus.NEEDS_VERIFICATION
+            elif finding.confidence != "LOW":
+                group.exact_evidence = True  # versión exacta del producto dentro del rango
+        if FindingSource.GRYPE in sources:
+            group.exact_evidence = True  # el SBOM declara la librería y su versión exacta
     for group in groups.values():
         sources = {s for f in group.findings for s in (f.sources or [])}
         if len(sources) > 1:
             group.rule_flags.append(f"coinciden {len(sources)} fuentes")
             group.plausibility_cap = 1.0
             group.status_cap = ""  # otra fuente lo vio de verdad: la duda de versión se disipa
+            group.exact_evidence = True
+        if group.exact_evidence and not group.status_cap:
+            group.status_floor = VulnerabilityStatus.LIKELY
+            group.rule_flags.append("versión exacta en el rango afectado")
         if group.in_kev:
             group.rule_flags.append("en KEV: explotación activa conocida")
     return list(groups.values()), components
@@ -351,6 +365,7 @@ def build_payload(asset_id, groups, components):
                 "rule_flags": g.rule_flags,
                 "rule_plausibility_cap": g.plausibility_cap,
                 "rule_status_cap": g.status_cap or None,
+                "rule_status_floor": g.status_floor or None,
             }
             for g in groups
         ],
@@ -386,20 +401,26 @@ def rule_item(group, index):
         actions.append(f"Actualizar {lead.component.label} a una versión corregida.")
     if not actions:
         actions.append("Verificar la observación en el activo y aplicar el parche del fabricante.")
+    if low:
+        plausibility, status = group.plausibility_cap, "LIKELY_FALSE_POSITIVE"
+    elif group.exact_evidence and not group.status_cap:
+        plausibility, status = min(EXACT_PLAUSIBILITY, group.plausibility_cap), "LIKELY"
+    else:
+        plausibility, status = min(0.5, group.plausibility_cap), "NEEDS_VERIFICATION"
     return {
         "observations": [index[f.pk] for f in group.findings],
         "title": clean(lead.title, 160) or group.key,
         "summary": summary,
         "business_impact": "",
         "actions": actions[:5],
-        "plausibility": group.plausibility_cap if low else 0.5,
+        "plausibility": plausibility,
         "exploitability": "HIGH" if group.in_kev else "MEDIUM",
         "data_sensitivity": "MEDIUM",
         "business_impact_level": "MEDIUM",
         "compensating_controls": "NONE",
         "adjustment": 0,
         "adjustment_reason": "",
-        "status": "LIKELY_FALSE_POSITIVE" if low else "NEEDS_VERIFICATION",
+        "status": status,
     }
 
 
@@ -467,7 +488,15 @@ def _validate(parsed, groups, index):
     for group in groups:
         missing = [f for f in group.findings if index[f.pk] not in covered]
         if missing:
-            sub = Group(group.key, missing, list(group.rule_flags), group.plausibility_cap)
+            sub = Group(
+                group.key,
+                missing,
+                list(group.rule_flags),
+                group.plausibility_cap,
+                group.status_cap,
+                group.status_floor,
+                group.exact_evidence,
+            )
             item = rule_item(sub, index)
             items.append({**item, "finding_pks": [f.pk for f in missing], "_by_rule": True})
             covered.update(item["observations"])
@@ -508,12 +537,21 @@ def _apply_item(asset_id, item, group, context, *, by_rule, log_obj, now):
         compensating_controls=item["compensating_controls"],
         adjustment=item.get("adjustment", 0),
         in_kev=in_kev,
+        epss=epss,
     )
     status = item["status"]
     if plausibility <= LOW_PLAUSIBILITY and status in ("CONFIRMED", "LIKELY"):
         status = VulnerabilityStatus.LIKELY_FALSE_POSITIVE
     elif group and group.status_cap and status in ("CONFIRMED", "LIKELY"):
         status = group.status_cap
+    elif (
+        group
+        and group.status_floor
+        and status == VulnerabilityStatus.NEEDS_VERIFICATION
+        and plausibility >= 0.7
+    ):
+        # El modelo duda pese a la versión exacta en rango: la evidencia manda.
+        status = group.status_floor
     cve = next((f.cve for f in findings if f.cve_id), None)
     key = group.key if group else _key_for(item, {})
     vuln, created = Vulnerability.objects.get_or_create(

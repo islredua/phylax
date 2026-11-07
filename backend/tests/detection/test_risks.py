@@ -7,8 +7,7 @@ import pytest
 
 from apps.accounts.roles import ADMIN, AUDITOR, OPERATOR
 from apps.cti import services as cti
-from apps.cti.models import CveRecord
-from apps.detection import components, consolidation, findings, risks
+from apps.detection import components, consolidation, findings, matching, risks
 from apps.detection.models import (
     Risk,
     RiskEventKind,
@@ -52,14 +51,8 @@ def _asset_with_vulns(**kwargs):
     )
     ServiceFactory(asset=asset, port=443, product="nginx", version="1.27.3")
     components.refresh_components(asset.pk)
-    cve = CveRecord.objects.get(pk="CVE-2025-23419")
-    findings.upsert_finding(
-        asset_id=asset.pk,
-        vulnerability_id="CVE-2025-23419",
-        source="CTI_MATCH",
-        cve=cve,
-        evidence_summary="nginx en rango",
-    )
+    # nginx 1.27.3 cae en el rango de CVE-2025-23419 de la CTI de muestra (coincidencia real).
+    findings.apply_matches(matching.reconcile_assets([asset.pk]))
     findings.upsert_finding(
         asset_id=asset.pk,
         vulnerability_id="CVE-2025-29927",
@@ -90,9 +83,10 @@ def test_consolidation_derives_risks_and_skips_likely_false_positives():
     vulns = Vulnerability.objects.filter(asset=asset)
     assert vulns.count() == 2
     fp = vulns.get(key="CVE-2025-29927")
-    assert fp.status == VulnerabilityStatus.LIKELY_FALSE_POSITIVE
+    # Plantilla de un framework que nadie vio: queda en verificación (0.5) y no entra al registro.
+    assert fp.status == VulnerabilityStatus.NEEDS_VERIFICATION and fp.plausibility <= 0.5
     all_risks = Risk.objects.filter(asset=asset)
-    assert all_risks.count() == 1  # el probable falso positivo no genera riesgo
+    assert all_risks.count() == 1  # la duda a medias no genera riesgo
     risk = all_risks.get()
     assert risk.vulnerabilities.get().key == "CVE-2025-23419"
     assert risk.assessment_source == StatusSource.AI and risk.status == RiskStatus.OPEN
