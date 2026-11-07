@@ -27,6 +27,17 @@ class CommandResult:
     stderr: str
     exit_code: int
     duration_s: float
+    truncated: bool = False
+
+
+def truncate_lines(data: bytes, limit: int | None = None) -> tuple[bytes, bool]:
+    """Recorta a ``limit`` bytes en un salto de línea: las salidas JSONL son líneas independientes,
+    así que lo que queda es parseable y lo que falta se declara (``truncated``)."""
+    limit = MAX_OUTPUT_BYTES if limit is None else limit
+    if len(data) <= limit:
+        return data, False
+    cut = data.rfind(b"\n", 0, limit)
+    return data[: cut + 1 if cut > 0 else limit], True
 
 
 def ensure_binary(path):
@@ -58,11 +69,17 @@ def run_command(argv, *, timeout=None, env=None) -> CommandResult:
         process.kill()
         process.communicate()
         raise ToolError(f"Tiempo de espera agotado ({timeout} s).") from exc
-    if len(stdout) > MAX_OUTPUT_BYTES:
-        raise ToolError("La salida de la herramienta excede el tamaño máximo.")
+    stdout, truncated = truncate_lines(stdout)
+    stderr = stderr.decode(errors="replace")[-20_000:]
+    if truncated:
+        stderr = (
+            f"[Atalaya] salida recortada a {MAX_OUTPUT_BYTES // (1024 * 1024)} MB; "
+            "se conservan las líneas completas.\n" + stderr
+        )
     return CommandResult(
         stdout=stdout.decode(errors="replace"),
-        stderr=stderr.decode(errors="replace")[-20_000:],
+        stderr=stderr,
         exit_code=process.returncode,
         duration_s=round(time.monotonic() - started, 1),
+        truncated=truncated,
     )

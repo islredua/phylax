@@ -261,12 +261,15 @@ def test_run_command_timeout_and_output_limits(monkeypatch, tmp_path):
     script.chmod(0o755)
     with pytest.raises(ToolError, match="Tiempo"):
         run_command([str(script)], timeout=1)
-    monkeypatch.setattr("apps.scanners.runner.MAX_OUTPUT_BYTES", 10)
+    # Salida enorme: se recorta en un salto de línea y se declara, no se pierde la ejecución
+    # (nuclei con «cves-web» en un proxy abierto superó los 50 MB y tiraba todo el escaneo).
+    monkeypatch.setattr("apps.scanners.runner.MAX_OUTPUT_BYTES", 16)
     big = tmp_path / "big.sh"
-    big.write_text("#!/bin/sh\nhead -c 100 /dev/zero\n")
+    big.write_text("#!/bin/sh\nprintf 'linea1\\nlinea2\\nlinea3\\nlinea4\\n'\n")
     big.chmod(0o755)
-    with pytest.raises(ToolError, match="tamaño"):
-        run_command([str(big)], timeout=5)
+    result = run_command([str(big)], timeout=5)
+    assert result.truncated and result.stdout == "linea1\nlinea2\n"
+    assert "recortada" in result.stderr
     assert subprocess is not None
 
 
@@ -429,3 +432,12 @@ def test_execute_counts_distinct_findings_and_logs_external_hosts(fake_tool):
     }
     waf = Finding.objects.get(vulnerability_id="NUCLEI:GLOBAL-WAF-DETECT")
     assert waf.evidence.count() == 2  # dos URL distintas del mismo activo
+
+
+def test_oversized_output_is_truncated_on_a_line_boundary_instead_of_failing():
+    from apps.scanners import runner
+
+    data = b'{"a":1}\n{"b":2}\n{"c":3}\n'
+    kept, truncated = runner.truncate_lines(data, limit=18)
+    assert kept == b'{"a":1}\n{"b":2}\n' and truncated
+    assert runner.truncate_lines(data, limit=100) == (data, False)

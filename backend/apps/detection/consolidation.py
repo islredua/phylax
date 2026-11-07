@@ -38,6 +38,7 @@ from . import components as components_index
 from .models import (
     AI_STATUSES,
     OPEN_STATUSES,
+    VULN_OPEN_STATUSES,
     Finding,
     FindingSeverity,
     FindingSource,
@@ -209,7 +210,17 @@ def _tech_mismatch(meta, software_keys, software_text, text=""):
 
 
 # Observaciones de nuclei que solo dicen qué tecnología o versión hay: contexto, no un fallo.
-INFORMATIONAL_PATTERNS = ("tech-detect", "wappalyzer", "detect", "fingerprint", "favicon")
+INFORMATIONAL_PATTERNS = (
+    "tech-detect",
+    "wappalyzer",
+    "detect",
+    "fingerprint",
+    "favicon",
+    # Patrones regex genéricos (PII, secretos) sin comparador específico: disparan con horas,
+    # IPs o respuestas de terceros; son contexto, no una vulnerabilidad.
+    "secrets-patterns",
+    "patterns-pii",
+)
 
 
 def _informational_q():
@@ -477,6 +488,7 @@ def _validate(parsed, groups, index):
     """
     valid_ids = set(index.values())
     by_index = {i: pk for pk, i in index.items()}
+    group_of = {f.pk: g for g in groups for f in g.findings}
     items, rejected, covered = [], [], set()
     for item in parsed.get("vulnerabilities", []):
         refs = [r for r in item["observations"] if r in valid_ids and r not in covered]
@@ -484,7 +496,24 @@ def _validate(parsed, groups, index):
             rejected.append({"title": item.get("title"), "observations": item["observations"]})
             continue
         covered.update(refs)
-        items.append({**item, "observations": refs, "finding_pks": [by_index[r] for r in refs]})
+        # Una vulnerabilidad por (activo, CVE): si el modelo juntó varios CVE del mismo producto
+        # en un solo ítem («Vulnerabilidades en OpenSSH…»), se separa por grupo con el mismo texto;
+        # si no, el CVE «absorbido» quedaría huérfano y se cerraría como mitigado.
+        by_group: dict[str, list] = {}
+        for ref in refs:
+            group = group_of.get(by_index[ref])
+            by_group.setdefault(group.key if group else "", []).append(ref)
+        split = len(by_group) > 1
+        for key, part in by_group.items():
+            extra = {"split_from": item.get("title", "")} if split and key else {}
+            items.append(
+                {
+                    **item,
+                    **extra,
+                    "observations": part,
+                    "finding_pks": [by_index[r] for r in part],
+                }
+            )
     for group in groups:
         missing = [f for f in group.findings if index[f.pk] not in covered]
         if missing:
@@ -554,6 +583,8 @@ def _apply_item(asset_id, item, group, context, *, by_rule, log_obj, now):
         status = group.status_floor
     cve = next((f.cve for f in findings if f.cve_id), None)
     key = group.key if group else _key_for(item, {})
+    if item.get("split_from") and key.startswith("CVE-") and key not in item.get("title", ""):
+        item = {**item, "title": f"{key} · {item['title']}"[:160]}
     vuln, created = Vulnerability.objects.get_or_create(
         asset_id=asset_id,
         key=key,
@@ -755,6 +786,46 @@ def _pending_key(asset_id):
 
 def _last_key(asset_id):
     return f"detection:consolidate:last:{asset_id}"
+
+
+def rescore_asset(asset_id) -> int:
+    """Recalcula el puntaje contextual de las vulnerabilidades abiertas del activo con la versión
+    actual del algoritmo y los factores ya guardados (sin LLM). Devuelve cuántas cambiaron."""
+    context = assets_services.get_asset_context(asset_id)
+    changed = 0
+    for vuln in Vulnerability.objects.filter(asset_id=asset_id, status__in=VULN_OPEN_STATUSES):
+        factors = vuln.factors or {}
+        ctx = scoring.contextual_score(
+            technical=vuln.technical_score or 0.0,
+            criticality=context.criticality,
+            exposure=context.exposure,
+            data_classification=context.data_classification,
+            plausibility=vuln.plausibility,
+            exploitability=factors.get("exploitability", "MEDIUM"),
+            data_sensitivity=factors.get("data_sensitivity"),
+            business_impact_level=factors.get("business_impact_level"),
+            compensating_controls=factors.get("compensating_controls", "NONE"),
+            adjustment=vuln.adjustment,
+            in_kev=vuln.in_kev,
+            epss=vuln.epss_score,
+        )
+        if ctx.score == vuln.contextual_score and vuln.algorithm_version == ctx.algorithm_version:
+            continue
+        vuln.contextual_score = ctx.score
+        vuln.severity = scoring.severity_for(ctx.score)
+        vuln.score_breakdown = {**(vuln.score_breakdown or {}), "contextual": ctx.breakdown}
+        vuln.algorithm_version = ctx.algorithm_version
+        vuln.save(
+            update_fields=[
+                "contextual_score",
+                "severity",
+                "score_breakdown",
+                "algorithm_version",
+                "updated_at",
+            ]
+        )
+        changed += 1
+    return changed
 
 
 def request_consolidation(asset_id, *, reason="", requested_by=None, delay=None):

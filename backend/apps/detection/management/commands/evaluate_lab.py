@@ -104,6 +104,13 @@ class Command(BaseCommand):
                 continue
             vulns = list(Vulnerability.objects.filter(asset=asset))
             open_vulns = [v for v in vulns if v.status in DETECTED_STATUSES]
+            # «Sostenidas»: lo que entra al registro de riesgos (confirmada, probable o en
+            # verificación con plausibilidad > 0.5); el orden del panel se mide sobre ambas.
+            sustained = [
+                v
+                for v in open_vulns
+                if v.status in ("CONFIRMED", "LIKELY") or (v.plausibility or 0) > 0.5
+            ]
             keys = [k for k in exp["expected_keys"].split("|") if k]
             matched = [v for v in vulns if any(key_matches(k, v.key) for k in keys)]
             allowed = exp["expected_detection"].split("|")
@@ -115,6 +122,9 @@ class Command(BaseCommand):
                 open=len(open_vulns),
                 matched=[(v.key, v.status, v.plausibility) for v in matched],
                 top_contextual=max((v.contextual_score or 0 for v in open_vulns), default=0.0),
+                top_contextual_sustained=max(
+                    (v.contextual_score or 0 for v in sustained), default=0.0
+                ),
                 top_cvss=max((v.cvss_score or 0 for v in open_vulns), default=0.0),
                 top_epss=max((v.epss_score or 0 for v in open_vulns), default=0.0),
                 top_cvss_x_epss=max(
@@ -160,11 +170,15 @@ class Command(BaseCommand):
         recall = tp / (tp + fn) if tp + fn else None
         scored = [r for r in rows if r.get("found")]
         sev = [r["expected_severity"] for r in scored]
-        rank_api = None
-        ordered = sorted(scored, key=lambda r: -r["top_contextual"])
-        for i, r in enumerate(ordered, start=1):
+        rank_api, rank_api_sustained = None, None
+        for i, r in enumerate(sorted(scored, key=lambda r: -r["top_contextual"]), start=1):
             if r["name"] == "api-pagos":
                 rank_api = i
+        for i, r in enumerate(
+            sorted(scored, key=lambda r: -r["top_contextual_sustained"]), start=1
+        ):
+            if r["name"] == "api-pagos":
+                rank_api_sustained = i
         backup = next((r for r in rows if r["name"] == "backup-host"), {})
         result = {
             "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -179,8 +193,12 @@ class Command(BaseCommand):
                 "criticality_exact": f"{crit_exact}/{crit_total}",
                 "criticality_within_one": f"{crit_near}/{crit_total}",
                 "api_pagos_rank_by_contextual": rank_api,
+                "api_pagos_rank_by_contextual_sustained": rank_api_sustained,
                 "backup_host_verdict": backup.get("verdict"),
                 "spearman_contextual": spearman([r["top_contextual"] for r in scored], sev),
+                "spearman_contextual_sustained": spearman(
+                    [r["top_contextual_sustained"] for r in scored], sev
+                ),
                 "spearman_cvss": spearman([r["top_cvss"] for r in scored], sev),
                 "spearman_epss": spearman([r["top_epss"] for r in scored], sev),
                 "spearman_cvss_x_epss": spearman([r["top_cvss_x_epss"] for r in scored], sev),

@@ -518,3 +518,83 @@ def test_rule_item_strength_follows_evidence(lab_cti):
     assert exact.status == VulnerabilityStatus.LIKELY and exact.plausibility == 0.8
     assert exact.status_source == StatusSource.RULE
     assert doubt.status == VulnerabilityStatus.NEEDS_VERIFICATION and doubt.plausibility <= 0.5
+
+
+def test_model_item_spanning_several_cves_is_split_one_vulnerability_per_cve(lab_cti, monkeypatch):
+    from apps.llm import client as llm_client
+
+    asset = AssetFactory(criticality="ALTO")
+    ServiceFactory(
+        asset=asset, port=22, product="OpenSSH", version="9.6p1", cpe="cpe:/a:openbsd:openssh:9.6p1"
+    )
+    ServiceFactory(asset=asset, port=443, product="nginx", version="1.27.3")
+    components.refresh_components(asset.pk)
+    from apps.detection import matching
+
+    findings.apply_matches(matching.reconcile_assets([asset.pk]))
+    assert Finding.objects.filter(asset=asset).count() == 2
+
+    def merging(payload):
+        ids = [o["id"] for o in payload["observations"]]
+        return {
+            "vulnerabilities": [
+                {
+                    "observations": ids,
+                    "title": "Varias vulnerabilidades en el servidor",
+                    "summary": "El modelo juntó dos CVE distintos en un solo ítem.",
+                    "business_impact": "",
+                    "actions": ["Actualizar"],
+                    "plausibility": 0.9,
+                    "exploitability": "HIGH",
+                    "data_sensitivity": "MEDIUM",
+                    "business_impact_level": "HIGH",
+                    "compensating_controls": "NONE",
+                    "adjustment": 0,
+                    "adjustment_reason": "",
+                    "status": "CONFIRMED",
+                }
+            ]
+        }
+
+    monkeypatch.setitem(llm_client.MOCK_GENERATORS, "VULN_ASSESSMENT", merging)
+    consolidation.consolidate_asset(asset.pk)
+    vulns = {v.key: v for v in Vulnerability.objects.filter(asset=asset)}
+    assert set(vulns) == {"CVE-2024-6387", "CVE-2025-23419"}
+    for vuln in vulns.values():
+        assert vuln.status == VulnerabilityStatus.CONFIRMED and vuln.observations.count() == 1
+        assert vuln.key in vuln.title and "Varias vulnerabilidades" in vuln.title
+
+
+def test_pii_pattern_templates_are_informational_and_rescore_updates_stale_scores(lab_cti):
+    from io import StringIO
+
+    from django.core.management import call_command
+
+    asset = _nginx_asset(criticality="INFORMATIVO")
+    _observe(
+        asset,
+        "NUCLEI:SECRETS-PATTERNS-PII",
+        "NUCLEI",
+        title="secrets-patterns-pii",
+        severity="INFO",
+    )
+    assert consolidation.informational(asset.pk).count() == 1
+    from apps.detection import matching
+
+    findings.apply_matches(matching.reconcile_assets([asset.pk]))
+    consolidation.consolidate_asset(asset.pk)
+    vuln = Vulnerability.objects.get(asset=asset)  # solo la del CVE; el patrón PII no consolida
+    assert vuln.key == "CVE-2025-23419"
+    # Simulamos un puntaje guardado con un algoritmo anterior y sin techo de criticidad.
+    Vulnerability.objects.filter(pk=vuln.pk).update(
+        algorithm_version="m4-2026.11", contextual_score=8.7, severity="CRITICAL"
+    )
+    out = StringIO()
+    call_command("rescore_vulnerabilities", stdout=out)
+    vuln.refresh_from_db()
+    assert vuln.algorithm_version == scoring.ALGORITHM_VERSION
+    assert vuln.contextual_score <= scoring.CRITICALITY_CAP["INFORMATIVO"]
+    assert "1 recalculada(s)" in out.getvalue()
+    out = StringIO()
+    call_command("rescore_vulnerabilities", stdout=out)
+    assert "0 vulnerabilidad(es)" in out.getvalue()  # idempotente
