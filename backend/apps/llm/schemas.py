@@ -262,6 +262,7 @@ _RISK_ITEM_SCHEMA = {
         "scenario": {"type": "string", "maxLength": 700},
         "description": {"type": "string", "maxLength": 900},
         "impact_description": {"type": "string", "maxLength": 600},
+        "intelligence_summary": {"type": "string", "maxLength": 500},
         "recommendations": {
             "type": "array",
             "items": {"type": "string", "maxLength": 220},
@@ -280,6 +281,7 @@ _RISK_ITEM_SCHEMA = {
         "scenario",
         "description",
         "impact_description",
+        "intelligence_summary",
         "recommendations",
         "threat_source",
         "likelihood",
@@ -310,6 +312,7 @@ class RiskItem(BaseModel):
     scenario: str = Field(max_length=700)
     description: str = Field(max_length=900)
     impact_description: str = Field(max_length=600, default="")
+    intelligence_summary: str = Field(max_length=500, default="")
     recommendations: list[Annotated[str, StringConstraints(max_length=220)]] = Field(
         min_length=1, max_length=5
     )
@@ -319,9 +322,9 @@ class RiskItem(BaseModel):
     rationale: str = Field(max_length=500, default="")
 
     # El texto llega a quien dirige: en español, y el título nombra consecuencia y causa.
-    _spanish = field_validator("title", "scenario", "description", "impact_description")(
-        _must_look_spanish
-    )
+    _spanish = field_validator(
+        "title", "scenario", "description", "impact_description", "intelligence_summary"
+    )(_must_look_spanish)
 
     @field_validator("recommendations")
     @classmethod

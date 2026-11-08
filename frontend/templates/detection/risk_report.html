@@ -69,6 +69,17 @@
 <h2>Posible impacto</h2>
 <p>{% if risk.impact_description %}{{ risk.impact_description }}{% else %}<span class="muted">No descrito; la valoración estima el impacto en {{ risk.impact }} / 5.</span>{% endif %}</p>
 
+<h2>Inteligencia de amenazas</h2>
+<p>{{ intel.text }}</p>
+{% if risk.intelligence_summary and risk.assessment_source == 'AI' and risk.intelligence_summary != intel.text %}<p class="muted"><strong>Lectura de la IA:</strong> {{ risk.intelligence_summary }}</p>{% endif %}
+<dl class="grid">
+  <div><dt>En KEV (CISA)</dt><dd>{{ intel.kev_count }} de {{ intel.total }}{% if intel.kev_since %} · desde {{ intel.kev_since }}{% endif %}{% if intel.ransomware_count %} · {{ intel.ransomware_count }} en ransomware{% endif %}</dd></div>
+  <div><dt>Plazo de remediación CISA</dt><dd>{% if intel.kev_due %}{{ intel.kev_due }}{% if intel.kev_overdue %} (vencido){% endif %}{% else %}—{% endif %}</dd></div>
+  <div><dt>EPSS máximo</dt><dd>{% if intel.epss_max is not None %}{{ intel.epss_max|epss_pct }}{% if intel.epss_percentile is not None %} (percentil {{ intel.epss_percentile|floatformat:2 }}){% endif %} · {{ intel.epss_key }}{% else %}—{% endif %}</dd></div>
+  <div><dt>Confirmadas por más de una fuente</dt><dd>{{ intel.multi_source_count }} de {{ intel.total }}{% if intel.cti_only_count %} · {{ intel.cti_only_count }} solo por inteligencia{% endif %}</dd></div>
+</dl>
+<p class="muted">Fuentes: espejo local de NVD, catálogo KEV de CISA y EPSS (FIRST).</p>
+
 <h2>Valoración</h2>
 <dl class="grid">
   <div><dt>Probabilidad</dt><dd>{{ risk.likelihood }} / 5</dd></div>
@@ -86,14 +97,15 @@
 
 <h2>Evidencia técnica</h2>
 <table>
-  <thead><tr><th>Vulnerabilidad</th><th>Puntajes</th><th>Estado</th><th>Sustento</th></tr></thead>
+  <thead><tr><th>Vulnerabilidad</th><th>Puntajes</th><th>Estado</th><th>Inteligencia</th><th>Sustento</th></tr></thead>
   <tbody>
   {% for row in evidence %}
   <tr>
     <td>{{ row.vuln.title }}<br><span class="mono muted">{{ row.vuln.key }}{% if row.vuln.component %} · {{ row.vuln.component.label }}{% endif %}</span>{% if row.vuln.in_kev %}<br><span class="badge">explotación activa (KEV)</span>{% endif %}</td>
     <td class="mono">contextual {{ row.vuln.contextual_score|default_if_none:"—" }}<br>técnico {{ row.vuln.technical_score|default_if_none:"—" }}<br>CVSS {{ row.vuln.cvss_score|default_if_none:"—" }} · EPSS {{ row.vuln.epss_score|epss_pct }}</td>
     <td>{{ row.vuln.get_status_display }}<br><span class="muted">plausibilidad {{ row.vuln.plausibility|pct }} · {% if row.vuln.status_source == 'HUMAN' %}fijado por una persona{% else %}por {{ row.vuln.get_status_source_display|lower }}{% endif %}</span></td>
-    <td>{{ row.observations }} observación(es): {{ row.sources|join:", "|lower }}{% if row.templates %}<br><span class="mono muted">{{ row.templates|join:", " }}</span>{% endif %}{% if row.matched %}<br><span class="mono muted">{{ row.matched|join:" · " }}</span>{% endif %}</td>
+    <td class="muted">{{ row.intel }}</td>
+    <td>{{ row.observations }} observación(es): {% for s in row.sources %}{{ s|source_label }}{% if not forloop.last %}, {% endif %}{% endfor %}{% if row.templates %}<br><span class="mono muted">{{ row.templates|join:", " }}</span>{% endif %}{% if row.matched %}<br><span class="mono muted">{{ row.matched|join:" · " }}</span>{% endif %}</td>
   </tr>
   {% endfor %}
   </tbody>

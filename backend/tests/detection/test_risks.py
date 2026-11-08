@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -482,3 +483,132 @@ def test_fix_title_restores_the_real_asset_name_and_twins_merge():
         items[0]["likelihood"],
         items[0]["impact"],
     ) == (3, 3)
+
+
+def test_intelligence_summary_counts_kev_epss_and_sources(client, as_role):
+    from datetime import date
+
+    from apps.cti.models import CveRecord
+
+    as_role(OPERATOR)
+    asset = _asset_with_vulns()
+    cve = CveRecord.objects.get(cve_id="CVE-2025-23419")
+    cve.kev_added_at = date(2025, 3, 1)
+    cve.kev_due_at = date(2025, 3, 22)
+    cve.kev_ransomware = "Known"
+    cve.epss_score, cve.epss_percentile = 0.42, 0.97
+    cve.save()
+    from apps.detection.models import Finding
+
+    for model in (Vulnerability, Finding):
+        model.objects.filter(asset=asset, cve=cve).update(
+            in_kev=True, kev_due_at=cve.kev_due_at, epss_score=0.42
+        )
+    vulns = list(Vulnerability.objects.filter(asset=asset).select_related("cve"))
+    intel = risks.intelligence(vulns, today=date(2026, 1, 1))
+    assert intel["kev_count"] == 1 and intel["kev_overdue"] and intel["ransomware_count"] == 1
+    assert intel["epss_max"] == 0.42 and intel["epss_key"] == "CVE-2025-23419"
+    assert intel["cti_only_count"] == 1 and intel["active"]
+    text = intel["text"]
+    assert "catálogo de explotación activa de CISA (KEV) desde 2025-03-01" in text
+    assert "venció el 2025-03-22" in text and "ransomware" in text and "42.0 %" in text
+    assert "percentil 0.97" in text and "solo del cruce con el espejo de NVD" in text
+    assert risks.vuln_intel_line(vulns[0]).startswith("KEV desde 2025-03-01 · plazo CISA")
+    assert risks.intelligence([])["text"] == ""
+
+    # Sin KEV y con EPSS bajo, el resumen lo dice en lugar de callar.
+    quiet = risks.intelligence(
+        [
+            SimpleNamespace(
+                pk=1,
+                in_kev=False,
+                cve_id=None,
+                cve=None,
+                epss_score=0.01,
+                key="X",
+                observations=Vulnerability.objects.none(),
+            )
+        ]
+    )
+    assert "Ninguna de sus vulnerabilidades aparece" in quiet["text"] and "baja" in quiet["text"]
+    assert not quiet["active"]
+
+    # La valoración por regla guarda el resumen determinista y las pantallas lo muestran.
+    risks.derive_risks(asset.pk, use_llm=False)
+    risk = Risk.objects.filter(asset=asset, vulnerabilities__in_kev=True).first()
+    assert "catálogo de explotación activa" in risk.intelligence_summary
+    body = client.get(f"/detection/risks/{risk.pk}/").content.decode()
+    for text in (
+        "Inteligencia de amenazas",
+        "Explotación activa",
+        "EPSS 42 %",
+        "En KEV (CISA)",
+        "Inteligencia (NVD)",
+        "vencido",
+    ):
+        assert text in body, text
+    listing = client.get("/detection/").content.decode()
+    assert "Explotación activa" in listing and "<th" in listing and "Inteligencia</th>" in listing
+    html = client.get(f"/detection/risks/{risk.pk}/report/").content.decode()
+    md = client.get(f"/detection/risks/{risk.pk}/report/?format=md").content.decode()
+    assert "Inteligencia de amenazas" in html and "## Inteligencia de amenazas" in md
+    assert "KEV desde 2025-03-01" in html and "Inteligencia (NVD)" in md
+
+
+def test_rule_risks_without_kev_say_so_and_payload_carries_intelligence(client, as_role):
+    as_role(AUDITOR)
+    asset = _asset_with_vulns()
+    risks.derive_risks(asset.pk, use_llm=False)
+    risk = Risk.objects.filter(asset=asset, status="OPEN").first()
+    assert "Ninguna de sus vulnerabilidades aparece en el catálogo" in risk.intelligence_summary
+    body = client.get("/detection/").content.decode()
+    assert "sin explotación conocida" in body
+    vulns = list(Vulnerability.objects.filter(asset=asset).select_related("cve"))
+    context = SimpleNamespace(
+        business_role="API",
+        environment="PROD",
+        criticality="CRITICO",
+        exposure="DMZ",
+        data_classification="CONFIDENCIAL",
+        data_categories=[],
+    )
+    data, _ = risks.build_payload(asset.pk, vulns, context)
+    first = data["vulnerabilities"][0]
+    assert {"kev", "epss", "epss_percentile", "sources", "cvss"} <= set(first)
+    assert first["kev"] is None and isinstance(first["sources"], list)
+
+
+def test_model_intelligence_reading_must_match_the_data():
+    kev = SimpleNamespace(in_kev=True, epss_score=0.9)
+    quiet = SimpleNamespace(in_kev=False, epss_score=None)
+    ok = "Dos vulnerabilidades están en KEV desde 2021 y el EPSS máximo es 0.9."
+    assert risks.coherent_intelligence(ok, [kev])
+    assert not risks.coherent_intelligence(
+        "Es una biblioteca muy usada; conviene actualizarla.", [kev]
+    )
+    assert not risks.coherent_intelligence("El EPSS máximo es 0.9; explotación probable.", [kev])
+    assert risks.coherent_intelligence("No está en el catálogo KEV y no hay dato de EPSS.", [quiet])
+    assert not risks.coherent_intelligence("Está en KEV y el EPSS es bajo (0.02).", [quiet])
+    assert not risks.coherent_intelligence(
+        "La inteligencia no reporta explotación activa; EPSS bajo (2 %).", [quiet]
+    )
+    assert not risks.coherent_intelligence("", [quiet])
+    assert not risks.coherent_intelligence(
+        "Todas están en el catálogo KEV desde 2021.", [kev, quiet]
+    )
+    assert risks.coherent_intelligence("Una de las dos está en KEV desde 2021.", [kev, quiet])
+    parsed = {
+        "risks": [
+            {
+                "vulnerabilities": [1],
+                "title": "Fuga de datos en a por X",
+                "consequence": "CONFIDENTIALITY",
+                "intelligence_summary": "lodash es una biblioteca ampliamente utilizada.",
+                "likelihood": 3,
+                "impact": 3,
+            }
+        ]
+    }
+    v = SimpleNamespace(pk="pk1", in_kev=True, epss_score=0.5)
+    items, _, _ = risks._validate(parsed, [v], {"pk1": 1}, "a")
+    assert items[0]["intelligence_summary"] == "" and items[0]["intel_replaced"]

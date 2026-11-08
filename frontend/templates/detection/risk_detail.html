@@ -31,6 +31,20 @@
     </section>
 
     <section class="card">
+      <h3 class="card-title">Inteligencia de amenazas</h3>
+      <p class="mb-3 flex flex-wrap gap-1">{% intel_badges risk as badges %}{% if badges %}{{ badges }}{% else %}<span class="badge-neutral">sin explotación conocida</span>{% endif %}</p>
+      <p class="text-ink-soft">{{ intel.text }}</p>
+      {% if risk.intelligence_summary and risk.assessment_source == 'AI' and risk.intelligence_summary != intel.text %}<p class="kv-label mt-4">Lectura de la IA</p><p class="mt-1 text-sm text-ink-soft">{{ risk.intelligence_summary }}</p>{% endif %}
+      <dl class="kv-grid mt-4 text-sm">
+        <div><dt class="kv-label">En KEV (CISA)</dt><dd class="kv-value">{{ intel.kev_count }} de {{ intel.total }}{% if intel.kev_since %} · desde {{ intel.kev_since }}{% endif %}{% if intel.ransomware_count %} · {{ intel.ransomware_count }} en ransomware{% endif %}</dd></div>
+        <div><dt class="kv-label">Plazo de remediación CISA</dt><dd class="kv-value">{% if intel.kev_due %}{{ intel.kev_due }}{% if intel.kev_overdue %} <span class="badge-critical">vencido</span>{% endif %}{% else %}—{% endif %}</dd></div>
+        <div><dt class="kv-label">EPSS máximo</dt><dd class="kv-value font-mono text-xs">{% if intel.epss_max is not None %}{{ intel.epss_max|epss_pct }}{% if intel.epss_percentile is not None %} (percentil {{ intel.epss_percentile|floatformat:2 }}){% endif %} · {{ intel.epss_key }}{% else %}—{% endif %}</dd></div>
+        <div><dt class="kv-label">Confirmadas por más de una fuente</dt><dd class="kv-value">{{ intel.multi_source_count }} de {{ intel.total }}{% if intel.cti_only_count %} · {{ intel.cti_only_count }} solo por inteligencia{% endif %}</dd></div>
+      </dl>
+      <p class="mt-3 text-xs text-muted">Datos del espejo local de NVD, del catálogo KEV de CISA y de EPSS (FIRST), sincronizados en <a href="{% url 'detection:sources' %}">Fuentes CTI</a>. La probabilidad del riesgo tiene un piso cuando hay explotación activa en un activo expuesto.</p>
+    </section>
+
+    <section class="card">
       <h3 class="card-title">Valoración (ISO/IEC 27005)</h3>
       <dl class="kv-grid text-sm">
         <div><dt class="kv-label">Activo</dt><dd class="kv-value"><a href="{% url 'assets:detail' risk.asset_id %}">{{ risk.asset.name }}</a> · {{ risk.environment|catalog:"ENVIRONMENT" }}</dd></div>
@@ -47,16 +61,17 @@
       <h3 class="card-title">Evidencia técnica <span class="font-mono text-xs font-normal text-muted">{{ evidence|length }} vulnerabilidad(es)</span></h3>
       <div class="table-wrap">
         <table class="data-table">
-          <thead><tr><th>Vulnerabilidad</th><th title="Puntaje contextual · técnico">Puntajes</th><th>Estado</th><th>Qué la sustenta</th></tr></thead>
+          <thead><tr><th>Vulnerabilidad</th><th title="Puntaje contextual · técnico">Puntajes</th><th>Estado</th><th>Inteligencia</th><th>Qué la sustenta</th></tr></thead>
           <tbody>
             {% for row in evidence %}
             <tr>
               <td><a href="{% url 'detection:vulnerability' row.vuln.pk %}">{{ row.vuln.title|truncatechars:80 }}</a> {% kev_badge row.vuln.in_kev %}<p class="font-mono text-xs text-muted">{{ row.vuln.key }}{% if row.vuln.component %} · {{ row.vuln.component.label }}{% endif %}</p></td>
               <td class="whitespace-nowrap">{% score_badge row.vuln.contextual_score %} <span class="font-mono text-xs text-muted">{{ row.vuln.technical_score|default_if_none:"—" }}</span><p class="text-xs text-muted">CVSS {{ row.vuln.cvss_score|default_if_none:"—" }} · EPSS {{ row.vuln.epss_score|epss_pct }}</p></td>
               <td>{% vuln_status_badge row.vuln.status %} {% status_source_badge row.vuln.status_source %}<p class="text-xs text-muted">plausibilidad {{ row.vuln.plausibility|pct }}</p></td>
-              <td class="text-xs">{{ row.observations }} observación(es): {% for s in row.sources %}<span class="badge-neutral">{{ s|lower }}</span> {% endfor %}{% if row.templates %}<p class="font-mono text-muted">{{ row.templates|join:", "|truncatechars:80 }}</p>{% endif %}{% if row.matched %}<p class="font-mono text-muted">{{ row.matched|join:" · "|truncatechars:80 }}</p>{% endif %}</td>
+              <td class="text-xs text-ink-soft">{{ row.intel }}</td>
+              <td class="text-xs">{{ row.observations }} observación(es): {% for s in row.sources %}<span class="badge-neutral">{{ s|source_label }}</span> {% endfor %}{% if row.templates %}<p class="font-mono text-muted">{{ row.templates|join:", "|truncatechars:80 }}</p>{% endif %}{% if row.matched %}<p class="font-mono text-muted">{{ row.matched|join:" · "|truncatechars:80 }}</p>{% endif %}</td>
             </tr>
-            {% empty %}<tr><td colspan="4" class="table-empty">Ninguna vulnerabilidad ligada.</td></tr>{% endfor %}
+            {% empty %}<tr><td colspan="5" class="table-empty">Ninguna vulnerabilidad ligada.</td></tr>{% endfor %}
           </tbody>
         </table>
       </div>

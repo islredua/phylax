@@ -149,3 +149,31 @@ por regla y luego redactados («Denegación de servicio en Apache httpd 2.4.49»
 en Pillow 8.1.0»). En app-siniestros el modelo devolvió un `\u0000` dentro del JSON y PostgreSQL
 rechazó guardar la bitácora: el cliente ahora elimina ese carácter antes de guardar. Los riesgos de
 activos no reconsolidados en esta pasada conservan su título anterior hasta la próxima corrida.
+
+## Fase E · La inteligencia de amenazas, visible (2026-11-08)
+
+Comentario: «no veo en el flujo dónde interviene CTI; en los riesgos no viene qué se encontró en
+ciberinteligencia». Diagnóstico: la CTI determinaba los números (796 de 945 observaciones vienen
+del cruce con NVD; KEV y EPSS entran al puntaje técnico, al piso de probabilidad y a la fuente de
+amenaza) pero ningún texto ni pantalla de riesgo lo contaba; el modelo solo recibía `in_kev`.
+
+| # | Cambio | Comprobación |
+|---|---|---|
+| E1 | Bloque «Inteligencia de amenazas» determinista en detalle y reportes (KEV desde/plazo/ransomware, EPSS máximo, fuentes) | `test_intelligence_summary_counts_kev_epss_and_sources` |
+| E2 | Entrada del modelo con `kev`, `epss`, `epss_percentile`, `cvss`, `sources`; campo obligatorio `intelligence_summary` (prompt v3, validado en español); la regla guarda la frase determinista | `test_rule_risks_without_kev_say_so_and_payload_carries_intelligence` + corrida real |
+| E3 | Columna e insignias «Explotación activa» / «EPSS n %» en el registro de riesgos; fuentes con nombre legible en todas las pantallas | pruebas de vistas (`Inteligencia (NVD)`, sin `cti_match`) |
+| E4 | Apartado «Origen» en el detalle de la vulnerabilidad (inventario → NVD → cruce/Grype/nuclei → sincronización) | `test_vulnerability_detail_tells_the_origin_chain` |
+
+**Resultados reales (6 activos, `qwen2.5:7b`, prompt v3).** La lectura determinista fue exacta en
+todos los riesgos (api-pagos: «2 de 23 están en KEV desde 2021-12-10; el plazo de CISA venció el
+2021-12-24 y 2 se usan en campañas de ransomware. EPSS máximo 100.0 % (percentil 1.00) en
+CVE-2021-44228»). La del modelo, en la primera corrida, falló en 3 de 5: calló el KEV de api-pagos,
+inventó «EPSS 0.02» donde no había dato y escribió generalidades («lodash es una biblioteca muy
+usada»). Se añadió `coherent_intelligence`: si hay KEV y no lo dice, si afirma KEV sin haberlo, si
+da cifras sin dato de EPSS, si dice «todas» cuando son algunas o si no habla de inteligencia, manda
+la lectura determinista y el razonamiento lo anota. Segunda corrida: 6 llamadas, 5 válidas (una
+agotó los dos intentos y el activo se valoró por regla), 2 lecturas del modelo reemplazadas por
+regla, 3 coherentes («Una sola vulnerabilidad sin presencia en el catálogo KEV. El EPSS es nulo,
+por lo que la probabilidad se basa en la exposición a internet»). El campo obligatorio nuevo sube
+los reintentos (5 de 6 llamadas necesitaron el segundo intento); si molesta, bajar la exigencia del
+validador de español sobre `intelligence_summary` es el primer ajuste a probar.

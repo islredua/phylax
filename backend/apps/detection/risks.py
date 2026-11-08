@@ -42,7 +42,7 @@ from .models import (
 )
 
 log = logging.getLogger(__name__)
-PROMPT_VERSION = "v2"
+PROMPT_VERSION = "v3"
 TASK = "RISK_ASSESSMENT"
 MAX_RISKS = 5
 CONSEQUENCE_LABEL = dict(RiskConsequence.choices)
@@ -153,6 +153,107 @@ def _rule_texts(vulns, context, asset_name, consequence):
     return description, impact, recommendations[:5]
 
 
+def intelligence(vulns, *, today=None):
+    """Resumen determinista de lo que la inteligencia de amenazas dice de estas vulnerabilidades.
+
+    No depende del modelo: cuenta KEV (desde cuándo, plazo de CISA, ransomware), el EPSS máximo
+    con su percentil, cuántas vulnerabilidades confirmó más de una fuente y cuántas solo conoce
+    el cruce con NVD. ``text`` es la frase en español que se muestra y que usa la regla.
+    """
+    from django.conf import settings
+
+    today = today or timezone.localdate()
+    high = float(getattr(settings, "DETECTION_EPSS_HIGH", 0.1))
+    vulns = list(vulns)
+    kev = [v for v in vulns if v.in_kev]
+    cves = {v.pk: (v.cve if v.cve_id else None) for v in vulns}
+    kev_since = sorted(c.kev_added_at for v in kev if (c := cves[v.pk]) and c.kev_added_at)
+    kev_due = sorted(v.kev_due_at for v in kev if v.kev_due_at)
+    ransomware = [v for v in kev if (c := cves[v.pk]) and c.kev_ransomware == "Known"]
+    epss_lead = max(
+        (v for v in vulns if v.epss_score is not None), key=lambda v: v.epss_score, default=None
+    )
+    sources = {v.pk: _vuln_sources(v) for v in vulns}
+    multi = [v for v in vulns if len(sources[v.pk]) > 1]
+    cti_only = [v for v in vulns if sources[v.pk] == ["CTI_MATCH"]]
+    tool_seen = [v for v in vulns if any(s in ("GRYPE", "NUCLEI", "MANUAL") for s in sources[v.pk])]
+    summary = {
+        "total": len(vulns),
+        "kev_count": len(kev),
+        "kev_keys": [v.key for v in kev[:5]],
+        "kev_since": kev_since[0] if kev_since else None,
+        "kev_due": kev_due[0] if kev_due else None,
+        "kev_overdue": bool(kev_due) and kev_due[0] < today,
+        "ransomware_count": len(ransomware),
+        "epss_max": epss_lead.epss_score if epss_lead else None,
+        "epss_percentile": (
+            cves[epss_lead.pk].epss_percentile if epss_lead and cves[epss_lead.pk] else None
+        ),
+        "epss_key": epss_lead.key if epss_lead else "",
+        "epss_high_count": sum(1 for v in vulns if (v.epss_score or 0) >= high),
+        "epss_high": high,
+        "multi_source_count": len(multi),
+        "cti_only_count": len(cti_only),
+        "tool_seen_count": len(tool_seen),
+        "active": bool(kev) or any((v.epss_score or 0) >= high for v in vulns),
+    }
+    summary["text"] = _intelligence_text(summary)
+    return summary
+
+
+def _intelligence_text(s):
+    if not s["total"]:
+        return ""
+    parts = []
+    if s["kev_count"]:
+        if s["total"] == 1:
+            sentence = "La vulnerabilidad está en el catálogo de explotación activa de CISA (KEV)"
+        else:
+            plural = "n" if s["kev_count"] > 1 else ""
+            sentence = (
+                f"{s['kev_count']} de {s['total']} está{plural} en el catálogo de explotación "
+                "activa de CISA (KEV)"
+            )
+        if s["kev_since"]:
+            sentence += f" desde {s['kev_since']:%Y-%m-%d}"
+        if s["kev_due"]:
+            verb = "venció" if s["kev_overdue"] else "vence"
+            sentence += f"; el plazo de remediación de CISA {verb} el {s['kev_due']:%Y-%m-%d}"
+        if s["ransomware_count"] == 1:
+            sentence += " y una se usa en campañas de ransomware"
+        elif s["ransomware_count"]:
+            sentence += f" y {s['ransomware_count']} se usan en campañas de ransomware"
+        parts.append(sentence + ".")
+    else:
+        parts.append(
+            "Ninguna de sus vulnerabilidades aparece en el catálogo de explotación activa de "
+            "CISA (KEV)."
+        )
+    if s["epss_max"] is not None:
+        pct = f"{s['epss_max'] * 100:.1f} %"
+        tail = ""
+        if s["epss_percentile"] is not None:
+            tail = f" (percentil {s['epss_percentile']:.2f})"
+        level = "alta" if s["epss_max"] >= s["epss_high"] else "baja"
+        parts.append(
+            f"La probabilidad de explotación en 30 días (EPSS) más alta es {pct}{tail}, "
+            f"en {s['epss_key']}: {level}."
+        )
+    if s["multi_source_count"]:
+        parts.append(f"{s['multi_source_count']} la(s) confirmó más de una fuente.")
+    if s["cti_only_count"] == s["total"]:
+        parts.append(
+            "Todas provienen del cruce del software inventariado con el espejo de NVD; ninguna "
+            "herramienta las comprobó todavía."
+        )
+    elif s["cti_only_count"]:
+        parts.append(
+            f"{s['cti_only_count']} provienen solo del cruce con el espejo de NVD, sin "
+            "comprobación de herramienta."
+        )
+    return " ".join(parts)
+
+
 def rule_items(vulns, context, index, asset_name="el activo"):
     items = []
     for vuln in vulns:
@@ -170,6 +271,7 @@ def rule_items(vulns, context, index, asset_name="el activo"):
                 ),
                 "description": description,
                 "impact_description": impact,
+                "intelligence_summary": intelligence([vuln])["text"],
                 "recommendations": recommendations,
                 "threat_source": "MALWARE" if vuln.in_kev else "EXTERNAL",
                 "likelihood": rule_likelihood(vuln, context),
@@ -199,6 +301,7 @@ def _merge_rule_items(items, vulns, index, context, asset_name):
             ),
             "description": description,
             "impact_description": impact,
+            "intelligence_summary": intelligence(vulns)["text"],
             "recommendations": recommendations,
             "threat_source": "EXTERNAL",
             "likelihood": max(i["likelihood"] for i in items),
@@ -222,6 +325,7 @@ def mock_risks(request_payload):
                 "scenario": f"Respuesta simulada (LLM_MOCK_MODE=1) para «{v['title'][:80]}».",
                 "description": "Descripción simulada del riesgo, en español, para la persona que dirige la organización.",
                 "impact_description": "Impacto simulado: el servicio quedaría fuera unas horas.",
+                "intelligence_summary": "Inteligencia simulada: sin explotación activa conocida.",
                 "recommendations": [
                     "Aplicar el parche del fabricante.",
                     "Verificar con un nuevo escaneo.",
@@ -264,6 +368,7 @@ def build_payload(asset_id, vulns, context):
             "data_classification": context.data_classification,
             "data_categories": list(context.data_categories),
         },
+        "intelligence_facts": intelligence(vulns)["text"],
         "vulnerabilities": [
             {
                 "id": index[v.pk],
@@ -277,11 +382,35 @@ def build_payload(asset_id, vulns, context):
                 "contextual_score": v.contextual_score,
                 "technical_score": v.technical_score,
                 "in_kev": v.in_kev,
+                "kev": _kev_facts(v),
+                "cvss": v.cvss_score,
+                "epss": v.epss_score,
+                "epss_percentile": v.cve.epss_percentile if v.cve_id and v.cve else None,
+                "sources": _vuln_sources(v),
                 "factors": v.factors,
             }
             for v in vulns
         ],
     }, index
+
+
+def _kev_facts(vuln):
+    """Lo que el catálogo KEV de CISA dice de la vulnerabilidad, o ``None`` si no está."""
+    if not vuln.in_kev:
+        return None
+    cve = vuln.cve if vuln.cve_id else None
+    return {
+        "since": str(cve.kev_added_at) if cve and cve.kev_added_at else None,
+        "due": str(vuln.kev_due_at) if vuln.kev_due_at else None,
+        "ransomware": bool(cve and cve.kev_ransomware == "Known"),
+    }
+
+
+def _vuln_sources(vuln):
+    sources = set()
+    for f in vuln.observations.all():
+        sources.update(f.sources or [])
+    return sorted(sources)
 
 
 def render_user_message(data):
@@ -303,6 +432,37 @@ def _event(risk, kind, message="", actor=None, **data):
         message=message[:500],
         data=data,
     )
+
+
+_INTEL_KEV_WORDS = ("kev", "explotación activa", "cisa")
+_INTEL_NEGATIONS = ("no está", "no aparece", "ninguna", "no se encuentra", "no figura", "sin ")
+_INTEL_FACT_WORDS = ("kev", "epss", "cisa", "fuente", "nvd", "explotación", "ransomware", "cvss")
+
+
+def coherent_intelligence(text, vulns):
+    """¿La lectura de inteligencia del modelo coincide con los datos que recibió?
+
+    Falla si hay vulnerabilidades en KEV y no lo dice, si afirma KEV cuando no hay, si da
+    porcentajes o cifras de EPSS sin dato, o si no habla de inteligencia en absoluto.
+    """
+    import re
+
+    low = (text or "").lower()
+    if not low:
+        return False
+    kev = any(v.in_kev for v in vulns)
+    mentions_kev = any(w in low for w in _INTEL_KEV_WORDS)
+    if kev and not mentions_kev:
+        return False
+    if not kev and mentions_kev and not any(n in low for n in _INTEL_NEGATIONS):
+        return False
+    if kev and "todas" in low and sum(1 for v in vulns if v.in_kev) < len(vulns):
+        return False  # «todas están en KEV» cuando solo algunas lo están
+    if not any(v.epss_score is not None for v in vulns) and (
+        re.search(r"\d+([.,]\d+)?\s*%", low) or re.search(r"epss\D{0,25}\d", low)
+    ):
+        return False
+    return any(w in low for w in _INTEL_FACT_WORDS)
 
 
 def fix_title(title, asset_name):
@@ -332,6 +492,11 @@ def _validate(parsed, vulns, index, asset_name=""):
         covered.update(refs)
         if asset_name:
             item = {**item, "title": fix_title(item["title"], asset_name)}
+        linked = [v for v in vulns if index.get(v.pk) in refs]
+        if not coherent_intelligence(item.get("intelligence_summary", ""), linked):
+            # El modelo calló el KEV, inventó un porcentaje o escribió generalidades: manda la
+            # lectura determinista y queda constancia en el razonamiento.
+            item = {**item, "intelligence_summary": "", "intel_replaced": True}
         # Dos escenarios con el mismo título y la misma consecuencia son el mismo riesgo.
         twin = next(
             (
@@ -389,7 +554,11 @@ def anchors(item, vulns, context):
 
 
 def _apply(asset_id, item, context, *, by_rule, log_obj, now):
-    vulns = list(Vulnerability.objects.filter(pk__in=item["vuln_pks"]))
+    vulns = list(
+        Vulnerability.objects.filter(pk__in=item["vuln_pks"])
+        .select_related("cve")
+        .prefetch_related("observations")
+    )
     if not vulns:
         return None
     likelihood, impact, notes = anchors(item, vulns, context)
@@ -413,10 +582,15 @@ def _apply(asset_id, item, context, *, by_rule, log_obj, now):
     risk.scenario = item["scenario"]
     risk.description = item.get("description", "")
     risk.impact_description = item.get("impact_description", "")
+    risk.intelligence_summary = item.get("intelligence_summary") or intelligence(vulns)["text"]
     risk.recommendations = list(item.get("recommendations") or [])
     risk.threat_source = item["threat_source"]
     risk.likelihood, risk.impact, risk.level = likelihood, impact, level
     risk.rationale = item.get("rationale", "")
+    if item.get("intel_replaced"):
+        notes.append(
+            "lectura de inteligencia por regla porque la del modelo no coincidía con los datos"
+        )
     if notes:
         risk.rationale = _clean(f"{risk.rationale} Anclas: {'; '.join(notes)}.", 1000)
     risk.assessment_source = StatusSource.RULE if by_rule else StatusSource.AI
@@ -502,6 +676,8 @@ def derive_risks(asset_id, *, requested_by=None, use_llm=True):
     vulns = [
         v
         for v in Vulnerability.objects.filter(asset_id=asset_id, status__in=VULN_OPEN_STATUSES)
+        .select_related("cve", "component")
+        .prefetch_related("observations")
         if v.status in (VulnerabilityStatus.CONFIRMED, VulnerabilityStatus.LIKELY)
         or (v.status == VulnerabilityStatus.NEEDS_VERIFICATION and v.plausibility > 0.5)
     ]
@@ -646,6 +822,29 @@ def matrix(risks):
 THREAT_LABELS = dict(ThreatSource.choices)
 
 
+def vuln_intel_line(vuln):
+    """Una línea con lo que la inteligencia dice de una vulnerabilidad, para tablas y reportes."""
+    bits = []
+    cve = vuln.cve if vuln.cve_id else None
+    if vuln.in_kev:
+        kev = "KEV"
+        if cve and cve.kev_added_at:
+            kev += f" desde {cve.kev_added_at:%Y-%m-%d}"
+        if vuln.kev_due_at:
+            kev += f" · plazo CISA {vuln.kev_due_at:%Y-%m-%d}"
+        if cve and cve.kev_ransomware == "Known":
+            kev += " · ransomware"
+        bits.append(kev)
+    if vuln.epss_score is not None:
+        epss = f"EPSS {vuln.epss_score * 100:.1f} %"
+        if cve and cve.epss_percentile is not None:
+            epss += f" (p{cve.epss_percentile:.2f})"
+        bits.append(epss)
+    if vuln.cvss_score is not None:
+        bits.append(f"CVSS {vuln.cvss_score:g}")
+    return " · ".join(bits) or "sin datos de inteligencia (no tiene CVE)"
+
+
 def evidence(risk):
     """Evidencia técnica determinista del riesgo: cada vulnerabilidad ligada con lo que la sustenta."""
     rows = []
@@ -669,6 +868,7 @@ def evidence(risk):
                 "templates": sorted(templates),
                 "matched": sorted(matched),
                 "observations": len(observations),
+                "intel": vuln_intel_line(v),
             }
         )
     rows.sort(key=lambda r: r["vuln"].contextual_score or 0, reverse=True)

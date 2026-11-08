@@ -20,6 +20,19 @@
 
 {% if risk.impact_description %}{{ risk.impact_description }}{% else %}No descrito; la valoración estima el impacto en {{ risk.impact }} / 5.{% endif %}
 
+## Inteligencia de amenazas
+
+{{ intel.text }}
+{% if risk.intelligence_summary and risk.assessment_source == 'AI' and risk.intelligence_summary != intel.text %}
+*Lectura de la IA:* {{ risk.intelligence_summary }}
+{% endif %}
+- **En KEV (CISA):** {{ intel.kev_count }} de {{ intel.total }}{% if intel.kev_since %} · desde {{ intel.kev_since }}{% endif %}{% if intel.ransomware_count %} · {{ intel.ransomware_count }} en ransomware{% endif %}
+- **Plazo de remediación CISA:** {% if intel.kev_due %}{{ intel.kev_due }}{% if intel.kev_overdue %} (vencido){% endif %}{% else %}—{% endif %}
+- **EPSS máximo:** {% if intel.epss_max is not None %}{{ intel.epss_max|epss_pct }}{% if intel.epss_percentile is not None %} (percentil {{ intel.epss_percentile|floatformat:2 }}){% endif %} · {{ intel.epss_key }}{% else %}—{% endif %}
+- **Confirmadas por más de una fuente:** {{ intel.multi_source_count }} de {{ intel.total }}{% if intel.cti_only_count %} · {{ intel.cti_only_count }} solo por inteligencia{% endif %}
+
+Fuentes: espejo local de NVD, catálogo KEV de CISA y EPSS (FIRST).
+
 ## Valoración
 
 | Probabilidad | Impacto | Nivel |
@@ -39,9 +52,9 @@ Ver las acciones de cada vulnerabilidad.{% endfor %}
 
 ## Evidencia técnica
 
-| Vulnerabilidad | Contextual | Técnico | CVSS | EPSS | Estado | Sustento |
-|---|---|---|---|---|---|---|
-{% for row in evidence %}| {{ row.vuln.title }} (`{{ row.vuln.key }}`{% if row.vuln.component %}, {{ row.vuln.component.label }}{% endif %}){% if row.vuln.in_kev %} **KEV**{% endif %} | {{ row.vuln.contextual_score|default_if_none:"—" }} | {{ row.vuln.technical_score|default_if_none:"—" }} | {{ row.vuln.cvss_score|default_if_none:"—" }} | {{ row.vuln.epss_score|epss_pct }} | {{ row.vuln.get_status_display }} ({{ row.vuln.plausibility|pct }}) | {{ row.observations }} obs.: {{ row.sources|join:", "|lower }}{% if row.templates %}; {{ row.templates|join:", " }}{% endif %} |
+| Vulnerabilidad | Contextual | Técnico | Inteligencia | Estado | Sustento |
+|---|---|---|---|---|---|
+{% for row in evidence %}| {{ row.vuln.title }} (`{{ row.vuln.key }}`{% if row.vuln.component %}, {{ row.vuln.component.label }}{% endif %}){% if row.vuln.in_kev %} **KEV**{% endif %} | {{ row.vuln.contextual_score|default_if_none:"—" }} | {{ row.vuln.technical_score|default_if_none:"—" }} | {{ row.intel }} | {{ row.vuln.get_status_display }} ({{ row.vuln.plausibility|pct }}) | {{ row.observations }} obs.: {% for s in row.sources %}{{ s|source_label }}{% if not forloop.last %}, {% endif %}{% endfor %}{% if row.templates %}; {{ row.templates|join:", " }}{% endif %} |
 {% endfor %}
 {% for row in evidence %}{% if row.vuln.summary or row.vuln.technical_description %}
 ### {{ row.vuln.title }}

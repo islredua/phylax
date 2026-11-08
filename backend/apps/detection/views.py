@@ -3,7 +3,7 @@
 from django.contrib import messages
 from django.contrib.auth.mixins import PermissionRequiredMixin
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db.models import Q
+from django.db.models import Count, Max, Q
 from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -246,6 +246,7 @@ class VulnerabilityDetailView(Perm, TemplateView):
             observations=observations,
             description_pending=description_pending,
             technical=technical_details(vuln, observations),
+            origin=origin_story(vuln, observations),
             timeline=vuln.events.select_related("actor").order_by("-occurred_at", "-id"),
             statuses=[(s, HUMAN_STATUS_LABELS[s]) for s in HUMAN_STATUS_LABELS if s != vuln.status],
             consolidation_pending=consolidation.is_pending(vuln.asset_id),
@@ -270,6 +271,89 @@ class VulnerabilityDescriptionView(Perm, View):
             "detection/_vulnerability_description.html",
             {"vuln": vuln, "description_pending": descriptions.is_pending(vuln.pk)},
         )
+
+
+def origin_story(vuln, observations):
+    """La cadena que llevó a esta vulnerabilidad: software visto → inteligencia → herramientas.
+
+    Cada paso es ``{"when", "what", "source"}`` ordenado en el tiempo, para que quien lee entienda
+    de dónde salió sin recorrer tres tarjetas.
+    """
+    from apps.cti.models import CtiSource
+
+    steps = []
+    comp = vuln.component
+    if comp:
+        if comp.source == "SBOM" and comp.sbom_id and comp.sbom:
+            steps.append(
+                {
+                    "when": comp.sbom.uploaded_at,
+                    "what": f"El SBOM «{comp.sbom.original_filename}» declara {comp.label}.",
+                    "source": "Inventario",
+                }
+            )
+        else:
+            where = f" en {comp.port}/{comp.protocol or 'tcp'}" if comp.port else ""
+            steps.append(
+                {
+                    "when": comp.first_seen,
+                    "what": f"El descubrimiento observó {comp.label}{where} en el activo.",
+                    "source": "Inventario",
+                }
+            )
+    cve = vuln.cve if vuln.cve_id else None
+    if cve:
+        pub = f" publicado el {cve.published_at:%Y-%m-%d}" if cve.published_at else ""
+        steps.append(
+            {
+                "when": cve.last_synced_at,
+                "what": f"{cve.cve_id}{pub} está en el espejo local de NVD (última sincronización "
+                f"de este registro).",
+                "source": "Inteligencia",
+            }
+        )
+    by_source = {}
+    for f in observations:
+        for src in f.sources or ["MANUAL"]:
+            when = f.first_detected_at
+            if src not in by_source or when < by_source[src]:
+                by_source[src] = when
+    what = {
+        "CTI_MATCH": "El cruce del software inventariado con el espejo de NVD emparejó la versión "
+        "observada con el rango afectado.",
+        "GRYPE": "Grype confirmó la vulnerabilidad en el SBOM del activo.",
+        "NUCLEI": "nuclei la comprobó contra el servicio expuesto.",
+        "MANUAL": "Una persona la registró a mano.",
+    }
+    for src, when in sorted(by_source.items(), key=lambda kv: kv[1]):
+        steps.append(
+            {"when": when, "what": what.get(src, src), "source": SOURCE_LABELS.get(src, src)}
+        )
+    if cve:
+        syncs = {s.kind: s.last_success_at for s in CtiSource.objects.all()}
+        intel = []
+        if vuln.in_kev and syncs.get("KEV"):
+            intel.append(f"KEV sincronizado el {syncs['KEV']:%Y-%m-%d}")
+        if vuln.epss_score is not None and syncs.get("EPSS"):
+            intel.append(f"EPSS del {syncs['EPSS']:%Y-%m-%d}")
+        if intel:
+            steps.append(
+                {
+                    "when": max(v for k, v in syncs.items() if k in ("KEV", "EPSS") and v),
+                    "what": "La inteligencia se actualizó: " + ", ".join(intel) + ".",
+                    "source": "Inteligencia",
+                }
+            )
+    steps.sort(key=lambda st: st["when"] or timezone.now())
+    return steps
+
+
+SOURCE_LABELS = {
+    "CTI_MATCH": "Inteligencia (NVD)",
+    "GRYPE": "Grype (SBOM)",
+    "NUCLEI": "nuclei",
+    "MANUAL": "Manual",
+}
 
 
 def technical_details(vuln, observations):
@@ -391,7 +475,16 @@ class ConsolidateAssetView(Perm, View):
 
 
 def filter_risks(params):
-    qs = Risk.objects.select_related("asset", "decided_by").prefetch_related("vulnerabilities")
+    qs = (
+        Risk.objects.select_related("asset", "decided_by")
+        .prefetch_related("vulnerabilities")
+        .annotate(
+            kev_count=Count(
+                "vulnerabilities", filter=Q(vulnerabilities__in_kev=True), distinct=True
+            ),
+            epss_max=Max("vulnerabilities__epss_score"),
+        )
+    )
     form = RiskFilterForm(params or None)
     status = ""
     if form.is_valid():
@@ -465,6 +558,7 @@ class RiskDetailView(Perm, TemplateView):
         context.update(
             risk=risk,
             evidence=risks.evidence(risk),
+            intel=risks.intelligence(risk.vulnerabilities.select_related("cve")),
             timeline=risk.events.select_related("actor").order_by("-occurred_at", "-id"),
             matrix=risks.matrix([risk]),
             treatment_form=RiskTreatmentForm(
@@ -493,6 +587,7 @@ class RiskReportView(Perm, View):
             "risk": risk,
             "asset": risk.asset,
             "evidence": risks.evidence(risk),
+            "intel": risks.intelligence(risk.vulnerabilities.select_related("cve")),
             "timeline": risk.events.select_related("actor").order_by("occurred_at", "id"),
             "generated_at": timezone.now(),
             "generated_by": request.user,

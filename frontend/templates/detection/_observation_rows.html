@@ -10,7 +10,7 @@
         <td>{% severity_badge f.severity %}{% if f.cvss_score %} <span class="font-mono text-xs text-muted">{{ f.cvss_score }}</span>{% endif %}</td>
         <td class="font-mono text-xs">{{ f.epss_score|epss_pct }}</td>
         <td>{% finding_status_badge f.status %}</td>
-        <td class="text-xs">{% for s in f.sources %}<span class="badge-neutral">{{ s|lower }}</span> {% endfor %}</td>
+        <td class="text-xs">{% for s in f.sources %}<span class="badge-neutral">{{ s|source_label }}</span> {% endfor %}</td>
         <td class="text-xs">{% if f.consolidated_id %}<a href="{% url 'detection:vulnerability' f.consolidated_id %}">{{ f.consolidated.title|truncatechars:50 }}</a>{% elif f.is_informational %}<span class="text-muted" title="Detección de tecnología o versión: es contexto para la IA, no una vulnerabilidad">informativa, no se consolida</span>{% else %}<span class="text-muted">sin consolidar aún</span>{% endif %}</td>
         <td class="font-mono text-xs whitespace-nowrap text-ink-soft">{{ f.first_detected_at|date:"Y-m-d" }}</td>
         <td class="font-mono text-xs whitespace-nowrap text-ink-soft">{{ f.last_seen_at|date:"Y-m-d" }}</td>

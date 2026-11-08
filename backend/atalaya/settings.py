@@ -333,6 +333,8 @@ DETECTION_CONSOLIDATE_DELAY_S = int(os.environ.get("DETECTION_CONSOLIDATE_DELAY_
 DETECTION_CONSOLIDATE_CHUNK = int(os.environ.get("DETECTION_CONSOLIDATE_CHUNK", "25"))
 # Cuántas vulnerabilidades sin descripción en español se redactan solas tras cada consolidación.
 DETECTION_DESCRIBE_BATCH = int(os.environ.get("DETECTION_DESCRIBE_BATCH", "10"))
+# EPSS a partir del cual una vulnerabilidad se considera de explotación probable (FIRST sugiere 0.1).
+DETECTION_EPSS_HIGH = float(os.environ.get("DETECTION_EPSS_HIGH", "0.1"))
 
 # --- Scoring weights ---
 SCORING_WEIGHTS = {

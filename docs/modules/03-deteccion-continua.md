@@ -252,13 +252,29 @@ fórmula **«Consecuencia en activo por causa»** («Fuga de datos de pagos en a
 Log4Shell»); el esquema rechaza títulos genéricos y cualquier texto que no parezca español, y el
 reintento le dice al modelo qué corregir. Además del escenario trae **descripción** a alto nivel
 (para quien dirige), **posible impacto** en esta organización y **recomendaciones** ordenadas. El
-LLM local (`apps/llm/prompts/risk_assessment/v2.md`, tarea `RISK_ASSESSMENT`) propone entre 1 y 5
+LLM local (`apps/llm/prompts/risk_assessment/v3.md`, tarea `RISK_ASSESSMENT`) propone entre 1 y 5
 escenarios agrupando vulnerabilidades que llevan a la misma consecuencia; las referencias
-inválidas se descartan y lo no cubierto se valora por regla (explotabilidad, KEV y exposición →
+inválidas se descartan, dos escenarios con el mismo título se funden, el título se corrige si no
+nombra al activo real y lo no cubierto se valora por regla (explotabilidad, KEV y exposición →
 probabilidad; criticidad, datos e impacto de negocio → impacto; consecuencia por datos y función
-del activo; textos deterministas en español que resumen las vulnerabilidades). La **evidencia
-técnica** del riesgo no la redacta el modelo: se arma desde las vulnerabilidades ligadas (puntajes,
-estado, plausibilidad, fuentes, plantillas, dónde se observó; `risks.evidence`). Cada riesgo tiene
+del activo; textos deterministas en español que resumen las vulnerabilidades).
+
+**Inteligencia de amenazas visible.** La CTI siempre pesó en los números (puntaje técnico, piso
+KEV, fuente de amenaza «malware»), pero el riesgo no lo contaba. Ahora cada riesgo lleva dos
+lecturas: una **determinista** (`risks.intelligence(vulns)`: cuántas vulnerabilidades están en
+KEV y desde cuándo, el plazo de remediación de CISA más próximo y si venció, cuántas se usan en
+ransomware, el EPSS máximo con percentil y en qué CVE, cuántas confirmó más de una fuente y
+cuántas solo conoce el cruce con el espejo de NVD; produce una frase en español que se muestra
+siempre y que la regla guarda como `intelligence_summary`) y una **del modelo**
+(`intelligence_summary`, obligatoria en el esquema y validada como español: el modelo recibe por
+vulnerabilidad `kev` {desde, plazo, ransomware}, `epss`, `epss_percentile`, `cvss` y `sources`, y
+debe decir qué aporta la inteligencia a la probabilidad sin inventar fechas ni porcentajes). El
+registro de riesgos lleva columna **Inteligencia** con insignias «Explotación activa» (alguna en
+KEV) y «EPSS n %» (por encima de `DETECTION_EPSS_HIGH`), o «sin explotación conocida». La
+**evidencia técnica** del riesgo no la redacta el modelo: se arma desde las vulnerabilidades
+ligadas (puntajes, estado, plausibilidad, línea de inteligencia «KEV desde … · plazo CISA … ·
+ransomware · EPSS … · CVSS …», fuentes con nombre legible —«Inteligencia (NVD)», «Grype (SBOM)»,
+«nuclei», «Manual»—, plantillas, dónde se observó; `risks.evidence`). Cada riesgo tiene
 un **reporte completo** descargable (`/detection/risks/<id>/report/`: HTML imprimible, PDF con
 «Imprimir → Guardar como PDF» del navegador; `?format=md` lo entrega en Markdown). Idempotente por `(activo,
 fuente:escenario)`. Un riesgo sin vulnerabilidades abiertas se **cierra** con evento y se reabre si
@@ -303,6 +319,12 @@ decisión a la IA», notas, línea de tiempo y «Reevaluar con IA». Detalle de 
 desplegable por fuente (dónde coincidió, plantilla, comparador, datos extraídos, producto
 declarado, etiquetas, CWE, vector, remediación, datos crudos), la descripción de la herramienta
 marcada como texto original sin traducir, aviso de a qué vulnerabilidad pertenece y solo notas.
+El detalle de la vulnerabilidad abre con **Origen**: la cadena en orden temporal de cómo llegó
+(el descubrimiento o el SBOM vio el software → el CVE está en el espejo local de NVD → el cruce
+lo emparejó con el rango afectado, Grype lo confirmó en el SBOM o nuclei lo comprobó → fecha de
+la última sincronización de KEV y EPSS). Las fuentes se nombran en todas las pantallas con
+etiqueta legible («Inteligencia (NVD)» en vez de `cti_match`).
+
 Los tres detalles llevan miga y botón «← … de *activo*» que vuelven a la pestaña del activo.
 
 En el activo (Resumen › **Proceso del activo**, `detection/progress.asset_pipeline`) el activo se
@@ -342,6 +364,9 @@ servicios, registrar o renovar el rango, cargar SBOM, editar el activo).
 `.env`: `NVD_API_KEY`, `NVD_API_BASE`, `EPSS_SNAPSHOT_URL`, `KEV_CATALOG_URL`, `CTI_ONLINE`,
 `CTI_NVD_INITIAL_DAYS`, `CTI_PRODUCT_REFRESH_DAYS`, `CTI_EPSS_RISE_DELTA`, `CTI_EPSS_HIGH`,
 `DETECTION_ASSET_REVIEW_DAYS`, `DETECTION_FINDING_REVIEW_DAYS`, `DETECTION_REEVALUATE_MINUTES`,
+`DETECTION_EPSS_HIGH` (0.1): EPSS a partir del cual una vulnerabilidad cuenta como de explotación
+probable en las insignias y en el resumen de inteligencia (FIRST sugiere 0.1 como corte).
+
 `DETECTION_DESCRIBE_BATCH` (10): cuántas vulnerabilidades sostenidas sin descripción en español se
 redactan solas tras cada consolidación, de mayor a menor puntaje; las demás se redactan al abrir su
 detalle. `manage.py rescore_vulnerabilities [--asset N] [--all]` recalcula el contextual de las vulnerabilidades

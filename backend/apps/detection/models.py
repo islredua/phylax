@@ -564,6 +564,10 @@ class Risk(UUIDModel):
         blank=True, help_text="En qué consiste el riesgo, a alto nivel, para quien dirige."
     )
     impact_description = models.TextField(blank=True, help_text="Qué pasaría aquí si ocurre.")
+    intelligence_summary = models.TextField(
+        blank=True,
+        help_text="Qué dice la inteligencia de amenazas (KEV, EPSS, fuentes) y cómo pesa.",
+    )
     recommendations = models.JSONField(
         default=list, blank=True, help_text="Qué hacer para reducirlo, en orden."
     )

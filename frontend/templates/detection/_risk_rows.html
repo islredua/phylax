@@ -1,13 +1,14 @@
 {% load detection_tags inventory %}
 <div class="table-wrap">
   <table class="data-table">
-    <thead><tr><th>Riesgo</th><th>Activo</th><th>Fuente de amenaza</th><th title="Probabilidad × impacto">P × I</th><th>Nivel</th><th>Estado</th><th>Tratamiento</th><th>Vulnerabilidades</th><th>Valorado</th></tr></thead>
+    <thead><tr><th>Riesgo</th><th>Activo</th><th>Fuente de amenaza</th><th title="Qué dice la inteligencia de amenazas (KEV, EPSS)">Inteligencia</th><th title="Probabilidad × impacto">P × I</th><th>Nivel</th><th>Estado</th><th>Tratamiento</th><th>Vulnerabilidades</th><th>Valorado</th></tr></thead>
     <tbody>
       {% for r in risks %}
       <tr>
         <td><a href="{% url 'detection:risk' r.pk %}" class="font-medium">{{ r.title|truncatechars:70 }}</a><p class="text-xs text-muted">{{ r.scenario|truncatechars:110 }}</p></td>
         <td><a href="{% url 'assets:detail' r.asset_id %}">{{ r.asset.name }}</a></td>
         <td class="text-xs text-ink-soft">{{ r.get_threat_source_display }}</td>
+        <td class="text-xs">{% intel_badges r as badges %}{% if badges %}{{ badges }}{% else %}<span class="text-muted" title="Ninguna vulnerabilidad en KEV y EPSS bajo el umbral">sin explotación conocida</span>{% endif %}</td>
         <td class="font-mono text-xs whitespace-nowrap">{{ r.likelihood }} × {{ r.impact }} = {{ r.score }}</td>
         <td>{% risk_level_badge r.level %}{% if r.residual_level %}<p class="text-xs text-muted">residual: {{ r.get_residual_level_display|lower }}</p>{% endif %}</td>
         <td>{% risk_status_badge r.status %} {% status_source_badge r.assessment_source %}</td>
@@ -15,7 +16,7 @@
         <td class="font-mono text-xs">{{ r.vulnerabilities.count }}</td>
         <td class="font-mono text-xs whitespace-nowrap text-ink-soft">{{ r.assessed_at|date:"Y-m-d H:i"|default:"—" }}</td>
       </tr>
-      {% empty %}<tr><td colspan="9" class="table-empty">Sin riesgos para estos filtros. Los riesgos se derivan solos de las vulnerabilidades consolidadas de cada activo{% if asset_id %}; si el activo aún no tiene vulnerabilidades consolidadas, primero verás sus observaciones{% endif %}.</td></tr>{% endfor %}
+      {% empty %}<tr><td colspan="10" class="table-empty">Sin riesgos para estos filtros. Los riesgos se derivan solos de las vulnerabilidades consolidadas de cada activo{% if asset_id %}; si el activo aún no tiene vulnerabilidades consolidadas, primero verás sus observaciones{% endif %}.</td></tr>{% endfor %}
     </tbody>
   </table>
 </div>

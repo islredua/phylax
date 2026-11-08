@@ -135,6 +135,55 @@ def model_warning(mismatch, requested, responded):
     )
 
 
+SOURCE_LABELS = {
+    "CTI_MATCH": "Inteligencia (NVD)",
+    "GRYPE": "Grype (SBOM)",
+    "NUCLEI": "nuclei",
+    "MANUAL": "Manual",
+}
+
+
+@register.filter
+def source_label(value):
+    """Nombre legible de la fuente de una observación («CTI_MATCH» → «Inteligencia (NVD)»)."""
+    return SOURCE_LABELS.get(value, (value or "").lower())
+
+
+@register.simple_tag
+def intel_badges(risk):
+    """Insignias de inteligencia del riesgo: explotación activa (KEV) y EPSS alto.
+
+    Usa las anotaciones ``kev_count`` y ``epss_max`` del listado; sin ellas las calcula.
+    """
+    from django.conf import settings
+
+    kev = getattr(risk, "kev_count", None)
+    epss = getattr(risk, "epss_max", None)
+    if kev is None:
+        vulns = list(risk.vulnerabilities.all())
+        kev = sum(1 for v in vulns if v.in_kev)
+        epss = max((v.epss_score or 0 for v in vulns), default=None)
+    high = float(getattr(settings, "DETECTION_EPSS_HIGH", 0.1))
+    out = []
+    if kev:
+        out.append(
+            _badge(
+                "badge-critical",
+                "Explotación activa",
+                f"{kev} vulnerabilidad(es) en el catálogo KEV de CISA",
+            )
+        )
+    if epss is not None and epss >= high:
+        out.append(
+            _badge(
+                "badge-high",
+                f"EPSS {epss * 100:.0f} %",
+                "Probabilidad de explotación en 30 días por encima del umbral",
+            )
+        )
+    return format_html(" ".join("{}" for _ in out), *out) if out else ""
+
+
 @register.filter
 def epss_pct(value):
     if value is None:
