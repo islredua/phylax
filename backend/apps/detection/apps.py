@@ -7,4 +7,4 @@ class DetectionConfig(AppConfig):
     verbose_name = "Detección continua"
 
     def ready(self):
-        from . import receivers  # noqa: F401  (suscribe las señales de dominio)
+        from . import descriptions, receivers  # noqa: F401  (señales y simulador del LLM)

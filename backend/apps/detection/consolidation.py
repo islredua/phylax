@@ -29,6 +29,7 @@ from apps.assets import services as assets_services
 from apps.cti.products import product_key
 from apps.cti.versions import is_distro_package, precision
 from apps.llm.client import register_mock, run_structured
+from apps.llm.language import looks_spanish, non_spanish
 from apps.llm.prompts import load_prompt
 from apps.llm.schemas import VULN_ASSESSMENT_SCHEMA, VulnAssessmentOutput
 from apps.llm.status import active_model
@@ -51,7 +52,7 @@ from .models import (
 
 log = logging.getLogger(__name__)
 
-PROMPT_VERSION = "v3"
+PROMPT_VERSION = "v4"
 TASK = "VULN_ASSESSMENT"
 TEXT_MAX = 300
 LOW_PLAUSIBILITY = 0.3
@@ -113,6 +114,47 @@ WEAKNESS_FAMILIES = (
         "EXPOSICION_DE_INFORMACION",
     ),
 )
+
+
+# Nombre en español de cada familia de debilidad, para el título determinista.
+WEAKNESS_LABELS = {
+    "SOFTWARE_SIN_SOPORTE": "Software sin soporte",
+    "TLS_DEBIL": "Configuración TLS débil",
+    "CABECERAS_HTTP": "Cabeceras de seguridad HTTP ausentes",
+    "CREDENCIALES_POR_DEFECTO": "Credenciales por defecto",
+    "EXPOSICION_DE_INFORMACION": "Exposición de información",
+}
+
+
+def rule_title(key, lead):
+    """Título determinista en español cuando la IA no dio uno válido.
+
+    «CVE-… en producto versión» si se conoce el software; si no, el CVE con el nombre de la
+    plantilla u observación (nombre propio, se conserva). Para las debilidades sin CVE, la familia.
+    """
+    product = (
+        lead.component.label if lead.component else (_template_meta(lead).get("product") or "")
+    )
+    if key.startswith("CVE-"):
+        if product:
+            return f"{key} en {product}"[:160]
+        return f"{key} · {clean(lead.title, 120)}"[:160] if lead.title else key
+    parts = key.split(":")
+    label = WEAKNESS_LABELS.get(parts[1] if len(parts) > 1 else "")
+    if label:
+        return f"{label} en {product}"[:160] if product else label
+    return clean(lead.title, 160) or key
+
+
+def technical_description(findings):
+    """Texto técnico original (NVD, luego la herramienta), sin redactar."""
+    for f in findings:
+        if f.cve_id and f.cve and f.cve.description:
+            return clean(f.cve.description, 2000)
+    for f in findings:
+        if f.description:
+            return clean(f.description, 2000)
+    return ""
 
 
 def _slug(text, limit=60):
@@ -420,8 +462,10 @@ def rule_item(group, index):
         plausibility, status = min(0.5, group.plausibility_cap), "NEEDS_VERIFICATION"
     return {
         "observations": [index[f.pk] for f in group.findings],
-        "title": clean(lead.title, 160) or group.key,
-        "summary": summary,
+        "title": rule_title(group.key, lead),
+        # Sin IA no hay descripción en español: el texto técnico original va aparte
+        # (``technical_description``) y ``VULN_DESCRIBE`` redacta después.
+        "summary": "" if not looks_spanish(summary) else summary,
         "business_impact": "",
         "actions": actions[:5],
         "plausibility": plausibility,
@@ -583,13 +627,24 @@ def _apply_item(asset_id, item, group, context, *, by_rule, log_obj, now):
         status = group.status_floor
     cve = next((f.cve for f in findings if f.cve_id), None)
     key = group.key if group else _key_for(item, {})
-    if item.get("split_from") and key.startswith("CVE-") and key not in item.get("title", ""):
-        item = {**item, "title": f"{key} · {item['title']}"[:160]}
+    # Textos: la IA escribe para la persona, así que deben estar en español. Lo que venga en
+    # inglés se descarta (el título lo pone una regla y la descripción la redacta
+    # ``VULN_DESCRIBE`` aparte); la valoración y los factores del modelo se conservan.
+    # Un ítem que el modelo fusionó («Vulnerabilidades en Apache…») se partió por CVE: su texto es
+    # genérico, así que cada CVE toma título por regla y se redacta aparte, uno por uno.
+    split = bool(item.get("split_from"))
+    title = clean(item.get("title"), 160)
+    if by_rule or split or not title or not looks_spanish(title):
+        title = rule_title(key, lead)
+    discarded = non_spanish(
+        item.get("summary"), item.get("business_impact"), *(item.get("actions") or [])
+    )
+    described = bool(item.get("summary")) and not by_rule and not discarded and not split
     vuln, created = Vulnerability.objects.get_or_create(
         asset_id=asset_id,
         key=key,
         defaults={
-            "title": item["title"][:200],
+            "title": title[:200],
             "severity": lead.severity,
             "first_detected_at": min(f.first_detected_at for f in findings),
             "last_seen_at": now,
@@ -601,10 +656,20 @@ def _apply_item(asset_id, item, group, context, *, by_rule, log_obj, now):
     previous_status = vuln.status
     vuln.cve = cve
     vuln.component = lead.component
-    vuln.title = item["title"][:200]
-    vuln.summary = item["summary"]
-    vuln.business_impact = item.get("business_impact", "")
-    vuln.actions = list(item.get("actions") or [])
+    keep_text = vuln.summary and vuln.description_source in (StatusSource.AI, StatusSource.HUMAN)
+    if described:
+        vuln.title = title[:200]
+        vuln.summary = item["summary"]
+        vuln.business_impact = item.get("business_impact", "")
+        vuln.actions = list(item.get("actions") or [])
+        vuln.description_source = StatusSource.AI
+        vuln.described_at = now
+    elif not keep_text:
+        # Nada redactado que conservar: título por regla y acciones por regla si las hay.
+        vuln.title = title[:200]
+        vuln.summary, vuln.business_impact, vuln.description_source = "", "", ""
+        vuln.actions = [] if discarded else list(item.get("actions") or [])
+    vuln.technical_description = technical_description(findings)
     vuln.severity = scoring.severity_for(ctx.score)
     vuln.technical_score = tech.score
     vuln.contextual_score = ctx.score
@@ -655,6 +720,13 @@ def _apply_item(asset_id, item, group, context, *, by_rule, log_obj, now):
         plausibility=vuln.plausibility,
         algorithm_version=scoring.ALGORITHM_VERSION,
     )
+    if discarded:
+        _event(
+            vuln,
+            VulnerabilityEventKind.ASSESSED,
+            "La IA respondió en inglés: el texto se descartó y se redactará de nuevo en español",
+            discarded=[d[:120] for d in discarded],
+        )
     if reopened:
         _event(vuln, VulnerabilityEventKind.REOPENED, "Volvió a observarse")
     if previous_status != vuln.status and not created:
@@ -770,6 +842,12 @@ def consolidate_asset(asset_id, *, requested_by=None, reason="", use_llm=True):
         risks.derive_risks(asset_id, requested_by=requested_by, use_llm=use_llm)
     except Exception:  # pragma: no cover - un fallo en riesgos no deshace la consolidación
         log.exception("derivación de riesgos del activo %s", asset_id)
+    # Lo que quedó sin descripción en español (por regla, o inglés descartado) se redacta aparte,
+    # una vulnerabilidad por llamada, de mayor a menor puntaje.
+    if use_llm:
+        from . import descriptions
+
+        descriptions.queue_missing(asset_id, requested_by=requested_by)
     return ConsolidationResult(
         len(groups), len(touched), by_rule_count, rejected_total, resolved, calls, llm_ok, reason
     )

@@ -24,8 +24,8 @@ LAB_CTI = Path(__file__).resolve().parents[3] / "datasets/cti-lab-sample.json"
 NUCLEI = (Path(__file__).resolve().parents[1] / "scanners/fixtures/nuclei.jsonl").read_text()
 READ_PAGES = [
     "/detection/",
+    "/detection/vulnerabilities/",
     "/detection/observations/",
-    "/detection/risks/",
     "/detection/activity/",
     "/detection/activity/?kind=decision",
     "/detection/queue/",
@@ -100,9 +100,10 @@ def test_navigation_has_detection_section(client, as_role):
     as_role(OPERATOR)
     nav = client.get("/detection/queue/").context["nav"]
     assert nav.section.key == "detection"
+    # Riesgos primero: es lo que una persona decide; las otras capas lo sustentan.
     assert [t.key for t in nav.tabs] == [
-        "panel",
         "risks",
+        "panel",
         "observations",
         "activity",
         "queue",
@@ -161,7 +162,7 @@ def test_observations_list_and_filters(client, as_role):
     assert client.get("/detection/observations/?status=MITIGATED").context["paginator"].count == 1
     assert client.get("/detection/observations/?in_kev=1&source=CTI_MATCH").status_code == 200
     # El panel ahora son vulnerabilidades: sin consolidar, explica que hay observaciones esperando.
-    body = client.get(f"/detection/?asset={finding.asset_id}").content.decode()
+    body = client.get(f"/detection/vulnerabilities/?asset={finding.asset_id}").content.decode()
     assert "Vulnerabilidades" in body and "Reevaluar con IA" in body
 
 
@@ -198,8 +199,21 @@ def test_asset_detail_links_findings_and_evaluate(client, as_role, fake_tool):
     as_role(OPERATOR)
     finding = _finding()
     body = client.get(f"/inventory/{finding.asset_id}/").content.decode()
-    assert f"/detection/?asset={finding.asset_id}" in body
+    assert (
+        "?tab=riesgos" in body and "?tab=vulnerabilidades" in body and "?tab=observaciones" in body
+    )
+    assert (
+        body.index("?tab=riesgos")
+        < body.index("?tab=vulnerabilidades")
+        < body.index("?tab=observaciones")
+    )
     assert f"/detection/assets/{finding.asset_id}/pipeline/" in body
+    # La capa cruda se lee dentro del activo, sin cambiar de módulo.
+    tab = client.get(f"/inventory/{finding.asset_id}/?tab=observaciones").content.decode()
+    assert (
+        finding.vulnerability_id in tab
+        and f"/detection/observations/?asset={finding.asset_id}" in tab
+    )
     strip = client.get(f"/detection/assets/{finding.asset_id}/pipeline/").content.decode()
     assert "Evaluar ahora" in strip
     response = client.post(f"/detection/assets/{finding.asset_id}/evaluate/", follow=True)

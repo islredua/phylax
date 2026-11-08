@@ -7,7 +7,9 @@ from django.db.models import Q
 from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
+from django.utils.text import slugify
 from django.views import View
 from django.views.generic import ListView, TemplateView
 
@@ -112,6 +114,50 @@ def filter_findings(params):
 SEVERITY_ORDER = {s: i for i, s in enumerate(reversed(FindingSeverity.values))}
 
 
+def order_findings(qs):
+    """Prioridad del motor de scoring si existe; si no, provisional: KEV, severidad, EPSS."""
+    items = list(qs)
+    items.sort(
+        key=lambda f: (
+            f.priority_score if f.priority_score is not None else -1,
+            int(f.in_kev),
+            SEVERITY_ORDER.get(f.severity, 0),
+            f.epss_score or 0,
+            f.first_detected_at,
+        ),
+        reverse=True,
+    )
+    return items
+
+
+def asset_tab_context(asset, tab):
+    """Datos de las pestañas Riesgos / Vulnerabilidades / Observaciones de la página del activo.
+
+    Las tres listas viven dentro del activo para no sacar a la persona de su contexto; las
+    pantallas de Detección son las mismas listas para toda la organización, con filtros.
+    """
+    params = {"asset": asset.pk, "status": ""}
+    open_findings = findings.open_findings(asset.pk)
+    ctx = {
+        "asset_id": asset.pk,
+        "observations_open": open_findings.count(),
+        "unconsolidated": consolidation.consolidable(open_findings)
+        .filter(consolidated__isnull=True)
+        .count(),
+        "consolidation_pending": consolidation.is_pending(asset.pk),
+    }
+    if tab == "riesgos":
+        listed = list(
+            filter_risks(params)[0].order_by("-likelihood", "-impact", "-first_identified_at")
+        )
+        ctx.update(risks=listed, matrix=risks.matrix(listed))
+    elif tab == "vulnerabilidades":
+        ctx["vulnerabilities"] = list(filter_vulnerabilities(params)[0])
+    elif tab == "observaciones":
+        ctx["findings"] = order_findings(filter_findings(params)[0])
+    return ctx
+
+
 def filter_vulnerabilities(params):
     qs = Vulnerability.objects.select_related("asset", "cve", "component")
     form = VulnerabilityFilterForm(params or None)
@@ -186,9 +232,20 @@ class VulnerabilityDetailView(Perm, TemplateView):
             ),
             pk=kwargs["pk"],
         )
+        from . import descriptions
+
+        # Sin descripción en español y con modelo disponible: se redacta sola al abrir el detalle.
+        description_pending = descriptions.is_pending(vuln.pk) or descriptions.request_description(
+            vuln, requested_by=self.request.user
+        )
+        observations = list(
+            vuln.observations.select_related("component").prefetch_related("evidence")
+        )
         context.update(
             vuln=vuln,
-            observations=vuln.observations.select_related("component").prefetch_related("evidence"),
+            observations=observations,
+            description_pending=description_pending,
+            technical=technical_details(vuln, observations),
             timeline=vuln.events.select_related("actor").order_by("-occurred_at", "-id"),
             statuses=[(s, HUMAN_STATUS_LABELS[s]) for s in HUMAN_STATUS_LABELS if s != vuln.status],
             consolidation_pending=consolidation.is_pending(vuln.asset_id),
@@ -197,6 +254,73 @@ class VulnerabilityDetailView(Perm, TemplateView):
             ),
         )
         return context
+
+
+class VulnerabilityDescriptionView(Perm, View):
+    """Fragmento «Descripción» del detalle; se consulta mientras la IA la redacta."""
+
+    permission_required = "detection.view_vulnerability"
+
+    def get(self, request, pk):
+        from . import descriptions
+
+        vuln = get_object_or_404(Vulnerability.objects.select_related("asset"), pk=pk)
+        return render(
+            request,
+            "detection/_vulnerability_description.html",
+            {"vuln": vuln, "description_pending": descriptions.is_pending(vuln.pk)},
+        )
+
+
+def technical_details(vuln, observations):
+    """Datos técnicos deterministas del detalle, sacados de la evidencia de cada observación."""
+    sources, templates, matched, fixes, cwes, matches, artifacts = (
+        set(),
+        {},
+        set(),
+        set(),
+        set(),
+        [],
+        set(),
+    )
+    for f in observations:
+        sources.update(f.sources or [])
+        for ev in f.evidence.all():
+            data = ev.data or {}
+            meta = data.get("template") or {}
+            if data.get("template-id") or meta.get("name"):
+                templates[data.get("template-id") or meta.get("name")] = meta.get("name") or ""
+            raw_cwe = meta.get("cwe") or meta.get("cwe-id") or []
+            cwes.update([raw_cwe] if isinstance(raw_cwe, str) else raw_cwe)
+            if data.get("matched-at"):
+                matched.add(str(data["matched-at"])[:120])
+            if data.get("fix"):
+                fixes.add(str(data["fix"])[:160])
+            if data.get("affected_range"):
+                matches.append(
+                    {
+                        "product": data.get("product_key", ""),
+                        "version": data.get("version", ""),
+                        "range": data["affected_range"],
+                        "confidence": data.get("confidence", ""),
+                    }
+                )
+            if data.get("artifact"):
+                art = data["artifact"]
+                artifacts.add(
+                    f"{art.get('name', '')} {art.get('version', '')}".strip()
+                    if isinstance(art, dict)
+                    else str(art)[:120]
+                )
+    return {
+        "sources": sorted(sources),
+        "templates": sorted(templates.items()),
+        "matched": sorted(matched),
+        "fixes": sorted(fixes),
+        "cwes": sorted(cwes),
+        "matches": matches,
+        "artifacts": sorted(artifacts),
+    }
 
 
 class VulnerabilityStatusView(Perm, View):
@@ -340,9 +464,7 @@ class RiskDetailView(Perm, TemplateView):
         )
         context.update(
             risk=risk,
-            vulnerabilities=risk.vulnerabilities.select_related("component").order_by(
-                "-contextual_score"
-            ),
+            evidence=risks.evidence(risk),
             timeline=risk.events.select_related("actor").order_by("-occurred_at", "-id"),
             matrix=risks.matrix([risk]),
             treatment_form=RiskTreatmentForm(
@@ -355,6 +477,33 @@ class RiskDetailView(Perm, TemplateView):
             ),
         )
         return context
+
+
+class RiskReportView(Perm, View):
+    """Reporte completo del riesgo: HTML imprimible (PDF desde el navegador) o Markdown."""
+
+    permission_required = "detection.view_risk"
+
+    def get(self, request, pk):
+        from django.http import HttpResponse
+        from django.template.loader import render_to_string
+
+        risk = get_object_or_404(Risk.objects.select_related("asset", "decided_by"), pk=pk)
+        context = {
+            "risk": risk,
+            "asset": risk.asset,
+            "evidence": risks.evidence(risk),
+            "timeline": risk.events.select_related("actor").order_by("occurred_at", "id"),
+            "generated_at": timezone.now(),
+            "generated_by": request.user,
+        }
+        slug = slugify(f"riesgo-{risk.asset.name}-{risk.title}")[:80]
+        if request.GET.get("format") == "md":
+            body = render_to_string("detection/risk_report.md", context)
+            response = HttpResponse(body, content_type="text/markdown; charset=utf-8")
+            response["Content-Disposition"] = f'attachment; filename="{slug}.md"'
+            return response
+        return render(request, "detection/risk_report.html", context)
 
 
 class RiskTreatmentView(Perm, View):
@@ -399,19 +548,7 @@ class ObservationsView(Perm, ListView):
 
     def get_queryset(self):
         qs, self.filter_form = filter_findings(self.request.GET)
-        # Prioridad del motor de scoring si existe; si no, provisional: KEV, severidad, EPSS.
-        items = list(qs)
-        items.sort(
-            key=lambda f: (
-                f.priority_score if f.priority_score is not None else -1,
-                int(f.in_kev),
-                SEVERITY_ORDER.get(f.severity, 0),
-                f.epss_score or 0,
-                f.first_detected_at,
-            ),
-            reverse=True,
-        )
-        return items
+        return order_findings(qs)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

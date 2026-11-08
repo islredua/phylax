@@ -185,6 +185,55 @@ class VulnerabilityItem(BaseModel):
         return value
 
 
+VULN_DESCRIBE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string", "maxLength": 120},
+        "description": {"type": "string", "maxLength": 900},
+        "business_impact": {"type": "string", "maxLength": 600},
+        "actions": {
+            "type": "array",
+            "items": {"type": "string", "maxLength": 220},
+            "minItems": 1,
+            "maxItems": 5,
+        },
+    },
+    "required": ["title", "description", "business_impact", "actions"],
+}
+
+
+def _must_look_spanish(value):
+    from apps.llm.language import looks_spanish
+
+    if isinstance(value, str) and not looks_spanish(value):
+        raise ValueError("debe estar redactado en español")
+    return value
+
+
+class VulnDescribeOutput(BaseModel):
+    """Redacción en español de UNA vulnerabilidad ya consolidada (descripción, impacto, acciones)."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    title: str = Field(max_length=120)
+    description: str = Field(max_length=900)
+    business_impact: str = Field(max_length=600, default="")
+    actions: list[Annotated[str, StringConstraints(max_length=220)]] = Field(
+        min_length=1, max_length=5
+    )
+
+    _spanish = field_validator("title", "description", "business_impact")(_must_look_spanish)
+
+    @field_validator("actions")
+    @classmethod
+    def _actions_spanish(cls, value):
+        from apps.llm.language import looks_spanish
+
+        if not all(looks_spanish(a) for a in value):
+            raise ValueError("las acciones deben estar en español")
+        return value
+
+
 class VulnAssessmentOutput(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -194,19 +243,48 @@ class VulnAssessmentOutput(BaseModel):
 # --- Riesgos (fase 5, ISO/IEC 27005): vulnerabilidades consolidadas → escenarios valorados ------
 
 THREAT_SOURCES = ("EXTERNAL", "INSIDER", "MALWARE", "SUPPLY_CHAIN", "ERROR", "OTHER")
+RISK_CONSEQUENCES = (
+    "CONFIDENTIALITY",
+    "INTEGRITY",
+    "AVAILABILITY",
+    "COMPLIANCE",
+    "REPUTATION",
+    "FINANCIAL",
+    "OPERATIONS",
+)
 
 _RISK_ITEM_SCHEMA = {
     "type": "object",
     "properties": {
         "vulnerabilities": {"type": "array", "items": {"type": "integer"}, "minItems": 1},
         "title": {"type": "string", "maxLength": 160},
+        "consequence": {"type": "string", "enum": list(RISK_CONSEQUENCES)},
         "scenario": {"type": "string", "maxLength": 700},
+        "description": {"type": "string", "maxLength": 900},
+        "impact_description": {"type": "string", "maxLength": 600},
+        "recommendations": {
+            "type": "array",
+            "items": {"type": "string", "maxLength": 220},
+            "minItems": 1,
+            "maxItems": 5,
+        },
         "threat_source": {"type": "string", "enum": list(THREAT_SOURCES)},
         "likelihood": {"type": "integer", "minimum": 1, "maximum": 5},
         "impact": {"type": "integer", "minimum": 1, "maximum": 5},
         "rationale": {"type": "string", "maxLength": 500},
     },
-    "required": ["vulnerabilities", "title", "scenario", "threat_source", "likelihood", "impact"],
+    "required": [
+        "vulnerabilities",
+        "title",
+        "consequence",
+        "scenario",
+        "description",
+        "impact_description",
+        "recommendations",
+        "threat_source",
+        "likelihood",
+        "impact",
+    ],
 }
 RISK_ASSESSMENT_SCHEMA = {
     "type": "object",
@@ -220,11 +298,50 @@ class RiskItem(BaseModel):
 
     vulnerabilities: list[int] = Field(min_length=1)
     title: str = Field(max_length=160)
+    consequence: Literal[
+        "CONFIDENTIALITY",
+        "INTEGRITY",
+        "AVAILABILITY",
+        "COMPLIANCE",
+        "REPUTATION",
+        "FINANCIAL",
+        "OPERATIONS",
+    ]
     scenario: str = Field(max_length=700)
+    description: str = Field(max_length=900)
+    impact_description: str = Field(max_length=600, default="")
+    recommendations: list[Annotated[str, StringConstraints(max_length=220)]] = Field(
+        min_length=1, max_length=5
+    )
     threat_source: Literal["EXTERNAL", "INSIDER", "MALWARE", "SUPPLY_CHAIN", "ERROR", "OTHER"]
     likelihood: int = Field(ge=1, le=5)
     impact: int = Field(ge=1, le=5)
     rationale: str = Field(max_length=500, default="")
+
+    # El texto llega a quien dirige: en español, y el título nombra consecuencia y causa.
+    _spanish = field_validator("title", "scenario", "description", "impact_description")(
+        _must_look_spanish
+    )
+
+    @field_validator("recommendations")
+    @classmethod
+    def _recommendations_spanish(cls, value):
+        from apps.llm.language import looks_spanish
+
+        if not all(looks_spanish(r) for r in value):
+            raise ValueError("las recomendaciones deben estar en español")
+        return value
+
+    @field_validator("title")
+    @classmethod
+    def _title_names_cause(cls, value):
+        lowered = value.lower()
+        if " por " not in lowered or lowered.startswith("compromiso del activo"):
+            raise ValueError(
+                "el título debe seguir la fórmula «Consecuencia en activo por causa», "
+                "p. ej. «Fuga de datos de pagos en api-pagos por Log4Shell»"
+            )
+        return value
 
 
 class RiskAssessmentOutput(BaseModel):

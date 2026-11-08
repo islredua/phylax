@@ -24,12 +24,9 @@
 {% if asset.merged_into %}<div class="alert-info">Este activo se fusionó en <a href="{% url 'assets:detail' asset.merged_into_id %}">{{ asset.merged_into.name }}</a>.</div>{% endif %}
 
 <nav class="subtabs" aria-label="Secciones del activo">
-  {% for key, label in tabs %}
-  <a href="?tab={{ key }}" class="subtab {% if tab == key %}subtab-active{% endif %}"{% if tab == key %} aria-current="page"{% endif %}>{{ label }}</a>
+  {% for key, label, count in tabs %}
+  <a href="?tab={{ key }}" class="subtab {% if tab == key %}subtab-active{% endif %}"{% if tab == key %} aria-current="page"{% endif %}>{{ label }}{% if count %} <span class="font-mono text-xs">{{ count }}</span>{% endif %}</a>
   {% endfor %}
-  {% if perms.detection.view_vulnerability %}<a href="{% url 'detection:panel' %}?asset={{ asset.pk }}&amp;status=" class="subtab" title="Vulnerabilidades reales del activo, consolidadas por la IA">Vulnerabilidades{% if open_vulnerabilities %} <span class="font-mono text-xs">{{ open_vulnerabilities }}</span>{% endif %}</a>{% endif %}
-  {% if perms.detection.view_finding %}<a href="{% url 'detection:observations' %}?asset={{ asset.pk }}&amp;status=" class="subtab" title="Lo que reportó cada herramienta, la inteligencia o una persona">Observaciones{% if open_findings %} <span class="font-mono text-xs">{{ open_findings }}</span>{% endif %}</a>{% endif %}
-  {% if perms.detection.view_risk %}<a href="{% url 'detection:risks' %}?asset={{ asset.pk }}&amp;status=" class="subtab" title="Riesgos del activo según ISO/IEC 27005, con matriz 5×5">Riesgo{% if open_risks %} <span class="font-mono text-xs">{{ open_risks }}</span>{% endif %}</a>{% endif %}
 </nav>
 
 {% if tab == "resumen" %}
@@ -76,6 +73,40 @@
   </section>
 </div>
 
+{% elif tab == "riesgos" %}
+<div class="flex flex-wrap items-center justify-between gap-3">
+  <p class="text-sm text-ink-soft">Escenarios de amenaza de este activo según ISO/IEC 27005, derivados por la IA de sus vulnerabilidades sostenidas. Aquí se decide el tratamiento.{% if consolidation_pending %} <span class="badge-primary">la IA está reevaluando</span>{% endif %}</p>
+  <div class="flex flex-wrap gap-2">
+    {% if perms.detection.request_evaluation %}<form method="post" action="{% url 'detection:asset_consolidate' asset.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn-secondary btn-sm" type="submit" title="Vuelve a consolidar las observaciones y a derivar riesgos con la IA">Reevaluar con IA</button></form>{% endif %}
+    <a href="{% url 'detection:risks' %}?asset={{ asset.pk }}" class="btn-secondary btn-sm" title="La misma lista en Detección, con filtros y comparada con el resto de activos">Abrir en Detección</a>
+  </div>
+</div>
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_auto]">
+  {% include "detection/_risk_rows.html" %}
+  <section class="card flex flex-col gap-2">
+    <h3 class="card-title mb-0">Matriz del activo</h3>
+    {% include "detection/_risk_matrix.html" with matrix=matrix compact=True %}
+    <p class="text-xs text-muted">Nivel = probabilidad × impacto.</p>
+  </section>
+</div>
+{% elif tab == "vulnerabilidades" %}
+<div class="flex flex-wrap items-center justify-between gap-3">
+  <p class="text-sm text-ink-soft">Vulnerabilidades reales del activo, consolidadas por la IA a partir de sus observaciones y ordenadas por puntaje contextual.{% if consolidation_pending %} <span class="badge-primary">consolidación en curso</span>{% endif %}</p>
+  <div class="flex flex-wrap gap-2">
+    {% if perms.detection.request_evaluation %}<form method="post" action="{% url 'detection:asset_consolidate' asset.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn-secondary btn-sm" type="submit" title="Vuelve a pasar las observaciones por la IA">Reevaluar con IA</button></form>{% endif %}
+    <a href="{% url 'detection:panel' %}?asset={{ asset.pk }}" class="btn-secondary btn-sm" title="La misma lista en Detección, con filtros">Abrir en Detección</a>
+  </div>
+</div>
+{% include "detection/_vulnerability_rows.html" %}
+{% elif tab == "observaciones" %}
+<div class="flex flex-wrap items-center justify-between gap-3">
+  <p class="text-sm text-ink-soft">Lo que reportó cada herramienta, la inteligencia o una persona sobre este activo. Nunca se borran: la IA las consolida en vulnerabilidades.</p>
+  <div class="flex flex-wrap gap-2">
+    {% if perms.detection.work_findings %}<a href="{% url 'detection:observation_new' %}?asset={{ asset.pk }}" class="btn-primary btn-sm">Registrar observación</a>{% endif %}
+    <a href="{% url 'detection:observations' %}?asset={{ asset.pk }}" class="btn-secondary btn-sm" title="La misma lista en Detección, con filtros">Abrir en Detección</a>
+  </div>
+</div>
+{% include "detection/_observation_rows.html" %}
 {% elif tab == "identificadores" %}
 <div class="table-wrap">
   <table class="data-table">

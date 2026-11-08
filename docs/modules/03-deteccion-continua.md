@@ -190,7 +190,7 @@ cabeceras, credenciales por defecto, exposición de información). El flujo:
    intervalo que deja abierto (`implied_interval`: «3.X - 4.X» → [3, 5)): si todo el intervalo cae
    en el rango afectado coincide; si solo se solapa, coincide con confianza `LOW` (puede ser); si
    no se tocan, no. El panel muestra las señales bajo el estado.
-2. **El LLM local** (`apps/llm/prompts/vuln_assessment/v3.md`, salida con JSON Schema y Pydantic,
+2. **El LLM local** (`apps/llm/prompts/vuln_assessment/v4.md`, salida con JSON Schema y Pydantic,
    `InferenceLog` con tarea `VULN_ASSESSMENT`) recibe organización, activo, software y
    observaciones numeradas, y devuelve por vulnerabilidad: observaciones que la sustentan, título,
    explicación de negocio, impacto, acciones ordenadas, plausibilidad, factores (explotabilidad en
@@ -199,7 +199,23 @@ cabeceras, credenciales por defecto, exposición de información). El flujo:
    positivo). Se trabaja en lotes de `DETECTION_CONSOLIDATE_CHUNK` observaciones.
 3. **Validación**: toda referencia a una observación inexistente se descarta y registra; las
    observaciones que el modelo no cubrió se consolidan por regla con «requiere verificación». Si
-   el modelo no responde, todo se crea por regla y queda «evaluada por regla (sin IA)».
+   el modelo no responde, todo se crea por regla y queda «evaluada por regla (sin IA)». Cuando la
+   salida no cumple el esquema, el reintento (`apps.llm.client.retry_feedback`) le muestra al
+   modelo su respuesta y qué falló, en vez de repetir la misma petición.
+   **Español garantizado** (`apps/llm/language.py`, `looks_spanish`): el modelo de 7B responde en
+   inglés con cierta frecuencia cuando la entrada (NVD, plantillas) está en inglés. Un título o
+   resumen que no parece español se **descarta** sin perder la valoración: el título lo pone una
+   regla («CVE-… en producto versión», o la familia de la debilidad) y la descripción queda vacía
+   para que la redacte aparte la tarea **`VULN_DESCRIBE`** (`detection/descriptions.py`,
+   `apps/llm/prompts/vuln_describe/v1.md`): una vulnerabilidad por llamada, con el texto técnico
+   original (`technical_description`, NVD o la herramienta, sin traducir), la evidencia por fuente
+   y el contexto del activo; devuelve título con la fórmula «qué permite en producto versión»,
+   descripción, impacto en la organización y acciones, validados como español por el esquema (si
+   no, reintento con retroalimentación). Corre sola tras cada consolidación para las sostenidas
+   sin descripción (`DETECTION_DESCRIBE_BATCH`, de mayor a menor puntaje) y al abrir el detalle de
+   una que aún no la tenga (la tarjeta «Descripción» se refresca sola). Una descripción redactada
+   por IA o por una persona sobrevive a las reconsolidaciones por regla; `description_source` dice
+   quién la escribió.
 4. **Scoring (Módulo 4, `apps.scoring`)**: `technical_score` (CVSS, EPSS, KEV con piso 7.0) y
    `contextual_score` (técnico × criticidad, exposición y clasificación de datos del activo ×
    factores del LLM, con plausibilidad que reduce hasta el 40 %, controles compensatorios y
@@ -229,11 +245,22 @@ versión imprecisa de nmap espera a que alguien la verifique o la IA la suba, y 
 positivo no entra) se expresan como **riesgos**: escenarios de amenaza con fuente (atacante externo,
 persona interna, malware, cadena de suministro, error, otra), vulnerabilidades ligadas,
 **probabilidad** e **impacto** en escalas cualitativas 1–5 y **nivel** por matriz 5×5
-(producto: 1–4 bajo, 5–9 moderado, 10–14 alto, 15–19 muy alto, 20–25 crítico). El LLM local
-(`apps/llm/prompts/risk_assessment/v1.md`, tarea `RISK_ASSESSMENT`) propone entre 1 y 5
+(producto: 1–4 bajo, 5–9 moderado, 10–14 alto, 15–19 muy alto, 20–25 crítico). Cada riesgo
+nombra su **consecuencia** (fuga de información, alteración, interrupción del servicio,
+incumplimiento, daño reputacional, pérdida financiera, afectación operativa) y su título sigue la
+fórmula **«Consecuencia en activo por causa»** («Fuga de datos de pagos en api-pagos por
+Log4Shell»); el esquema rechaza títulos genéricos y cualquier texto que no parezca español, y el
+reintento le dice al modelo qué corregir. Además del escenario trae **descripción** a alto nivel
+(para quien dirige), **posible impacto** en esta organización y **recomendaciones** ordenadas. El
+LLM local (`apps/llm/prompts/risk_assessment/v2.md`, tarea `RISK_ASSESSMENT`) propone entre 1 y 5
 escenarios agrupando vulnerabilidades que llevan a la misma consecuencia; las referencias
 inválidas se descartan y lo no cubierto se valora por regla (explotabilidad, KEV y exposición →
-probabilidad; criticidad, datos e impacto de negocio → impacto). Idempotente por `(activo,
+probabilidad; criticidad, datos e impacto de negocio → impacto; consecuencia por datos y función
+del activo; textos deterministas en español que resumen las vulnerabilidades). La **evidencia
+técnica** del riesgo no la redacta el modelo: se arma desde las vulnerabilidades ligadas (puntajes,
+estado, plausibilidad, fuentes, plantillas, dónde se observó; `risks.evidence`). Cada riesgo tiene
+un **reporte completo** descargable (`/detection/risks/<id>/report/`: HTML imprimible, PDF con
+«Imprimir → Guardar como PDF» del navegador; `?format=md` lo entrega en Markdown). Idempotente por `(activo,
 fuente:escenario)`. Un riesgo sin vulnerabilidades abiertas se **cierra** con evento y se reabre si
 vuelven.
 
@@ -251,23 +278,32 @@ párrafo a partir de agregados sin IP ni nombres de equipo; el admin lo edita.
 
 ## J. Pantallas
 
-Sección **Detección**: Vulnerabilidades (consolidadas, ordenadas por puntaje contextual, con
-resumen y filtros) · Riesgos (registro ISO/IEC 27005 con matriz 5×5 de los riesgos listados,
-filtros por nivel, estado y tratamiento) · Observaciones (capa cruda con filtros, enlace a su
-vulnerabilidad y «Registrar observación») · Actividad (flujo en vivo) · Cola de aprobación ·
+Sección **Detección**, en el orden en que se decide: **Riesgos** primero (portada de
+`/detection/`: registro ISO/IEC 27005 con matriz 5×5 de los riesgos listados, filtros por nivel,
+estado y tratamiento) · Vulnerabilidades (`/detection/vulnerabilities/`: consolidadas, ordenadas
+por puntaje contextual, con resumen y filtros) · Observaciones (capa cruda con filtros, enlace a
+su vulnerabilidad y «Registrar observación») · Actividad (flujo en vivo) · Cola de aprobación ·
 Fuentes CTI · Automatización. El perfil de la organización vive en **Administración ›
-Organización**. Detalle de riesgo: escenario, fuente, probabilidad × impacto = nivel, por qué,
-posición en la matriz, vulnerabilidades que lo alimentan, tratamiento (opción, responsable,
-residual, nota), notas y línea de tiempo.
+Organización**. Detalle de riesgo: descripción a alto nivel con consecuencia y fuente de amenaza,
+escenario, posible impacto, recomendaciones, valoración (probabilidad × impacto = nivel, por qué),
+posición en la matriz, evidencia técnica (cada vulnerabilidad ligada con puntajes, estado y lo que
+la sustenta), tratamiento (opción, responsable, residual, nota), notas, línea de tiempo y botones
+«Descargar reporte» (HTML imprimible / PDF) y «Markdown».
 
-Detalle de vulnerabilidad: qué significa, impacto para la organización, acciones sugeridas,
-señales de las reglas, dos puntajes con su desglose (contextual: criticidad, exposición, datos,
-plausibilidad, factores y ajuste de la IA; técnico: CVSS, EPSS, KEV, líneas base, algoritmo),
-observaciones que la sustentan, estado con etiqueta «por IA / por regla / por una persona» y
-formulario de corrección con nota, «Devolver la decisión a la IA», notas, línea de tiempo y
-«Reevaluar con IA». Detalle de observación: evidencia desplegable por fuente (dónde coincidió,
-plantilla, comparador, datos extraídos, producto declarado, etiquetas, CWE, vector, remediación,
-datos crudos), aviso de a qué vulnerabilidad pertenece y solo notas.
+Detalle de vulnerabilidad: **Descripción** (en español, redactada por IA o por una persona; si
+falta, «la IA está redactando» y la tarjeta se refresca sola), impacto para la organización,
+acciones recomendadas, señales de las reglas; **Detalles técnicos** (identificador, software,
+CVSS y vector, EPSS y percentil, KEV con fecha límite, fuentes, emparejamiento con la inteligencia
+y rango afectado, componente del SBOM, plantillas de nuclei, dónde se observó, CWE, corrección
+según la herramienta, texto técnico original sin traducir, acción CISA, referencias); dos puntajes
+con su desglose (contextual: criticidad, exposición, datos, plausibilidad, factores y ajuste de la
+IA; técnico: CVSS, EPSS, KEV, líneas base, algoritmo), observaciones que la sustentan, estado con
+etiqueta «por IA / por regla / por una persona» y formulario de corrección con nota, «Devolver la
+decisión a la IA», notas, línea de tiempo y «Reevaluar con IA». Detalle de observación: evidencia
+desplegable por fuente (dónde coincidió, plantilla, comparador, datos extraídos, producto
+declarado, etiquetas, CWE, vector, remediación, datos crudos), la descripción de la herramienta
+marcada como texto original sin traducir, aviso de a qué vulnerabilidad pertenece y solo notas.
+Los tres detalles llevan miga y botón «← … de *activo*» que vuelven a la pestaña del activo.
 
 En el activo (Resumen › **Proceso del activo**, `detection/progress.asset_pipeline`) el activo se
 cuenta como **un solo hilo** de cuatro pasos encadenados: escaneo de servicios → criticidad con IA
@@ -279,8 +315,14 @@ los riesgos abiertos). Mientras corre el escaneo,
 la criticidad dice que se calcula al terminar y la evaluación que arranca sola. «Volver a evaluar»
 solo aparece pasados `DETECTION_REEVALUATE_MINUTES`; antes se lee «evaluada hace N min». La última
 evaluación contada como pasos queda desplegable. La tarjeta se refresca sola cada 5 s mientras algo
-corre y cada 20 s mientras espera a una persona. Las pestañas del activo enlazan sus
-vulnerabilidades, riesgos (pestaña «Riesgo», antes deshabilitada) y observaciones con conteos.
+corre y cada 20 s mientras espera a una persona. Las pestañas **Riesgos · Vulnerabilidades ·
+Observaciones** del activo (tras Resumen, con conteos, solo con el permiso de cada capa) muestran
+las listas **dentro de la página del activo** (`detection.views.asset_tab_context`, mismas filas
+que las pantallas de Detección), con «Reevaluar con IA» / «Registrar observación» y un enlace
+«Abrir en Detección» para ver lo mismo con filtros y frente al resto de activos. El detalle de un
+riesgo, una vulnerabilidad o una observación sigue siendo una sola pantalla (la de Detección, su
+URL canónica), pero con miga y «Volver» hacia la pestaña del activo: no hay dos pantallas para el
+mismo objeto y la persona no pierde el contexto.
 
 En la cola de aprobación y en el detalle de cada acción, el bloque **«Qué se revisa»** se calcula
 por reglas, no por el LLM: hallazgos abiertos (y en KEV), software registrado, últimos escaneos,
@@ -300,7 +342,9 @@ servicios, registrar o renovar el rango, cargar SBOM, editar el activo).
 `.env`: `NVD_API_KEY`, `NVD_API_BASE`, `EPSS_SNAPSHOT_URL`, `KEV_CATALOG_URL`, `CTI_ONLINE`,
 `CTI_NVD_INITIAL_DAYS`, `CTI_PRODUCT_REFRESH_DAYS`, `CTI_EPSS_RISE_DELTA`, `CTI_EPSS_HIGH`,
 `DETECTION_ASSET_REVIEW_DAYS`, `DETECTION_FINDING_REVIEW_DAYS`, `DETECTION_REEVALUATE_MINUTES`,
-`manage.py rescore_vulnerabilities [--asset N] [--all]` recalcula el contextual de las vulnerabilidades
+`DETECTION_DESCRIBE_BATCH` (10): cuántas vulnerabilidades sostenidas sin descripción en español se
+redactan solas tras cada consolidación, de mayor a menor puntaje; las demás se redactan al abrir su
+detalle. `manage.py rescore_vulnerabilities [--asset N] [--all]` recalcula el contextual de las vulnerabilidades
 abiertas con la versión actual del algoritmo y los factores guardados, sin IA (tras cambiar pesos o
 anclas). `DETECTION_CONSOLIDATE_DELAY_S`, `DETECTION_CONSOLIDATE_CHUNK`, `SCORING_W_*` (pesos del Módulo 4:
 `CVSS`, `EPSS`, `KEV`, `TECHNICAL`, `CRITICALITY`, `EXPOSURE`, `DATA`, `EXPLOITABILITY`), `NUCLEI_TEMPLATES_DIR`,

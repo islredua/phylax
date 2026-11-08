@@ -8,7 +8,7 @@ import pytest
 from apps.accounts.roles import OPERATOR
 from apps.cti import services as cti
 from apps.cti.models import CveRecord
-from apps.detection import components, consolidation, findings
+from apps.detection import components, consolidation, findings, matching
 from apps.detection.models import (
     Finding,
     SoftwareComponent,
@@ -17,6 +17,7 @@ from apps.detection.models import (
     VulnerabilityEventKind,
     VulnerabilityStatus,
 )
+from apps.llm.language import looks_spanish
 from apps.scoring import services as scoring
 from tests.factories import AssetFactory, ServiceFactory
 
@@ -557,12 +558,15 @@ def test_model_item_spanning_several_cves_is_split_one_vulnerability_per_cve(lab
         }
 
     monkeypatch.setitem(llm_client.MOCK_GENERATORS, "VULN_ASSESSMENT", merging)
+    # Celery en línea redactaría enseguida con el simulador: se detiene para ver el estado intermedio.
+    monkeypatch.setattr("apps.detection.descriptions.queue_missing", lambda asset_id, **kw: 0)
     consolidation.consolidate_asset(asset.pk)
     vulns = {v.key: v for v in Vulnerability.objects.filter(asset=asset)}
     assert set(vulns) == {"CVE-2024-6387", "CVE-2025-23419"}
     for vuln in vulns.values():
         assert vuln.status == VulnerabilityStatus.CONFIRMED and vuln.observations.count() == 1
-        assert vuln.key in vuln.title and "Varias vulnerabilidades" in vuln.title
+        # El texto fusionado era genérico: título por regla y descripción pendiente de redactar.
+        assert vuln.title.startswith(f"{vuln.key} en ") and vuln.summary == ""
 
 
 def test_pii_pattern_templates_are_informational_and_rescore_updates_stale_scores(lab_cti):
@@ -598,3 +602,176 @@ def test_pii_pattern_templates_are_informational_and_rescore_updates_stale_score
     out = StringIO()
     call_command("rescore_vulnerabilities", stdout=out)
     assert "0 vulnerabilidad(es)" in out.getvalue()  # idempotente
+
+
+# --------------------------------------------------------------------------
+# Español garantizado y redacción aparte (plan de pruebas UX, fase B)
+# --------------------------------------------------------------------------
+
+
+def test_english_model_text_is_discarded_and_title_falls_back_to_rule(lab_cti, monkeypatch):
+    """La IA respondió en inglés: se conserva su valoración, no su texto; el título lo pone la regla."""
+    from apps.detection import consolidation
+    from apps.detection.models import VulnerabilityEvent
+
+    asset = _nginx_asset()
+    findings.apply_matches(matching.reconcile_assets([asset.pk]))
+    finding = Finding.objects.get(asset=asset, vulnerability_id="CVE-2025-23419")
+    assert finding.consolidated_id is None
+
+    def english(payload):
+        return {
+            "vulnerabilities": [
+                {
+                    "observations": [1],
+                    "title": "Multiple vulnerabilities in nginx versions prior to 1.27.4",
+                    "summary": "The server is running an outdated nginx which is vulnerable to RCE.",
+                    "business_impact": "An attacker could take over the server.",
+                    "actions": ["Upgrade nginx to 1.27.4 or later"],
+                    "plausibility": 0.9,
+                    "exploitability": "HIGH",
+                    "data_sensitivity": "HIGH",
+                    "business_impact_level": "HIGH",
+                    "compensating_controls": "NONE",
+                    "adjustment": 0,
+                    "status": "CONFIRMED",
+                }
+            ]
+        }
+
+    from apps.llm import client as llm_client
+
+    monkeypatch.setitem(llm_client.MOCK_GENERATORS, consolidation.TASK, english)
+    # Celery corre en línea en las pruebas: se detiene la redacción aparte para ver el estado intermedio.
+    queued = []
+    monkeypatch.setattr(
+        "apps.detection.descriptions.queue_missing", lambda asset_id, **kw: queued.append(asset_id)
+    )
+    consolidation.consolidate_asset(asset.pk, use_llm=True)
+    vuln = Vulnerability.objects.get(asset=asset, key="CVE-2025-23419")
+    assert vuln.title == "CVE-2025-23419 en nginx 1.27.3 · 443/tcp"
+    assert vuln.summary == "" and vuln.actions == [] and vuln.description_source == ""
+    assert vuln.technical_description and vuln.plausibility == 0.9
+    assert vuln.status == "CONFIRMED" and vuln.assessment_source == "AI"
+    assert VulnerabilityEvent.objects.filter(
+        vulnerability=vuln, message__icontains="respondió en inglés"
+    ).exists()
+    assert queued == [asset.pk]  # y se pidió redactarla aparte
+
+
+def test_spanish_model_text_is_kept_with_its_source(lab_cti):
+    asset = _nginx_asset()
+    findings.apply_matches(matching.reconcile_assets([asset.pk]))
+    consolidation.consolidate_asset(asset.pk, use_llm=True)
+    vuln = Vulnerability.objects.get(asset=asset, key="CVE-2025-23419")
+    assert vuln.summary and vuln.description_source == "AI" and vuln.described_at is not None
+    assert vuln.technical_description.startswith("Nginx") or vuln.technical_description
+
+
+def test_rule_title_is_spanish_and_names_the_software(lab_cti):
+    from apps.detection.consolidation import rule_title
+
+    asset = _nginx_asset()
+    findings.apply_matches(matching.reconcile_assets([asset.pk]))
+    lead = Finding.objects.get(asset=asset, vulnerability_id="CVE-2025-23419")
+    assert rule_title("CVE-2025-23419", lead) == "CVE-2025-23419 en nginx 1.27.3 · 443/tcp"
+    weak = _observe(
+        asset,
+        "http-missing-security-headers",
+        "NUCLEI",
+        title="HTTP Missing Security Headers",
+        severity="INFO",
+        template={"tags": ["misconfig", "headers"]},
+    )
+    assert rule_title("WEAKNESS:CABECERAS_HTTP", weak) == "Cabeceras de seguridad HTTP ausentes"
+    assert rule_title("WEAKNESS:CABECERAS_HTTP:apache", weak) == (
+        "Cabeceras de seguridad HTTP ausentes"
+    )
+
+
+def test_rule_consolidation_leaves_description_empty_and_describe_task_fills_it(
+    lab_cti, settings, monkeypatch
+):
+    """Sin IA la descripción queda vacía (el texto NVD va aparte); VULN_DESCRIBE la redacta."""
+    from apps.detection import descriptions
+    from apps.detection.models import VulnerabilityEvent
+
+    asset = _nginx_asset()
+    findings.apply_matches(matching.reconcile_assets([asset.pk]))
+    consolidation.consolidate_asset(asset.pk, use_llm=False)
+    vuln = Vulnerability.objects.get(asset=asset, key="CVE-2025-23419")
+    assert vuln.summary == "" and vuln.technical_description and vuln.assessment_source == "RULE"
+    assert vuln.actions and all(looks_spanish(a) for a in vuln.actions)
+    assert descriptions.needs_description(vuln)
+
+    queued = []
+    monkeypatch.setattr(descriptions, "active_model_ready", lambda: True)
+    from apps.detection import tasks
+
+    monkeypatch.setattr(tasks.describe_vulnerability, "apply_async", lambda **kw: queued.append(kw))
+    assert descriptions.request_description(vuln) is True
+    assert descriptions.is_pending(vuln.pk) and queued[0]["args"] == [str(vuln.pk)]
+    assert descriptions.request_description(vuln) is False  # ya en cola
+
+    log_obj = descriptions.describe_vulnerability(vuln.pk)
+    vuln.refresh_from_db()
+    assert log_obj.parsed_ok and log_obj.task == "VULN_DESCRIBE"
+    assert vuln.summary.startswith("Respuesta simulada") and vuln.description_source == "AI"
+    assert vuln.title.startswith("Falla conocida en nginx") and len(vuln.actions) == 2
+    assert not descriptions.is_pending(vuln.pk)
+    assert VulnerabilityEvent.objects.filter(vulnerability=vuln, kind="DESCRIBED").exists()
+    # Una redacción hecha por IA sobrevive a una reconsolidación por regla.
+    consolidation.consolidate_asset(asset.pk, use_llm=False)
+    vuln.refresh_from_db()
+    assert vuln.summary.startswith("Respuesta simulada") and vuln.title.startswith("Falla conocida")
+
+
+def test_describe_output_rejects_english(monkeypatch):
+    from pydantic import ValidationError
+
+    from apps.llm.schemas import VulnDescribeOutput
+
+    with pytest.raises(ValidationError):
+        VulnDescribeOutput.model_validate(
+            {
+                "title": "Remote code execution in log4j",
+                "description": "An attacker can execute arbitrary code on the server.",
+                "business_impact": "",
+                "actions": ["Upgrade log4j"],
+            }
+        )
+    out = VulnDescribeOutput.model_validate(
+        {
+            "title": "Ejecución remota de código en log4j-core 2.14.1",
+            "description": "Un atacante puede ejecutar código en el servidor mediante una cadena JNDI.",
+            "business_impact": "Los pagos se interrumpirían.",
+            "actions": ["Actualizar log4j-core a 2.17.1 o posterior."],
+        }
+    )
+    assert out.actions
+
+
+def test_queue_missing_orders_by_score_and_skips_human_text(lab_cti, monkeypatch):
+    from apps.detection import descriptions, tasks
+
+    asset = _nginx_asset()
+    findings.apply_matches(matching.reconcile_assets([asset.pk]))
+    consolidation.consolidate_asset(asset.pk, use_llm=False)
+    vuln = Vulnerability.objects.get(asset=asset, key="CVE-2025-23419")
+    human = Vulnerability.objects.create(
+        asset=asset,
+        key="CVE-0000-0001",
+        title="Redactada por alguien",
+        summary="",
+        description_source="HUMAN",
+        status="LIKELY",
+        severity="HIGH",
+        contextual_score=9.9,
+        first_detected_at=vuln.first_detected_at,
+        last_seen_at=vuln.last_seen_at,
+    )
+    queued = []
+    monkeypatch.setattr(descriptions, "active_model_ready", lambda: True)
+    monkeypatch.setattr(tasks.describe_vulnerability, "apply_async", lambda **kw: queued.append(kw))
+    assert descriptions.queue_missing(asset.pk) == 1
+    assert queued[0]["args"] == [str(vuln.pk)] and human.pk not in [q["args"][0] for q in queued]

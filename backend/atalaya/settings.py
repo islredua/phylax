@@ -206,6 +206,7 @@ CELERY_TASK_ROUTES = {
     "apps.detection.tasks.plan_event": {"queue": "llm"},
     "apps.detection.tasks.draft_org_profile": {"queue": "llm"},
     "apps.detection.tasks.consolidate_asset": {"queue": "llm"},
+    "apps.detection.tasks.describe_vulnerability": {"queue": "llm"},
     "apps.scanners.tasks.run_tool": {"queue": "discovery"},
 }
 CELERY_TIMEZONE = TIME_ZONE
@@ -330,6 +331,8 @@ DETECTION_REEVALUATE_MINUTES = int(os.environ.get("DETECTION_REEVALUATE_MINUTES"
 # Consolidación de observaciones → vulnerabilidades: retardo agrupador y observaciones por llamada.
 DETECTION_CONSOLIDATE_DELAY_S = int(os.environ.get("DETECTION_CONSOLIDATE_DELAY_S", "20"))
 DETECTION_CONSOLIDATE_CHUNK = int(os.environ.get("DETECTION_CONSOLIDATE_CHUNK", "25"))
+# Cuántas vulnerabilidades sin descripción en español se redactan solas tras cada consolidación.
+DETECTION_DESCRIBE_BATCH = int(os.environ.get("DETECTION_DESCRIBE_BATCH", "10"))
 
 # --- Scoring weights ---
 SCORING_WEIGHTS = {

@@ -242,8 +242,9 @@ Rangos de red · Descubrimiento · Importar/Exportar) y pestañas **LLM**, **Cat
 **Registries** en Administración. El descubrimiento no es una sección aparte: es el mecanismo
 que llena el inventario y sus pantallas (rangos y ejecuciones de nmap) viven en esa sección. Migas de pan en todas las
 pantallas (ADR-007). El detalle de una ejecución de descubrimiento muestra la salida legible
-de nmap (`-oN`) en vivo. Detalle de activo con subpestañas Resumen, Identificadores,
-Servicios, SBOM, Sugerencias LLM, Historial y Descubrimientos (Hallazgos y Riesgo reservados).
+de nmap (`-oN`) en vivo. Detalle de activo con subpestañas Resumen, **Riesgos, Vulnerabilidades,
+Observaciones** (las listas del Módulo 3 dentro del activo, con conteos y según permiso),
+Identificadores, Servicios, SBOM, Sugerencias LLM, Historial y Descubrimientos.
 
 ## Autorización
 

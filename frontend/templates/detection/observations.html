@@ -25,25 +25,6 @@
   <div class="flex gap-2"><button type="submit" class="btn-primary">Filtrar</button><a href="{% url 'detection:observations' %}{% if asset_id %}?asset={{ asset_id }}{% endif %}" class="btn-secondary">Limpiar</a></div>
 </form>
 
-<div class="table-wrap">
-  <table class="data-table">
-    <thead><tr><th>Observación</th><th>Activo</th><th>Severidad</th><th>EPSS</th><th>Estado</th><th>Fuentes</th><th>Consolidada en</th><th>Detectada</th><th>Vista</th></tr></thead>
-    <tbody>
-      {% for f in findings %}
-      <tr>
-        <td><a href="{% url 'detection:finding' f.pk %}" class="font-medium font-mono text-xs">{{ f.vulnerability_id }}</a> {% kev_badge f.in_kev %}<p class="text-xs text-muted">{{ f.title|truncatechars:80 }}</p></td>
-        <td><a href="{% url 'assets:detail' f.asset_id %}">{{ f.asset.name }}</a>{% if f.component %}<p class="text-xs text-muted">{{ f.component.label }}</p>{% endif %}</td>
-        <td>{% severity_badge f.severity %}{% if f.cvss_score %} <span class="font-mono text-xs text-muted">{{ f.cvss_score }}</span>{% endif %}</td>
-        <td class="font-mono text-xs">{{ f.epss_score|epss_pct }}</td>
-        <td>{% finding_status_badge f.status %}</td>
-        <td class="text-xs">{% for s in f.sources %}<span class="badge-neutral">{{ s|lower }}</span> {% endfor %}</td>
-        <td class="text-xs">{% if f.consolidated_id %}<a href="{% url 'detection:vulnerability' f.consolidated_id %}">{{ f.consolidated.title|truncatechars:50 }}</a>{% elif f.is_informational %}<span class="text-muted" title="Detección de tecnología o versión: es contexto para la IA, no una vulnerabilidad">informativa, no se consolida</span>{% else %}<span class="text-muted">sin consolidar aún</span>{% endif %}</td>
-        <td class="font-mono text-xs whitespace-nowrap text-ink-soft">{{ f.first_detected_at|date:"Y-m-d" }}</td>
-        <td class="font-mono text-xs whitespace-nowrap text-ink-soft">{{ f.last_seen_at|date:"Y-m-d" }}</td>
-      </tr>
-      {% empty %}<tr><td colspan="9" class="table-empty">Sin observaciones para estos filtros. El lazo las crea cuando llega inteligencia que afecta al software inventariado, cuando una herramienta las reporta o cuando una persona las registra.</td></tr>{% endfor %}
-    </tbody>
-  </table>
-</div>
+{% include "detection/_observation_rows.html" %}
 {% include "_pagination.html" %}
 {% endblock %}

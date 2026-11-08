@@ -126,6 +126,18 @@ SECTIONS = (
         label="Detección",
         tabs=(
             Tab(
+                "risks",
+                "Riesgos",
+                "detection:risks",
+                ("detection.view_risk",),
+                (
+                    "detection:risk",
+                    "detection:risk_report",
+                    "detection:risk_treatment",
+                    "detection:risk_note",
+                ),
+            ),
+            Tab(
                 "panel",
                 "Vulnerabilidades",
                 "detection:panel",
@@ -133,6 +145,7 @@ SECTIONS = (
                 (
                     "detection:vulnerability",
                     "detection:vulnerability_status",
+                    "detection:vulnerability_description",
                     "detection:vulnerability_release",
                     "detection:vulnerability_note",
                     "detection:asset_consolidate",
@@ -140,13 +153,6 @@ SECTIONS = (
                     "detection:action",
                     "detection:execution",
                 ),
-            ),
-            Tab(
-                "risks",
-                "Riesgos",
-                "detection:risks",
-                ("detection.view_risk",),
-                ("detection:risk", "detection:risk_treatment", "detection:risk_note"),
             ),
             Tab(
                 "observations",

@@ -1,0 +1,114 @@
+{% load detection_tags inventory %}<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Riesgo · {{ risk.title }}</title>
+<style>
+  :root { color-scheme: light; }
+  body { font: 11pt/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #1b1f24; margin: 0; background: #f4f5f7; }
+  .page { max-width: 820px; margin: 24px auto; background: #fff; padding: 40px 48px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  header { border-bottom: 2px solid #1b1f24; padding-bottom: 12px; margin-bottom: 20px; }
+  .eyebrow { font-size: 9pt; letter-spacing: .08em; text-transform: uppercase; color: #5b6472; margin: 0 0 4px; }
+  h1 { font-size: 18pt; margin: 0 0 6px; line-height: 1.25; }
+  h2 { font-size: 12.5pt; margin: 22px 0 6px; border-bottom: 1px solid #d9dde3; padding-bottom: 3px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 9.5pt; color: #3c4653; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 9pt; border: 1px solid #c6ccd4; }
+  .lvl-CRITICAL, .lvl-VERY_HIGH { background: #7f1d1d; color: #fff; border-color: #7f1d1d; }
+  .lvl-HIGH { background: #c2410c; color: #fff; border-color: #c2410c; }
+  .lvl-MODERATE { background: #ca8a04; color: #fff; border-color: #ca8a04; }
+  .lvl-LOW { background: #15803d; color: #fff; border-color: #15803d; }
+  table { width: 100%; border-collapse: collapse; font-size: 9.5pt; margin-top: 6px; }
+  th, td { text-align: left; vertical-align: top; padding: 5px 6px; border-bottom: 1px solid #e5e8ec; }
+  th { font-weight: 600; color: #3c4653; background: #f7f8fa; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9pt; }
+  .muted { color: #5b6472; }
+  ol { padding-left: 20px; } li { margin: 2px 0; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 16px; font-size: 10pt; }
+  .grid dt { color: #5b6472; font-size: 9pt; } .grid dd { margin: 0; }
+  .toolbar { position: sticky; top: 0; background: #fff; border-bottom: 1px solid #d9dde3; padding: 10px 16px; display: flex; gap: 10px; align-items: center; font-size: 10pt; }
+  .toolbar button, .toolbar a { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid #c6ccd4; background: #fff; color: #1b1f24; text-decoration: none; cursor: pointer; }
+  .toolbar button.primary { background: #1b1f24; color: #fff; border-color: #1b1f24; }
+  footer { margin-top: 28px; padding-top: 10px; border-top: 1px solid #d9dde3; font-size: 8.5pt; color: #5b6472; }
+  @media print { body { background: #fff; } .page { box-shadow: none; margin: 0; padding: 0; max-width: none; } .toolbar { display: none; } h2 { break-after: avoid; } tr { break-inside: avoid; } }
+  @page { margin: 18mm 16mm; }
+</style>
+</head>
+<body>
+<div class="toolbar"><button class="primary" type="button" onclick="window.print()">Imprimir o guardar como PDF</button><a href="?format=md">Descargar Markdown</a><a href="{% url 'detection:risk' risk.pk %}">Volver al riesgo</a><span class="muted">El PDF se genera desde el navegador: Imprimir → Guardar como PDF.</span></div>
+<div class="page">
+<header>
+  <p class="eyebrow">Atalaya · Reporte de riesgo · ISO/IEC 27005:2022</p>
+  <h1>{{ risk.title }}</h1>
+  <div class="meta">
+    <span class="badge lvl-{{ risk.level }}">Nivel {{ risk.get_level_display|lower }} · {{ risk.likelihood }} × {{ risk.impact }} = {{ risk.score }}</span>
+    <span>Estado: {{ risk.get_status_display }}</span>
+    {% if risk.consequence %}<span>Consecuencia: {{ risk.get_consequence_display }}</span>{% endif %}
+    <span>Fuente de amenaza: {{ risk.get_threat_source_display }}</span>
+    <span>Valorado por {% if risk.assessment_source == 'AI' %}IA ({{ risk.model }}){% else %}regla{% endif %} el {{ risk.assessed_at|date:"Y-m-d H:i" }}</span>
+  </div>
+</header>
+
+<h2>Activo</h2>
+<dl class="grid">
+  <div><dt>Nombre</dt><dd>{{ asset.name }}</dd></div>
+  <div><dt>Función de negocio</dt><dd>{{ asset.business_role|catalog:"BUSINESS_ROLE" }}</dd></div>
+  <div><dt>Entorno</dt><dd>{{ asset.environment|catalog:"ENVIRONMENT" }}</dd></div>
+  <div><dt>Criticidad</dt><dd>{{ asset.criticality|default:"—" }}</dd></div>
+  <div><dt>Exposición</dt><dd>{{ asset.exposure|default:"—" }}</dd></div>
+  <div><dt>Clasificación de datos</dt><dd>{{ asset.data_classification|choice_label:"DataClassification" }}</dd></div>
+  <div><dt>Responsable técnico</dt><dd>{{ asset.technical_owner.get_username|default:"—" }}</dd></div>
+  <div><dt>Responsable de negocio</dt><dd>{{ asset.business_owner|default:"—" }}</dd></div>
+  <div><dt>Identificadores</dt><dd class="mono">{% for i in asset.identifiers.all %}{{ i.value }}{% if not forloop.last %}, {% endif %}{% endfor %}</dd></div>
+</dl>
+
+<h2>Descripción</h2>
+<p>{{ risk.description|default:risk.scenario }}</p>
+{% if risk.description %}<p class="muted"><strong>Escenario:</strong> {{ risk.scenario }}</p>{% endif %}
+
+<h2>Posible impacto</h2>
+<p>{% if risk.impact_description %}{{ risk.impact_description }}{% else %}<span class="muted">No descrito; la valoración estima el impacto en {{ risk.impact }} / 5.</span>{% endif %}</p>
+
+<h2>Valoración</h2>
+<dl class="grid">
+  <div><dt>Probabilidad</dt><dd>{{ risk.likelihood }} / 5</dd></div>
+  <div><dt>Impacto</dt><dd>{{ risk.impact }} / 5</dd></div>
+  <div><dt>Nivel</dt><dd>{{ risk.get_level_display }} ({{ risk.score }})</dd></div>
+</dl>
+{% if risk.rationale %}<p class="muted">{{ risk.rationale }}</p>{% endif %}
+<p class="muted">Matriz 5×5: 1–4 bajo · 5–9 moderado · 10–14 alto · 15–19 muy alto · 20–25 crítico.</p>
+
+<h2>Recomendaciones</h2>
+{% if risk.recommendations %}<ol>{% for r in risk.recommendations %}<li>{{ r }}</li>{% endfor %}</ol>{% else %}<p class="muted">Ver las acciones de cada vulnerabilidad.</p>{% endif %}
+
+<h2>Tratamiento</h2>
+{% if risk.treatment %}<p>{{ risk.get_treatment_display }}{% if risk.owner %} · responsable: {{ risk.owner }}{% endif %} · decidido por {{ risk.decided_by.get_username|default:"—" }} el {{ risk.decided_at|date:"Y-m-d H:i" }}.{% if risk.treatment_note %} «{{ risk.treatment_note }}»{% endif %}</p>{% if risk.residual_level %}<p>Riesgo residual: {{ risk.get_residual_level_display }} ({{ risk.residual_likelihood }} × {{ risk.residual_impact }}).</p>{% endif %}{% else %}<p class="muted">Sin tratamiento decidido todavía.</p>{% endif %}
+
+<h2>Evidencia técnica</h2>
+<table>
+  <thead><tr><th>Vulnerabilidad</th><th>Puntajes</th><th>Estado</th><th>Sustento</th></tr></thead>
+  <tbody>
+  {% for row in evidence %}
+  <tr>
+    <td>{{ row.vuln.title }}<br><span class="mono muted">{{ row.vuln.key }}{% if row.vuln.component %} · {{ row.vuln.component.label }}{% endif %}</span>{% if row.vuln.in_kev %}<br><span class="badge">explotación activa (KEV)</span>{% endif %}</td>
+    <td class="mono">contextual {{ row.vuln.contextual_score|default_if_none:"—" }}<br>técnico {{ row.vuln.technical_score|default_if_none:"—" }}<br>CVSS {{ row.vuln.cvss_score|default_if_none:"—" }} · EPSS {{ row.vuln.epss_score|epss_pct }}</td>
+    <td>{{ row.vuln.get_status_display }}<br><span class="muted">plausibilidad {{ row.vuln.plausibility|pct }} · {% if row.vuln.status_source == 'HUMAN' %}fijado por una persona{% else %}por {{ row.vuln.get_status_source_display|lower }}{% endif %}</span></td>
+    <td>{{ row.observations }} observación(es): {{ row.sources|join:", "|lower }}{% if row.templates %}<br><span class="mono muted">{{ row.templates|join:", " }}</span>{% endif %}{% if row.matched %}<br><span class="mono muted">{{ row.matched|join:" · " }}</span>{% endif %}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% for row in evidence %}{% if row.vuln.summary or row.vuln.technical_description %}
+<p><strong>{{ row.vuln.title }}</strong>{% if row.vuln.summary %}<br>{{ row.vuln.summary }}{% endif %}{% if row.vuln.actions %}<br><span class="muted">Acciones: {{ row.vuln.actions|join:" · " }}</span>{% endif %}{% if row.vuln.technical_description %}<br><span class="muted mono">{{ row.vuln.technical_description|truncatechars:500 }}</span>{% endif %}</p>
+{% endif %}{% endfor %}
+
+<h2>Historia</h2>
+<table>
+  <thead><tr><th>Cuándo</th><th>Qué pasó</th><th>Detalle</th><th>Quién</th></tr></thead>
+  <tbody>{% for ev in timeline %}<tr><td class="mono">{{ ev.occurred_at|date:"Y-m-d H:i" }}</td><td>{{ ev.get_kind_display }}</td><td>{{ ev.message }}</td><td class="mono">{{ ev.actor.get_username|default:"sistema" }}</td></tr>{% endfor %}</tbody>
+</table>
+
+<footer>Generado por Atalaya el {{ generated_at|date:"Y-m-d H:i" }} para {{ generated_by.get_username }}. Las valoraciones marcadas «por IA» las produjo un modelo local y pueden corregirse en la plataforma; el tratamiento lo decide siempre una persona.</footer>
+</div>
+</body>
+</html>

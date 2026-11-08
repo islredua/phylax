@@ -58,6 +58,9 @@ la fecha de detección). Mientras `is_available()` sea `False`, el panel ordena 
 ## Lo que la presentación puede consumir
 
 - `apps.detection.risks.summary(asset_id=None)` / `risks.matrix(risks)` — riesgos abiertos por nivel y celdas de la matriz 5×5 (ISO/IEC 27005).
+- `apps.detection.risks.evidence(risk)` — evidencia técnica determinista del riesgo (vulnerabilidades ligadas con puntajes, estado, fuentes, plantillas, dónde se observó); la usan el detalle y el reporte (`detection:risk_report`, HTML o `?format=md`).
+- `apps.detection.views.asset_tab_context(asset, tab)` — filas de Riesgos / Vulnerabilidades / Observaciones para las pestañas de la página del activo.
+- `apps.detection.descriptions.request_description(vuln)` / `is_pending(pk)` — pide (una vez) la redacción en español de una vulnerabilidad sin descripción y dice si está en curso; `apps.llm.language.looks_spanish(text)` es la heurística de idioma.
 - `apps.detection.consolidation.summary(asset_id=None)` — vulnerabilidades abiertas, confirmadas, críticas, en KEV, por verificar, probables falsos positivos.
 - `apps.detection.consolidation.request_consolidation(asset_id, reason=…)` — encola la consolidación con IA (agrupa disparadores cercanos).
 - `apps.detection.progress.asset_pipeline(asset_id)` — el activo como un solo hilo (escaneo → criticidad → evaluación → vulnerabilidades).

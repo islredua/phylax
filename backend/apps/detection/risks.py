@@ -19,6 +19,7 @@ from django.utils import timezone
 
 from apps.assets import services as assets_services
 from apps.llm.client import register_mock, run_structured
+from apps.llm.language import looks_spanish
 from apps.llm.prompts import load_prompt
 from apps.llm.schemas import RISK_ASSESSMENT_SCHEMA, RiskAssessmentOutput
 from apps.llm.status import active_model
@@ -27,6 +28,7 @@ from .models import (
     RISK_OPEN_STATUSES,
     VULN_OPEN_STATUSES,
     Risk,
+    RiskConsequence,
     RiskEvent,
     RiskEventKind,
     RiskLevel,
@@ -40,9 +42,12 @@ from .models import (
 )
 
 log = logging.getLogger(__name__)
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"
 TASK = "RISK_ASSESSMENT"
 MAX_RISKS = 5
+CONSEQUENCE_LABEL = dict(RiskConsequence.choices)
+# Funciones de negocio cuyo valor principal es estar disponibles.
+AVAILABILITY_ROLES = {"PAGOS", "WEB_PUBLICA", "API", "CORE_NEGOCIO", "COMUNICACIONES", "RED"}
 
 
 def _slug(text, limit=60):
@@ -89,37 +94,112 @@ def rule_impact(vuln, context):
     return max(1, min(5, value))
 
 
-def rule_items(vulns, context, index):
+def rule_consequence(vuln, context):
+    """Consecuencia más probable según los datos y la función del activo."""
+    sensitive = (vuln.factors or {}).get(
+        "data_sensitivity"
+    ) == "HIGH" or context.data_classification in (
+        "RESTRINGIDA",
+        "CONFIDENCIAL",
+    )
+    if sensitive:
+        return RiskConsequence.CONFIDENTIALITY
+    if (context.business_role or "") in AVAILABILITY_ROLES or context.exposure == "INTERNET":
+        return RiskConsequence.AVAILABILITY
+    return RiskConsequence.OPERATIONS
+
+
+def rule_title(consequence, asset_name, cause):
+    """«Consecuencia en activo por causa»: la misma fórmula que se le pide a la IA."""
+    return _clean(f"{CONSEQUENCE_LABEL[consequence]} en {asset_name} por {cause}", 160)
+
+
+def _rule_texts(vulns, context, asset_name, consequence):
+    role = context.business_role or "el activo"
+    env = context.environment or "entorno sin definir"
+    exposure = {"INTERNET": "expuesto a internet", "DMZ": "en la DMZ"}.get(
+        context.exposure, "en la red interna"
+    )
+    names = "; ".join(_clean(v.title, 90) for v in vulns[:3])
+    if len(vulns) > 3:
+        names += f" y {len(vulns) - 3} más"
+    description = (
+        f"El activo ({role}, {env}, {exposure}) presenta {len(vulns)} vulnerabilidad(es) "
+        f"sostenida(s): {names}. Si alguien las explota, la consecuencia más probable es "
+        f"{CONSEQUENCE_LABEL[consequence].lower()}. Valoración por regla: la IA no evaluó este "
+        "escenario, así que la descripción se limita a lo que dicen las vulnerabilidades."
+    )
+    data_words = {
+        "RESTRINGIDA": "datos restringidos",
+        "CONFIDENCIAL": "datos confidenciales",
+        "INTERNA": "datos internos",
+    }.get(context.data_classification or "", "datos de las personas que usan el servicio")
+    impact = {
+        RiskConsequence.CONFIDENTIALITY: f"Podrían exponerse {data_words}, con el costo legal y "
+        "reputacional que implica.",
+        RiskConsequence.AVAILABILITY: f"El servicio de {role.lower()} podría quedar fuera o degradado mientras se contiene y recupera.",
+    }.get(
+        consequence,
+        f"La operación que depende de {role.lower()} se vería afectada hasta contener el incidente.",
+    )
+    recommendations = []
+    for v in vulns:
+        for action in v.actions or []:
+            if action not in recommendations and looks_spanish(action):
+                recommendations.append(_clean(action, 220))
+    recommendations = recommendations[:4] + [
+        "Verificar la corrección con un nuevo escaneo del activo."
+    ]
+    return description, impact, recommendations[:5]
+
+
+def rule_items(vulns, context, index, asset_name="el activo"):
     items = []
     for vuln in vulns:
+        consequence = rule_consequence(vuln, context)
+        description, impact, recommendations = _rule_texts([vuln], context, asset_name, consequence)
         items.append(
             {
                 "vulnerabilities": [index[vuln.pk]],
-                "title": f"Explotación de «{_clean(vuln.title, 100)}»",
+                "title": rule_title(consequence, asset_name, _clean(vuln.title, 100)),
+                "consequence": consequence,
                 "scenario": (
                     f"Un atacante aprovecha «{_clean(vuln.title, 120)}» en {context.business_role or 'el activo'} "
                     f"({context.environment or 'entorno sin definir'}) para comprometerlo. "
                     "Valoración por regla: la IA no evaluó este escenario."
                 ),
+                "description": description,
+                "impact_description": impact,
+                "recommendations": recommendations,
                 "threat_source": "MALWARE" if vuln.in_kev else "EXTERNAL",
                 "likelihood": rule_likelihood(vuln, context),
                 "impact": rule_impact(vuln, context),
                 "rationale": "Regla: explotabilidad, KEV y exposición dan la probabilidad; criticidad, datos e impacto de negocio dan el impacto.",
             }
         )
-    return items[:MAX_RISKS] if len(items) <= MAX_RISKS else _merge_rule_items(items, vulns, index)
+    if len(items) <= MAX_RISKS:
+        return items
+    return _merge_rule_items(items, vulns, index, context, asset_name)
 
 
-def _merge_rule_items(items, vulns, index):
+def _merge_rule_items(items, vulns, index, context, asset_name):
     """Más de MAX_RISKS vulnerabilidades: un escenario agregado con la peor valoración."""
+    consequence = rule_consequence(max(vulns, key=lambda v: v.contextual_score or 0), context)
+    description, impact, recommendations = _rule_texts(vulns, context, asset_name, consequence)
     return [
         {
             "vulnerabilities": [index[v.pk] for v in vulns],
-            "title": "Compromiso del activo por vulnerabilidades acumuladas",
+            "title": rule_title(
+                consequence, asset_name, f"{len(vulns)} vulnerabilidades acumuladas"
+            ),
+            "consequence": consequence,
             "scenario": (
                 f"El activo acumula {len(vulns)} vulnerabilidades abiertas; un atacante encadena varias "
                 "para tomar control o extraer datos. Valoración por regla: la IA no evaluó este escenario."
             ),
+            "description": description,
+            "impact_description": impact,
+            "recommendations": recommendations,
             "threat_source": "EXTERNAL",
             "likelihood": max(i["likelihood"] for i in items),
             "impact": max(i["impact"] for i in items),
@@ -137,8 +217,15 @@ def mock_risks(request_payload):
         risks.append(
             {
                 "vulnerabilities": [v["id"]],
-                "title": f"Escenario simulado: {v['title'][:100]}",
+                "title": f"Interrupción del servicio en {request_payload['asset']['name'][:60]} por {v['title'][:80]}",
+                "consequence": "AVAILABILITY",
                 "scenario": f"Respuesta simulada (LLM_MOCK_MODE=1) para «{v['title'][:80]}».",
+                "description": "Descripción simulada del riesgo, en español, para la persona que dirige la organización.",
+                "impact_description": "Impacto simulado: el servicio quedaría fuera unas horas.",
+                "recommendations": [
+                    "Aplicar el parche del fabricante.",
+                    "Verificar con un nuevo escaneo.",
+                ],
                 "threat_source": "MALWARE" if v["in_kev"] else "EXTERNAL",
                 "likelihood": 1 if likely_fp else (5 if v["in_kev"] else 3),
                 "impact": 4
@@ -181,9 +268,11 @@ def build_payload(asset_id, vulns, context):
             {
                 "id": index[v.pk],
                 "key": v.key,
+                "software": v.component.label if v.component else "",
                 "title": _clean(v.title, 160),
                 "summary": _clean(v.summary, 300),
                 "status": v.status,
+                "actions": [_clean(a, 160) for a in (v.actions or [])[:4]],
                 "plausibility": v.plausibility,
                 "contextual_score": v.contextual_score,
                 "technical_score": v.technical_score,
@@ -216,7 +305,22 @@ def _event(risk, kind, message="", actor=None, **data):
     )
 
 
-def _validate(parsed, vulns, index):
+def fix_title(title, asset_name):
+    """Obliga a que el título nombre a este activo.
+
+    El modelo copia a veces el nombre de los ejemplos del prompt o describe el activo («el
+    sistema de facturación»). Se conserva su consecuencia y su causa y se repone el nombre real.
+    """
+    title = _clean(title, 160)
+    if asset_name.lower() in title.lower():
+        return title
+    head, _, cause = title.partition(" por ")
+    consequence = head.split(" en ", 1)[0] if " en " in head else head
+    rebuilt = f"{consequence} en {asset_name}" + (f" por {cause}" if cause else "")
+    return _clean(rebuilt, 160)
+
+
+def _validate(parsed, vulns, index, asset_name=""):
     valid = set(index.values())
     by_index = {i: pk for pk, i in index.items()}
     items, covered, rejected = [], set(), 0
@@ -226,38 +330,95 @@ def _validate(parsed, vulns, index):
             rejected += 1
             continue
         covered.update(refs)
+        if asset_name:
+            item = {**item, "title": fix_title(item["title"], asset_name)}
+        # Dos escenarios con el mismo título y la misma consecuencia son el mismo riesgo.
+        twin = next(
+            (
+                i
+                for i in items
+                if i["title"].lower() == item["title"].lower()
+                and i.get("consequence") == item.get("consequence")
+            ),
+            None,
+        )
+        if twin is not None:
+            twin["vulnerabilities"] = sorted(set(twin["vulnerabilities"]) | set(refs))
+            twin["vuln_pks"] = [by_index[r] for r in twin["vulnerabilities"]]
+            twin["likelihood"] = max(twin["likelihood"], item["likelihood"])
+            twin["impact"] = max(twin["impact"], item["impact"])
+            continue
         items.append({**item, "vulnerabilities": refs, "vuln_pks": [by_index[r] for r in refs]})
     return items, covered, rejected
 
 
-def _key_for(item):
-    return f"{item['threat_source']}:{_slug(item['title'])}"
+def _key_for(item, vulns):
+    """Clave estable del riesgo: consecuencia, fuente de amenaza y la vulnerabilidad principal.
+
+    El título lo redacta el modelo y cambia de corrida en corrida; si la clave dependiera de él,
+    cada consolidación abriría riesgos nuevos y dejaría los viejos huérfanos.
+    """
+    lead = max(vulns, key=lambda v: (v.contextual_score or 0, v.key))
+    return (
+        f"{item.get('consequence') or 'OPERATIONS'}:{item['threat_source']}:{_slug(lead.key, 40)}"
+    )
+
+
+# Anclas deterministas sobre la valoración del modelo (como en el scoring de vulnerabilidades).
+KEV_LIKELIHOOD_FLOOR = {"INTERNET": 4, "DMZ": 4}
+CRITICALITY_IMPACT_FLOOR = {"CRITICO": 4, "ALTO": 3}
+
+
+def anchors(item, vulns, context):
+    """Pisos de probabilidad e impacto que la evidencia no deja bajar; devuelve (L, I, notas)."""
+    likelihood, impact, notes = item["likelihood"], item["impact"], []
+    if any(v.in_kev for v in vulns):
+        floor = KEV_LIKELIHOOD_FLOOR.get(context.exposure, 3)
+        if likelihood < floor:
+            likelihood, _ = (
+                floor,
+                notes.append(f"probabilidad mínima {floor} por explotación activa (KEV)"),
+            )
+    floor = CRITICALITY_IMPACT_FLOOR.get(context.criticality or "", 1)
+    if impact < floor:
+        impact, _ = (
+            floor,
+            notes.append(f"impacto mínimo {floor} por criticidad {context.criticality}"),
+        )
+    return likelihood, impact, notes
 
 
 def _apply(asset_id, item, context, *, by_rule, log_obj, now):
     vulns = list(Vulnerability.objects.filter(pk__in=item["vuln_pks"]))
     if not vulns:
         return None
-    level = risk_level_for(item["likelihood"], item["impact"])
+    likelihood, impact, notes = anchors(item, vulns, context)
+    level = risk_level_for(likelihood, impact)
     risk, created = Risk.objects.get_or_create(
         asset_id=asset_id,
-        key=_key_for(item),
+        key=_key_for(item, vulns),
         defaults={
             "title": item["title"][:200],
             "scenario": item["scenario"],
             "threat_source": item["threat_source"],
-            "likelihood": item["likelihood"],
-            "impact": item["impact"],
+            "likelihood": likelihood,
+            "impact": impact,
             "level": level,
             "first_identified_at": now,
         },
     )
     previous = (risk.likelihood, risk.impact, risk.level)
     risk.title = item["title"][:200]
+    risk.consequence = item.get("consequence", "")
     risk.scenario = item["scenario"]
+    risk.description = item.get("description", "")
+    risk.impact_description = item.get("impact_description", "")
+    risk.recommendations = list(item.get("recommendations") or [])
     risk.threat_source = item["threat_source"]
-    risk.likelihood, risk.impact, risk.level = item["likelihood"], item["impact"], level
+    risk.likelihood, risk.impact, risk.level = likelihood, impact, level
     risk.rationale = item.get("rationale", "")
+    if notes:
+        risk.rationale = _clean(f"{risk.rationale} Anclas: {'; '.join(notes)}.", 1000)
     risk.assessment_source = StatusSource.RULE if by_rule else StatusSource.AI
     risk.inference = None if by_rule else log_obj
     risk.model = "" if by_rule else (log_obj.model_responded or log_obj.model)
@@ -288,23 +449,39 @@ def _apply(asset_id, item, context, *, by_rule, log_obj, now):
             likelihood=risk.likelihood,
             impact=risk.impact,
             level=risk.level,
+            anchors=notes,
         )
     if reopened:
         _event(risk, RiskEventKind.REOPENED, "Vuelve a tener vulnerabilidades abiertas")
     return risk
 
 
-def _close_orphans(asset_id, touched, now):
+def _close_orphans(asset_id, touched, now, *, sustained_pks=frozenset()):
+    """Cierra los riesgos que la valoración ya no sostiene.
+
+    Sin vulnerabilidades abiertas: cerrado. Sin ninguna vulnerabilidad sostenida (todas en duda o
+    probables falsos positivos): cerrado. Si el activo se volvió a valorar y el riesgo no salió
+    (la IA agrupó distinto, o cambió la fuente o la consecuencia), se cierra como reemplazado. En
+    los dos últimos casos se respeta la decisión de una persona: un riesgo con tratamiento decidido
+    sigue abierto hasta que lo cierre quien decidió.
+    """
     closed = 0
     for risk in Risk.objects.filter(asset_id=asset_id, status__in=RISK_OPEN_STATUSES).exclude(
         pk__in=touched
     ):
-        if risk.vulnerabilities.filter(status__in=VULN_OPEN_STATUSES).exists():
+        linked = set(risk.vulnerabilities.values_list("pk", flat=True))
+        if not risk.vulnerabilities.filter(status__in=VULN_OPEN_STATUSES).exists():
+            message = "Ninguna de sus vulnerabilidades sigue abierta"
+        elif risk.human_decided:
             continue
+        elif not (linked & sustained_pks):
+            message = "Ninguna de sus vulnerabilidades está sostenida (confirmada, probable o con plausibilidad mayor a 0.5)"
+        else:
+            message = "Reemplazado: la nueva valoración del activo expresó sus vulnerabilidades en otros riesgos"
         risk.status = RiskStatus.CLOSED
         risk.closed_at = now
         risk.save(update_fields=["status", "closed_at"])
-        _event(risk, RiskEventKind.CLOSED, "Ninguna de sus vulnerabilidades sigue abierta")
+        _event(risk, RiskEventKind.CLOSED, message)
         closed += 1
     return closed
 
@@ -317,6 +494,7 @@ def derive_risks(asset_id, *, requested_by=None, use_llm=True):
 
     now = timezone.now()
     context = assets_services.get_asset_context(asset_id)
+    asset_name = assets_services.get_asset_summary(asset_id)["name"]
     # Al registro de riesgos entran las vulnerabilidades sostenidas: confirmadas, probables, o en
     # verificación con plausibilidad por encima de la mitad. Una duda a medias (plantilla sin
     # software observado, versión imprecisa de nmap: 0.5) espera a que alguien la verifique o la
@@ -348,12 +526,12 @@ def derive_risks(asset_id, *, requested_by=None, use_llm=True):
                 requested_by=requested_by,
             )
         if log_obj is not None and log_obj.parsed_ok:
-            items, covered, rejected = _validate(log_obj.parsed, vulns, index)
+            items, covered, rejected = _validate(log_obj.parsed, vulns, index, asset_name)
             llm_ok = True
             missing = [v for v in vulns if index[v.pk] not in covered]
-            rule_extra = rule_items(missing, context, index) if missing else []
+            rule_extra = rule_items(missing, context, index, asset_name) if missing else []
         else:
-            items, rule_extra = [], rule_items(vulns, context, index)
+            items, rule_extra = [], rule_items(vulns, context, index, asset_name)
         with transaction.atomic():
             for item in items:
                 risk = _apply(asset_id, item, context, by_rule=False, log_obj=log_obj, now=now)
@@ -368,7 +546,7 @@ def derive_risks(asset_id, *, requested_by=None, use_llm=True):
                     touched.append(risk.pk)
                     by_rule_count += 1
     with transaction.atomic():
-        closed = _close_orphans(asset_id, touched, now)
+        closed = _close_orphans(asset_id, touched, now, sustained_pks={v.pk for v in vulns})
     return {
         "risks": len(touched),
         "by_rule": by_rule_count,
@@ -466,3 +644,32 @@ def matrix(risks):
 
 
 THREAT_LABELS = dict(ThreatSource.choices)
+
+
+def evidence(risk):
+    """Evidencia técnica determinista del riesgo: cada vulnerabilidad ligada con lo que la sustenta."""
+    rows = []
+    for v in risk.vulnerabilities.select_related("component", "cve").prefetch_related(
+        "observations__evidence"
+    ):
+        observations = list(v.observations.all())
+        sources, templates, matched = set(), set(), set()
+        for f in observations:
+            sources.update(f.sources or [])
+            for ev in f.evidence.all():
+                data = ev.data or {}
+                if data.get("template-id"):
+                    templates.add(data["template-id"])
+                if data.get("matched-at"):
+                    matched.add(str(data["matched-at"])[:100])
+        rows.append(
+            {
+                "vuln": v,
+                "sources": sorted(sources),
+                "templates": sorted(templates),
+                "matched": sorted(matched),
+                "observations": len(observations),
+            }
+        )
+    rows.sort(key=lambda r: r["vuln"].contextual_score or 0, reverse=True)
+    return rows

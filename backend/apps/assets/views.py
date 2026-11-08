@@ -33,6 +33,9 @@ from .models import Asset, AssetConflict, CriticalitySuggestion
 HIDDEN_BY_DEFAULT = (AssetStatus.RETIRED, AssetStatus.IGNORED)
 DETAIL_TABS = (
     ("resumen", "Resumen"),
+    ("riesgos", "Riesgos"),
+    ("vulnerabilidades", "Vulnerabilidades"),
+    ("observaciones", "Observaciones"),
     ("identificadores", "Identificadores"),
     ("servicios", "Servicios"),
     ("sbom", "SBOM"),
@@ -40,6 +43,12 @@ DETAIL_TABS = (
     ("historial", "Historial"),
     ("descubrimientos", "Descubrimientos"),
 )
+# Pestañas del activo que muestran la capa de detección; requieren su permiso.
+DETECTION_TABS = {
+    "riesgos": "detection.view_risk",
+    "vulnerabilidades": "detection.view_vulnerability",
+    "observaciones": "detection.view_finding",
+}
 # (acción, etiqueta, parámetro que requiere: "tags", catálogo o None).
 BULK_ACTIONS = (
     ("tag", "Agregar etiquetas", "tags"),
@@ -289,12 +298,13 @@ class AssetDetailView(Perm, TemplateView):
             pk=kwargs["pk"],
         )
         tab = self.request.GET.get("tab", "resumen")
-        if tab not in dict(DETAIL_TABS):
+        if tab not in dict(DETAIL_TABS) or (
+            tab in DETECTION_TABS and not self.request.user.has_perm(DETECTION_TABS[tab])
+        ):
             tab = "resumen"
         context.update(
             asset=asset,
             tab=tab,
-            tabs=DETAIL_TABS,
             criticality_choices=Criticality.choices,
             llm_model=active_model(),
             llm_ready=active_model_ready(),
@@ -312,6 +322,20 @@ class AssetDetailView(Perm, TemplateView):
         context["open_risks"] = asset.risks.filter(
             status__in=("OPEN", "TREATED", "ACCEPTED")
         ).count()
+        counts = {
+            "riesgos": context["open_risks"],
+            "vulnerabilidades": context["open_vulnerabilities"],
+            "observaciones": context["open_findings"],
+        }
+        context["tabs"] = [
+            (key, label, counts.get(key))
+            for key, label in DETAIL_TABS
+            if key not in DETECTION_TABS or self.request.user.has_perm(DETECTION_TABS[key])
+        ]
+        if tab in DETECTION_TABS:
+            from apps.detection.views import asset_tab_context
+
+            context.update(asset_tab_context(asset, tab))
         runs = discovery.runs_for_asset(asset)
         context.update(
             can_scan=discovery.can_scan(asset),

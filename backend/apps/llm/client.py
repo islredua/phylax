@@ -135,6 +135,23 @@ def _mock_content(task, request_payload):
     )
 
 
+def retry_feedback(exc: ValidationError) -> str:
+    """Resumen legible de los errores de validación para pedir una corrección al modelo."""
+    lines = []
+    for err in exc.errors()[:6]:
+        where = ".".join(str(p) for p in err.get("loc", ())) or "respuesta"
+        lines.append(f"- {where}: {err.get('msg', 'valor no válido')}")
+    return (
+        "Tu respuesta anterior no cumplió el esquema o las reglas. Corrige SOLO lo señalado y "
+        "responde de nuevo con el JSON completo, en español:\n" + "\n".join(lines)
+    )
+
+
+def _strip_nul(text):
+    """PostgreSQL no admite U+0000 ni en texto ni en JSON; el modelo lo emite a veces como «\\u0000»."""
+    return (text or "").replace("\\u0000", "").replace("\x00", "")
+
+
 def run_structured(
     *,
     task,
@@ -181,16 +198,23 @@ def run_structured(
             )
             return log
         log.model_digest = installed[model]
+        conversation = list(messages)
         for attempt in range(1, MAX_ATTEMPTS + 1):
             log.attempts = attempt
             extra = {"keep_alive": keep_alive} if keep_alive is not None else {}
-            data = client.chat(model, messages, schema, options, **extra)
+            data = client.chat(model, conversation, schema, options, **extra)
             _apply_metrics(log, data)
-            log.response_raw = (data.get("message") or {}).get("content", "")
+            log.response_raw = _strip_nul((data.get("message") or {}).get("content", ""))
             try:
                 log.parsed = validator.model_validate_json(log.response_raw).model_dump()
             except ValidationError as exc:
                 log.error = f"Salida inválida (intento {attempt}): {exc.error_count()} error(es) de validación."
+                # El reintento ve su respuesta y qué falló: corrige en vez de repetir el error.
+                conversation = [
+                    *messages,
+                    {"role": "assistant", "content": log.response_raw[:4000]},
+                    {"role": "user", "content": retry_feedback(exc)},
+                ]
                 continue
             log.parsed_ok = True
             log.error = ""

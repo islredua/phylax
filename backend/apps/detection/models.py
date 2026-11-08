@@ -344,9 +344,22 @@ class Vulnerability(UUIDModel):
         SoftwareComponent, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
     title = models.CharField(max_length=200)
-    summary = models.TextField(blank=True, help_text="Qué significa, en lenguaje de negocio.")
+    summary = models.TextField(
+        blank=True, help_text="Descripción en español para quien decide (IA o persona)."
+    )
     business_impact = models.TextField(blank=True)
     actions = models.JSONField(default=list, blank=True, help_text="Pasos de mitigación.")
+    technical_description = models.TextField(
+        blank=True,
+        help_text="Texto original de NVD o de la herramienta, tal cual (suele ir en inglés).",
+    )
+    description_source = models.CharField(
+        max_length=8,
+        choices=StatusSource.choices,
+        blank=True,
+        help_text="Quién redactó la descripción; vacío = pendiente de redactar.",
+    )
+    described_at = models.DateTimeField(null=True, blank=True)
 
     severity = models.CharField(
         max_length=8, choices=FindingSeverity.choices, default=FindingSeverity.MEDIUM
@@ -429,6 +442,7 @@ class VulnerabilityEventKind(models.TextChoices):
     STATUS_HUMAN = "STATUS_HUMAN", "Estado corregido por una persona"
     OBSERVATIONS = "OBSERVATIONS", "Observaciones ligadas"
     SCORE = "SCORE", "Puntajes recalculados"
+    DESCRIBED = "DESCRIBED", "Redactada"
     RESOLVED = "RESOLVED", "Resuelta"
     REOPENED = "REOPENED", "Reabierta"
     NOTE = "NOTE", "Nota"
@@ -477,6 +491,18 @@ class ThreatSource(models.TextChoices):
     SUPPLY_CHAIN = "SUPPLY_CHAIN", "Cadena de suministro"
     ERROR = "ERROR", "Error humano o de configuración"
     OTHER = "OTHER", "Otra"
+
+
+class RiskConsequence(models.TextChoices):
+    """Qué pierde la organización si el escenario ocurre (nombra el riesgo)."""
+
+    CONFIDENTIALITY = "CONFIDENTIALITY", "Fuga de información"
+    INTEGRITY = "INTEGRITY", "Alteración de datos o sistemas"
+    AVAILABILITY = "AVAILABILITY", "Interrupción del servicio"
+    COMPLIANCE = "COMPLIANCE", "Incumplimiento normativo"
+    REPUTATION = "REPUTATION", "Daño reputacional"
+    FINANCIAL = "FINANCIAL", "Pérdida financiera"
+    OPERATIONS = "OPERATIONS", "Afectación operativa"
 
 
 class RiskLevel(models.TextChoices):
@@ -528,8 +554,19 @@ class Risk(UUIDModel):
 
     asset = models.ForeignKey("assets.Asset", on_delete=models.CASCADE, related_name="risks")
     key = models.CharField(max_length=120, help_text="Estable por activo: escenario + fuente.")
-    title = models.CharField(max_length=200)
+    title = models.CharField(
+        max_length=200,
+        help_text="«Consecuencia en activo por causa»: nombra qué se pierde y por qué.",
+    )
+    consequence = models.CharField(max_length=16, choices=RiskConsequence.choices, blank=True)
     scenario = models.TextField(help_text="Qué podría pasar, cómo y a qué.")
+    description = models.TextField(
+        blank=True, help_text="En qué consiste el riesgo, a alto nivel, para quien dirige."
+    )
+    impact_description = models.TextField(blank=True, help_text="Qué pasaría aquí si ocurre.")
+    recommendations = models.JSONField(
+        default=list, blank=True, help_text="Qué hacer para reducirlo, en orden."
+    )
     threat_source = models.CharField(
         max_length=14, choices=ThreatSource.choices, default=ThreatSource.EXTERNAL
     )

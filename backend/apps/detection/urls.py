@@ -6,9 +6,18 @@ from . import views
 app_name = "detection"
 
 urlpatterns = [
-    path("", views.PanelView.as_view(), name="panel"),
+    # La portada de Detección son los riesgos: lo que una persona decide. Las vulnerabilidades y
+    # las observaciones son las capas que los sustentan.
+    path("", views.RiskRegisterView.as_view(), name="risks"),
+    path("vulnerabilities/", views.PanelView.as_view(), name="panel"),
+    path("risks/", RedirectView.as_view(pattern_name="detection:risks", query_string=True)),
     path(
         "vulnerabilities/<uuid:pk>/", views.VulnerabilityDetailView.as_view(), name="vulnerability"
+    ),
+    path(
+        "vulnerabilities/<uuid:pk>/description/",
+        views.VulnerabilityDescriptionView.as_view(),
+        name="vulnerability_description",
     ),
     path(
         "vulnerabilities/<uuid:pk>/status/",
@@ -25,8 +34,8 @@ urlpatterns = [
         views.VulnerabilityNoteView.as_view(),
         name="vulnerability_note",
     ),
-    path("risks/", views.RiskRegisterView.as_view(), name="risks"),
     path("risks/<uuid:pk>/", views.RiskDetailView.as_view(), name="risk"),
+    path("risks/<uuid:pk>/report/", views.RiskReportView.as_view(), name="risk_report"),
     path("risks/<uuid:pk>/treatment/", views.RiskTreatmentView.as_view(), name="risk_treatment"),
     path("risks/<uuid:pk>/note/", views.RiskNoteView.as_view(), name="risk_note"),
     path("observations/", views.ObservationsView.as_view(), name="observations"),
