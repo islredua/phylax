@@ -344,3 +344,72 @@ class RiskAssessmentOutput(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     risks: list[RiskItem] = Field(default_factory=list)
+
+
+# --- Módulo 5: narrativa ejecutiva de Inicio ---------------------------------------------------
+
+HEALTH_STATUSES = ("GREEN", "YELLOW", "RED")
+
+EXEC_NARRATIVE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "status": {"type": "string", "enum": list(HEALTH_STATUSES)},
+        "headline": {"type": "string", "maxLength": 160},
+        "summary": {"type": "string", "maxLength": 900},
+        "changes": {"type": "string", "maxLength": 600},
+        "urgent": {"type": "string", "maxLength": 600},
+        "achievements": {"type": "string", "maxLength": 600},
+        "highlights": {
+            "type": "array",
+            "items": {"type": "string", "maxLength": 200},
+            "minItems": 2,
+            "maxItems": 5,
+        },
+        "next_steps": {
+            "type": "array",
+            "items": {"type": "string", "maxLength": 220},
+            "minItems": 2,
+            "maxItems": 4,
+        },
+    },
+    "required": [
+        "status",
+        "headline",
+        "summary",
+        "changes",
+        "urgent",
+        "achievements",
+        "highlights",
+        "next_steps",
+    ],
+}
+
+
+class ExecNarrativeOutput(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    status: Literal["GREEN", "YELLOW", "RED"]
+    headline: str = Field(max_length=160)
+    summary: str = Field(max_length=900)
+    changes: str = Field(max_length=600, default="")
+    urgent: str = Field(max_length=600, default="")
+    achievements: str = Field(max_length=600, default="")
+    highlights: list[Annotated[str, StringConstraints(max_length=200)]] = Field(
+        min_length=1, max_length=5
+    )
+    next_steps: list[Annotated[str, StringConstraints(max_length=220)]] = Field(
+        min_length=1, max_length=4
+    )
+
+    _spanish = field_validator("headline", "summary", "changes", "urgent", "achievements")(
+        _must_look_spanish
+    )
+
+    @field_validator("highlights", "next_steps")
+    @classmethod
+    def _items_spanish(cls, value):
+        from apps.llm.language import looks_spanish
+
+        if not all(looks_spanish(v) for v in value):
+            raise ValueError("cada punto debe estar en español")
+        return value

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Inicio · Administración{% endblock %}
+{% block content %}
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+  <form method="post" class="card flex flex-col gap-3" novalidate>{% csrf_token %}
+    <h3 class="card-title">Indicadores y narrativa de Inicio</h3>
+    {% if form.non_field_errors %}<div class="alert-error text-sm">{{ form.non_field_errors }}</div>{% endif %}
+    {% for field in form %}
+    <div><label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<p class="form-help">{{ field.help_text }}</p>{% endif %}{% for e in field.errors %}<p class="form-error">{{ e }}</p>{% endfor %}</div>
+    {% endfor %}
+    <div class="flex gap-2"><button class="btn-primary" type="submit">Guardar</button><a href="{% url 'home' %}" class="btn-secondary">Ver Inicio</a></div>
+    <p class="text-xs text-muted">Última edición: {{ settings_obj.updated_at|date:"Y-m-d H:i" }}{% if settings_obj.updated_by %} por {{ settings_obj.updated_by.get_username }}{% endif %}.</p>
+  </form>
+  <section class="card flex flex-col gap-2 text-sm">
+    <h3 class="card-title mb-0">Cómo funciona</h3>
+    <p class="text-ink-soft">Los indicadores se calculan al vuelo y se guardan un minuto en caché. Cada hora se escribe la instantánea del día (tendencias y deltas). La narrativa por IA se regenera a lo sumo con la cadencia indicada, solo si los datos cambiaron y la cola del modelo no tiene trabajo prioritario; mientras tanto se muestra la última disponible.</p>
+    {% if narrative %}<p class="text-xs text-muted">Última narrativa: {{ narrative.created_at|date:"Y-m-d H:i" }} · {% if narrative.by_rule %}por regla{% else %}por IA ({{ narrative.model }}){% endif %}.</p>{% endif %}
+  </section>
+</div>
+{% endblock %}

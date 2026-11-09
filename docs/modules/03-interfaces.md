@@ -82,3 +82,15 @@ la fecha de detección). Mientras `is_available()` sea `False`, el panel ordena 
 - `apps.cti.services.import_fixture(data)` — inteligencia sin internet (laboratorio, pruebas).
 - `apps.scanners.services.request_execution(tool=..., profile=..., asset_id=..., targets=...)` —
   ejecución directa con perfil fijo (usa los mismos guardarraíles del worker).
+
+## Lo que Inicio (Módulo 5) toma de la detección
+
+| Función / dato | Uso en Inicio |
+|---|---|
+| `Risk`, `Vulnerability`, `Finding`, `PlannedAction`, `PlannerDecision` (solo lectura) | `presentation.indicators.compute()`: conteos, niveles, KEV y plazos, automatización |
+| `detection.descriptions.SUSTAINED` | Estados que cuentan como vulnerabilidad vigente |
+| `detection.risks.matrix(risks)` + `detection/_risk_matrix.html` | Matriz 5×5 de Inicio y del reporte ejecutivo |
+| `detection.activity.recent(limit)` | Pulso del sistema |
+| `detection.profile.get_profile()` | Nombre y giro de la organización en la narrativa y el reporte |
+| `detection_tags.intel_badges`, `risk_level_badge` | Tabla de riesgos principales |
+| `scoring.services.severity_for` | Comparación contextual frente a CVSS |

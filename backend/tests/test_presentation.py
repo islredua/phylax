@@ -48,6 +48,7 @@ def test_sidebar_shows_sections_not_subsections(client, admin_user):
         "users",
         "audit",
         "llm",
+        "home_settings",
         "catalogs",
         "registries",
     ]
@@ -187,13 +188,15 @@ def test_brand_assets_and_local_fonts(client):
     assert "cdn." not in body
 
 
-def test_home_shows_modules_and_security_summary(client, make_user):
+def test_home_shows_security_summary_and_indicators_by_permission(client, make_user):
     user = make_user(OPERATOR, mfa=True)
     client.force_login(user)
     response = client.get("/")
     assert response.context["has_mfa"] is True
     assert response.context["session_count"] == 1
-    assert len(response.context["modules"]) == 5
+    # La persona operadora lee riesgos: ve la vista ejecutiva completa.
+    assert response.context["blocks"]["detection"] is True
+    assert "Estado de salud" in response.content.decode()
 
 
 @pytest.mark.parametrize(

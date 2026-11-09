@@ -1,0 +1,28 @@
+{% load presentation_tags %}
+<div id="narrativa"{% if narrative_pending %} hx-get="{% url 'home_block' 'narrative' %}" hx-trigger="every 10s" hx-swap="outerHTML"{% endif %}>
+<section class="card">
+  <div class="flex flex-wrap items-start justify-between gap-2">
+    <div>
+      <p class="eyebrow mb-1">Estado de salud {% if narrative %}· {% health_badge narrative.status %}{% endif %}</p>
+      <h3 class="card-title mb-1">{% if narrative %}{{ narrative.headline }}{% else %}Todavía no hay una lectura del estado{% endif %}</h3>
+    </div>
+    {% if perms.detection.view_risk %}
+    <form method="post" action="{% url 'home_narrative_refresh' %}" class="flex items-center gap-2">{% csrf_token %}
+      {% if narrative_pending %}<span class="badge-primary">la IA está redactando</span>{% endif %}
+      <button type="submit" class="btn-secondary btn-sm"{% if narrative_pending %} disabled{% endif %} title="Pide al modelo local una lectura nueva con los datos de ahora">Regenerar</button>
+    </form>
+    {% endif %}
+  </div>
+  {% if narrative %}
+  <p class="mt-2 text-ink-soft">{{ narrative.summary }}</p>
+  <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3 text-sm">
+    <div><p class="kv-label">Qué cambió</p><p class="mt-1 text-ink-soft">{{ narrative.changes|default:"—" }}</p></div>
+    <div><p class="kv-label">Qué urge</p><p class="mt-1 text-ink-soft">{{ narrative.urgent|default:"—" }}</p></div>
+    <div><p class="kv-label">Qué hizo el sistema</p><p class="mt-1 text-ink-soft">{{ narrative.achievements|default:"—" }}</p></div>
+  </div>
+  {% if narrative.highlights %}<ul class="mt-3 flex flex-wrap gap-2 text-xs">{% for h in narrative.highlights %}<li class="badge-neutral">{{ h }}</li>{% endfor %}</ul>{% endif %}
+  {% if narrative.next_steps %}<p class="kv-label mt-3">Siguientes pasos</p><ol class="mt-1 flex flex-col gap-1 pl-5 text-sm text-ink-soft">{% for s in narrative.next_steps %}<li>{{ s }}</li>{% endfor %}</ol>{% endif %}
+  <p class="mt-3 text-xs text-muted">{% if narrative.by_rule %}Redactado por regla (sin IA) el {{ narrative.created_at|date:"Y-m-d H:i" }}; el modelo local lo reescribirá cuando esté libre.{% else %}Redactado por IA ({{ narrative.model }}, prompt {{ narrative.prompt_version }}) el {{ narrative.created_at|date:"Y-m-d H:i" }}, a partir de los indicadores calculados por el sistema; se regenera cuando los datos cambian y el modelo está libre.{% endif %}</p>
+  {% endif %}
+</section>
+</div>

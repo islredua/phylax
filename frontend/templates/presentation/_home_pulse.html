@@ -1,0 +1,11 @@
+<div id="pulso" hx-get="{% url 'home_block' 'pulse' %}" hx-trigger="every 30s" hx-swap="outerHTML">
+<section class="card">
+  <h3 class="card-title">Pulso del sistema</h3>
+  <ul class="flex flex-col gap-1 text-xs">
+    {% for e in pulse %}
+    <li class="flex gap-2"><span class="font-mono whitespace-nowrap text-muted">{{ e.at|date:"H:i" }}</span><span class="{{ e.badge|default:'badge-neutral' }} shrink-0">{{ e.label }}</span><span class="text-ink-soft">{% if e.url %}<a href="{{ e.url }}">{{ e.subject }}</a>{% else %}{{ e.subject }}{% endif %}{% if e.text %} · {{ e.text|truncatechars:70 }}{% endif %}</span></li>
+    {% empty %}<li class="text-muted">Sin actividad reciente.</li>{% endfor %}
+  </ul>
+  <p class="mt-2 text-xs"><a href="{% url 'detection:activity' %}">Ver toda la actividad →</a></p>
+</section>
+</div>

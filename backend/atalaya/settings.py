@@ -196,6 +196,7 @@ CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_TASK_DEFAULT_QUEUE = "default"
 # Rutas por nombre exacto: solo la inferencia va a "llm" y solo nmap a "discovery".
 CELERY_TASK_ROUTES = {
+    "apps.presentation.tasks.generate_health_narrative": {"queue": "llm"},
     "apps.assets.tasks.suggest_criticality": {"queue": "llm"},
     "apps.assets.tasks.sweep_unclassified_criticality": {"queue": "llm"},
     "apps.discovery.tasks.run_discovery": {"queue": "discovery"},
@@ -239,6 +240,14 @@ CELERY_BEAT_SCHEDULE = {
     "detection-process-pending": {
         "task": "apps.detection.tasks.process_pending_events",
         "schedule": 60.0,
+    },
+    "home-health-snapshot": {
+        "task": "apps.presentation.tasks.snapshot_health",
+        "schedule": crontab(minute=5),
+    },
+    "home-health-narrative": {
+        "task": "apps.presentation.tasks.refresh_health_narrative",
+        "schedule": crontab(minute="*/10"),
     },
     "detection-describe-pending": {
         "task": "apps.detection.tasks.describe_pending_vulnerabilities",

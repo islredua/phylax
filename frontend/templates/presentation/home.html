@@ -1,38 +1,122 @@
 {% extends "base.html" %}
+{% load presentation_tags detection_tags inventory %}
 {% block title %}Inicio{% endblock %}
+{% block page_title %}Estado de la organización{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <div class="flex flex-wrap items-center gap-2">
+    {% if blocks.detection %}{% health_badge data.health %}<span class="text-xs text-muted">calculado {{ data.computed_at|slice:"11:16" }} · ventana de {{ data.window_days }} días</span>{% else %}<p class="muted">Bienvenido, <span class="font-medium text-ink">{{ user.get_full_name|default:user.get_username }}</span>.</p>{% endif %}
+  </div>
+  {% if blocks.detection %}
+  <div class="page-actions">
+    <a href="{% url 'home_report' %}" class="btn-primary btn-sm" target="_blank" rel="noopener" title="Reporte ejecutivo del periodo, imprimible o PDF">Descargar reporte</a>
+    <a href="{% url 'home_report' %}?format=md" class="btn-secondary btn-sm" title="El mismo reporte en Markdown">Markdown</a>
+    <a href="{% url 'home_export' 'risks' %}" class="btn-secondary btn-sm" title="Registro de riesgos abiertos en CSV">Riesgos CSV</a>
+    {% if blocks.vulnerabilities %}<a href="{% url 'home_export' 'vulnerabilities' %}" class="btn-secondary btn-sm" title="Vulnerabilidades sostenidas en CSV">Vulnerabilidades CSV</a>{% endif %}
+    {% if can_edit_settings %}<a href="{% url 'home_settings' %}" class="btn-secondary btn-sm" title="Ventana de tendencias y cadencia de la narrativa">Configurar</a>{% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
 {% block content %}
-<p class="muted">Bienvenido, <span class="font-medium text-ink">{{ user.get_full_name|default:user.get_username }}</span>.</p>
+{% if blocks.detection %}
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+  <div class="flex flex-col gap-4">
+    {% include "presentation/_home_narrative.html" %}
+    <div id="indicadores" hx-get="{% url 'home_block' 'indicators' %}" hx-trigger="every 30s" hx-swap="outerHTML">{% include "presentation/_home_indicators.html" %}</div>
 
-<div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
-  <div class="card">
-    <p class="stat-label">Tu rol</p>
-    <p class="mt-1 font-mono text-base font-semibold">{% if role %}{{ role.name }}{% else %}<span class="text-muted">sin rol asignado</span>{% endif %}</p>
+    <section class="card">
+      <h3 class="card-title">Tendencia de riesgos abiertos por nivel <span class="font-normal text-muted">({{ data.window_days }} días)</span></h3>
+      {% legend charts.risk_legend %}
+      {% svg_trend charts.rows charts.risk_series %}
+    </section>
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <section class="card">
+        <h3 class="card-title">Vulnerabilidades sostenidas y explotación activa</h3>
+        {% legend charts.vuln_legend %}
+        {% svg_trend charts.rows charts.vuln_series 640 160 %}
+      </section>
+      <section class="card">
+        <h3 class="card-title">Priorización contextual frente a CVSS <span class="font-normal text-muted">(vulnerabilidades sostenidas)</span></h3>
+        <p class="mb-2 text-xs text-muted">Lo que CVSS por sí solo marcaría como crítico o alto, frente a lo que Atalaya prioriza al ponderar EPSS, KEV, criticidad del activo y exposición. La diferencia es el ruido que el equipo deja de perseguir.</p>
+        {% legend charts.priority_legend %}
+        {% svg_compare charts.priority_groups 640 150 %}
+      </section>
+    </div>
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+      <section class="card">
+        <h3 class="card-title">Riesgos abiertos por nivel</h3>
+        {% svg_bars charts.level_bars %}
+      </section>
+      <section class="card">
+        <h3 class="card-title">De dónde salen las observaciones</h3>
+        <p class="mb-2 text-xs text-muted">La inteligencia (cruce del software inventariado con NVD) encuentra sin escanear; nuclei y Grype confirman.</p>
+        {% svg_bars charts.source_bars %}
+      </section>
+    </div>
+
+    <section class="card">
+      <h3 class="card-title">Lo que el sistema hizo por sí solo <span class="font-normal text-muted">(últimos {{ data.window_days }} días)</span></h3>
+      <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div><p class="stat-label">Decisiones del planificador</p><p class="stat-value">{{ data.automation.decisions_window }}</p><p class="text-xs text-muted">{{ data.automation.auto_approved_window }} aprobadas solas</p></div>
+        <div><p class="stat-label">Escaneos ejecutados</p><p class="stat-value">{{ data.automation.scans_window }}</p><p class="text-xs text-muted">{% for tool, n in data.tools.by_tool.items %}{{ tool|lower }} {{ n }}{% if not forloop.last %} · {% endif %}{% endfor %}</p></div>
+        <div><p class="stat-label">Vulnerabilidades consolidadas</p><p class="stat-value">{{ data.automation.vulns_consolidated_window }}</p><p class="text-xs text-muted">{{ data.vulnerabilities.by_ai }} evaluadas por IA</p></div>
+        <div><p class="stat-label">Descripciones redactadas</p><p class="stat-value">{{ data.automation.vulns_described_window }}</p><p class="text-xs text-muted">{{ data.vulnerabilities.described }} de {{ data.vulnerabilities.sustained }} con texto</p></div>
+        <div><p class="stat-label">Riesgos valorados</p><p class="stat-value">{{ data.automation.risks_assessed_window }}</p><p class="text-xs text-muted">{{ data.risks.by_ai }} abiertos por IA</p></div>
+        <div><p class="stat-label">Sincronizaciones de inteligencia</p><p class="stat-value">{{ data.automation.cti_syncs_window }}</p><p class="text-xs text-muted">{{ data.cti.cves|default:"—" }} CVE en el espejo</p></div>
+        <div><p class="stat-label">Horas de modelo local</p><p class="stat-value">{{ data.llm.hours_window }}</p><p class="text-xs text-muted">{{ data.llm.ok_window }} / {{ data.llm.calls_window }} respuestas válidas</p></div>
+        <div><p class="stat-label">Detección → valoración</p><p class="stat-value">{% if data.timing.detect_to_assess_hours is not None %}{{ data.timing.detect_to_assess_hours }} h{% else %}—{% endif %}</p><p class="text-xs text-muted">tiempo medio</p></div>
+      </div>
+      <p class="mt-3 text-xs text-muted">Todo esto ocurrió sin intervención humana: el lazo descubre, reconcilia con inteligencia, decide, escanea, consolida, redacta y valora. Las personas deciden el tratamiento y aprueban lo que la automatización no puede.</p>
+    </section>
+
+    <section class="card">
+      <h3 class="card-title">Riesgos que más pesan</h3>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th>Riesgo</th><th>Activo</th><th>Inteligencia</th><th>P × I</th><th>Nivel</th><th>Tratamiento</th></tr></thead>
+          <tbody>
+            {% for r in top_risks %}
+            <tr>
+              <td><a href="{% url 'detection:risk' r.pk %}" class="font-medium">{{ r.title|truncatechars:80 }}</a></td>
+              <td><a href="{% url 'assets:detail' r.asset_id %}">{{ r.asset.name }}</a></td>
+              <td class="text-xs">{% intel_badges r as badges %}{% if badges %}{{ badges }}{% else %}<span class="text-muted">sin explotación conocida</span>{% endif %}</td>
+              <td class="font-mono text-xs whitespace-nowrap">{{ r.likelihood }} × {{ r.impact }}</td>
+              <td>{% risk_level_badge r.level %}</td>
+              <td class="text-xs">{% if r.treatment %}{{ r.get_treatment_display }}{% else %}<span class="text-muted">sin decidir</span>{% endif %}</td>
+            </tr>
+            {% empty %}<tr><td colspan="6" class="table-empty">No hay riesgos abiertos.</td></tr>{% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <p class="mt-2 text-xs"><a href="{% url 'detection:risks' %}">Ver el registro completo de riesgos →</a></p>
+    </section>
   </div>
-  <div class="card">
-    <p class="stat-label">Verificación en dos pasos</p>
-    <p class="mt-1">{% if has_mfa %}<span class="badge-low">activa</span>{% else %}<a href="{% url 'accounts:security' %}" class="badge-medium hover:no-underline">inactiva · activar</a>{% endif %}</p>
-  </div>
-  <div class="card">
-    <p class="stat-label">Sesiones activas</p>
-    <p class="stat-value">{{ session_count }}</p>
+
+  <div class="flex flex-col gap-4">
+    <section class="card flex flex-col gap-2">
+      <h3 class="card-title mb-0">Matriz de riesgos</h3>
+      {% include "detection/_risk_matrix.html" with matrix=matrix compact=True %}
+      <p class="text-xs text-muted">{{ data.risks.open }} riesgo(s) abiertos en {{ data.risks.assets_with_risk }} activo(s); {{ data.risks.untreated }} sin tratamiento decidido.</p>
+    </section>
+    <div id="avisos" hx-get="{% url 'home_block' 'alerts' %}" hx-trigger="every 30s" hx-swap="outerHTML">{% include "presentation/_home_alerts.html" %}</div>
+    {% if blocks.activity %}<div id="pulso" hx-get="{% url 'home_block' 'pulse' %}" hx-trigger="every 30s" hx-swap="outerHTML">{% include "presentation/_home_pulse.html" %}</div>{% endif %}
+    <section class="card">
+      <h3 class="card-title">Tu cuenta</h3>
+      <dl class="kv-grid text-sm">
+        <div><dt class="kv-label">Rol</dt><dd class="kv-value font-mono">{% if role %}{{ role.name }}{% else %}<span class="text-muted">sin rol</span>{% endif %}</dd></div>
+        <div><dt class="kv-label">Verificación en dos pasos</dt><dd class="kv-value">{% if has_mfa %}<span class="badge-low">activa</span>{% else %}<a href="{% url 'accounts:security' %}" class="badge-medium hover:no-underline">inactiva · activar</a>{% endif %}</dd></div>
+        <div><dt class="kv-label">Sesiones activas</dt><dd class="kv-value font-mono">{{ session_count }}</dd></div>
+      </dl>
+    </section>
   </div>
 </div>
-
-<section class="card flex flex-col gap-3">
-  <p class="eyebrow">Módulos del MVP</p>
-  <div class="table-wrap border-0">
-    <table class="data-table">
-      <thead><tr><th>Módulo</th><th>Descripción</th><th>Estado</th></tr></thead>
-      <tbody>
-        {% for code, name, detail in modules %}
-        <tr>
-          <td class="whitespace-nowrap"><span class="font-mono text-muted">{{ code }}</span> <span class="font-medium">{{ name }}</span></td>
-          <td class="muted">{{ detail }}</td>
-          <td><span class="badge-neutral">en desarrollo</span></td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-</section>
+{% else %}
+<div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+  <div class="card"><p class="stat-label">Tu rol</p><p class="mt-1 font-mono text-base font-semibold">{% if role %}{{ role.name }}{% else %}<span class="text-muted">sin rol asignado</span>{% endif %}</p></div>
+  <div class="card"><p class="stat-label">Verificación en dos pasos</p><p class="mt-1">{% if has_mfa %}<span class="badge-low">activa</span>{% else %}<a href="{% url 'accounts:security' %}" class="badge-medium hover:no-underline">inactiva · activar</a>{% endif %}</p></div>
+  <div class="card"><p class="stat-label">Sesiones activas</p><p class="stat-value">{{ session_count }}</p></div>
+</div>
+<p class="mt-4 text-sm text-muted">Tu rol no tiene acceso a los indicadores de detección. Pide a una persona administradora el permiso de lectura de riesgos para ver el estado de la organización aquí.</p>
+{% endif %}
 {% endblock %}

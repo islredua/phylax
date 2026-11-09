@@ -209,6 +209,12 @@ SECTIONS = (
             Tab("audit", "Bitácora", "accounts:audit_log", ("accounts.view_auditlogentry",)),
             Tab("llm", "LLM", "llm:settings", ("llm.manage_llm",)),
             Tab(
+                "home_settings",
+                "Inicio",
+                "home_settings",
+                ("presentation.change_presentationsettings",),
+            ),
+            Tab(
                 "catalogs",
                 "Catálogos",
                 "assets:catalogs",

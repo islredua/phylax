@@ -40,6 +40,9 @@ IMMUTABLE_MODELS = {
     # Módulo 3: evidencia del lazo de detección.
     ("cti", "ctisyncrun"),
     ("cti", "ctichange"),
+    # Módulo 5: instantáneas y narrativas las escribe el sistema.
+    ("presentation", "healthsnapshot"),
+    ("presentation", "healthnarrative"),
     ("detection", "findingevent"),
     ("detection", "vulnerabilityevent"),
     ("detection", "riskevent"),
@@ -59,6 +62,8 @@ ADMIN_MANAGED_MODELS = {
     ("cti", "ctisource"),
     ("detection", "automationsettings"),
     ("detection", "organizationprofile"),
+    # Módulo 5: ventana de tendencias y cadencia de la narrativa de Inicio.
+    ("presentation", "presentationsettings"),
 }
 # (app_label, model) con secretos: ningún rol recibe permisos sobre ellos.
 SECRET_MODELS = {

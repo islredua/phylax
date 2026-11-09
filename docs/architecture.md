@@ -74,10 +74,12 @@ Líneas base contra las que se compara en los experimentos:
 
 ### M5. Presentación (`apps.presentation`)
 
-Dos vistas Django con HTMX + Tailwind:
-
-- **Vista técnica:** tabla priorizada de hallazgos, filtrable por activo, severidad, CVE, estado.
-- **Vista ejecutiva:** narrativa generada por LLM con contexto estructurado (top 10 hallazgos, tendencias, perfil de la organización).
+Inicio es la vista ejecutiva (`docs/modules/05-inicio.md`): semáforo y narrativa redactada por el
+modelo local a partir de indicadores calculados por el sistema (`EXEC_NARRATIVE`, con comprobación
+de coherencia y regla de respaldo), indicadores con deltas, tendencias por instantánea diaria,
+gráficas SVG del servidor, «lo que el sistema hizo por sí solo», avisos por reglas, pulso en tiempo
+real (HTMX) y descargas (reporte ejecutivo imprimible / Markdown, CSV). La vista técnica vive en
+Detección (riesgos, vulnerabilidades, observaciones, actividad).
 
 ### LLM Client (`apps.llm_client`)
 
