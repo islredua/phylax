@@ -291,9 +291,9 @@ def _merge_rule_items(items, vulns, index, context, asset_name):
     return [
         {
             "vulnerabilities": [index[v.pk] for v in vulns],
-            "title": rule_title(
-                consequence, asset_name, f"{len(vulns)} vulnerabilidades acumuladas"
-            ),
+            # Nombra a la vulnerabilidad principal: «… por ejecución remota de código en
+            # log4j-core 2.14.1 y 20 vulnerabilidades más», no «21 vulnerabilidades acumuladas».
+            "title": rule_title(consequence, asset_name, lead_cause(vulns, 80)),
             "consequence": consequence,
             "scenario": (
                 f"El activo acumula {len(vulns)} vulnerabilidades abiertas; un atacante encadena varias "
@@ -465,19 +465,63 @@ def coherent_intelligence(text, vulns):
     return any(w in low for w in _INTEL_FACT_WORDS)
 
 
-def fix_title(title, asset_name):
-    """Obliga a que el título nombre a este activo.
+_GENERIC_HEADS = ("compromiso del activo", "múltiples vulnerabilidades", "vulnerabilidades")
+_GENERIC_CAUSE = re.compile(
+    r"^(múltiples|varias|diversas|numerosas)?\s*(vulnerabilidades|fallas|fallos|problemas)"
+    r"(\s+(de seguridad|conocidas|conocidos|acumuladas|detectadas|identificadas|múltiples|varias))*"
+    r"(\s+en\s+(el|la|los|las|este|esta)\s+(servidor|sistema|activo|servicio|aplicación|"
+    r"plataforma|equipo|host|portal)\b.*)?$",
+    re.IGNORECASE,
+)
 
-    El modelo copia a veces el nombre de los ejemplos del prompt o describe el activo («el
-    sistema de facturación»). Se conserva su consecuencia y su causa y se repone el nombre real.
+
+def lead_cause(vulns, limit=90):
+    """La causa que nombra a las vulnerabilidades: la de mayor puntaje «y N más»."""
+    vulns = sorted(vulns, key=lambda v: v.contextual_score or 0, reverse=True)
+    if not vulns:
+        return ""
+    cause = _clean(vulns[0].title, limit)
+    if len(cause) > 1 and cause[1].islower():
+        cause = cause[0].lower() + cause[1:]
+    rest = len(vulns) - 1
+    return cause if not rest else f"{cause} y {rest} vulnerabilidad{'es' if rest > 1 else ''} más"
+
+
+def fix_title(title, asset_name, consequence="", vulns=()):
+    """Garantiza la fórmula «Consecuencia en activo por causa» sin reintentar al modelo.
+
+    Tres fallas típicas del modelo de 7B: copia el nombre de activo de los ejemplos o describe
+    el activo («el sistema de facturación»); escribe la causa sin consecuencia («Inyección de
+    código en lodash 4.17.15 en agente-portal»); o usa una cabeza genérica («Compromiso del
+    activo por…»). En los tres casos la consecuencia viene en su campo propio, así que el título
+    se reconstruye con ella, el nombre real del activo y la causa que el modelo sí escribió.
     """
     title = _clean(title, 160)
-    if asset_name.lower() in title.lower():
-        return title
+    label = CONSEQUENCE_LABEL.get(consequence or "", "")
     head, _, cause = title.partition(" por ")
-    consequence = head.split(" en ", 1)[0] if " en " in head else head
-    rebuilt = f"{consequence} en {asset_name}" + (f" por {cause}" if cause else "")
-    return _clean(rebuilt, 160)
+    generic = head.lower().startswith(_GENERIC_HEADS)
+    # Una causa que no nombra nada («múltiples vulnerabilidades», «vulnerabilidades de
+    # seguridad») se sustituye por la vulnerabilidad principal del riesgo.
+    if cause and vulns and _GENERIC_CAUSE.match(cause.strip()):
+        cause = lead_cause(vulns)
+        title = f"{head} por {cause}"
+    # Una cabeza de una sola palabra («Integridad en X por…») no es una consecuencia legible.
+    if cause and label and len(head.split(" en ", 1)[0].split()) < 2:
+        head = f"{label} en {asset_name}"
+        title = f"{head} por {cause}"
+    if not cause or generic:
+        # Sin « por » (o con cabeza genérica): todo el texto útil es la causa.
+        cause = cause if generic and cause else title
+        cause = re.sub(rf"\s+en\s+{re.escape(asset_name)}\b", "", cause, flags=re.IGNORECASE)
+        if not label:
+            return title
+        if len(cause) > 1 and cause[1].islower():
+            cause = cause[0].lower() + cause[1:]
+        return _clean(f"{label} en {asset_name} por {cause}", 160)
+    if asset_name.lower() in head.lower():
+        return title
+    head_consequence = head.split(" en ", 1)[0] if " en " in head else head
+    return _clean(f"{head_consequence} en {asset_name} por {cause}", 160)
 
 
 def _validate(parsed, vulns, index, asset_name=""):
@@ -491,7 +535,11 @@ def _validate(parsed, vulns, index, asset_name=""):
             continue
         covered.update(refs)
         if asset_name:
-            item = {**item, "title": fix_title(item["title"], asset_name)}
+            linked = [v for v in vulns if index.get(v.pk) in refs]
+            item = {
+                **item,
+                "title": fix_title(item["title"], asset_name, item.get("consequence", ""), linked),
+            }
         linked = [v for v in vulns if index.get(v.pk) in refs]
         if not coherent_intelligence(item.get("intelligence_summary", ""), linked):
             # El modelo calló el KEV, inventó un porcentaje o escribió generalidades: manda la

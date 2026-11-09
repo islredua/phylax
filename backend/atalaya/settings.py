@@ -240,6 +240,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.detection.tasks.process_pending_events",
         "schedule": 60.0,
     },
+    "detection-describe-pending": {
+        "task": "apps.detection.tasks.describe_pending_vulnerabilities",
+        "schedule": float(os.environ.get("DETECTION_DESCRIBE_EVERY", "120")),
+    },
     "detection-time-reviews": {
         "task": "apps.detection.tasks.emit_time_reviews",
         "schedule": crontab(minute=40),
@@ -333,6 +337,8 @@ DETECTION_CONSOLIDATE_DELAY_S = int(os.environ.get("DETECTION_CONSOLIDATE_DELAY_
 DETECTION_CONSOLIDATE_CHUNK = int(os.environ.get("DETECTION_CONSOLIDATE_CHUNK", "25"))
 # Cuántas vulnerabilidades sin descripción en español se redactan solas tras cada consolidación.
 DETECTION_DESCRIBE_BATCH = int(os.environ.get("DETECTION_DESCRIBE_BATCH", "10"))
+# Cada cuántos segundos beat encola otro lote (DETECTION_DESCRIBE_BATCH) de descripciones pendientes.
+DETECTION_DESCRIBE_EVERY = float(os.environ.get("DETECTION_DESCRIBE_EVERY", "120"))
 # EPSS a partir del cual una vulnerabilidad se considera de explotación probable (FIRST sugiere 0.1).
 DETECTION_EPSS_HIGH = float(os.environ.get("DETECTION_EPSS_HIGH", "0.1"))
 

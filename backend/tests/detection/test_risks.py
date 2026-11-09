@@ -266,13 +266,33 @@ def test_risk_item_schema_requires_spanish_and_title_formula():
         "impact": 5,
     }
     RiskItem.model_validate({**base, "title": "Fuga de datos de pagos en api-pagos por Log4Shell"})
-    for bad_title in (
-        "Apache HTTP Server Vulnerabilities",
-        "Compromiso del activo por vulnerabilidades acumuladas",
-        "Exposición del servidor a vulnerabilidades en OpenSSH",
+    # Un título fuera de fórmula ya no gasta un reintento: el esquema lo acepta y el código lo
+    # reconstruye con la consecuencia y el activo reales.
+    for bad_title, fixed in (
+        (
+            "Compromiso del activo por vulnerabilidades acumuladas",
+            "Fuga de información en api-pagos por vulnerabilidades acumuladas",
+        ),
+        (
+            "Integridad en api-pagos por cabeceras ausentes",
+            "Fuga de información en api-pagos por cabeceras ausentes",
+        ),
+        (
+            "Inyección de código en lodash 4.17.15 en api-pagos",
+            "Fuga de información en api-pagos por inyección de código en lodash 4.17.15",
+        ),
+        (
+            "Exposición del servidor a vulnerabilidades en OpenSSH",
+            "Fuga de información en api-pagos por exposición del servidor a vulnerabilidades en OpenSSH",
+        ),
+        ("CVE-2021-44228 en api-pagos", "Fuga de información en api-pagos por CVE-2021-44228"),
     ):
-        with pytest.raises(ValidationError):
-            RiskItem.model_validate({**base, "title": bad_title})
+        RiskItem.model_validate({**base, "title": bad_title})
+        assert risks.fix_title(bad_title, "api-pagos", "CONFIDENTIALITY") == fixed, bad_title
+    assert (
+        risks.fix_title("Fuga de datos en api-pagos por Log4Shell", "api-pagos", "AVAILABILITY")
+        == "Fuga de datos en api-pagos por Log4Shell"
+    )
     with pytest.raises(ValidationError):
         RiskItem.model_validate(
             {
@@ -612,3 +632,45 @@ def test_model_intelligence_reading_must_match_the_data():
     v = SimpleNamespace(pk="pk1", in_kev=True, epss_score=0.5)
     items, _, _ = risks._validate(parsed, [v], {"pk1": 1}, "a")
     assert items[0]["intelligence_summary"] == "" and items[0]["intel_replaced"]
+
+
+def test_generic_causes_name_the_lead_vulnerability():
+    lead = SimpleNamespace(
+        title="Ejecución remota de código en log4j-core 2.14.1", contextual_score=9.8
+    )
+    other = SimpleNamespace(title="Recorrido de rutas en Apache httpd", contextual_score=5.0)
+    assert risks.lead_cause([other, lead]) == (
+        "ejecución remota de código en log4j-core 2.14.1 y 1 vulnerabilidad más"
+    )
+    assert risks.lead_cause([lead]) == "ejecución remota de código en log4j-core 2.14.1"
+    for generic in (
+        "Fuga de datos en api-pagos por múltiples vulnerabilidades",
+        "Fuga de datos en api-pagos por vulnerabilidades de seguridad",
+        "Fuga de datos en api-pagos por vulnerabilidades conocidas en el servidor",
+    ):
+        assert risks.fix_title(generic, "api-pagos", "CONFIDENTIALITY", [other, lead]) == (
+            "Fuga de datos en api-pagos por ejecución remota de código en log4j-core 2.14.1 "
+            "y 1 vulnerabilidad más"
+        ), generic
+    # Una causa concreta se respeta aunque mencione «vulnerabilidades».
+    concrete = "Fuga de datos en api-pagos por vulnerabilidades en jackson-databind 2.17.2"
+    assert risks.fix_title(concrete, "api-pagos", "CONFIDENTIALITY", [lead]) == concrete
+
+
+def test_merged_rule_risk_names_its_lead_vulnerability(as_role):
+    as_role(ADMIN)
+    asset = _asset_with_vulns()
+    vulns = list(Vulnerability.objects.filter(asset=asset))
+    index = {v.pk: i + 1 for i, v in enumerate(vulns)}
+    context = SimpleNamespace(
+        business_role="API",
+        environment="PROD",
+        criticality="CRITICO",
+        exposure="DMZ",
+        data_classification="CONFIDENCIAL",
+        data_categories=[],
+    )
+    items = risks.rule_items(vulns, context, index, "api-pagos")
+    [item] = risks._merge_rule_items(items, vulns, index, context, "api-pagos")
+    assert " por " in item["title"] and "acumuladas" not in item["title"]
+    assert item["title"].endswith("y 1 vulnerabilidad más") or len(vulns) == 1

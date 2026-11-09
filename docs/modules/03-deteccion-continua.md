@@ -254,10 +254,15 @@ reintento le dice al modelo qué corregir. Además del escenario trae **descripc
 (para quien dirige), **posible impacto** en esta organización y **recomendaciones** ordenadas. El
 LLM local (`apps/llm/prompts/risk_assessment/v3.md`, tarea `RISK_ASSESSMENT`) propone entre 1 y 5
 escenarios agrupando vulnerabilidades que llevan a la misma consecuencia; las referencias
-inválidas se descartan, dos escenarios con el mismo título se funden, el título se corrige si no
-nombra al activo real y lo no cubierto se valora por regla (explotabilidad, KEV y exposición →
-probabilidad; criticidad, datos e impacto de negocio → impacto; consecuencia por datos y función
-del activo; textos deterministas en español que resumen las vulnerabilidades).
+inválidas se descartan, dos escenarios con el mismo título se funden y el título se **garantiza
+en código**, no con reintentos (`risks.fix_title`): si no nombra al activo real se repone el
+nombre; si no trae consecuencia ni « por » («Inyección de código en lodash en agente-portal») se
+reconstruye con la etiqueta de la consecuencia que el modelo sí entrega en su campo; si la causa
+es genérica («por múltiples vulnerabilidades») se sustituye por la vulnerabilidad principal del
+riesgo «y N vulnerabilidades más». Lo no cubierto se valora por regla (explotabilidad, KEV y
+exposición → probabilidad; criticidad, datos e impacto de negocio → impacto; consecuencia por
+datos y función del activo; textos deterministas en español), y el riesgo agregado de la regla
+también nombra a su vulnerabilidad principal en vez de «N vulnerabilidades acumuladas».
 
 **Inteligencia de amenazas visible.** La CTI siempre pesó en los números (puntaje técnico, piso
 KEV, fuente de amenaza «malware»), pero el riesgo no lo contaba. Ahora cada riesgo lleva dos
@@ -366,6 +371,12 @@ servicios, registrar o renovar el rango, cargar SBOM, editar el activo).
 `DETECTION_ASSET_REVIEW_DAYS`, `DETECTION_FINDING_REVIEW_DAYS`, `DETECTION_REEVALUATE_MINUTES`,
 `DETECTION_EPSS_HIGH` (0.1): EPSS a partir del cual una vulnerabilidad cuenta como de explotación
 probable en las insignias y en el resumen de inteligencia (FIRST sugiere 0.1 como corte).
+
+`DETECTION_DESCRIBE_EVERY` (120 s): cada cuánto `beat` encola otro lote de descripciones
+pendientes de toda la plataforma (`describe_pending_vulnerabilities`), de mayor a menor puntaje,
+para que con el tiempo todas las sostenidas queden redactadas sin esperar a que alguien abra el
+detalle. Con un hilo en la cola `llm` y ~4 s por descripción, 800 vulnerabilidades tardan cerca de
+una hora entre consolidaciones.
 
 `DETECTION_DESCRIBE_BATCH` (10): cuántas vulnerabilidades sostenidas sin descripción en español se
 redactan solas tras cada consolidación, de mayor a menor puntaje; las demás se redactan al abrir su

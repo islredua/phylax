@@ -335,16 +335,9 @@ class RiskItem(BaseModel):
             raise ValueError("las recomendaciones deben estar en español")
         return value
 
-    @field_validator("title")
-    @classmethod
-    def _title_names_cause(cls, value):
-        lowered = value.lower()
-        if " por " not in lowered or lowered.startswith("compromiso del activo"):
-            raise ValueError(
-                "el título debe seguir la fórmula «Consecuencia en activo por causa», "
-                "p. ej. «Fuga de datos de pagos en api-pagos por Log4Shell»"
-            )
-        return value
+    # La fórmula del título («Consecuencia en activo por causa») no se exige aquí: un título que
+    # no la siga se reconstruye en ``risks.fix_title`` con la consecuencia y el activo, sin
+    # gastar un reintento del modelo. Solo el idioma se valida.
 
 
 class RiskAssessmentOutput(BaseModel):

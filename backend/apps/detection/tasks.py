@@ -87,6 +87,14 @@ def consolidate_asset(asset_id, reason="", user_id=None):
     return consolidation.consolidate_asset(asset_id, requested_by=user, reason=reason).__dict__
 
 
+@shared_task
+def describe_pending_vulnerabilities():
+    """``beat``: encola un lote de vulnerabilidades sostenidas sin descripción en español."""
+    from . import descriptions
+
+    return {"queued": descriptions.queue_missing_everywhere()}
+
+
 @shared_task(acks_late=True, soft_time_limit=600, time_limit=660)
 def describe_vulnerability(vuln_id, user_id=None):
     """Redacta en español una vulnerabilidad consolidada (cola ``llm``)."""

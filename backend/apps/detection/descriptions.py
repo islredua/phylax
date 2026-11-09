@@ -207,6 +207,31 @@ def request_description(vuln, *, requested_by=None, countdown=0) -> bool:
     return True
 
 
+def queue_missing_everywhere(limit=None) -> int:
+    """Drenaje periódico: redacta poco a poco todas las sostenidas sin descripción.
+
+    La consolidación solo encola un lote por activo y el resto se redactaba al abrir el detalle;
+    con cientos de vulnerabilidades la mayoría quedaba sin texto. Esta tarea de ``beat`` toma las
+    de mayor puntaje contextual de toda la plataforma, sin repetir las que ya están en cola, y
+    deja que la cola ``llm`` (un hilo) avance entre consolidaciones.
+    """
+    limit = limit if limit is not None else int(getattr(settings, "DETECTION_DESCRIBE_BATCH", 10))
+    queued = 0
+    qs = (
+        Vulnerability.objects.filter(status__in=SUSTAINED, summary="")
+        .exclude(description_source=StatusSource.HUMAN)
+        .order_by("-contextual_score", "-first_detected_at")
+    )
+    for vuln in qs[: limit * 3]:
+        if queued >= limit:
+            break
+        if is_pending(vuln.pk):
+            continue
+        if request_description(vuln):
+            queued += 1
+    return queued
+
+
 def queue_missing(asset_id, *, requested_by=None, limit=None) -> int:
     """Encola las sostenidas sin descripción, de mayor a menor puntaje contextual."""
     limit = limit if limit is not None else int(getattr(settings, "DETECTION_DESCRIBE_BATCH", 10))

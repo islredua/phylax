@@ -174,6 +174,37 @@ da cifras sin dato de EPSS, si dice «todas» cuando son algunas o si no habla d
 la lectura determinista y el razonamiento lo anota. Segunda corrida: 6 llamadas, 5 válidas (una
 agotó los dos intentos y el activo se valoró por regla), 2 lecturas del modelo reemplazadas por
 regla, 3 coherentes («Una sola vulnerabilidad sin presencia en el catálogo KEV. El EPSS es nulo,
-por lo que la probabilidad se basa en la exposición a internet»). El campo obligatorio nuevo sube
-los reintentos (5 de 6 llamadas necesitaron el segundo intento); si molesta, bajar la exigencia del
-validador de español sobre `intelligence_summary` es el primer ajuste a probar.
+por lo que la probabilidad se basa en la exposición a internet»). Los reintentos (5 de 6 llamadas)
+no los causó el campo nuevo: la bitácora muestra que en agente-portal el modelo escribió tres veces
+títulos sin consecuencia ni « por » («Inyección de código en lodash 4.17.15 en agente-portal») y el
+validador de la fórmula los rechazaba. Corrección en el flujo, no en los datos: el esquema ya no
+rechaza el título; `risks.fix_title` lo reconstruye con la consecuencia (que el modelo sí entrega
+en su campo), el nombre real del activo y la causa escrita. Validación: corrida completa del
+laboratorio desde cero (abajo).
+
+## Fase F · Corrida completa del laboratorio desde cero (2026-11-08, 16:23 hora local)
+
+`lab_import --reset --user emaceda`: 19 activos borrados y dados de alta de nuevo; el lazo
+(escaneo → criticidad → planificador → herramientas → consolidación → descripciones → riesgos)
+corrió solo. A la hora: 19/19 escaneos y criticidades, 21 decisiones del planificador, 13 nuclei y
+1 Grype exitosos, 828 observaciones → 821 vulnerabilidades (820 títulos en español; la excepción
+es el nombre de plantilla «Missing Subresource Integrity»), 79/79 evaluaciones válidas sin
+reintento, 217/221 descripciones válidas, 20/20 valoraciones de riesgo válidas (5 con reintento,
+0 fallidas), 12 riesgos abiertos con fórmula, consecuencia, descripción, impacto, recomendaciones e
+inteligencia (lectura del modelo coherente en 3, reemplazada por la determinista en 7). Seis
+acciones pesadas quedaron aprobadas para las 22:00 hora local (ventana no operativa; es hora local,
+no UTC).
+
+Defectos de flujo vistos en esa lectura y corregidos en el origen antes de la corrida nocturna:
+
+1. Títulos con causa genérica («Fuga de datos en decoy-info por vulnerabilidades de seguridad»,
+   «… por múltiples vulnerabilidades») y cabezas de una palabra («Integridad en vpn-agentes por…»)
+   → `fix_title` sustituye la causa por la vulnerabilidad principal «y N más» y la cabeza por la
+   etiqueta de la consecuencia; el prompt pide nombrar el software o la falla.
+2. El riesgo agregado de la regla escondía a Log4Shell bajo «21 vulnerabilidades acumuladas» →
+   ahora «… por ejecución remota de código en log4j-core 2.14.1 y 20 vulnerabilidades más».
+3. Solo 228 de 813 vulnerabilidades sostenidas tenían descripción (la consolidación encola 10 por
+   activo y el resto esperaba a que alguien abriera el detalle) → tarea periódica de `beat`
+   (`DETECTION_DESCRIBE_EVERY`, 2 min) que drena la cola de toda la plataforma por puntaje.
+4. El modelo elige «Daño reputacional» en 6 de 10 riesgos (incluso para un proxy saliente) → el
+   prompt pide la consecuencia directa y reserva las derivadas para activos de cara al público.

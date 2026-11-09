@@ -775,3 +775,23 @@ def test_queue_missing_orders_by_score_and_skips_human_text(lab_cti, monkeypatch
     monkeypatch.setattr(tasks.describe_vulnerability, "apply_async", lambda **kw: queued.append(kw))
     assert descriptions.queue_missing(asset.pk) == 1
     assert queued[0]["args"] == [str(vuln.pk)] and human.pk not in [q["args"][0] for q in queued]
+
+
+def test_beat_drains_missing_descriptions_across_assets(lab_cti, monkeypatch):
+    from apps.detection import descriptions, tasks
+
+    pks = []
+    for name in ("d-uno", "d-dos"):
+        asset = AssetFactory(name=name)
+        ServiceFactory(asset=asset, port=443, product="nginx", version="1.27.3")
+        components.refresh_components(asset.pk)
+        findings.apply_matches(matching.reconcile_assets([asset.pk]))
+        consolidation.consolidate_asset(asset.pk, use_llm=False)
+        pks.append(Vulnerability.objects.get(asset=asset, key="CVE-2025-23419").pk)
+    queued = []
+    monkeypatch.setattr(descriptions, "active_model_ready", lambda: True)
+    monkeypatch.setattr(tasks.describe_vulnerability, "apply_async", lambda **kw: queued.append(kw))
+    assert tasks.describe_pending_vulnerabilities() == {"queued": 2}
+    assert {q["args"][0] for q in queued} == {str(pk) for pk in pks}
+    # Lo que ya está en cola (clave pendiente en caché) no se vuelve a pedir.
+    assert tasks.describe_pending_vulnerabilities() == {"queued": 0} and len(queued) == 2
