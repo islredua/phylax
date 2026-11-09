@@ -347,3 +347,43 @@ def test_management_commands(tmp_path, respx_mock, capsys):
     call_command("load_cti_fixture", str(path))
     assert "1 CVE nuevos" in capsys.readouterr().out
     assert CveRecord.objects.filter(pk="CVE-2020-0001").exists()
+
+
+def test_failed_product_coverage_task_is_retried(respx_mock, settings, monkeypatch):
+    """La tarea del espejo dirigido reintenta cuando NVD no respondió: sin reintento el producto
+    quedaba sin CVE (cobertura 0) hasta la revisión semanal y nadie se enteraba."""
+    from celery.exceptions import Retry
+
+    from apps.cti import tasks
+
+    settings.CTI_ONLINE = True
+    respx_mock.get(url__startswith=NVD).mock(side_effect=httpx.ReadTimeout("lento"))
+    calls = []
+
+    def fake_retry(self, countdown=None, **kwargs):
+        calls.append(countdown)
+        return Retry("reintento")
+
+    task = tasks.pull_product_coverage._get_current_object()
+    monkeypatch.setattr(type(task), "retry", fake_retry)
+    with pytest.raises(Retry):
+        task.apply(args=("wordpress", "wordpress")).get()
+    assert calls == [300]
+    assert ProductCoverage.objects.get(product_key="wordpress").last_pulled_at is None
+
+
+def test_concurrent_coverage_pulls_of_the_same_product_run_once(mock_nvd, settings):
+    """Dos activos con nginx piden la cobertura a la vez: una sola descarga; la otra se retira."""
+    from django.core.cache import cache
+
+    from apps.cti import tasks
+
+    settings.CTI_ONLINE = True
+    task = tasks.pull_product_coverage._get_current_object()
+    cache.add("cti:coverage:lock:nginx", "otra", timeout=60)
+    try:
+        assert task.apply(args=("nginx", "f5")).get() is None and mock_nvd.call_count == 0
+    finally:
+        cache.delete("cti:coverage:lock:nginx")
+    assert task.apply(args=("nginx", "f5")).get() is not None and mock_nvd.call_count == 1
+    assert cache.get("cti:coverage:lock:nginx") is None

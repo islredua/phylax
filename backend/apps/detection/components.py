@@ -7,15 +7,16 @@ devuelve qué productos aparecieron, para que la detección pida cobertura CTI y
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass
 
 from django.db import transaction
 from django.utils import timezone
 
 from apps.assets import services as assets_services
-from apps.cti.products import normalize_name, parse_cpe, product_key
+from apps.cti.products import RUNTIME_PRODUCTS, normalize_name, parse_cpe, product_key
 
-from .models import SoftwareComponent
+from .models import ComponentSource, SoftwareComponent
 
 
 @dataclass(frozen=True)
@@ -34,16 +35,21 @@ class RefreshResult:
 def _identity(item):
     """Vendor, clave de producto y versión a partir del CPE (preferente) o del nombre."""
     parts = parse_cpe(item.cpe)
-    if parts is not None and parts.product:
+    named = product_key(item.name, item.vendor)
+    cpe_key = product_key(parts.product, parts.vendor) if parts is not None else ""
+    if cpe_key and cpe_key in RUNTIME_PRODUCTS and named and named != cpe_key:
+        # «Werkzeug httpd 3.1.9» con cpe python:3.12.16: nmap dedujo el intérprete a partir del
+        # banner. El software que atiende el puerto es Werkzeug: ese es el componente (con la
+        # versión del servicio); el CPE del entorno de ejecución se conserva como dato, no como
+        # producto a reconciliar (sus CVE hablan del intérprete, no de la aplicación).
+        # «PostgreSQL DB» con cpe postgresql:16.4 no es este caso: el CPE manda, como siempre.
+        vendor = normalize_name(item.vendor)
+        key = named
+        version = item.version
+    elif parts is not None and parts.product:
         vendor = parts.vendor
         key = product_key(parts.product, parts.vendor)
-        named = product_key(item.name, item.vendor)
-        # «Werkzeug httpd 3.1.9» con cpe python:3.12.16: la versión del servicio es de Werkzeug,
-        # la de Python viene en el CPE. Si el CPE habla de otro producto, manda su versión.
-        if parts.version and named and named != key:
-            version = parts.version
-        else:
-            version = item.version or parts.version
+        version = item.version or parts.version
     else:
         vendor = normalize_name(item.vendor)
         key = product_key(item.name, item.vendor)
@@ -62,7 +68,13 @@ def _fingerprint(item, key, version):
 def refresh_components(asset_id) -> RefreshResult:
     """Sincroniza el índice con el software actual del activo. Idempotente."""
     items = assets_services.get_asset_software(asset_id)
-    existing = {c.fingerprint: c for c in SoftwareComponent.objects.filter(asset_id=asset_id)}
+    # Lo detectado por herramientas (nuclei) vive aparte: no sale del inventario y no se retira aquí.
+    existing = {
+        c.fingerprint: c
+        for c in SoftwareComponent.objects.filter(asset_id=asset_id).exclude(
+            source=ComponentSource.TOOL
+        )
+    }
     keys_before = {c.product_key for c in existing.values() if c.is_current}
     seen = set()
     added = 0
@@ -143,3 +155,114 @@ def components_by_key(keys):
     ).select_related("asset"):
         grouped.setdefault(component.product_key, []).append(component)
     return grouped
+
+
+# --------------------------------------------------------------------------
+# Software detectado por herramientas (nuclei: tecnología y versión)
+# --------------------------------------------------------------------------
+
+_VERSION_RE = re.compile(r"\b(\d+\.\d+(?:\.\d+){0,2})\b")
+
+
+@dataclass(frozen=True)
+class Detected:
+    name: str
+    vendor: str
+    version: str
+    template: str
+    port: int | None = None
+
+
+def detections_from_tool(tool_findings) -> list[Detected]:
+    """Software que una plantilla identificó con producto y versión.
+
+    nuclei anota ``info.metadata.product/vendor`` en sus plantillas y las de tecnología extraen la
+    versión (``wordpress-detect`` lee la etiqueta generator). Sin versión no hay componente: una
+    reconciliación sin versión solo produciría candidatos «por verificar» para todos los CVE del
+    producto.
+    """
+    out, seen = [], set()
+    for item in tool_findings:
+        raw = item.raw or {}
+        meta = raw.get("template") or {}
+        product = str(meta.get("product") or "").strip()
+        if not product:
+            continue
+        version = ""
+        for value in raw.get("extracted-results") or []:
+            m = _VERSION_RE.search(str(value))
+            if m:
+                version = m.group(1)
+                break
+        if not version:
+            continue
+        key = (product.lower(), version)
+        if key in seen:
+            continue
+        seen.add(key)
+        port = None
+        m = re.search(r":(\d{2,5})(?:/|$)", str(raw.get("matched-at") or ""))
+        if m:
+            port = int(m.group(1))
+        out.append(
+            Detected(
+                name=product,
+                vendor=str(meta.get("vendor") or "").strip(),
+                version=version,
+                template=str(raw.get("template-id") or "")[:100],
+                port=port,
+            )
+        )
+    return out
+
+
+@transaction.atomic
+def record_detected(asset_id, detections) -> RefreshResult:
+    """Da de alta (o refresca) componentes ``TOOL`` y devuelve las claves de producto nuevas."""
+    now = timezone.now()
+    keys_before = set(
+        SoftwareComponent.objects.filter(asset_id=asset_id, is_current=True).values_list(
+            "product_key", flat=True
+        )
+    )
+    added, seen = 0, set()
+    for d in detections:
+        key = product_key(d.name, d.vendor)
+        if not key:
+            continue
+        fingerprint = hashlib.sha256(
+            "|".join(("TOOL", key, d.version, str(d.port or ""))).encode()
+        ).hexdigest()
+        seen.add(fingerprint)
+        component = SoftwareComponent.objects.filter(
+            asset_id=asset_id, fingerprint=fingerprint
+        ).first()
+        if component is None:
+            SoftwareComponent.objects.create(
+                asset_id=asset_id,
+                source=ComponentSource.TOOL,
+                name=f"{d.name} (detectado por {d.template or 'herramienta'})"[:200],
+                vendor=normalize_name(d.vendor)[:120],
+                product_key=key[:120],
+                version=d.version[:100],
+                port=d.port,
+                protocol="tcp" if d.port else "",
+                fingerprint=fingerprint,
+            )
+            added += 1
+        else:
+            component.is_current = True
+            component.last_seen = now
+            component.save(update_fields=["is_current", "last_seen", "updated_at"])
+    keys_after = set(
+        SoftwareComponent.objects.filter(asset_id=asset_id, is_current=True).values_list(
+            "product_key", flat=True
+        )
+    )
+    return RefreshResult(
+        asset_id=asset_id,
+        current=len(seen),
+        added=added,
+        removed=0,
+        new_product_keys=tuple(sorted(keys_after - keys_before)),
+    )

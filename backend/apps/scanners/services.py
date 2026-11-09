@@ -51,6 +51,39 @@ def _enqueue(execution_id):
     ToolExecution.objects.filter(pk=execution_id).update(celery_task_id=result.id or "")
 
 
+def _record_detected_software(execution, tool_findings):
+    """Tecnología con versión que nuclei identificó → componente ``TOOL`` del activo.
+
+    Las claves de producto nuevas piden el espejo dirigido de NVD (sus cambios reconcilian al
+    activo por la vía habitual); las ya cubiertas se reconcilian aquí mismo.
+    """
+    from apps.detection import components, findings, matching
+
+    detections = components.detections_from_tool(tool_findings)
+    if not detections:
+        return
+    result = components.record_detected(execution.asset_id, detections)
+    if result.new_product_keys:
+        from apps.cti.tasks import pull_product_coverage
+
+        vendors = dict(
+            components.SoftwareComponent.objects.filter(
+                asset_id=execution.asset_id,
+                product_key__in=list(result.new_product_keys),
+                is_current=True,
+            ).values_list("product_key", "vendor")
+        )
+        for key in result.new_product_keys:
+            transaction.on_commit(lambda k=key: pull_product_coverage.delay(k, vendors.get(k, "")))
+    findings.apply_matches(matching.reconcile_assets([execution.asset_id]))
+    logger.info(
+        "Software detectado por %s en %s: %s",
+        execution.get_tool_display(),
+        execution.asset_id,
+        ", ".join(f"{d.name} {d.version}" for d in detections),
+    )
+
+
 def _build_argv(tool, profile, targets):
     if tool == Tool.NUCLEI:
         return profiles.build_nuclei_argv(profile, targets)
@@ -110,6 +143,9 @@ def split_foreign(execution, tool_findings):
 def _ingest(execution, tool_findings):
     from apps.cti.services import get_cve
     from apps.detection import findings
+
+    if execution.asset_id and execution.tool == Tool.NUCLEI:
+        _record_detected_software(execution, tool_findings)
 
     source = "NUCLEI" if execution.tool == Tool.NUCLEI else "GRYPE"
     observed_at = timezone.now()
@@ -229,3 +265,52 @@ def executions_this_hour(now=None):
     return ToolExecution.objects.filter(
         created_at__gte=now.replace(minute=0, second=0, microsecond=0)
     ).count()
+
+
+# --------------------------------------------------------------------------
+# Ejecuciones huérfanas (el worker se reinició o la tarea se perdió a medio camino)
+# --------------------------------------------------------------------------
+
+RUN_TOOL_TIME_LIMIT_S = 4200  # igual al ``time_limit`` de ``tasks.run_tool``
+ORPHAN_GRACE_S = 120  # recién reclamada: el worker todavía puede no figurar como activo
+MAX_INTERRUPTED_RETRIES = 1
+
+
+def recover_orphaned_executions(*, active_task_ids=None, now=None):
+    """Cierra como fallidas las ejecuciones «en ejecución» que ya no corren en ningún worker.
+
+    Dos reglas acotadas: si se conocen las tareas activas de los workers, toda ejecución reclamada
+    hace más de ``ORPHAN_GRACE_S`` cuya tarea no está entre ellas; y, en cualquier caso, toda
+    ejecución que lleve más que el límite de tiempo de la tarea. La acción planificada que la pidió
+    se vuelve a encolar una vez (una interrupción no es un fallo de la herramienta).
+    """
+    now = now or timezone.now()
+    recovered = []
+    for execution in ToolExecution.objects.filter(status=ExecutionStatus.RUNNING).order_by(
+        "started_at"
+    ):
+        started = execution.started_at or execution.created_at
+        age = (now - started).total_seconds()
+        timed_out = age > RUN_TOOL_TIME_LIMIT_S + ORPHAN_GRACE_S
+        lost = (
+            active_task_ids is not None
+            and age > ORPHAN_GRACE_S
+            and execution.celery_task_id not in active_task_ids
+        )
+        if not (timed_out or lost):
+            continue
+        execution.status = ExecutionStatus.FAILED
+        execution.error = (
+            "Interrumpida: el worker se reinició o la tarea se perdió antes de terminar"
+            if lost
+            else f"Interrumpida: superó el límite de {RUN_TOOL_TIME_LIMIT_S // 60} min sin terminar"
+        )
+        execution.finished_at = now
+        execution.save(update_fields=["status", "error", "finished_at", "updated_at"])
+        logger.warning("Ejecución %s huérfana: %s", execution.pk, execution.error)
+        from apps.detection.actions import on_execution_finished, requeue_interrupted
+
+        action = on_execution_finished(execution)
+        retried = action is not None and requeue_interrupted(action, execution)
+        recovered.append((execution, retried))
+    return recovered

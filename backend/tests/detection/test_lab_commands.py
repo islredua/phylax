@@ -147,8 +147,8 @@ def test_evaluate_lab_scores_against_ground_truth(tmp_path, make_user, monkeypat
     # Con Celery inmediato, adjuntar los SBOM ya corrió el lazo: la CTI reconcilia Log4Shell,
     # Pillow y lodash → TP en api-pagos, app-siniestros y agente-portal, más portal-rh. La vía
     # esperada (GRYPE) solo se cumple con la herramienta real: aquí llegan por CTI_MATCH.
-    assert metrics["tp"] == 4 and metrics["fp"] == 1 and metrics["fn"] == 7
-    assert metrics["precision"] == 0.8 and metrics["recall"] == round(4 / 11, 3)
+    assert metrics["tp"] == 4 and metrics["fp"] == 1 and metrics["fn"] == 8
+    assert metrics["precision"] == 0.8 and metrics["recall"] == round(4 / 12, 3)
     assert metrics["via_expected_ok"] == "1/4" and metrics["backup_host_verdict"] == "FN"
     assert metrics["api_pagos_rank_by_contextual"] == 1  # pagos en DMZ con datos restringidos
     assert metrics["spearman_contextual"] > metrics["spearman_cvss"]

@@ -457,6 +457,37 @@ def on_execution_finished(execution):
     return action
 
 
+def requeue_interrupted(action, execution):
+    """Una ejecución interrumpida (no un fallo de la herramienta) se vuelve a pedir una vez."""
+    from apps.scanners import services as scanners
+
+    retries = int((action.result or {}).get("interrupted_retries") or 0)
+    if retries >= scanners.MAX_INTERRUPTED_RETRIES:
+        return False
+    action.status = ActionStatus.QUEUED
+    action.queued_at = timezone.now()
+    action.finished_at = None
+    action.error = ""
+    action.result = {**action.result, "interrupted_retries": retries + 1}
+    action.save()
+    scanners.request_execution(
+        tool=execution.tool,
+        profile=execution.profile,
+        asset_id=execution.asset_id,
+        targets=execution.targets,
+        action=action,
+    )
+    automation.log(
+        LogKind.DISPATCHED,
+        action=action,
+        message=(
+            f"{execution.get_tool_display()} {execution.profile}: interrumpida; "
+            "se vuelve a encolar"
+        ),
+    )
+    return True
+
+
 def on_discovery_finished(run_id, status, asset_id=None):
     action = PlannedAction.objects.filter(discovery_run_id=run_id).first()
     if action is None:

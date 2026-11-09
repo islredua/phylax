@@ -253,3 +253,26 @@ def test_process_pending_handles_stragglers():
 @pytest.fixture
 def operator_user(make_user):
     return make_user(OPERATOR)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_product_coverage_changes_become_events_outside_a_transaction(settings):
+    """El espejo dirigido corre en una tarea sin transacción: sus cambios deben producir el lote
+    CTI igual que una sincronización completa (antes el bloqueo de filas fallaba y el CVE que ya
+    estaba en el espejo, p. ej. uno de KEV, nunca se reconciliaba contra el producto recién visto)."""
+    from apps.cti.models import CtiChange, CtiSyncRun, CveRecord
+    from apps.cti.signals import changes_detected
+
+    asset = _nginx()
+    _lab()
+    assert Finding.objects.filter(asset=asset, vulnerability_id="CVE-2025-23419").exists()
+    run = CtiSyncRun.objects.create(source="NVD", trigger="PRODUCT")
+    cve = CveRecord.objects.get(cve_id="CVE-2025-23419")
+    change = CtiChange.objects.create(
+        run=run, cve=cve, kind="CVE_MODIFIED", before={"cvss_score": 5.0}, after={"cvss_score": 7.5}
+    )
+    changes_detected.send(sender=CtiSyncRun, run=run, changes=[change])
+    batch = EventBatch.objects.get(source="CTI", reference=str(run.pk))
+    event = batch.events.get()
+    assert event.kind == EventKind.CTI_CVE_MODIFIED and event.status == EventStatus.RECONCILED
+    assert Finding.objects.get(asset=asset, vulnerability_id="CVE-2025-23419").events.exists()

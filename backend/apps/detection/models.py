@@ -15,6 +15,7 @@ USER = settings.AUTH_USER_MODEL
 class ComponentSource(models.TextChoices):
     SERVICE = "SERVICE", "Servicio observado"
     SBOM = "SBOM", "Componente del SBOM"
+    TOOL = "TOOL", "Detectado por herramienta"
 
 
 class SoftwareComponent(UUIDModel):

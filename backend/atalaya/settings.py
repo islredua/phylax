@@ -245,6 +245,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.presentation.tasks.snapshot_health",
         "schedule": crontab(minute=5),
     },
+    "scanners-recover-orphans": {
+        "task": "apps.scanners.tasks.recover_orphaned_executions",
+        "schedule": crontab(minute="*/5"),
+    },
     "home-health-narrative": {
         "task": "apps.presentation.tasks.refresh_health_narrative",
         "schedule": crontab(minute="*/10"),
@@ -330,6 +334,8 @@ CTI_ONLINE = os.environ.get("CTI_ONLINE", "1") == "1"
 CTI_NVD_INITIAL_DAYS = int(os.environ.get("CTI_NVD_INITIAL_DAYS", "30"))
 # Espejo dirigido: cada cuántos días se vuelven a traer los CVE de un producto del inventario.
 CTI_PRODUCT_REFRESH_DAYS = int(os.environ.get("CTI_PRODUCT_REFRESH_DAYS", "7"))
+# Lectura de una página de NVD (2 000 CVE, 10–20 MB) con salidas lentas.
+CTI_HTTP_TIMEOUT_S = float(os.environ.get("CTI_HTTP_TIMEOUT_S", "600"))
 # «EPSS subió»: incremento mínimo entre snapshots, o primer puntaje por encima de CTI_EPSS_HIGH.
 CTI_EPSS_RISE_DELTA = float(os.environ.get("CTI_EPSS_RISE_DELTA", "0.1"))
 CTI_EPSS_HIGH = float(os.environ.get("CTI_EPSS_HIGH", "0.5"))

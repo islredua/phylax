@@ -51,8 +51,17 @@ de inventario. Un evento idéntico (`kind:activo:cve`) que ya espera no se vuelv
 ## B. Reconciliación sin reescanear
 
 Índice de software por activo (`SoftwareComponent`): servicios abiertos de nmap (producto, versión,
-CPE) y componentes del SBOM vigente (CycloneDX/SPDX). Clave canónica de producto con alias de
-vendors (`cti/products.py`), comparación tolerante de versión upstream (`cti/versions.py`).
+CPE), componentes del SBOM vigente (CycloneDX/SPDX) y software que nuclei identificó con versión
+(fuente `TOOL`: la plantilla trae `metadata.product/vendor` y un extractor de versión, p. ej.
+`wordpress-detect` → WordPress 4.7 sobre un Apache que nmap solo ve como Apache; sin versión no hay
+componente). Clave canónica de producto con alias de vendors (`cti/products.py`), comparación
+tolerante de versión upstream (`cti/versions.py`). El espejo dirigido (`pull_product_coverage`)
+reintenta con espera creciente si NVD no responde (`CTI_HTTP_TIMEOUT_S` por página) y sus cambios
+producen el mismo lote de eventos que una sincronización completa. Cuando el CPE de nmap nombra un intérprete
+distinto del producto del servicio («Werkzeug httpd 3.1.9» con `cpe:/a:python:python:3.12.16`,
+`RUNTIME_PRODUCTS`), el componente es el producto nombrado con la versión del servicio: los CVE de
+CPython no son de la aplicación que atiende el puerto. Los componentes `TOOL` no se retiran al
+reindexar desde el inventario y las claves de producto nuevas piden el espejo dirigido de NVD.
 
 Por lote se reconcilia **una vez**: los `CveProduct` del lote contra los componentes con la misma
 clave. Un emparejamiento con versión en rango crea o actualiza el hallazgo directamente (fuente
@@ -180,8 +189,10 @@ cabeceras, credenciales por defecto, exposición de información). El flujo:
    PHPUnit sobre Apache dispara igual, así que es duda, no descarte); «versión exacta en el rango
    afectado» cuando el SBOM analizado por Grype, un banner exacto con fabricante coincidente o
    varias fuentes sostienen la coincidencia → piso de estado `LIKELY` (`rule_status_floor`): si el
-   modelo dice «requiere verificación» con plausibilidad ≥ 0.7, la evidencia manda; sin LLM el ítem
-   por regla sale `LIKELY` 0.8 en vez de 0.5; y, para coincidencias que solo vienen de la CTI, «versión imprecisa
+   modelo dice «requiere verificación» con plausibilidad ≥ 0.7, la evidencia manda, y si además el
+   CVE está en KEV la duda del modelo no cuenta (sube a `LIKELY` con plausibilidad ≥ 0.7,
+   `KEV_FLOOR_PLAUSIBILITY`: Apache 2.4.49 con CVE-2021-41773 no puede quedar «por verificar» con
+   0.1); sin LLM el ítem por regla sale `LIKELY` 0.8 en vez de 0.5; y, para coincidencias que solo vienen de la CTI, «versión imprecisa
    según nmap» («4», «2.2.X - 2.3.X» → tope 0.5) o «paquete de distribución: posible parche
    retroportado» («9.2p1 Debian 2+deb12u10» → tope 0.6), ambas con tope de estado
    `NEEDS_VERIFICATION` (`rule_status_cap`): la IA no puede afirmar `CONFIRMED` hasta que otra
@@ -449,10 +460,14 @@ ventana no operativa y los guardarraíles.
 - Plantillas de nuclei y base de Grype: no se descargan en el build; `update_scanner_data` una vez
   (o montarlas) en despliegues sin internet.
 - Motor de scoring (Módulo 4): hoy `score_findings` devuelve vacío.
+- Ejecuciones huérfanas: si un worker se reinicia a medio escaneo, la ejecución quedaría «en
+  ejecución» y contaría para el límite de concurrencia; `recover_orphaned_executions` (beat cada
+  5 min) la cierra como interrumpida cuando ninguna tarea activa la respalda (o superó el límite de
+  tiempo) y la acción se vuelve a encolar una vez.
 - Escaneo de red vía nuclei por `ip:puerto` (sin hostnames/URL). Si el inventario conoce servicios
   web (nombre o producto con «http», o puertos 80/443/8080…), solo esos puertos con el perfil
-  `cves-web` (etiquetas `cve,exposure,panel,default-login,misconfig`: lo que una persona miraría
-  primero en una web); si no, todos los puertos TCP abiertos con `cves-network` (`-exclude-type
+  `cves-web` (etiquetas `cve,exposure,panel,default-login,misconfig,tech`: lo que una persona
+  miraría primero en una web, más la identificación de tecnología que alimenta el inventario); si no, todos los puertos TCP abiertos con `cves-network` (`-exclude-type
   http,headless`): una plantilla HTTP contra SMB o SSH espera el tiempo límite y miles de ellas
   convertían 2 min en media hora. `exposure`/`misconfig` sueltos por etiquetas. El JSONL va sin
   petición/respuesta crudas (`-omit-raw`): una plantilla con comparador global volcaba el HTML de

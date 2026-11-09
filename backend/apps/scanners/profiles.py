@@ -20,7 +20,8 @@ NUCLEI_PROFILES = {
     "cves": ["-tags", "cve"],
     # Equipos con servicio web: CVE más exposiciones (phpinfo, paneles sin autenticación,
     # credenciales por defecto, cabeceras): es lo que una persona miraría primero en una web.
-    "cves-web": ["-tags", "cve,exposure,panel,default-login,misconfig"],
+    # «tech» identifica el software y su versión (WordPress, etc.) para alimentar el inventario.
+    "cves-web": ["-tags", "cve,exposure,panel,default-login,misconfig,tech"],
     # Equipos sin servicio web: solo plantillas de red/TLS/JS; las HTTP cuelgan contra SMB o SSH.
     "cves-network": ["-tags", "cve", "-exclude-type", "http,headless"],
     "exposure": ["-tags", "exposure,panel,default-login,misconfig"],

@@ -208,7 +208,10 @@ class NvdClient:
         return {"apiKey": self.api_key} if self.api_key else {}
 
     def _get(self, params):
-        client = self.http or httpx.Client(timeout=60)
+        # Una página de 2 000 CVE pesa 10–20 MB: con una salida lenta tarda minutos, no segundos.
+        client = self.http or httpx.Client(
+            timeout=httpx.Timeout(settings.CTI_HTTP_TIMEOUT_S, connect=30)
+        )
         try:
             response = client.get(self.base_url, params=params, headers=self._headers())
             response.raise_for_status()

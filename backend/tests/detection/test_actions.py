@@ -466,3 +466,79 @@ def test_nuclei_targets_prefer_web_ports_and_fall_back_to_network_profile(fake_t
 
     argv = profiles.build_nuclei_argv("cves-network", execution.targets)
     assert argv[argv.index("-exclude-type") + 1] == "http,headless"
+
+
+def test_orphaned_execution_is_failed_and_its_action_requeued_once(monkeypatch):
+    """El worker se reinició a medio escaneo: la ejecución queda «en ejecución» para siempre y la
+    acción nunca cierra. La recuperación la marca interrumpida y vuelve a pedir el escaneo una vez;
+    a la segunda interrupción la acción queda fallida."""
+    calls = []
+
+    def fake(argv, *, timeout=None, env=None):
+        calls.append(argv)
+        return CommandResult(stdout=NUCLEI, stderr="", exit_code=0, duration_s=0.1)
+
+    monkeypatch.setattr(scanners, "run_command", fake)
+    asset = _asset()
+    event, _ = events.ingest_asset_event(EventKind.ASSET_CONFIRMED, asset.pk)
+    decision = PlannerDecision.objects.create(
+        event=event, asset=asset, action="DETECT_VULNS", urgency="HIGH", rationale="x"
+    )
+    action = PlannedAction.objects.create(
+        decision=decision,
+        event=event,
+        asset=asset,
+        action="DETECT_VULNS",
+        urgency="HIGH",
+        status=ActionStatus.RUNNING,
+        queued_at=timezone.now(),
+    )
+    lost = ToolExecution.objects.create(
+        tool="NUCLEI",
+        profile="cves-web",
+        asset=asset,
+        targets=["10.7.0.10:80"],
+        action=action,
+        status="RUNNING",
+        celery_task_id="tarea-perdida",
+        started_at=timezone.now() - timezone.timedelta(minutes=10),
+    )
+    fresh = ToolExecution.objects.create(
+        tool="NUCLEI",
+        profile="cves-web",
+        asset=asset,
+        targets=["10.7.0.10:80"],
+        status="RUNNING",
+        celery_task_id="recien-reclamada",
+        started_at=timezone.now() - timezone.timedelta(seconds=30),
+    )
+    recovered = scanners.recover_orphaned_executions(active_task_ids={"otra-tarea"})
+    assert [(e.pk, retried) for e, retried in recovered] == [(lost.pk, True)]
+    lost.refresh_from_db()
+    fresh.refresh_from_db()
+    assert lost.status == "FAILED" and "Interrumpida" in lost.error and fresh.status == "RUNNING"
+    action.refresh_from_db()
+    # En pruebas la tarea corre en línea: la ejecución nueva ya terminó y cerró la acción.
+    assert action.result["interrupted_retries"] == 1 and action.status == ActionStatus.DONE
+    assert len(calls) == 1 and action.executions.count() == 2
+    assert AutomationLogEntry.objects.filter(action=action, kind=LogKind.DISPATCHED).exists()
+    # Segunda interrupción: ya no se reintenta.
+    again = ToolExecution.objects.create(
+        tool="NUCLEI",
+        profile="cves-web",
+        asset=asset,
+        targets=["10.7.0.10:80"],
+        action=action,
+        status="RUNNING",
+        celery_task_id="perdida-otra-vez",
+        started_at=timezone.now() - timezone.timedelta(hours=2),
+    )
+    PlannedAction.objects.filter(pk=action.pk).update(status=ActionStatus.RUNNING)
+    assert scanners.recover_orphaned_executions(active_task_ids=set()) == [(again, False)]
+    action.refresh_from_db()
+    assert action.status == ActionStatus.FAILED and len(calls) == 1
+    # Sin lista de tareas activas solo aplica el límite de tiempo.
+    ToolExecution.objects.filter(pk=fresh.pk).update(
+        started_at=timezone.now() - timezone.timedelta(seconds=4400)
+    )
+    assert [e.pk for e, _ in scanners.recover_orphaned_executions()] == [fresh.pk]

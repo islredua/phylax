@@ -251,3 +251,82 @@ Defectos de flujo encontrados en el cierre y corregidos en el origen:
 4. Las cuatro ejecuciones fallidas de la base son del 2026-11-07 (antes de la corrida limpia: dos
    salidas de nuclei mayores que el tope, un perfil `cves-network` anterior a su creación y un
    nuclei terminado al reiniciar el worker); ninguna pertenece a la corrida.
+
+## Fase G · Los cinco casos fallados de la corrida nocturna (2026-11-09)
+
+Diagnóstico de los 3 falsos negativos y 2 falsos positivos del cierre de la Fase F, con la
+corrección en el origen (flujo o laboratorio, nunca los datos):
+
+| Caso | Causa | Corrección |
+|---|---|---|
+| portal-expuesto-apache · CVE-2021-41773/42013 (FN) | La CTI acertó la versión exacta 2.4.49 (KEV, EPSS 0.99992) pero el modelo dijo «por verificar» con 0.1 y el piso exigía ≥ 0.7. nuclei no confirmó porque el Apache del laboratorio negaba la raíz del sistema de archivos (403). | Flujo: piso KEV (`KEV_FLOOR_PLAUSIBILITY`). Laboratorio: `<Directory />` permitido en el Dockerfile; el recorrido de ruta responde 200. |
+| crm-legacy · CVE-2017-1001000 (FN) | WordPress nunca terminó de instalarse (la etiqueta `4.7` era 4.7.5, parchada, y la raíz redirigía a `install.php`); nmap solo veía Apache 2.4.10 y la detección de tecnología de nuclei no alimentaba el inventario, así que el espejo dirigido nunca pidió los CVE de WordPress. | Flujo: componentes `TOOL` desde `metadata.product` + versión extraída, etiqueta `tech` en `cves-web`, cobertura NVD al aparecer el producto. Laboratorio: imagen `wordpress:4.7.0-apache`, instalador de un solo uso (`crm-setup`) y mu-plugin que apaga las actualizaciones automáticas (el núcleo subía solo a 4.7.39). |
+| correo-legacy-agentes · CVE-2019-10149 (FN) | Exim escuchaba solo en 127.0.0.1: el puerto 25 estaba cerrado desde la red y no hubo servicio ni componente. | Laboratorio: `dc_local_interfaces='0.0.0.0 ; ::0'` + `update-exim4.conf`; nmap ve «Exim smtpd 4.89». |
+| erp-interno · 9 CVE de CPython (FP) | nmap reportó «Werkzeug httpd 3.1.9» con `cpe:/a:python:python:3.12.16` y `_identity` prefería la versión del CPE: el componente era python 3.12.16. | Flujo: si el CPE nombra un intérprete (`RUNTIME_PRODUCTS`) distinto del producto del servicio, manda el producto nombrado con su versión (Werkzeug 3.1.9); alias `werkzeug`. |
+| proxy-saliente · 7 CVE de Squid (FP) | `ubuntu/squid:latest` trae Squid 6.13 y los CVE (publicados entre 2025-10 y 2026-03, corregidos en 7.2/7.5) son reales: la verdad de terreno estaba desactualizada. | Verdad de terreno: el activo deja de ser control y espera esos 7 CVE por CTI. |
+
+Pruebas: `test_exact_version_in_kev_cannot_stay_in_verification`,
+`test_named_product_wins_when_cpe_names_the_runtime`,
+`test_tool_detected_software_becomes_a_component_and_survives_refresh`; la prueba del laboratorio
+sintético pasa a esperar 8 FN (la fila nueva de Squid no se siembra ahí).
+
+Sexto defecto, encontrado a los cinco minutos de la primera corrida de comprobación (09:15) y
+el más serio de todos: **el espejo dirigido nunca convertía sus cambios en eventos**. La tarea
+`pull_product_coverage` corre sin transacción y el receptor `on_cti_changes` bloquea filas
+(`select_for_update`) al anotar los hallazgos del CVE, así que la señal moría con
+`TransactionManagementError` en cada tirón por producto (los de una sincronización completa iban
+dentro de la transacción del fixture y por eso las pruebas no lo veían). Consecuencia: un CVE que ya
+estaba en el espejo sin productos útiles (CVE-2019-10149 venía de KEV con el producto «mail
+transfer agent (mta)») recibía su rango 4.87–4.91 al tirar de «exim», pero ese cambio no
+reconciliaba a nadie y el correo con Exim 4.89 seguía sin hallazgo pese a tener el componente.
+El receptor abre ahora su propia transacción y encola el lote al confirmar;
+`test_product_coverage_changes_become_events_outside_a_transaction` (con transacción real) falla
+sin la corrección y pasa con ella. La corrida se reinició desde cero a las 09:29.
+
+Séptimo y octavo defectos, vistos en la segunda corrida:
+
+7. **La descarga dirigida de NVD moría por tiempo de espera y nadie se enteraba.** WordPress y PHP
+   entraron al inventario a las 10:23 (detección de nuclei), el espejo pidió sus CVE y las dos
+   descargas fallaron con `ReadTimeout` (una página de 2 000 CVE pesa 10–20 MB; con la salida lenta
+   del laboratorio, 60 s no alcanzan) y la tarea no reintentaba: cobertura 0 hasta la revisión
+   semanal y el CVE sembrado del CRM imposible de encontrar. Tiempo de lectura configurable
+   (`CTI_HTTP_TIMEOUT_S`, 600 s) y `pull_product_coverage` reintenta hasta tres veces con espera
+   creciente (`test_failed_product_coverage_task_is_retried`). Además, varios activos (o una
+   tarea redistribuida tras un reinicio) pedían el mismo producto a la vez y se descargaban las
+   mismas páginas en paralelo por la misma salida lenta: un candado por producto en caché deja una
+   sola descarga y retira las demás (`test_concurrent_coverage_pulls_of_the_same_product_run_once`).
+8. **Una ejecución interrumpida (reinicio del worker) quedaba «en ejecución» para siempre** y, al
+   contar para el límite de concurrencia, frenaba al despachador: la corrida se quedó en seis
+   acciones sin avanzar. `scanners.recover_orphaned_executions` (beat cada 5 min) cierra como
+   interrumpida toda ejecución cuya tarea no está activa en ningún worker (o que superó el límite
+   de tiempo de la tarea) y vuelve a encolar la acción una sola vez
+   (`test_orphaned_execution_is_failed_and_its_action_requeued_once`). Complementa a
+   `actions.stale_running`, que a las 3 h da la acción por fallida sin reintento.
+
+### Resultado de la corrida de comprobación (2026-11-09, 09:29 → 11:04 hora local)
+
+Lanzada con `defer_heavy_actions` desactivado temporalmente (para no esperar a las 22:00) y
+restaurado al cerrar. 35 acciones del planificador, todas terminadas; 19 ejecuciones de
+herramientas (16 nuclei, 3 Grype), todas exitosas.
+
+| Indicador | Primera corrida (Fase F) | Segunda corrida |
+|---|---|---|
+| `evaluate_lab` tp / fp / fn | 8 / 2 / 3 | **12 / 0 / 0** |
+| Precisión / cobertura | 0.80 / 0.73 | **1.00 / 1.00** |
+| Vía esperada | 8 / 8 | 12 / 12 |
+| Criticidad dentro de un nivel (exacta) | 20 / 20 (8) | 20 / 20 (8) |
+| Spearman contextual vs CVSS | 0.50 vs 0.42 | **0.75 vs 0.51** |
+| api-pagos por puntaje contextual | 1.º | 4.º (tras correo-legacy 9.8, crm-legacy 9.5 y app-siniestros 9.3: RCE + KEV en activos críticos) |
+| Observaciones → vulnerabilidades | 840 → 833 | 1 092 → 1 049 (920 solo inteligencia, 80 inteligencia + Grype, 63 nuclei, 28 Grype, 1 inteligencia + nuclei) |
+| Títulos en español | 833 / 833 | 1 047 / 1 049 (dos nombres de plantilla de nuclei) |
+| Riesgos abiertos | 18 | 22 (6 críticos, 3 muy altos, 6 altos, 5 moderados, 2 bajos), 22/22 con fórmula, consecuencia, descripción, impacto, recomendaciones e inteligencia |
+| Llamadas al modelo | ~1 300 | criticidad 19/19, planificador 35/35, evaluación 117/117, riesgos 28/28 (3 reintentos), descripciones 618/621 al medir (siguen en segundo plano) |
+
+Los cinco casos de la Fase F, uno por uno: portal-expuesto-apache CVE-2021-41773 por inteligencia
+**y** nuclei (`LIKELY` 0.7 por el piso KEV) y CVE-2021-42013 por inteligencia; crm-legacy
+CVE-2017-1001000 `LIKELY` 1.0 por inteligencia (WordPress 4.7 entró como componente `TOOL` con la
+detección de nuclei; el espejo trajo 585 CVE de WordPress y 760 de PHP y el lote de cambios
+reconcilió al activo); correo-legacy-agentes CVE-2019-10149 `LIKELY` 1.0 por inteligencia (Exim
+4.89 visible en 25/tcp); erp-interno sin ningún CVE de CPython (componente Werkzeug 3.1.9);
+proxy-saliente con los 7 CVE de Squid 6.13 `CONFIRMED` 1.0. Las descripciones y el rescoring de
+riesgos continúan en segundo plano después del cierre, como en la Fase F.

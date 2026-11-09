@@ -58,6 +58,7 @@ TEXT_MAX = 300
 LOW_PLAUSIBILITY = 0.3
 MISMATCH_PLAUSIBILITY = 0.5  # plantilla cuyo producto no aparece en el software del activo
 EXACT_PLAUSIBILITY = 0.8  # versión exacta en rango, SBOM/Grype o varias fuentes, sin LLM
+KEV_FLOOR_PLAUSIBILITY = 0.7  # versión exacta en rango + KEV: el modelo no puede bajar de aquí
 # Etiquetas de plantilla que nombran una tecnología concreta (si no está en el software
 # observado, la observación es poco plausible).
 TECH_TAGS = {
@@ -629,6 +630,16 @@ def _apply_item(asset_id, item, group, context, *, by_rule, log_obj, now):
     ):
         # El modelo duda pese a la versión exacta en rango: la evidencia manda.
         status = group.status_floor
+    elif (
+        group
+        and group.status_floor
+        and group.in_kev
+        and status in (VulnerabilityStatus.NEEDS_VERIFICATION, "LIKELY_FALSE_POSITIVE")
+    ):
+        # Versión exacta en el rango afectado y explotación activa conocida (KEV): la duda del
+        # modelo no basta para dejarla «por verificar». Piso acotado, como las anclas de riesgo.
+        status = group.status_floor
+        plausibility = max(plausibility, KEV_FLOOR_PLAUSIBILITY)
     cve = next((f.cve for f in findings if f.cve_id), None)
     key = group.key if group else _key_for(item, {})
     # Textos: la IA escribe para la persona, así que deben estar en español. Lo que venga en

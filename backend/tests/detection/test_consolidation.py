@@ -358,7 +358,9 @@ def test_version_precision_and_distro_packages():
     assert is_distro_package("2.4.52-1ubuntu4") and not is_distro_package("1.27.3")
 
 
-def test_cpe_version_wins_when_cpe_names_another_product():
+def test_named_product_wins_when_cpe_names_the_runtime():
+    """nmap deduce «python 3.12.16» del banner de Werkzeug: el componente es Werkzeug 3.1.9 (lo
+    que atiende el puerto); el CPE del intérprete se guarda como dato, no se reconcilia."""
     asset = AssetFactory()
     ServiceFactory(
         asset=asset,
@@ -369,7 +371,41 @@ def test_cpe_version_wins_when_cpe_names_another_product():
     )
     components.refresh_components(asset.pk)
     component = SoftwareComponent.objects.get(asset=asset)
-    assert component.product_key == "python" and component.version == "3.12.16"
+    assert component.product_key == "werkzeug" and component.version == "3.1.9"
+    assert component.cpe == "cpe:/a:python:python:3.12.16"
+
+
+def test_tool_detected_software_becomes_a_component_and_survives_refresh():
+    from types import SimpleNamespace
+
+    asset = AssetFactory()
+    ServiceFactory(asset=asset, port=80, product="Apache httpd", version="2.4.10")
+    components.refresh_components(asset.pk)
+    raw_wp = {
+        "template-id": "wordpress-detect",
+        "matched-at": "http://10.60.30.10:80/",
+        "extracted-results": ["WordPress 4.7"],
+        "template": {"product": "wordpress", "vendor": "wordpress", "tags": ["tech"]},
+    }
+    raw_php = {  # sin versión: no produce componente
+        "template-id": "tech-detect",
+        "matched-at": "http://10.60.30.10:80/",
+        "matcher-name": "php",
+        "template": {"tags": ["tech"]},
+    }
+    detections = components.detections_from_tool(
+        [SimpleNamespace(raw=raw_wp), SimpleNamespace(raw=raw_php), SimpleNamespace(raw=raw_wp)]
+    )
+    assert [(d.name, d.version, d.port) for d in detections] == [("wordpress", "4.7", 80)]
+    result = components.record_detected(asset.pk, detections)
+    assert result.added == 1 and result.new_product_keys == ("wordpress",)
+    wp = SoftwareComponent.objects.get(asset=asset, product_key="wordpress")
+    assert wp.source == "TOOL" and wp.version == "4.7" and wp.is_current
+    # Reindexar desde el inventario no retira lo detectado por la herramienta.
+    components.refresh_components(asset.pk)
+    assert SoftwareComponent.objects.filter(asset=asset, is_current=True).count() == 2
+    # Volver a detectarlo no duplica.
+    assert components.record_detected(asset.pk, detections).added == 0
 
 
 def test_backported_and_imprecise_versions_need_verification(lab_cti):
@@ -676,7 +712,11 @@ def test_rule_title_is_spanish_and_names_the_software(lab_cti):
     findings.apply_matches(matching.reconcile_assets([asset.pk]))
     lead = Finding.objects.get(asset=asset, vulnerability_id="CVE-2025-23419")
     assert rule_title("CVE-2025-23419", lead) == "CVE-2025-23419 en nginx 1.27.3 · 443/tcp"
-    grype = SimpleNamespace(component=None, title="CVE-2023-4863 en pillow 8.1.0", evidence={})
+    grype = SimpleNamespace(
+        component=None,
+        title="CVE-2023-4863 en pillow 8.1.0",
+        evidence=SimpleNamespace(all=lambda: []),
+    )
     assert rule_title("CVE-2023-4863", grype) == "CVE-2023-4863 en pillow 8.1.0"
     weak = _observe(
         asset,
@@ -844,3 +884,30 @@ def test_beat_drains_missing_descriptions_across_assets(lab_cti, monkeypatch):
     assert {q["args"][0] for q in queued} == {str(pk) for pk in pks}
     # Lo que ya está en cola (clave pendiente en caché) no se vuelve a pedir.
     assert tasks.describe_pending_vulnerabilities() == {"queued": 0} and len(queued) == 2
+
+
+def test_exact_version_in_kev_cannot_stay_in_verification(lab_cti, monkeypatch):
+    """Versión exacta en el rango afectado y CVE en KEV: aunque el modelo diga «por verificar» con
+    plausibilidad 0.1, la regla la sube a «probable» (piso acotado, como las anclas de riesgo)."""
+    from apps.cti.models import CveRecord
+    from apps.llm import client as llm_client
+
+    asset = _nginx_asset()
+    CveRecord.objects.filter(cve_id="CVE-2025-23419").update(
+        kev_added_at="2025-03-01", kev_due_at="2025-03-22"
+    )
+    findings.apply_matches(matching.reconcile_assets([asset.pk]))
+    finding = Finding.objects.get(asset=asset, vulnerability_id="CVE-2025-23419")
+    assert finding.in_kev
+
+    def doubtful(payload):
+        out = consolidation.mock_assessment(payload)
+        for item in out["vulnerabilities"]:
+            item["status"] = "NEEDS_VERIFICATION"
+            item["plausibility"] = 0.1
+        return out
+
+    monkeypatch.setitem(llm_client.MOCK_GENERATORS, "VULN_ASSESSMENT", doubtful)
+    consolidation.consolidate_asset(asset.pk)
+    vuln = Vulnerability.objects.get(asset=asset, key="CVE-2025-23419")
+    assert vuln.status == "LIKELY" and vuln.plausibility >= 0.7 and vuln.in_kev

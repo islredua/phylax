@@ -6,6 +6,7 @@ plano (reindexar, reconciliar, filtrar). Las señales ya llegan tras confirmar l
 
 import logging
 
+from django.db import transaction
 from django.dispatch import receiver
 
 from apps.assets.signals_domain import asset_confirmed, sbom_attached, services_changed
@@ -46,8 +47,13 @@ def on_cti_changes(sender, run, changes, **kwargs):
     from . import findings
     from .tasks import process_event_batch
 
-    touched = findings.apply_cti_changes(changes)
-    batch = events.ingest_cti_changes(run, changes)
+    # La señal llega tanto desde una sincronización envuelta en transacción (fixture) como desde
+    # el espejo dirigido por producto, que corre en una tarea sin ella; el bloqueo de filas de
+    # ``apply_cti_changes`` exige transacción, así que se abre aquí y el lote se encola al confirmar.
+    with transaction.atomic():
+        touched = findings.apply_cti_changes(changes)
+        batch = events.ingest_cti_changes(run, changes)
+        transaction.on_commit(lambda: process_event_batch.delay(str(batch.pk)))
     logger.info(
         "CTI: %d cambio(s) en %s; %d hallazgo(s) actualizados; lote %s",
         len(changes),
@@ -55,7 +61,6 @@ def on_cti_changes(sender, run, changes, **kwargs):
         len(touched),
         batch.pk,
     )
-    process_event_batch.delay(str(batch.pk))
 
 
 @receiver(run_finished, dispatch_uid="detection.discovery_run_finished")

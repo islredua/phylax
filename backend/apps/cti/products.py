@@ -53,11 +53,19 @@ PRODUCT_ALIASES: dict[str, tuple[frozenset[str], frozenset[str]]] = {
     "gitlab": (frozenset({"gitlab"}), frozenset({"gitlab"})),
     "zabbix": (frozenset({"zabbix"}), frozenset({"zabbix"})),
     "squid": (frozenset({"squid-cache"}), frozenset({"squid", "squid_http_proxy"})),
+    "werkzeug": (
+        frozenset({"palletsprojects", "pallets"}),
+        frozenset({"werkzeug", "werkzeug_httpd"}),
+    ),
     "xz": (frozenset({"tukaani"}), frozenset({"xz", "xz-utils", "xz_utils"})),
 }
 _NAME_TO_KEY = {name: key for key, (_, names) in PRODUCT_ALIASES.items() for name in names}
 _CPE23 = re.compile(r"^cpe:2\.3:([aho*\-]):([^:]*):([^:]*):([^:]*)(?::.*)?$")
 _CPE22 = re.compile(r"^cpe:/([aho]):([^:]*):([^:]*)(?::([^:]*))?(?::.*)?$")
+# Intérpretes y entornos de ejecución: cuando nmap los pone en el CPE de un servicio con otro
+# nombre («Werkzeug httpd» → cpe python:3.12.16) está describiendo el lenguaje, no el software.
+RUNTIME_PRODUCTS = frozenset({"python", "perl", "ruby", "php", "java", "node.js", "go", "openjdk"})
+
 _NOISE = re.compile(r"\s+(httpd|server|daemon|smtpd|imapd|pop3d|sshd|ftpd)$")
 
 
