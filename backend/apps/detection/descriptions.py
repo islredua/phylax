@@ -16,6 +16,7 @@ from django.utils import timezone
 
 from apps.assets import services as assets_services
 from apps.llm.client import register_mock, run_structured
+from apps.llm.language import looks_spanish
 from apps.llm.prompts import load_prompt
 from apps.llm.schemas import VULN_DESCRIBE_SCHEMA, VulnDescribeOutput
 from apps.llm.status import active_model, active_model_ready
@@ -161,7 +162,9 @@ def describe_vulnerability(vuln_id, *, requested_by=None):
         now = timezone.now()
         if not vuln.technical_description and vuln.cve and vuln.cve.description:
             vuln.technical_description = clean(vuln.cve.description, 2000)
-        vuln.title = parsed["title"][:200]
+        title_kept = not looks_spanish(parsed["title"])
+        if not title_kept:
+            vuln.title = parsed["title"][:200]
         vuln.summary = parsed["description"]
         vuln.business_impact = parsed.get("business_impact", "")
         vuln.actions = list(parsed["actions"])
@@ -181,7 +184,12 @@ def describe_vulnerability(vuln_id, *, requested_by=None):
         _event(
             vuln,
             VulnerabilityEventKind.DESCRIBED,
-            f"Redactada en español por IA ({log_obj.model_responded or log_obj.model})",
+            f"Redactada en español por IA ({log_obj.model_responded or log_obj.model})"
+            + (
+                "; el título del modelo no parecía español y se conserva el de la regla"
+                if title_kept
+                else ""
+            ),
             actor=requested_by,
             attempts=log_obj.attempts,
         )

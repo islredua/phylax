@@ -138,7 +138,11 @@ def rule_title(key, lead):
     if key.startswith("CVE-"):
         if product:
             return f"{key} en {product}"[:160]
-        return f"{key} · {clean(lead.title, 120)}"[:160] if lead.title else key
+        title = clean(lead.title, 120) if lead.title else ""
+        if not title:
+            return key
+        # La observación de Grype ya se titula «CVE-… en producto»: no repetir la clave.
+        return title[:160] if title.upper().startswith(key.upper()) else f"{key} · {title}"[:160]
     parts = key.split(":")
     label = WEAKNESS_LABELS.get(parts[1] if len(parts) > 1 else "")
     if label:

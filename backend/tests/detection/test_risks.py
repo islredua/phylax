@@ -647,6 +647,7 @@ def test_generic_causes_name_the_lead_vulnerability():
         "Fuga de datos en api-pagos por múltiples vulnerabilidades",
         "Fuga de datos en api-pagos por vulnerabilidades de seguridad",
         "Fuga de datos en api-pagos por vulnerabilidades conocidas en el servidor",
+        "Fuga de datos en api-pagos por 21 vulnerabilidades acumuladas",
     ):
         assert risks.fix_title(generic, "api-pagos", "CONFIDENTIALITY", [other, lead]) == (
             "Fuga de datos en api-pagos por ejecución remota de código en log4j-core 2.14.1 "

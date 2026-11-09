@@ -208,3 +208,46 @@ Defectos de flujo vistos en esa lectura y corregidos en el origen antes de la co
    (`DETECTION_DESCRIBE_EVERY`, 2 min) que drena la cola de toda la plataforma por puntaje.
 4. El modelo elige «Daño reputacional» en 6 de 10 riesgos (incluso para un proxy saliente) → el
    prompt pide la consecuencia directa y reserva las derivadas para activos de cara al público.
+
+### Resultado final de la corrida nocturna (2026-11-09, 00:03 hora local)
+
+Las seis acciones diferidas corrieron en la ventana y sus consolidaciones y riesgos terminaron.
+Cierre de la corrida limpia (medido con `lab_final_metrics.py`):
+
+| Indicador | Resultado |
+|---|---|
+| Activos con criticidad | 19 / 19 |
+| Ejecuciones de herramientas de la corrida | 19 / 19 exitosas (16 nuclei, 3 Grype) |
+| Observaciones → vulnerabilidades sostenidas | 840 → 833 (705 solo inteligencia, 80 inteligencia + Grype, 28 Grype, 27 nuclei) |
+| Títulos de vulnerabilidad en español | 833 / 833 |
+| Vulnerabilidades sostenidas con descripción | 828 / 833, todas en español, 0 pendientes |
+| Riesgos abiertos | 18 (15 por IA, 3 por regla); 20 cerrados por reconsolidación |
+| Riesgos con fórmula «Consecuencia en activo por causa», consecuencia, descripción, impacto, recomendaciones e inteligencia | 18 / 18 |
+| Lectura de inteligencia | 9 reemplazadas por la determinista, 6 propias del modelo coherentes, 3 por regla |
+| Llamadas al modelo | criticidad 19/19, planificador 21/21, evaluación 87/87 (sin reintentos), riesgos 25/25 (5 reintentos), descripciones 808 válidas de 1 147 |
+
+Los seis activos reconsolidados tras las correcciones de la lectura parcial salieron con causas
+que nombran la vulnerabilidad («… por Polución del prototipo en _.unset y _.omit de lodash
+4.17.15», «… por Inyección de código en express 4.19.2», «… por cabeceras de seguridad ausentes en
+nginx 1.27.5»). Los títulos genéricos que quedan («… por vulnerabilidades de seguridad», «… por
+múltiples vulnerabilidades», «… por 21 vulnerabilidades acumuladas») son de riesgos valorados entre
+las 16:44 y las 17:19, antes de la corrección; `fix_title` los reconstruye en cuanto se vuelvan a
+valorar (comprobado con sus vulnerabilidades reales: «Fuga de datos en decoy-info por ejecución
+remota de código en Apache httpd 2.4.54 y 69 vulnerabilidades más»). No se parchan los datos.
+
+Defectos de flujo encontrados en el cierre y corregidos en el origen:
+
+1. **El 30 % de las llamadas a `VULN_DESCRIBE` fallaba (341 de 1 147) y todas por lo mismo**: el
+   título del modelo llevaba anglicismos técnicos («Buffer overflow en pillow 8.1.0», «Man-in-the-
+   middle ataque en Samba») y la heurística de español rechazaba la salida completa, tirando
+   descripción, impacto y acciones correctos y gastando el reintento. El título deja de validarse en
+   el esquema; quien aplica la salida conserva el título por regla si el del modelo no parece
+   español y lo deja anotado en el evento.
+2. **«21 vulnerabilidades acumuladas» no contaba como causa genérica** por el número al inicio →
+   `_GENERIC_CAUSE` acepta un conteo delante.
+3. **El título por regla de las observaciones de Grype repetía la clave** («CVE-2023-4863 ·
+   CVE-2023-4863 en pillow 8.1.0») porque la observación ya se titula «CVE-… en producto» →
+   `rule_title` no antepone la clave si el título ya empieza por ella.
+4. Las cuatro ejecuciones fallidas de la base son del 2026-11-07 (antes de la corrida limpia: dos
+   salidas de nuclei mayores que el tope, un perfil `cves-network` anterior a su creación y un
+   nuclei terminado al reiniciar el worker); ninguna pertenece a la corrida.

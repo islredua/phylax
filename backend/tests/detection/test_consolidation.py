@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -675,6 +676,8 @@ def test_rule_title_is_spanish_and_names_the_software(lab_cti):
     findings.apply_matches(matching.reconcile_assets([asset.pk]))
     lead = Finding.objects.get(asset=asset, vulnerability_id="CVE-2025-23419")
     assert rule_title("CVE-2025-23419", lead) == "CVE-2025-23419 en nginx 1.27.3 · 443/tcp"
+    grype = SimpleNamespace(component=None, title="CVE-2023-4863 en pillow 8.1.0", evidence={})
+    assert rule_title("CVE-2023-4863", grype) == "CVE-2023-4863 en pillow 8.1.0"
     weak = _observe(
         asset,
         "http-missing-security-headers",
@@ -749,6 +752,52 @@ def test_describe_output_rejects_english(monkeypatch):
         }
     )
     assert out.actions
+
+
+def test_describe_keeps_the_rule_title_when_the_model_title_is_not_spanish(
+    lab_cti, settings, monkeypatch
+):
+    """El título con anglicismos («Buffer overflow en pillow») ya no tira la descripción entera:
+    pasa el esquema, se conservan descripción, impacto y acciones, y el título queda por regla."""
+    from apps.detection import descriptions
+    from apps.detection.models import VulnerabilityEvent
+    from apps.llm import client as llm_client
+    from apps.llm.schemas import VulnDescribeOutput
+
+    out = VulnDescribeOutput.model_validate(
+        {
+            "title": "Buffer overflow en pillow 8.1.0",
+            "description": "Una imagen manipulada provoca una escritura fuera de límites en el servidor.",
+            "business_impact": "Los expedientes con imágenes podrían alterarse.",
+            "actions": ["Actualizar pillow a 8.1.1 o posterior."],
+        }
+    )
+    assert out.title.startswith("Buffer")
+
+    asset = _nginx_asset()
+    findings.apply_matches(matching.reconcile_assets([asset.pk]))
+    consolidation.consolidate_asset(asset.pk, use_llm=False)
+    vuln = Vulnerability.objects.get(asset=asset, key="CVE-2025-23419")
+    rule_title_before = vuln.title
+
+    def anglicism(request_payload):
+        return {
+            "title": "Buffer overflow en nginx request handler",
+            "description": "Una petición manipulada provoca una escritura fuera de límites en nginx.",
+            "business_impact": "El portal dejaría de responder.",
+            "actions": ["Actualizar nginx a la versión corregida."],
+        }
+
+    monkeypatch.setitem(llm_client.MOCK_GENERATORS, "VULN_DESCRIBE", anglicism)
+    monkeypatch.setattr(descriptions, "active_model_ready", lambda: True)
+    log_obj = descriptions.describe_vulnerability(vuln.pk)
+    vuln.refresh_from_db()
+    assert log_obj.parsed_ok
+    assert vuln.title == rule_title_before and vuln.summary.startswith("Una petición")
+    assert vuln.business_impact and vuln.description_source == "AI"
+    assert VulnerabilityEvent.objects.filter(
+        vulnerability=vuln, kind="DESCRIBED", message__icontains="se conserva el de la regla"
+    ).exists()
 
 
 def test_queue_missing_orders_by_score_and_skips_human_text(lab_cti, monkeypatch):

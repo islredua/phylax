@@ -467,7 +467,7 @@ def coherent_intelligence(text, vulns):
 
 _GENERIC_HEADS = ("compromiso del activo", "múltiples vulnerabilidades", "vulnerabilidades")
 _GENERIC_CAUSE = re.compile(
-    r"^(múltiples|varias|diversas|numerosas)?\s*(vulnerabilidades|fallas|fallos|problemas)"
+    r"^(\d+\s+)?(múltiples|varias|diversas|numerosas)?\s*(vulnerabilidades|fallas|fallos|problemas)"
     r"(\s+(de seguridad|conocidas|conocidos|acumuladas|detectadas|identificadas|múltiples|varias))*"
     r"(\s+en\s+(el|la|los|las|este|esta)\s+(servidor|sistema|activo|servicio|aplicación|"
     r"plataforma|equipo|host|portal)\b.*)?$",

@@ -3,6 +3,7 @@
 import json
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from django.core.management import call_command
@@ -106,7 +107,11 @@ def test_evaluate_lab_scores_against_ground_truth(tmp_path, make_user, monkeypat
     )
     # Sin Grype ni nuclei de verdad: la prueba no depende de binarios ni de la ventana horaria en
     # la que la automatización difiere las acciones pesadas.
-    monkeypatch.setattr("apps.scanners.tasks.run_tool.delay", lambda *a, **k: None)
+    # Dentro de la ventana nocturna las acciones pesadas se despachan de inmediato: la cola de
+    # Celery queda simulada (sin nuclei ni Grype reales) y el resultado se evalúa igual.
+    monkeypatch.setattr(
+        "apps.scanners.tasks.run_tool.delay", lambda *a, **k: SimpleNamespace(id="simulado")
+    )
     make_user(ADMIN, username="admin-lab")
     call_command("lab_import", "--user", "admin-lab", "--no-scan", stdout=StringIO())
     # Simulamos lo que el lazo dejaría en tres hosts: TP en portal-rh, FP en lb-dmz, FN en api-pagos.

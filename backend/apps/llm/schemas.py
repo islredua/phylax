@@ -222,7 +222,11 @@ class VulnDescribeOutput(BaseModel):
         min_length=1, max_length=5
     )
 
-    _spanish = field_validator("title", "description", "business_impact")(_must_look_spanish)
+    # El título no se valida aquí: suele llevar anglicismos técnicos («Buffer overflow en pillow»)
+    # que la heurística marca como inglés, y por ellos se tiraban descripción, impacto y acciones
+    # correctos (30 % de las llamadas en el laboratorio). Quien aplica la salida conserva el
+    # título por regla si el del modelo no parece español.
+    _spanish = field_validator("description", "business_impact")(_must_look_spanish)
 
     @field_validator("actions")
     @classmethod
