@@ -43,6 +43,8 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # Una petición HTMX sin sesión recibe 401 + HX-Redirect en vez del login incrustado.
+    "apps.core.middleware.HtmxLoginRedirectMiddleware",
     # Todas las vistas requieren sesión salvo las marcadas con @login_not_required
     # (health, login, password reset). Ver ADR-004.
     "django.contrib.auth.middleware.LoginRequiredMiddleware",
@@ -73,6 +75,8 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "apps.presentation.context_processors.navigation",
             ],
+            # Filtros de fecha/número/plural disponibles en toda plantilla sin {% load %}.
+            "builtins": ["apps.core.templatetags.ui"],
         },
     },
 ]

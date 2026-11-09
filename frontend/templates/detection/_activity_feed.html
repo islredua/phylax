@@ -1,12 +1,12 @@
 {% load detection_tags %}
 {# Se refresca cada 10 s: es la ventana a «el sistema está trabajando solo». #}
-<div id="activity-feed" hx-get="{% url 'detection:activity' %}?kind={{ kind }}" hx-trigger="every 10s" hx-swap="outerHTML" class="table-wrap">
+<div id="activity-feed" hx-get="{% url 'detection:activity' %}?kind={{ kind }}{% if show_filtered %}&filtered=1{% endif %}" hx-trigger="every 10s" hx-select="#activity-feed tbody" hx-target="find tbody" hx-swap="outerHTML" class="table-wrap">
   <table class="data-table">
-    <thead><tr><th>Cuándo</th><th>Qué</th><th>Sobre</th><th>Detalle</th></tr></thead>
+    <thead><tr><th scope="col">Cuándo</th><th scope="col">Qué</th><th scope="col">Sobre</th><th scope="col">Detalle</th></tr></thead>
     <tbody>
       {% for e in entries %}
       <tr>
-        <td class="font-mono text-xs whitespace-nowrap text-ink-soft">{{ e.at|date:"Y-m-d H:i:s" }}</td>
+        <td class="font-mono text-xs whitespace-nowrap text-ink-soft">{{ e.at|fecha:True }}</td>
         <td>
           {% if e.url %}<a href="{{ e.url }}" class="font-medium">{{ e.label }}</a>{% else %}<span class="font-medium">{{ e.label }}</span>{% endif %}
           {% if e.kind == 'event' %}{% event_status_badge e.badge %}{% elif e.kind == 'decision' %}{% urgency_badge e.badge %}{% elif e.kind == 'action' %}{% action_status_badge e.badge %}{% elif e.kind == 'execution' %}{% execution_status_badge e.badge %}{% else %}<span class="badge-neutral">bitácora</span>{% endif %}

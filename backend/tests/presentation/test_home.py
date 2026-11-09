@@ -265,7 +265,8 @@ def test_home_renders_executive_view_with_blocks_and_downloads(client, as_role):
         "Matriz de riesgos",
         "Avisos",
         "Pulso del sistema",
-        "Descargar reporte",
+        "Qué hago hoy",
+        "Reporte ejecutivo",
         'hx-trigger="every 30s"',
         "<svg",
         "Redactado por regla",
@@ -398,6 +399,7 @@ def test_home_narrative_links_to_the_sections_and_charts_are_dynamic(client, as_
     payload = client.get("/home/charts.json").json()
     assert set(payload) == {
         "computed_at",
+        "has_trend",
         "risk_trend",
         "vuln_trend",
         "levels",
@@ -412,3 +414,149 @@ def test_home_narrative_links_to_the_sections_and_charts_are_dynamic(client, as_
     assert payload["priority"]["series"][1]["label"].startswith("Contextual")
     client.logout()
     assert client.get("/home/charts.json").status_code in (302, 403)
+
+
+# --- Revisión UX 2026-11-09 -------------------------------------------------------------------
+
+
+def test_home_get_does_not_write_a_narrative(client, as_role):
+    """Un GET no escribe: sin narrativa guardada se pinta la regla sin persistirla."""
+    as_role(OPERATOR)
+    _asset_with_risk()
+    assert HealthNarrative.objects.count() == 0
+    body = client.get("/").content.decode()
+    assert "Redactado por regla" in body
+    assert HealthNarrative.objects.count() == 0
+
+
+def test_polled_blocks_have_a_single_wrapper_id(client, as_role):
+    as_role(OPERATOR)
+    _asset_with_risk()
+    body = client.get("/").content.decode()
+    for block in ("indicadores", "avisos", "pulso", "narrativa"):
+        assert body.count(f'id="{block}"') == 1, block
+
+
+def test_header_time_is_local(client, as_role, settings):
+    settings.TIME_ZONE = "America/Mexico_City"
+    as_role(OPERATOR)
+    _asset_with_risk()
+    body = client.get("/").content.decode()
+    local = timezone.localtime().strftime("%H:")
+    assert f"Calculado a las {local}" in body
+    assert (
+        "Calculado a las " + timezone.now().strftime("%H:") in body or True
+    )  # UTC puede coincidir
+
+
+def test_pending_flag_is_cleared_when_the_narrative_task_ends(monkeypatch):
+    from apps.presentation.tasks import generate_health_narrative
+
+    cache.set(narrative.NARRATIVE_PENDING_KEY, True, 600)
+    monkeypatch.setattr(narrative, "generate", lambda **k: None)
+    generate_health_narrative()
+    assert cache.get(narrative.NARRATIVE_PENDING_KEY) is None
+
+
+def test_coherence_checks_vulnerability_counts_too():
+    _asset_with_risk()
+    payload = narrative.build_payload()
+    parsed = narrative.rule_narrative(payload)
+    sustained = payload["indicators"]["vulnerabilities"]["sustained"]
+    parsed["summary"] = f"Hay {sustained + 3} vulnerabilidades sostenidas."
+    ok, note = narrative.coherent(parsed, payload)
+    assert not ok and "sostenidas" in note
+    parsed["summary"] = (
+        f"Hay {sustained} sostenidas y {payload['indicators']['assets']['total']} activos."
+    )
+    assert narrative.coherent(parsed, payload)[0]
+
+
+def test_rule_narrative_has_no_parenthesized_plurals_and_handles_empty_inventory():
+    payload = narrative.build_payload()
+    parsed = narrative.rule_narrative(payload)
+    text = " ".join([parsed["headline"], parsed["summary"], *parsed["highlights"]])
+    assert "(s)" not in text
+    assert "todavía no tiene activos" in parsed["headline"]
+    _asset_with_risk()
+    parsed = narrative.rule_narrative(narrative.build_payload())
+    assert "(s)" not in " ".join([parsed["headline"], parsed["summary"], *parsed["highlights"]])
+
+
+def test_today_lists_what_needs_a_human_decision():
+    _asset_with_risk()
+    data = indicators.current(use_cache=False)
+    items = indicators.today(data)
+    texts = " ".join(i["text"] for i in items)
+    assert "sin tratamiento" in texts
+    assert all(i["url"].startswith("/") and i["count"] for i in items)
+    assert indicators.health_target(data).startswith("/detection/")
+
+
+def test_unverified_exploitable_vulnerabilities_without_risk_raise_an_alert():
+    from apps.detection.models import Vulnerability, VulnerabilityStatus
+
+    asset = _asset_with_risk()
+    Vulnerability.objects.filter(asset=asset).update(
+        status=VulnerabilityStatus.NEEDS_VERIFICATION, in_kev=True
+    )
+    Risk.objects.filter(asset=asset).update(status="CLOSED")
+    data = indicators.current(use_cache=False)
+    assert data["vulnerabilities"]["unverified_assets_without_risk"] == 1
+    assert any("sin verificar" in a["text"] for a in indicators.alerts(data))
+    assert any("explotables sin verificar" in i["text"] for i in indicators.today(data))
+
+
+def test_alert_does_not_repeat_the_asset_name():
+    asset = _asset_with_risk()
+    Risk.objects.filter(asset=asset).update(level=RiskLevel.CRITICAL, title=f"Fuga en {asset.name}")
+    texts = [a["text"] for a in indicators.alerts(indicators.current(use_cache=False))]
+    critical = next(t for t in texts if t.startswith("Riesgo crítico"))
+    assert critical.lower().count(asset.name.lower()) == 1
+
+
+def test_top_risks_are_ordered_by_level_before_likelihood():
+    asset = _asset_with_risk()
+    low = Risk.objects.filter(asset=asset).first()
+    Risk.objects.filter(pk=low.pk).update(level=RiskLevel.LOW, likelihood=5, impact=5)
+    other = _asset_with_risk("crm-legacy")
+    Risk.objects.filter(asset=other).update(level=RiskLevel.CRITICAL, likelihood=2, impact=2)
+    assert indicators.top_risks()[0].asset.name == "crm-legacy"
+
+
+def test_chart_labels_are_spanish_months(client, as_role):
+    as_role(OPERATOR)
+    _asset_with_risk()
+    labels = client.get("/home/charts.json").json()["risk_trend"]["labels"]
+    assert all(
+        l.split()[1]
+        in ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
+        for l in labels
+    )
+
+
+def test_report_and_csv_use_spanish_labels_and_local_dates(client, as_role):
+    as_role(OPERATOR)
+    _asset_with_risk()
+    html = client.get("/home/report/").content.decode()
+    assert "Qué hay que decidir" in html
+    assert "<strong>critical</strong>" not in html and "**" not in html.split("<body>")[1]
+    md = client.get("/home/report/?format=md").content.decode()
+    assert "## Qué hay que decidir" in md and "**critical**" not in md
+    csv_body = client.get("/home/export/vulnerabilities.csv").content.decode()
+    header, *rows = [r for r in csv_body.splitlines() if r]
+    assert rows
+    assert "CRITICAL" not in csv_body and "CTI_MATCH" not in csv_body
+    assert "T" not in rows[0].split(",")[-1]  # fecha local, no ISO con «T»
+
+
+def test_activity_hides_filtered_events_unless_asked(client, as_role):
+    from apps.detection.models import DetectionEvent
+
+    as_role(OPERATOR)
+    _asset_with_risk()
+    assert DetectionEvent.objects.filter(status="FILTERED").exists()
+    body = client.get("/detection/activity/").content.decode()
+    assert "Descartado por el filtro" not in body
+    body = client.get("/detection/activity/?kind=event&filtered=1").content.decode()
+    assert "Descartado por el filtro" in body

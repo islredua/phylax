@@ -23,7 +23,7 @@
         <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
         {{ field }}
       {% endif %}
-      {% if field.help_text %}<p class="form-help">{{ field.help_text }}</p>{% endif %}
+      {% if field.help_text %}<p class="form-help" id="{{ field.auto_id }}_helptext">{{ field.help_text }}</p>{% endif %}
       {% for e in field.errors %}<p class="form-error">{{ e }}</p>{% endfor %}
     </div>
     {% endfor %}
@@ -58,9 +58,9 @@
     {% for field in form.scope_fields %}
       {% if field.name == 'register_network' and not perms.assets.manage_scope %}
       {% elif field.name == 'authorize_scan' or field.name == 'register_network' %}
-      <div><label class="flex items-center gap-2 text-sm">{{ field }} {{ field.label }}</label>{% if field.help_text %}<p class="form-help">{{ field.help_text }}</p>{% endif %}</div>
+      <div><label class="flex items-center gap-2 text-sm">{{ field }} {{ field.label }}</label>{% if field.help_text %}<p class="form-help" id="{{ field.auto_id }}_helptext">{{ field.help_text }}</p>{% endif %}</div>
       {% else %}
-      <div><label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<p class="form-help">{{ field.help_text }}</p>{% endif %}{% for e in field.errors %}<p class="form-error">{{ e }}</p>{% endfor %}</div>
+      <div><label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<p class="form-help" id="{{ field.auto_id }}_helptext">{{ field.help_text }}</p>{% endif %}{% for e in field.errors %}<p class="form-error">{{ e }}</p>{% endfor %}</div>
       {% endif %}
     {% endfor %}
   </section>

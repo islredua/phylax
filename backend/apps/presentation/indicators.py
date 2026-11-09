@@ -14,7 +14,7 @@ from datetime import timedelta
 from statistics import mean
 
 from django.core.cache import cache
-from django.db.models import Count
+from django.db.models import Case, Count, IntegerField, Q, Value, When
 from django.urls import reverse
 from django.utils import timezone
 
@@ -134,6 +134,19 @@ def compute(now=None) -> dict:
     }
 
     risks = Risk.objects.filter(status__in=RISK_OPEN, asset__merged_into__isnull=True)
+    # Posibles vulnerabilidades explotables que el modelo dejó «por verificar» en activos de
+    # criticidad alta o crítica y que no tienen ningún riesgo abierto: nadie las vería.
+    unverified = vulns.filter(status=VulnerabilityStatus.NEEDS_VERIFICATION).filter(
+        Q(in_kev=True) | Q(cvss_score__gte=9)
+    )
+    exposed_assets = set(
+        unverified.filter(asset__criticality__in=("CRITICO", "ALTO")).values_list(
+            "asset_id", flat=True
+        )
+    )
+    assets_with_open_risk = set(risks.values_list("asset_id", flat=True))
+    vulns_block["unverified_exploitable"] = unverified.count()
+    vulns_block["unverified_assets_without_risk"] = len(exposed_assets - assets_with_open_risk)
     by_level = Counter(risks.values_list("level", flat=True))
     risks_block = {
         "open": risks.count(),
@@ -183,6 +196,8 @@ def compute(now=None) -> dict:
 
     sources = {s.kind: s for s in CtiSource.objects.all()}
     cti_block = {
+        "sources_total": len(sources),
+        "sources_ok": 0,
         "sources": {
             kind: {
                 "last_success_at": src.last_success_at.isoformat() if src.last_success_at else None,
@@ -200,6 +215,9 @@ def compute(now=None) -> dict:
             for kind, src in sources.items()
         },
     }
+    cti_block["sources_ok"] = sum(
+        1 for s in cti_block["sources"].values() if s["enabled"] and not s["stale"]
+    )
     try:
         from apps.cti import services as cti_services
 
@@ -260,6 +278,7 @@ def compute(now=None) -> dict:
         "automation": automation_block,
         "timing": timing_block,
     }
+    data["no_data"] = assets_block["total"] == 0
     data["health"] = health_status(data)
     data["health_label"] = HEALTH_LABEL[data["health"]]
     return data
@@ -371,12 +390,27 @@ def alerts(data=None, now=None, limit=12) -> list[dict]:
         .select_related("asset")
         .order_by("-assessed_at")[:3]
     ):
+        # El título ya suele nombrar al activo («… en correo-legacy»): no se repite.
+        text = risk.title
+        if risk.asset.name.lower() not in risk.title.lower():
+            text = f"{risk.title} ({risk.asset.name})"
         out.append(
             _alert(
                 "critical",
-                f"Riesgo crítico en {risk.asset.name}: {risk.title}",
+                f"Riesgo crítico: {text}",
                 reverse("detection:risk", args=[risk.pk]),
                 risk.assessed_at or risk.first_identified_at,
+            )
+        )
+    exposed = data["vulnerabilities"].get("unverified_assets_without_risk", 0)
+    if exposed:
+        out.append(
+            _alert(
+                "high",
+                f"{exposed} activo(s) de criticidad alta con posibles vulnerabilidades explotables "
+                "sin verificar y sin riesgo registrado",
+                reverse("detection:panel") + "?status=NEEDS_VERIFICATION&exploitable=1",
+                now,
             )
         )
     for vuln in (
@@ -457,9 +491,124 @@ def _alert(level, text, url, at):
     return {"level": level, "text": text, "url": url, "at": at}
 
 
+LEVEL_RANK = Case(
+    *[When(level=lvl, then=Value(i)) for i, lvl in enumerate(LEVELS)],
+    default=Value(len(LEVELS)),
+    output_field=IntegerField(),
+)
+
+
 def top_risks(limit=5):
+    """Los que más pesan: por nivel (crítico primero) y después por probabilidad × impacto."""
     return list(
         Risk.objects.filter(status__in=RISK_OPEN, asset__merged_into__isnull=True)
         .select_related("asset")
-        .order_by("-likelihood", "-impact", "-assessed_at")[:limit]
+        .annotate(level_rank=LEVEL_RANK)
+        .order_by("level_rank", "-likelihood", "-impact", "-assessed_at")[:limit]
     )
+
+
+ALERT_LEVEL_LABEL = {"critical": "crítico", "high": "alto", "medium": "medio", "info": "info"}
+
+
+def health_target(data) -> str:
+    """A dónde lleva el semáforo: a lo que lo causa, no al listado sin filtro."""
+    r, v, a = data["risks"], data["vulnerabilities"], data["actions"]
+    risks_url = reverse("detection:risks")
+    panel_url = reverse("detection:panel")
+    if r["critical"]:
+        return f"{risks_url}?level=CRITICAL"
+    if v["kev_overdue"]:
+        return f"{panel_url}?in_kev=1&overdue=1"
+    if r["very_high"]:
+        return f"{risks_url}?level=VERY_HIGH"
+    if r["high"]:
+        return f"{risks_url}?level=HIGH"
+    if a["pending_approval"]:
+        return reverse("detection:queue")
+    if v["in_kev"]:
+        return f"{panel_url}?in_kev=1"
+    return risks_url
+
+
+def today(data=None) -> list[dict]:
+    """«Qué hago hoy»: lo que exige una decisión humana, con el conteo y el enlace que lo filtra."""
+    data = data or current()
+    r, v, a = data["risks"], data["vulnerabilities"], data["actions"]
+    risks_url = reverse("detection:risks")
+    panel_url = reverse("detection:panel")
+    items = []
+
+    def add(level, count, singular, plural, action, url):
+        if count:
+            items.append(
+                {
+                    "level": level,
+                    "count": count,
+                    "text": singular if count == 1 else plural,
+                    "action": action,
+                    "url": url,
+                }
+            )
+
+    add(
+        "critical",
+        r["critical"],
+        "riesgo crítico abierto",
+        "riesgos críticos abiertos",
+        "Decidir el tratamiento",
+        f"{risks_url}?level=CRITICAL",
+    )
+    add(
+        "critical",
+        v["kev_overdue"],
+        "vulnerabilidad con el plazo de CISA vencido",
+        "vulnerabilidades con el plazo de CISA vencido",
+        "Remediar o aceptar el riesgo",
+        f"{panel_url}?in_kev=1&overdue=1",
+    )
+    add(
+        "high",
+        v.get("unverified_assets_without_risk", 0),
+        "activo de criticidad alta con posibles vulnerabilidades explotables sin verificar",
+        "activos de criticidad alta con posibles vulnerabilidades explotables sin verificar",
+        "Verificar con una herramienta",
+        f"{panel_url}?status=NEEDS_VERIFICATION&exploitable=1",
+    )
+    add(
+        "medium",
+        a["pending_approval"],
+        "acción del planificador espera aprobación",
+        "acciones del planificador esperan aprobación",
+        "Revisar la cola",
+        reverse("detection:queue"),
+    )
+    untreated = max(r["untreated"] - r["critical"], 0) if r["critical"] else r["untreated"]
+    suffix = " (además de los críticos)" if r["critical"] else ""
+    add(
+        "medium",
+        untreated,
+        "riesgo abierto sin tratamiento decidido" + suffix,
+        "riesgos abiertos sin tratamiento decidido" + suffix,
+        "Registrar tratamiento",
+        f"{risks_url}?treatment=none",
+    )
+    if data["llm"]["status"].get("available") is False:
+        add(
+            "high",
+            1,
+            "el modelo local no responde; las evaluaciones corren por regla",
+            "",
+            "Revisar el LLM",
+            reverse("llm:settings"),
+        )
+    stale = [k for k, s in data["cti"].get("sources", {}).items() if s["stale"]]
+    add(
+        "medium",
+        len(stale),
+        "fuente de inteligencia sin sincronizar",
+        "fuentes de inteligencia sin sincronizar",
+        "Sincronizar",
+        reverse("detection:sources"),
+    )
+    return items

@@ -169,11 +169,31 @@ def render_user_message(payload) -> str:
 # --------------------------------------------------------------------------
 
 
+def _n(count, singular, plural=None) -> str:
+    """«1 riesgo crítico» / «3 riesgos críticos»: la regla no escribe «(s)»."""
+    plural = plural or singular + "s"
+    return f"{count} {singular if count == 1 else plural}"
+
+
 def rule_narrative(payload) -> dict:
     ind = payload["indicators"]
     r, v, a, auto = ind["risks"], ind["vulnerabilities"], ind["actions"], payload["automation"]
     org = payload["organization"]["name"] or "la organización"
     status = ind["health"]
+    if not ind["assets"]["total"]:
+        return {
+            "status": status,
+            "headline": f"{org} todavía no tiene activos inventariados"[:160],
+            "summary": "Sin activos no hay nada que vigilar: el lazo de detección arranca cuando se da de alta un rango de red o un activo.",
+            "changes": "Sin cambios: el inventario está vacío.",
+            "urgent": "Dar de alta los rangos de red autorizados y confirmar los activos descubiertos.",
+            "achievements": "El sistema espera el primer activo para empezar a cruzarlo con la inteligencia.",
+            "highlights": ["0 activos inventariados"],
+            "next_steps": [
+                "Registrar un rango de red con su autorización en Inventario → Rangos.",
+                "Confirmar los activos que descubra y asignarles criticidad (la IA la sugiere).",
+            ],
+        }
     levels = (
         ", ".join(
             f"{n} {indicators.LEVEL_LABEL[lvl].lower()}" for lvl, n in r["by_level"].items() if n
@@ -181,13 +201,15 @@ def rule_narrative(payload) -> dict:
         or "ninguno"
     )
     headline = {
-        "RED": f"{org} tiene {r['critical']} riesgo(s) crítico(s) abiertos que exigen acción hoy",
-        "YELLOW": f"{org} tiene {r['open']} riesgo(s) abiertos bajo vigilancia; ninguno crítico",
+        "RED": f"{org} tiene {_n(r['critical'], 'riesgo crítico abierto', 'riesgos críticos abiertos')} que exigen acción hoy",
+        "YELLOW": f"{org} tiene {_n(r['open'], 'riesgo abierto', 'riesgos abiertos')} bajo vigilancia; ninguno crítico",
         "GREEN": f"{org} está bajo control: sin riesgos altos ni explotación activa pendiente",
     }[status]
     summary = (
-        f"Hay {r['open']} riesgo(s) abiertos ({levels}) sobre {r['assets_with_risk']} activo(s), "
-        f"derivados de {v['sustained']} vulnerabilidad(es) sostenidas, {v['confirmed']} confirmadas. "
+        f"Hay {_n(r['open'], 'riesgo abierto', 'riesgos abiertos')} ({levels}) sobre "
+        f"{_n(r['assets_with_risk'], 'activo')}, derivados de "
+        f"{_n(v['sustained'], 'vulnerabilidad sostenida', 'vulnerabilidades sostenidas')}, "
+        f"{v['confirmed']} confirmadas. "
         f"{v['in_kev']} de ellas tienen explotación activa conocida (KEV)"
         + (
             f" y {v['kev_overdue']} ya pasaron el plazo de remediación de CISA."
@@ -219,9 +241,9 @@ def rule_narrative(payload) -> dict:
         f"{auto['risks_assessed_window']} riesgos por sí solo, con {auto['cti_syncs_window']} sincronizaciones de inteligencia."
     )
     highlights = [
-        f"{r['open']} riesgos abiertos, {r['critical']} críticos",
-        f"{v['sustained']} vulnerabilidades sostenidas, {v['in_kev']} con explotación activa",
-        f"{a['pending_approval']} acciones esperan aprobación",
+        f"{_n(r['open'], 'riesgo abierto', 'riesgos abiertos')}, {r['critical']} críticos",
+        f"{_n(v['sustained'], 'vulnerabilidad sostenida', 'vulnerabilidades sostenidas')}, {v['in_kev']} con explotación activa",
+        f"{_n(a['pending_approval'], 'acción espera aprobación', 'acciones esperan aprobación')}",
         f"{ind['assets']['with_criticality']} de {ind['assets']['total']} activos con criticidad calculada",
     ]
     next_steps = []
@@ -277,11 +299,33 @@ def coherent(parsed, payload) -> tuple[bool, str]:
         return False, "semáforo en rojo sin riesgos críticos"
     if status == "RED" and not (r["critical"] or v["kev_overdue"]):
         return False, "semáforo en rojo sin datos que lo sustenten"
-    # Conteos de riesgos citados con su sustantivo: deben ser los del sistema.
+    # Conteos citados con su sustantivo: deben ser los del sistema (cada patrón admite un
+    # conjunto de valores legítimos cuando el sustantivo es ambiguo, p. ej. «activos»).
+    ind = payload["indicators"]
+    auto = payload.get("automation", {})
+    by_level = r.get("by_level", {})
     counts = {
-        r"(\d+)\s+riesgos?\s+cr[ií]ticos?": r["critical"],
-        r"(\d+)\s+riesgos?\s+abiertos?": r["open"],
-        r"(\d+)\s+riesgos?\s+muy\s+altos?": r["very_high"],
+        r"(\d+)\s+riesgos?\s+cr[ií]ticos?": {r["critical"]},
+        r"(\d+)\s+riesgos?\s+abiertos?": {r["open"]},
+        r"(\d+)\s+riesgos?\s+muy\s+altos?": {r["very_high"]},
+        r"(\d+)\s+riesgos?\s+altos?": {r["high"]},
+        r"(\d+)\s+riesgos?\s+moderados?": {by_level.get("MODERATE", 0)},
+        r"(\d+)\s+riesgos?\s+bajos?": {by_level.get("LOW", 0)},
+        r"(\d+)\s+(?:riesgos?\s+)?sin\s+tratamiento": {r["untreated"]},
+        r"(\d+)\s+(?:vulnerabilidades?\s+)?sostenidas?": {v["sustained"]},
+        r"(\d+)\s+(?:vulnerabilidades?\s+)?confirmadas?": {v["confirmed"]},
+        r"(\d+)\s+(?:vulnerabilidades?\s+)?por\s+verificar": {v["needs_verification"]},
+        r"(\d+)\s+(?:vulnerabilidades?\s+)?(?:con|en)\s+(?:explotaci[oó]n\s+activa|KEV)": {
+            v["in_kev"]
+        },
+        r"(\d+)\s+(?:vulnerabilidades?\s+)?con\s+(?:el\s+)?plazo": {v["kev_overdue"]},
+        r"(\d+)\s+descripciones": {auto.get("vulns_described_window", -1)},
+        r"(\d+)\s+escaneos": {auto.get("scans_window", -1)},
+        r"(\d+)\s+decisiones": {auto.get("decisions_window", -1)},
+        r"(\d+)\s+acci[oó]n(?:es)?\s+(?:del\s+planificador\s+)?(?:esperan?|pendientes?|por\s+aprobar)": {
+            ind["actions"]["pending_approval"]
+        },
+        r"(\d+)\s+activos?\b": set(ind["assets"].values()) | {r["assets_with_risk"]},
     }
     text = " ".join(
         [
@@ -293,9 +337,10 @@ def coherent(parsed, payload) -> tuple[bool, str]:
         ]
         + list(parsed["highlights"])
     )
-    for pattern, expected in counts.items():
+    for pattern, allowed_values in counts.items():
         for m in re.finditer(pattern, text, re.IGNORECASE):
-            if int(m.group(1)) != expected:
+            if int(m.group(1)) not in allowed_values:
+                expected = ", ".join(str(x) for x in sorted(allowed_values) if x >= 0)
                 return False, f"dice «{m.group(0)}» y el sistema cuenta {expected}"
     names = {t["asset"].lower() for t in payload["top_risks"]}
     low_all = text.lower()
@@ -339,8 +384,33 @@ def mock_narrative(request_payload):
     return rule
 
 
+NARRATIVE_PENDING_KEY = "home:narrative:pending"
+
+
 def latest() -> HealthNarrative | None:
     return HealthNarrative.objects.select_related("inference").first()
+
+
+def rule_preview(data=None) -> HealthNarrative:
+    """Narrativa por regla **sin guardar**: para pintar Inicio cuando aún no hay ninguna.
+
+    Un GET no debe escribir en la base; la primera narrativa real la genera ``beat``.
+    """
+    payload = build_payload(data)
+    parsed = rule_narrative(payload)
+    return HealthNarrative(
+        payload_hash=payload_hash(payload),
+        status=parsed["status"],
+        headline=parsed["headline"][:200],
+        summary=parsed["summary"],
+        changes=parsed.get("changes", ""),
+        urgent=parsed.get("urgent", ""),
+        achievements=parsed.get("achievements", ""),
+        highlights=list(parsed.get("highlights") or []),
+        next_steps=list(parsed.get("next_steps") or []),
+        by_rule=True,
+        created_at=timezone.now(),
+    )
 
 
 def validator_for(payload):

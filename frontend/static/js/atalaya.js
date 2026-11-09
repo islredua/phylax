@@ -118,9 +118,123 @@
     refresh();
   }
 
+  // --- Menú plegable de la barra lateral en pantallas angostas ([data-nav]) --------------
+  function initNav(aside) {
+    var toggle = aside.querySelector("[data-nav-toggle]");
+    var menu = aside.querySelector("[data-nav-menu]");
+    if (!toggle || !menu) return;
+    var mq = window.matchMedia("(min-width: 48rem)");
+    function apply() {
+      if (mq.matches) {
+        toggle.hidden = true;
+        menu.hidden = false;
+      } else {
+        toggle.hidden = false;
+        menu.hidden = toggle.getAttribute("aria-expanded") !== "true";
+      }
+    }
+    toggle.addEventListener("click", function () {
+      var open = toggle.getAttribute("aria-expanded") === "true";
+      toggle.setAttribute("aria-expanded", open ? "false" : "true");
+      apply();
+    });
+    if (mq.addEventListener) mq.addEventListener("change", apply); else mq.addListener(apply);
+    apply();
+  }
+
+  // --- Confirmación antes de acciones irreversibles ([data-confirm] en formularios) ------
+  function initConfirm(form) {
+    form.addEventListener("submit", function (e) {
+      var message = form.getAttribute("data-confirm");
+      if (message && !window.confirm(message)) e.preventDefault();
+    });
+  }
+
+  // --- Selectores que envían su formulario al cambiar ([data-autosubmit]) --------------
+  function initAutosubmit(select) {
+    select.addEventListener("change", function () {
+      var form = select.form;
+      if (!form) return;
+      var page = form.querySelector('input[name="page"]');
+      if (page) page.value = "1"; // cambiar el tamaño de página vuelve a la primera
+      form.requestSubmit ? form.requestSubmit() : form.submit();
+    });
+  }
+
+  // --- Errores de HTMX: nunca en silencio ------------------------------------------------
+  function flash(kind, text) {
+    var box = document.getElementById("mensajes");
+    if (!box) return;
+    var old = box.querySelector("[data-flash-htmx]");
+    if (old) old.remove();
+    var div = document.createElement("div");
+    div.className = kind === "error" ? "alert-error" : "alert-warning";
+    div.setAttribute("role", "alert");
+    div.setAttribute("data-flash-htmx", "");
+    div.textContent = text;
+    box.appendChild(div);
+  }
+  function initHtmxErrors() {
+    document.body.addEventListener("htmx:responseError", function (e) {
+      var status = e.detail && e.detail.xhr ? e.detail.xhr.status : 0;
+      if (status === 401) return; // HX-Redirect al inicio de sesión ya en curso
+      if (status === 403) flash("error", "No tienes permiso para esta acción.");
+      else if (status === 404) flash("error", "Lo que intentabas actualizar ya no existe. Recarga la página.");
+      else flash("error", "El servidor respondió con un error (" + status + "). Vuelve a intentarlo; si persiste, avisa a administración.");
+    });
+    document.body.addEventListener("htmx:sendError", function () {
+      flash("warning", "Sin conexión con el servidor. Los datos de la pantalla pueden estar desactualizados.");
+    });
+    document.body.addEventListener("htmx:timeout", function () {
+      flash("warning", "El servidor tarda en responder. Los datos de la pantalla pueden estar desactualizados.");
+    });
+    // Tras una respuesta correcta se retira el aviso de red, si lo había.
+    document.body.addEventListener("htmx:afterOnLoad", function (e) {
+      var xhr = e.detail && e.detail.xhr;
+      if (xhr && xhr.status >= 200 && xhr.status < 300) {
+        var old = document.querySelector("#mensajes [data-flash-htmx]");
+        if (old) old.remove();
+      }
+    });
+  }
+
+  // --- Sondeos (hx-trigger="every …"): se pausan cuando la pestaña no se ve --------------
+  function initPollingPause() {
+    document.body.addEventListener("htmx:beforeRequest", function (e) {
+      var trigger = e.detail && e.detail.requestConfig && e.detail.requestConfig.triggeringEvent;
+      var polling = e.target && (e.target.getAttribute("hx-trigger") || "").indexOf("every") !== -1;
+      if (polling && document.visibilityState === "hidden" && trigger && trigger.type !== "load") {
+        e.preventDefault();
+      }
+    });
+  }
+
+  // --- Botones de formularios POST clásicos: se deshabilitan al enviar --------------------
+  function initSubmitOnce(form) {
+    form.addEventListener("submit", function (e) {
+      if (e.defaultPrevented) return;
+      var button = e.submitter || form.querySelector('button[type="submit"]');
+      if (!button) return;
+      window.setTimeout(function () {
+        button.disabled = true;
+        button.setAttribute("aria-busy", "true");
+        if (!button.hasAttribute("data-keep-label")) {
+          button.dataset.label = button.textContent;
+          button.textContent = button.getAttribute("data-busy-label") || "Procesando…";
+        }
+      }, 0);
+    });
+  }
+
   function init() {
     document.querySelectorAll("[data-bulk]").forEach(initBulk);
     document.querySelectorAll("[data-queue]").forEach(initQueue);
+    document.querySelectorAll("[data-nav]").forEach(initNav);
+    document.querySelectorAll("form[data-confirm]").forEach(initConfirm);
+    document.querySelectorAll("[data-autosubmit]").forEach(initAutosubmit);
+    document.querySelectorAll('form[method="post"]:not([hx-post]):not([data-no-busy])').forEach(initSubmitOnce);
+    initHtmxErrors();
+    initPollingPause();
   }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);

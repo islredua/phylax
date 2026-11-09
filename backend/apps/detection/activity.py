@@ -28,13 +28,16 @@ def _asset_name(obj):
     return asset.name if asset is not None else ""
 
 
-def recent(limit=60, kinds=None):
+def recent(limit=60, kinds=None, include_filtered=False):
+    """Últimas entradas del lazo. Los eventos descartados por el filtro (miles de CVE que no
+    tocan a nadie) solo entran si se piden: de otro modo tapan todo lo demás."""
     entries: list[Entry] = []
     kinds = set(kinds or ("event", "decision", "action", "execution", "log"))
     if "event" in kinds:
-        for event in DetectionEvent.objects.select_related("asset", "cve").order_by("-created_at")[
-            :limit
-        ]:
+        events = DetectionEvent.objects.select_related("asset", "cve")
+        if not include_filtered:
+            events = events.exclude(status="FILTERED")
+        for event in events.order_by("-created_at")[:limit]:
             subject = _asset_name(event) or event.cve_id or ""
             entries.append(
                 Entry(

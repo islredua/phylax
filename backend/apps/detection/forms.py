@@ -207,6 +207,12 @@ class VulnerabilityFilterForm(StyledMixin, forms.Form):
     environment = forms.ChoiceField(
         label="Entorno", required=False, choices=catalog_choices(catalogs.ENVIRONMENT, "Todos")
     )
+    overdue = forms.BooleanField(label="Plazo de CISA vencido", required=False)
+    exploitable = forms.BooleanField(
+        label="Explotables (KEV o CVSS ≥ 9)",
+        required=False,
+        help_text="Para revisar primero lo que más daño haría si fuera real.",
+    )
     asset = forms.UUIDField(required=False, widget=forms.HiddenInput())
 
 

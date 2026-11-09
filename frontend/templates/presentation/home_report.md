@@ -1,22 +1,27 @@
-{% autoescape off %}# Estado de la organización · {{ profile.name|default:"Organización" }} · {{ generated_at|date:"Y-m-d" }}
+{% autoescape off %}# Estado de la organización · {{ profile.name|default:"Organización" }} · {{ generated_at|fecha_larga }}
 
-**Estado:** {{ narrative.get_status_display }} · **Ventana:** {{ data.window_days }} días · Generado por Atalaya el {{ generated_at|date:"Y-m-d H:i" }} para {{ generated_by.get_username }}
+**Estado:** {{ narrative.get_status_display }} · **Ventana:** {{ data.window_days }} días · Generado por Atalaya el {{ generated_at|fecha }} para {{ generated_by.get_full_name|default:generated_by.get_username }}
+
+## Qué hay que decidir
+{% for item in today %}
+- **{{ item.count|miles }}** {{ item.text }} — {{ item.action|lower }}{% empty %}
+Nada espera una decisión humana: sin riesgos críticos, plazos vencidos ni aprobaciones pendientes.{% endfor %}
 
 ## Resumen
 
-**{{ narrative.headline }}**
+**{{ narrative.headline|plain }}**
 
-{{ narrative.summary }}
+{{ narrative.summary|plain }}
 
-- **Qué cambió:** {{ narrative.changes|default:"—" }}
-- **Qué urge:** {{ narrative.urgent|default:"—" }}
-- **Qué hizo el sistema:** {{ narrative.achievements|default:"—" }}
+- **Qué cambió:** {{ narrative.changes|default:"—"|plain }}
+- **Qué urge:** {{ narrative.urgent|default:"—"|plain }}
+- **Qué hizo el sistema:** {{ narrative.achievements|default:"—"|plain }}
 {% if narrative.next_steps %}
 Siguientes pasos:
 {% for s in narrative.next_steps %}
-{{ forloop.counter }}. {{ s }}{% endfor %}
+{{ forloop.counter }}. {{ s|plain }}{% endfor %}
 {% endif %}
-*{% if narrative.by_rule %}Resumen por regla (sin IA){% else %}Resumen por IA ({{ narrative.model }}){% endif %}, {{ narrative.created_at|date:"Y-m-d H:i" }}.*
+*{% if narrative.by_rule %}Resumen por regla (sin IA){% else %}Resumen por IA ({{ narrative.model }}){% endif %}, {{ narrative.created_at|fecha }}.*
 
 ## Indicadores
 
@@ -29,13 +34,13 @@ Siguientes pasos:
 | Acciones por aprobar | {{ data.actions.pending_approval }} | {{ data.actions.done_window }} ejecutadas en la ventana |
 | Observaciones | {{ data.observations.total }} | {{ data.observations.multi_source }} con más de una fuente |
 {% if deltas.available %}
-Frente al {{ deltas.since }}: riesgos abiertos {{ deltas.risks_open|stringformat:"+d" }}, críticos {{ deltas.risks_critical|stringformat:"+d" }}, vulnerabilidades sostenidas {{ deltas.vulns_sustained|stringformat:"+d" }}, en KEV {{ deltas.vulns_kev|stringformat:"+d" }}.
+Frente al {{ deltas.since|fecha_corta }}: riesgos abiertos {{ deltas.risks_open|stringformat:"+d" }}, críticos {{ deltas.risks_critical|stringformat:"+d" }}, vulnerabilidades sostenidas {{ deltas.vulns_sustained|stringformat:"+d" }}, en KEV {{ deltas.vulns_kev|stringformat:"+d" }}.
 {% endif %}
 ## Riesgos principales
 
 | Riesgo | Activo | P × I | Nivel | Inteligencia | Tratamiento |
 |---|---|---|---|---|---|
-{% for r in top_risks %}| {{ r.title }} | {{ r.asset.name }} | {{ r.likelihood }} × {{ r.impact }} | {{ r.get_level_display }} | {{ r.intelligence_summary|default:"—" }} | {% if r.treatment %}{{ r.get_treatment_display }}{% else %}sin decidir{% endif %} |
+{% for r in top_risks %}| {{ r.title }} | {{ r.asset.name }} | {{ r.likelihood }} × {{ r.impact }} | {{ r.get_level_display }} | {{ r.intelligence_summary|default:"—"|plain }} | {% if r.treatment %}{{ r.get_treatment_display }}{% else %}sin decidir{% endif %} |
 {% endfor %}
 ## Lo que el sistema hizo por sí solo ({{ data.window_days }} días)
 
@@ -45,7 +50,7 @@ Frente al {{ deltas.since }}: riesgos abiertos {{ deltas.risks_open|stringformat
 
 ## Avisos vigentes
 {% for a in alerts %}
-- **{{ a.level }}** · {{ a.text }}{% empty %}
+- **{% if a.level == 'critical' %}Crítico{% elif a.level == 'high' %}Alto{% elif a.level == 'medium' %}Medio{% else %}Info{% endif %}** · {{ a.text }}{% empty %}
 Sin avisos.{% endfor %}
 
 ---

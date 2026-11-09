@@ -11,4 +11,7 @@
   <nav class="subtabs" aria-label="Tipo de actividad">{% for key, label in kinds %}<a href="?kind={{ key }}" class="subtab {% if key == kind %}subtab-active{% endif %}">{{ label }}</a>{% endfor %}</nav>
 </div>
 {% endblock %}
-{% block content %}{% include "detection/_activity_feed.html" %}{% endblock %}
+{% block content %}
+<p class="text-xs text-muted">Los CVE nuevos que no tocan a ningún activo se descartan en silencio ({{ filtered_today|miles }} hoy) y no aparecen aquí{% if kind == 'event' %}{% if show_filtered %}; <a href="?kind=event">ocultarlos</a>{% else %}; <a href="?kind=event&filtered=1">mostrarlos</a>{% endif %}{% else %}; se pueden ver en la pestaña Eventos{% endif %}. La tabla se actualiza sola cada 10 s sin mover la página.</p>
+{% include "detection/_activity_feed.html" %}
+{% endblock %}

@@ -125,6 +125,7 @@ class AssetForm(StyledMixin, forms.Form):
         label="Responsable técnico",
         required=False,
         queryset=get_user_model().objects.filter(is_active=True),
+        empty_label="Sin asignar",
     )
     business_owner = forms.CharField(label="Responsable de negocio", required=False, max_length=200)
     tags = forms.CharField(label="Etiquetas", required=False, help_text="Separadas por comas.")
@@ -278,6 +279,11 @@ class ConflictResolveForm(forms.Form):
 
 class NetworkRangeForm(StyledMixin, forms.ModelForm):
     environment = forms.ChoiceField(label="Entorno", choices=catalog_choices(catalogs.ENVIRONMENT))
+    zone = forms.ChoiceField(
+        label="Zona",
+        choices=[("", "Elige la zona…"), *Exposure.choices],
+        help_text="Internet, DMZ o red interna: define la exposición que heredan sus activos.",
+    )
 
     class Meta:
         model = NetworkRange

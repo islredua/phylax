@@ -13,6 +13,8 @@ from django.utils import timezone
 from django.views import View
 from django.views.generic import ListView
 
+from apps.core.views import PaginationMixin
+
 from . import services
 from .enums import AssetOrigin, AssetType, IdentifierKind
 from .forms import ImageForm, RegistryForm, SbomConfirmForm, SbomUploadForm
@@ -31,7 +33,7 @@ from .views import Perm, _messages_from
 PENDING_TTL = timedelta(hours=1)
 
 
-class ImageListView(Perm, ListView):
+class ImageListView(Perm, PaginationMixin, ListView):
     permission_required = "assets.view_containerimage"
     template_name = "assets/image_list.html"
     context_object_name = "images"

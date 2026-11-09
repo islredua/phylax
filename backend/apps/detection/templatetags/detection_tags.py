@@ -113,7 +113,10 @@ def event_status_badge(value):
 
 @register.simple_tag
 def execution_status_badge(value):
-    return _badge(EXECUTION_STYLE.get(value, "badge-neutral"), value.lower())
+    from apps.scanners.models import ExecutionStatus
+
+    label = ExecutionStatus(value).label if value in ExecutionStatus.values else str(value)
+    return _badge(EXECUTION_STYLE.get(value, "badge-neutral"), label)
 
 
 @register.simple_tag
@@ -326,6 +329,11 @@ def risk_level_badge(value):
     if not value:
         return ""
     return _badge(RISK_LEVEL_STYLE.get(value, "badge-neutral"), RiskLevel(value).label)
+
+
+@register.filter
+def risk_level_label(value):
+    return RiskLevel(value).label if value in RiskLevel.values else (value or "")
 
 
 @register.simple_tag

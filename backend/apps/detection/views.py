@@ -14,6 +14,7 @@ from django.views import View
 from django.views.generic import ListView, TemplateView
 
 from apps.assets import catalogs
+from apps.core.views import PaginationMixin
 from apps.cti import services as cti
 from apps.cti.models import CtiSource, CtiSyncRun, SourceKind
 from apps.scanners.models import ToolExecution
@@ -177,6 +178,10 @@ def filter_vulnerabilities(params):
             qs = qs.filter(in_kev=data["in_kev"] == "1")
         if data["environment"]:
             qs = qs.filter(environment=data["environment"])
+        if data["overdue"]:
+            qs = qs.filter(in_kev=True, kev_due_at__lt=timezone.localdate())
+        if data["exploitable"]:
+            qs = qs.filter(Q(in_kev=True) | Q(cvss_score__gte=9))
         if data["asset"]:
             qs = qs.filter(asset_id=data["asset"])
     if status == "all":
@@ -188,7 +193,7 @@ def filter_vulnerabilities(params):
     return qs, form
 
 
-class PanelView(Perm, ListView):
+class PanelView(Perm, PaginationMixin, ListView):
     """Panel = vulnerabilidades consolidadas, ordenadas por puntaje contextual."""
 
     permission_required = "detection.view_vulnerability"
@@ -513,7 +518,7 @@ def filter_risks(params):
     return qs, form
 
 
-class RiskRegisterView(Perm, ListView):
+class RiskRegisterView(Perm, PaginationMixin, ListView):
     """Registro de riesgos (ISO/IEC 27005) con la matriz 5×5 de los riesgos listados."""
 
     permission_required = "detection.view_risk"
@@ -633,7 +638,7 @@ class RiskNoteView(Perm, View):
         return redirect("detection:risk", pk=pk)
 
 
-class ObservationsView(Perm, ListView):
+class ObservationsView(Perm, PaginationMixin, ListView):
     """Capa cruda: lo que cada herramienta, la reconciliación o una persona reportó."""
 
     permission_required = "detection.view_finding"
@@ -762,9 +767,14 @@ class ActivityView(Perm, TemplateView):
         context = super().get_context_data(**kwargs)
         kind = self.request.GET.get("kind", "")
         kinds = [kind] if kind in ("event", "decision", "action", "execution", "log") else None
+        show_filtered = kind == "event" and self.request.GET.get("filtered") == "1"
         context.update(
-            entries=activity.recent(kinds=kinds),
+            entries=activity.recent(kinds=kinds, include_filtered=show_filtered),
             kind=kind,
+            show_filtered=show_filtered,
+            filtered_today=DetectionEvent.objects.filter(
+                status="FILTERED", created_at__date=timezone.localdate()
+            ).count(),
             kinds=(
                 ("", "Todo"),
                 ("event", "Eventos"),

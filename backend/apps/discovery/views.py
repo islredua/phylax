@@ -14,6 +14,7 @@ from django.views.generic import ListView
 from apps.assets.enums import AssetOrigin, AssetStatus, ServiceState
 from apps.assets.forms import DiscoveryLaunchForm
 from apps.assets.models import Asset, NetworkRange
+from apps.core.views import PaginationMixin
 
 from . import services
 from .models import DiscoveryRun
@@ -60,7 +61,7 @@ def observed_hosts(run, show=""):
     return hosts, counts
 
 
-class RunListView(Perm, ListView):
+class RunListView(Perm, PaginationMixin, ListView):
     permission_required = "discovery.view_discoveryrun"
     template_name = "discovery/run_list.html"
     context_object_name = "runs"

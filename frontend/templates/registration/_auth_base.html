@@ -8,7 +8,7 @@
     </div>
     {% if messages %}
     <div class="mb-3 flex flex-col gap-2">
-      {% for message in messages %}<div class="{% if message.level_tag == 'error' %}alert-error{% else %}alert-info{% endif %}" role="status">{{ message }}</div>{% endfor %}
+      {% for message in messages %}<div class="{% if message.level_tag == 'error' %}alert-error{% else %}alert-info{% endif %}" role="{% if message.level_tag == 'error' %}alert{% else %}status{% endif %}">{{ message }}</div>{% endfor %}
     </div>
     {% endif %}
     <div class="card flex flex-col gap-4 p-6">

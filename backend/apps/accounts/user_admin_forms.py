@@ -31,6 +31,16 @@ class UserFilterForm(StyledFormMixin, forms.Form):
 
 class BaseUserForm(StyledFormMixin, forms.ModelForm):
     role = forms.ChoiceField(label="Rol", choices=ROLE_CHOICES)
+    labels = {
+        "username": "Usuario",
+        "first_name": "Nombre",
+        "last_name": "Apellidos",
+        "email": "Correo electrónico",
+    }
+    help_texts = {
+        "username": "Letras, números y los signos @ . + - _ ; sin espacios. Es con lo que inicia sesión.",
+        "email": "Aquí llegan la contraseña temporal y los enlaces de recuperación.",
+    }
 
     class Meta:
         model = User

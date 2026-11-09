@@ -25,9 +25,14 @@ def refresh_health_narrative():
 def generate_health_narrative(user_id=None, force=False):
     """Cola ``llm``: genera la narrativa (o la regla si el modelo no está)."""
     from django.contrib.auth import get_user_model
+    from django.core.cache import cache
 
     from . import narrative
 
     user = get_user_model().objects.filter(pk=user_id).first() if user_id else None
-    row = narrative.generate(requested_by=user, force=force)
+    try:
+        row = narrative.generate(requested_by=user, force=force)
+    finally:
+        # La bandera «la IA está redactando» se apaga pase lo que pase.
+        cache.delete(narrative.NARRATIVE_PENDING_KEY)
     return {"created": row is not None, "by_rule": bool(row and row.by_rule)}

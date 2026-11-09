@@ -14,6 +14,7 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views import View
 from django.views.generic import ListView, TemplateView
 
+from apps.core.views import PaginationMixin
 from apps.llm.status import active_model, active_model_ready
 
 from . import catalogs, services
@@ -161,7 +162,7 @@ def filter_assets(params):
     return qs.distinct().order_by("name"), form
 
 
-class AssetListView(Perm, ListView):
+class AssetListView(Perm, PaginationMixin, ListView):
     permission_required = "assets.view_asset"
     template_name = "assets/asset_list.html"
     context_object_name = "assets"
@@ -813,7 +814,7 @@ class ClassificationView(Perm, TemplateView):
 # --------------------------------------------------------------------------
 
 
-class UnconfirmedListView(Perm, ListView):
+class UnconfirmedListView(Perm, PaginationMixin, ListView):
     permission_required = "assets.view_asset"
     template_name = "assets/unconfirmed.html"
     context_object_name = "assets"
@@ -919,7 +920,7 @@ class MergeView(Perm, View):
         return HttpResponseRedirect(_safe_next(request, reverse("assets:unconfirmed")))
 
 
-class ConflictListView(Perm, ListView):
+class ConflictListView(Perm, PaginationMixin, ListView):
     permission_required = "assets.view_assetconflict"
     template_name = "assets/conflicts.html"
     context_object_name = "conflicts"

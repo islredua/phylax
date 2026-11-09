@@ -25,7 +25,7 @@
           <div class="flex justify-end gap-1">
             <form method="post" action="{% url 'assets:registry_test' r.pk %}">{% csrf_token %}<button class="btn-secondary btn-sm" type="submit">Probar conexión</button></form>
             <a href="{% url 'assets:registry_edit' r.pk %}" class="btn-secondary btn-sm">Editar</a>
-            <form method="post" action="{% url 'assets:registry_delete' r.pk %}">{% csrf_token %}<button class="btn-secondary btn-sm" type="submit">Eliminar</button></form>
+            <form method="post" action="{% url 'assets:registry_delete' r.pk %}" data-confirm="¿Eliminar el registro de imágenes «{{ r.name }}»? Se borran sus credenciales cifradas; las imágenes ya inventariadas se conservan.">{% csrf_token %}<button class="btn-danger-soft btn-sm" type="submit">Eliminar</button></form>
           </div>
         </td>
       </tr>

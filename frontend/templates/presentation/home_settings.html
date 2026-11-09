@@ -6,7 +6,7 @@
     <h3 class="card-title">Indicadores y narrativa de Inicio</h3>
     {% if form.non_field_errors %}<div class="alert-error text-sm">{{ form.non_field_errors }}</div>{% endif %}
     {% for field in form %}
-    <div><label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<p class="form-help">{{ field.help_text }}</p>{% endif %}{% for e in field.errors %}<p class="form-error">{{ e }}</p>{% endfor %}</div>
+    <div><label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<p class="form-help" id="{{ field.auto_id }}_helptext">{{ field.help_text }}</p>{% endif %}{% for e in field.errors %}<p class="form-error">{{ e }}</p>{% endfor %}</div>
     {% endfor %}
     <div class="flex gap-2"><button class="btn-primary" type="submit">Guardar</button><a href="{% url 'home' %}" class="btn-secondary">Ver Inicio</a></div>
     <p class="text-xs text-muted">Última edición: {{ settings_obj.updated_at|date:"Y-m-d H:i" }}{% if settings_obj.updated_by %} por {{ settings_obj.updated_by.get_username }}{% endif %}.</p>

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Estado de la organización · {{ generated_at|date:"Y-m-d" }}</title>
+<title>Estado de la organización · {{ generated_at|fecha_corta }}</title>
 <style>
   :root { color-scheme: light; }
   body { font: 11pt/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #1b1f24; margin: 0; background: #f4f5f7; }
@@ -23,12 +23,17 @@
   .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 8px; }
   .kpi { border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; } .kpi .l { font-size: 8.5pt; text-transform: uppercase; letter-spacing: .04em; color: #5b6472; } .kpi .v { font-size: 16pt; font-weight: 700; }
   .muted { color: #5b6472; } .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .today { border: 1px solid #c6ccd4; border-left: 4px solid #1e3a6e; padding: 10px 14px; margin-top: 8px; background: #f7f8fa; }
+  .today ul { list-style: none; padding: 0; margin: 0; } .today li { margin: 4px 0; }
+  .lvl { display: inline-block; min-width: 2.2em; text-align: center; font-weight: 700; border-radius: 4px; padding: 0 6px; margin-right: 6px; color: #fff; font-size: 9pt; }
+  .lvl-critical { background: #b91c1c; } .lvl-high { background: #c2410c; } .lvl-medium { background: #a16207; } .lvl-info { background: #5b6472; }
   ol, ul { padding-left: 20px; } li { margin: 2px 0; }
   .toolbar { position: sticky; top: 0; background: #fff; border-bottom: 1px solid #d9dde3; padding: 10px 16px; display: flex; gap: 10px; align-items: center; font-size: 10pt; }
   .toolbar button, .toolbar a { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid #c6ccd4; background: #fff; color: #1b1f24; text-decoration: none; cursor: pointer; }
   .toolbar button.primary { background: #1b1f24; color: #fff; border-color: #1b1f24; }
   footer { margin-top: 28px; padding-top: 10px; border-top: 1px solid #d9dde3; font-size: 8.5pt; color: #5b6472; }
   svg text { font-family: inherit; }
+  @media (max-width: 640px) { .kpis { grid-template-columns: repeat(2, 1fr); } .two { grid-template-columns: 1fr; } .page { padding: 20px 16px; margin: 0; } }
   @media print { body { background: #fff; } .page { box-shadow: none; margin: 0; padding: 0; max-width: none; } .toolbar { display: none; } h2 { break-after: avoid; } tr, .kpi { break-inside: avoid; } }
   @page { margin: 18mm 16mm; }
 </style>
@@ -38,36 +43,38 @@
 <div class="page">
 <header>
   <p class="eyebrow">Atalaya · Reporte ejecutivo de estado</p>
-  <h1>{{ profile.name|default:"Organización" }} · {{ generated_at|date:"d \d\e F \d\e Y" }}</h1>
-  <div class="meta"><span>Estado: <span class="badge st-{{ narrative.status }}">{{ narrative.get_status_display }}</span></span><span>Ventana: {{ data.window_days }} días</span>{% if profile.sector %}<span>Giro: {{ profile.sector }}</span>{% endif %}<span>Generado por {{ generated_by.get_username }}</span></div>
+  <h1>{{ profile.name|default:"Organización" }} · {{ generated_at|fecha_larga }}</h1>
+  <div class="meta"><span>Estado: <span class="badge st-{{ narrative.status }}">{{ narrative.get_status_display }}</span></span><span>Ventana: {{ data.window_days }} días</span>{% if profile.sector %}<span>Giro: {{ profile.sector|plain|truncatechars:80 }}</span>{% endif %}<span>Generado por {{ generated_by.get_full_name|default:generated_by.get_username }}</span></div>
 </header>
 
+<h2>Qué hay que decidir</h2>
+{% if today %}<div class="today"><ul>{% for item in today %}<li><span class="lvl lvl-{{ item.level }}">{{ item.count|miles }}</span>{{ item.text }} — <em>{{ item.action|lower }}</em></li>{% endfor %}</ul></div>{% else %}<p class="muted">Nada espera una decisión humana: sin riesgos críticos, plazos vencidos ni aprobaciones pendientes.</p>{% endif %}
+
 <h2>Resumen</h2>
-<p><strong>{{ narrative.headline }}</strong></p>
-<p>{{ narrative.summary }}</p>
+<p><strong>{{ narrative.headline|plain }}</strong></p>
+<p>{{ narrative.summary|plain }}</p>
 <div class="two">
-  <div><h3>Qué cambió</h3><p>{{ narrative.changes|default:"—" }}</p><h3>Qué urge</h3><p>{{ narrative.urgent|default:"—" }}</p></div>
-  <div><h3>Qué hizo el sistema</h3><p>{{ narrative.achievements|default:"—" }}</p>{% if narrative.next_steps %}<h3>Siguientes pasos</h3><ol>{% for s in narrative.next_steps %}<li>{{ s }}</li>{% endfor %}</ol>{% endif %}</div>
+  <div><h3>Qué cambió</h3><p>{{ narrative.changes|default:"—"|plain }}</p><h3>Qué urge</h3><p>{{ narrative.urgent|default:"—"|plain }}</p></div>
+  <div><h3>Qué hizo el sistema</h3><p>{{ narrative.achievements|default:"—"|plain }}</p>{% if narrative.next_steps %}<h3>Siguientes pasos</h3><ol>{% for s in narrative.next_steps %}<li>{{ s|plain }}</li>{% endfor %}</ol>{% endif %}</div>
 </div>
-<p class="muted" style="font-size:9pt">{% if narrative.by_rule %}Resumen redactado por regla (sin IA) el {{ narrative.created_at|date:"Y-m-d H:i" }}.{% else %}Resumen redactado por IA ({{ narrative.model }}) el {{ narrative.created_at|date:"Y-m-d H:i" }} a partir de los indicadores calculados por el sistema.{% endif %}</p>
+<p class="muted" style="font-size:9pt">{% if narrative.by_rule %}Resumen redactado por regla (sin IA) el {{ narrative.created_at|fecha }}.{% else %}Resumen redactado por IA ({{ narrative.model }}) el {{ narrative.created_at|fecha }} a partir de los indicadores calculados por el sistema.{% endif %}</p>
 
 <h2>Indicadores</h2>
 <div class="kpis">
-  <div class="kpi"><div class="l">Riesgos abiertos</div><div class="v">{{ data.risks.open }}</div><div class="muted">{{ data.risks.critical }} críticos · {{ data.risks.very_high }} muy altos · {{ data.risks.high }} altos</div></div>
-  <div class="kpi"><div class="l">Vulnerabilidades sostenidas</div><div class="v">{{ data.vulnerabilities.sustained }}</div><div class="muted">{{ data.vulnerabilities.confirmed }} confirmadas</div></div>
-  <div class="kpi"><div class="l">Explotación activa (KEV)</div><div class="v">{{ data.vulnerabilities.in_kev }}</div><div class="muted">{{ data.vulnerabilities.kev_overdue }} con plazo CISA vencido</div></div>
-  <div class="kpi"><div class="l">Activos</div><div class="v">{{ data.assets.total }}</div><div class="muted">{{ data.assets.with_criticality }} con criticidad · {{ data.assets.scanned_window }} escaneados</div></div>
+  <div class="kpi"><div class="l">Riesgos abiertos</div><div class="v">{{ data.risks.open|miles }}</div><div class="muted">{{ data.risks.critical }} críticos · {{ data.risks.very_high }} muy altos · {{ data.risks.high }} altos</div></div>
+  <div class="kpi"><div class="l">Vulnerabilidades sostenidas</div><div class="v">{{ data.vulnerabilities.sustained|miles }}</div><div class="muted">{{ data.vulnerabilities.confirmed|miles }} confirmadas · {{ data.vulnerabilities.needs_verification|miles }} por verificar</div></div>
+  <div class="kpi"><div class="l">Explotación activa (KEV)</div><div class="v">{{ data.vulnerabilities.in_kev|miles }}</div><div class="muted">{{ data.vulnerabilities.kev_overdue }} con plazo CISA vencido</div></div>
+  <div class="kpi"><div class="l">Activos</div><div class="v">{{ data.assets.total|miles }}</div><div class="muted">{{ data.assets.with_criticality }} con criticidad · {{ data.assets.scanned_window }} escaneados</div></div>
   <div class="kpi"><div class="l">Acciones por aprobar</div><div class="v">{{ data.actions.pending_approval }}</div><div class="muted">{{ data.actions.done_window }} ejecutadas en la ventana</div></div>
-  <div class="kpi"><div class="l">Observaciones</div><div class="v">{{ data.observations.total }}</div><div class="muted">{{ data.observations.multi_source }} con más de una fuente</div></div>
+  <div class="kpi"><div class="l">Observaciones</div><div class="v">{{ data.observations.total|miles }}</div><div class="muted">{{ data.observations.multi_source|miles }} con más de una fuente</div></div>
   <div class="kpi"><div class="l">Sin tratamiento</div><div class="v">{{ data.risks.untreated }}</div><div class="muted">riesgos abiertos sin decisión</div></div>
   <div class="kpi"><div class="l">Detección → valoración</div><div class="v">{% if data.timing.detect_to_assess_hours is not None %}{{ data.timing.detect_to_assess_hours }} h{% else %}—{% endif %}</div><div class="muted">tiempo medio</div></div>
 </div>
-{% if deltas.available %}<p class="muted" style="font-size:9pt">Frente al {{ deltas.since }}: riesgos abiertos {{ deltas.risks_open|stringformat:"+d" }}, críticos {{ deltas.risks_critical|stringformat:"+d" }}, vulnerabilidades sostenidas {{ deltas.vulns_sustained|stringformat:"+d" }}, en KEV {{ deltas.vulns_kev|stringformat:"+d" }}.</p>{% endif %}
+{% if deltas.available %}<p class="muted" style="font-size:9pt">Frente al {{ deltas.since|fecha_corta }}: riesgos abiertos {{ deltas.risks_open|stringformat:"+d" }}, críticos {{ deltas.risks_critical|stringformat:"+d" }}, vulnerabilidades sostenidas {{ deltas.vulns_sustained|stringformat:"+d" }}, en KEV {{ deltas.vulns_kev|stringformat:"+d" }}.</p>{% endif %}
 
 <h2>Tendencia de riesgos abiertos por nivel</h2>
 {% legend charts.risk_legend %}
 {% svg_trend charts.rows charts.risk_series 760 180 %}
-
 <div class="two">
   <div><h2>Riesgos abiertos por nivel</h2>{% svg_bars charts.level_bars 380 %}</div>
   <div><h2>Priorización contextual frente a CVSS</h2>{% legend charts.priority_legend %}{% svg_compare charts.priority_groups 380 150 %}</div>
@@ -76,20 +83,20 @@
 <h2>Riesgos principales</h2>
 <table>
   <thead><tr><th>Riesgo</th><th>Activo</th><th>P × I</th><th>Nivel</th><th>Inteligencia</th><th>Tratamiento</th></tr></thead>
-  <tbody>{% for r in top_risks %}<tr><td>{{ r.title }}</td><td>{{ r.asset.name }}</td><td>{{ r.likelihood }} × {{ r.impact }}</td><td><span class="badge lvl-{{ r.level }}">{{ r.get_level_display }}</span></td><td>{{ r.intelligence_summary|default:"—" }}</td><td>{% if r.treatment %}{{ r.get_treatment_display }}{% else %}sin decidir{% endif %}</td></tr>{% empty %}<tr><td colspan="6" class="muted">No hay riesgos abiertos.</td></tr>{% endfor %}</tbody>
+  <tbody>{% for r in top_risks %}<tr><td>{{ r.title }}</td><td>{{ r.asset.name }}</td><td>{{ r.likelihood }} × {{ r.impact }}</td><td><span class="badge lvl-{{ r.level }}">{{ r.get_level_display }}</span></td><td>{{ r.intelligence_summary|default:"—"|plain }}</td><td>{% if r.treatment %}{{ r.get_treatment_display }}{% else %}sin decidir{% endif %}</td></tr>{% empty %}<tr><td colspan="6" class="muted">No hay riesgos abiertos.</td></tr>{% endfor %}</tbody>
 </table>
 
 <h2>Lo que el sistema hizo por sí solo ({{ data.window_days }} días)</h2>
 <ul>
-  <li>{{ data.automation.decisions_window }} decisiones del planificador ({{ data.automation.auto_approved_window }} aprobadas automáticamente) y {{ data.automation.scans_window }} escaneos ejecutados.</li>
-  <li>{{ data.automation.vulns_consolidated_window }} vulnerabilidades consolidadas, {{ data.automation.vulns_described_window }} descripciones redactadas y {{ data.automation.risks_assessed_window }} riesgos valorados conforme a ISO/IEC 27005.</li>
-  <li>{{ data.automation.cti_syncs_window }} sincronizaciones de inteligencia (NVD, KEV, EPSS); {{ data.llm.hours_window }} horas de modelo local con {{ data.llm.ok_window }} de {{ data.llm.calls_window }} respuestas válidas.</li>
+  <li>{{ data.automation.decisions_window|miles }} decisiones del planificador ({{ data.automation.auto_approved_window|miles }} aprobadas automáticamente) y {{ data.automation.scans_window|miles }} escaneos ejecutados.</li>
+  <li>{{ data.automation.vulns_consolidated_window|miles }} vulnerabilidades consolidadas, {{ data.automation.vulns_described_window|miles }} descripciones redactadas y {{ data.automation.risks_assessed_window|miles }} riesgos valorados conforme a ISO/IEC 27005.</li>
+  <li>{{ data.automation.cti_syncs_window|miles }} sincronizaciones de inteligencia (NVD, KEV, EPSS); {{ data.llm.hours_window }} horas de modelo local con {{ data.llm.ok_window|miles }} de {{ data.llm.calls_window|miles }} respuestas válidas.</li>
 </ul>
 
 <h2>Avisos vigentes</h2>
-{% if alerts %}<ul>{% for a in alerts %}<li><strong>{{ a.level }}</strong> · {{ a.text }}</li>{% endfor %}</ul>{% else %}<p class="muted">Sin avisos.</p>{% endif %}
+{% if alerts %}<ul>{% for a in alerts %}<li><span class="lvl lvl-{{ a.level }}" style="min-width:auto">{% if a.level == 'critical' %}crítico{% elif a.level == 'high' %}alto{% elif a.level == 'medium' %}medio{% else %}info{% endif %}</span> {{ a.text }}</li>{% endfor %}</ul>{% else %}<p class="muted">Sin avisos.</p>{% endif %}
 
-<footer>Generado por Atalaya el {{ generated_at|date:"Y-m-d H:i" }}. Las valoraciones «por IA» las produjo un modelo local y pueden corregirse en la plataforma; el tratamiento lo decide siempre una persona.</footer>
+<footer>Generado por Atalaya el {{ generated_at|fecha }}. Las valoraciones «por IA» las produjo un modelo local y pueden corregirse en la plataforma; el tratamiento lo decide siempre una persona.</footer>
 </div>
 </body>
 </html>

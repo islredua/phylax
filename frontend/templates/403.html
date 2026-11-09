@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Sin permiso{% endblock %}
+{% block page_title %}Sin permiso para ver esto{% endblock %}
+{% block content %}
+<div class="card max-w-xl">
+  <p class="text-sm">Tu cuenta no tiene permiso para esta pantalla o acción. Si crees que deberías tenerlo, pide a una persona administradora que revise tu rol.</p>
+  <div class="mt-4 flex gap-2"><a href="{% url 'home' %}" class="btn-primary">Ir a Inicio</a><a href="javascript:history.back()" class="btn-secondary">Volver</a></div>
+</div>
+{% endblock %}

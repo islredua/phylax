@@ -5,14 +5,19 @@
 {% block toolbar %}
 <div class="toolbar">
   <div class="flex flex-wrap items-center gap-2">
-    {% if blocks.detection %}{% health_badge data.health %}<span class="text-xs text-muted">calculado {{ data.computed_at|slice:"11:16" }} · ventana de {{ data.window_days }} días</span>{% else %}<p class="muted">Bienvenido, <span class="font-medium text-ink">{{ user.get_full_name|default:user.get_username }}</span>.</p>{% endif %}
+    {% if blocks.detection %}<span class="text-xs text-muted">Calculado a las {{ data.computed_at|hora }} · ventana de {{ data.window_days }} días · se actualiza solo</span>{% else %}<p class="muted">Bienvenido, <span class="font-medium text-ink">{{ user.get_full_name|default:user.get_username }}</span>.</p>{% endif %}
   </div>
   {% if blocks.detection %}
   <div class="page-actions">
-    <a href="{% url 'home_report' %}" class="btn-primary btn-sm" target="_blank" rel="noopener" title="Reporte ejecutivo del periodo, imprimible o PDF">Descargar reporte</a>
-    <a href="{% url 'home_report' %}?format=md" class="btn-secondary btn-sm" title="El mismo reporte en Markdown">Markdown</a>
-    <a href="{% url 'home_export' 'risks' %}" class="btn-secondary btn-sm" title="Registro de riesgos abiertos en CSV">Riesgos CSV</a>
-    {% if blocks.vulnerabilities %}<a href="{% url 'home_export' 'vulnerabilities' %}" class="btn-secondary btn-sm" title="Vulnerabilidades sostenidas en CSV">Vulnerabilidades CSV</a>{% endif %}
+    <details class="relative">
+      <summary class="btn-secondary btn-sm list-none cursor-pointer select-none" aria-haspopup="menu">Exportar ▾</summary>
+      <div class="absolute right-0 z-20 mt-1 flex w-72 flex-col gap-0.5 rounded border border-line bg-surface p-1 text-sm shadow-md" role="menu">
+        <a href="{% url 'home_report' %}" class="rounded px-2 py-1.5 hover:bg-canvas hover:no-underline" role="menuitem"><span class="block font-medium">Reporte ejecutivo</span><span class="block text-xs text-muted">Imprimible o PDF desde el navegador</span></a>
+        <a href="{% url 'home_report' %}?format=md" class="rounded px-2 py-1.5 hover:bg-canvas hover:no-underline" role="menuitem"><span class="block font-medium">Reporte en Markdown</span><span class="block text-xs text-muted">El mismo texto, para pegar en un documento</span></a>
+        <a href="{% url 'home_export' 'risks' %}" class="rounded px-2 py-1.5 hover:bg-canvas hover:no-underline" role="menuitem"><span class="block font-medium">Registro de riesgos (CSV)</span><span class="block text-xs text-muted">Riesgos abiertos con nivel, tratamiento y responsable</span></a>
+        {% if blocks.vulnerabilities %}<a href="{% url 'home_export' 'vulnerabilities' %}" class="rounded px-2 py-1.5 hover:bg-canvas hover:no-underline" role="menuitem"><span class="block font-medium">Vulnerabilidades (CSV)</span><span class="block text-xs text-muted">Las sostenidas, con puntajes y fuentes</span></a>{% endif %}
+      </div>
+    </details>
     {% if can_edit_settings %}<a href="{% url 'home_settings' %}" class="btn-secondary btn-sm" title="Ventana de tendencias y cadencia de la narrativa">Configurar</a>{% endif %}
   </div>
   {% endif %}
@@ -24,69 +29,81 @@
 <div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]" data-home-charts="{% url 'home_charts' %}" data-every="60">
   <div class="flex flex-col gap-4">
     {% include "presentation/_home_narrative.html" %}
-    <div id="indicadores" hx-get="{% url 'home_block' 'indicators' %}" hx-trigger="every 30s" hx-swap="outerHTML">{% include "presentation/_home_indicators.html" %}</div>
+    {% include "presentation/_home_indicators.html" %}
 
     <section class="card">
-      <div class="flex flex-wrap items-baseline justify-between gap-2"><h3 class="card-title">Tendencia de riesgos abiertos por nivel <span class="font-normal text-muted">({{ data.window_days }} días)</span></h3><span class="text-xs text-muted">actualizado <span data-charts-stamp>{{ data.computed_at|slice:"11:16" }}</span> · clic en un punto abre la lista</span></div>
-      <div class="h-56"><canvas data-chart="risk_trend" aria-label="Tendencia de riesgos abiertos por nivel" role="img"></canvas></div>
-      <details class="mt-2 text-xs"><summary class="cursor-pointer text-muted">Ver datos</summary><div class="table-wrap mt-1"><table class="data-table"><thead><tr><th>Día</th>{% for _k, label, _c in charts.risk_series %}<th>{{ label }}</th>{% endfor %}</tr></thead><tbody>{% for r in charts.rows %}{% if r.has_data %}<tr><td>{{ r.day|date:"Y-m-d" }}</td>{% for k, _l, _c in charts.risk_series %}<td class="font-mono">{{ r.risks_by_level|get_level:k }}</td>{% endfor %}</tr>{% endif %}{% empty %}<tr><td colspan="6" class="table-empty">Aún no hay instantáneas.</td></tr>{% endfor %}</tbody></table></div></details>
+      <div class="flex flex-wrap items-baseline justify-between gap-2"><h2 class="card-title">Tendencia de riesgos abiertos por nivel <span class="font-normal text-muted">({{ data.window_days }} días)</span></h2><span class="text-xs text-muted">actualizado <span data-charts-stamp>{{ data.computed_at|hora }}</span><span data-charts-offline class="text-medium" hidden></span> · clic en un punto abre la lista</span></div>
+      {% if has_trend %}
+      <div class="h-56"><canvas data-chart="risk_trend" aria-label="Tendencia de riesgos abiertos por nivel; los datos están en la tabla «Ver datos»" role="img"></canvas></div>
+      {% else %}
+      <div class="flex h-24 items-center justify-center rounded border border-dashed border-line text-xs text-muted" data-chart-empty="risk_trend">Aún no hay instantáneas: la primera se toma a la hora en punto y la tendencia empieza mañana.</div>
+      <div class="hidden h-56" data-chart-wrap="risk_trend"><canvas data-chart="risk_trend" aria-label="Tendencia de riesgos abiertos por nivel" role="img"></canvas></div>
+      {% endif %}
+      <p class="legend mt-2">{% for _k, label, color in charts.risk_series %}<span><span class="legend-dot" style="background:{{ color }}"></span> {{ label }}</span>{% endfor %}</p>
+      <details class="fold mt-2 text-xs"><summary>Ver datos</summary><div class="table-wrap mt-1"><table class="data-table"><thead><tr><th scope="col">Día</th>{% for _k, label, _c in charts.risk_series %}<th scope="col">{{ label }}</th>{% endfor %}</tr></thead><tbody>{% for r in charts.rows %}{% if r.has_data %}<tr><td>{{ r.day|fecha }}</td>{% for k, _l, _c in charts.risk_series %}<td class="font-mono">{{ r.risks_by_level|get_level:k }}</td>{% endfor %}</tr>{% endif %}{% endfor %}{% if not has_trend %}<tr><td colspan="6" class="table-empty">Aún no hay instantáneas.</td></tr>{% endif %}</tbody></table></div></details>
     </section>
     <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
       <section class="card">
-        <h3 class="card-title">Vulnerabilidades sostenidas y explotación activa</h3>
-        <div class="h-48"><canvas data-chart="vuln_trend" aria-label="Vulnerabilidades sostenidas y en KEV por día" role="img"></canvas></div>
-        <details class="mt-2 text-xs"><summary class="cursor-pointer text-muted">Ver datos</summary><div class="table-wrap mt-1"><table class="data-table"><thead><tr><th>Día</th><th>Sostenidas</th><th>KEV</th></tr></thead><tbody>{% for r in charts.rows %}{% if r.has_data %}<tr><td>{{ r.day|date:"Y-m-d" }}</td><td class="font-mono">{{ r.vulns_sustained }}</td><td class="font-mono">{{ r.vulns_kev }}</td></tr>{% endif %}{% endfor %}</tbody></table></div></details>
+        <h2 class="card-title">Vulnerabilidades sostenidas y explotación activa</h2>
+        {% if has_trend %}
+        <div class="h-48"><canvas data-chart="vuln_trend" aria-label="Vulnerabilidades sostenidas y en KEV por día; los datos están en la tabla «Ver datos»" role="img"></canvas></div>
+        {% else %}
+        <div class="flex h-24 items-center justify-center rounded border border-dashed border-line text-xs text-muted" data-chart-empty="vuln_trend">Sin instantáneas todavía.</div>
+        <div class="hidden h-48" data-chart-wrap="vuln_trend"><canvas data-chart="vuln_trend" aria-label="Vulnerabilidades sostenidas y en KEV por día" role="img"></canvas></div>
+        {% endif %}
+        <p class="legend mt-2">{% for _k, label, color in charts.vuln_series %}<span><span class="legend-dot" style="background:{{ color }}"></span> {{ label }}</span>{% endfor %}</p>
+        <details class="fold mt-2 text-xs"><summary>Ver datos</summary><div class="table-wrap mt-1"><table class="data-table"><thead><tr><th scope="col">Día</th><th scope="col">Sostenidas</th><th scope="col">KEV</th></tr></thead><tbody>{% for r in charts.rows %}{% if r.has_data %}<tr><td>{{ r.day|fecha }}</td><td class="font-mono">{{ r.vulns_sustained }}</td><td class="font-mono">{{ r.vulns_kev }}</td></tr>{% endif %}{% endfor %}{% if not has_trend %}<tr><td colspan="3" class="table-empty">Aún no hay instantáneas.</td></tr>{% endif %}</tbody></table></div></details>
       </section>
       <section class="card">
-        <h3 class="card-title">Priorización contextual frente a CVSS <span class="font-normal text-muted">(vulnerabilidades sostenidas)</span></h3>
+        <h2 class="card-title">Priorización contextual frente a CVSS <span class="font-normal text-muted">(vulnerabilidades sostenidas)</span></h2>
         <p class="mb-2 text-xs text-muted">Lo que CVSS por sí solo marcaría como crítico o alto, frente a lo que Atalaya prioriza al ponderar EPSS, KEV, criticidad del activo y exposición. La diferencia es el ruido que el equipo deja de perseguir.</p>
-        <div class="h-40"><canvas data-chart="priority" aria-label="Vulnerabilidades críticas y altas según CVSS frente a la puntuación contextual" role="img"></canvas></div>
-        <details class="mt-2 text-xs"><summary class="cursor-pointer text-muted">Ver datos</summary><div class="table-wrap mt-1"><table class="data-table"><thead><tr><th></th><th>Solo CVSS</th><th>Contextual</th></tr></thead><tbody><tr><td>Críticas</td><td class="font-mono">{{ data.vulnerabilities.priority.cvss_critical }}</td><td class="font-mono">{{ data.vulnerabilities.priority.contextual_critical }}</td></tr><tr><td>Altas</td><td class="font-mono">{{ data.vulnerabilities.priority.cvss_high }}</td><td class="font-mono">{{ data.vulnerabilities.priority.contextual_high }}</td></tr></tbody></table></div></details>
+        <div class="h-40"><canvas data-chart="priority" aria-label="Vulnerabilidades críticas y altas según CVSS frente a la puntuación contextual; los datos están en la tabla «Ver datos»" role="img"></canvas></div>
+        <details class="fold mt-2 text-xs"><summary>Ver datos</summary><div class="table-wrap mt-1"><table class="data-table"><thead><tr><th scope="col">Severidad</th><th scope="col">Solo CVSS</th><th scope="col">Contextual</th></tr></thead><tbody><tr><td>Críticas</td><td class="font-mono">{{ data.vulnerabilities.priority.cvss_critical|miles }}</td><td class="font-mono">{{ data.vulnerabilities.priority.contextual_critical|miles }}</td></tr><tr><td>Altas</td><td class="font-mono">{{ data.vulnerabilities.priority.cvss_high|miles }}</td><td class="font-mono">{{ data.vulnerabilities.priority.contextual_high|miles }}</td></tr></tbody></table></div></details>
       </section>
     </div>
     <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
       <section class="card">
-        <h3 class="card-title">Riesgos abiertos por nivel</h3>
-        <div class="h-44"><canvas data-chart="levels" aria-label="Riesgos abiertos por nivel" role="img"></canvas></div>
-        <details class="mt-2 text-xs"><summary class="cursor-pointer text-muted">Ver datos</summary><div class="table-wrap mt-1"><table class="data-table"><tbody>{% for label, value, _c in charts.level_bars %}<tr><td>{{ label }}</td><td class="font-mono">{{ value }}</td></tr>{% endfor %}</tbody></table></div></details>
+        <h2 class="card-title">Riesgos abiertos por nivel</h2>
+        <div class="h-44"><canvas data-chart="levels" aria-label="Riesgos abiertos por nivel; los datos están en la tabla «Ver datos»" role="img"></canvas></div>
+        <details class="fold mt-2 text-xs"><summary>Ver datos</summary><div class="table-wrap mt-1"><table class="data-table"><thead><tr><th scope="col">Nivel</th><th scope="col">Riesgos</th></tr></thead><tbody>{% for label, value, _c in charts.level_bars %}<tr><td>{{ label }}</td><td class="font-mono">{{ value }}</td></tr>{% endfor %}</tbody></table></div></details>
       </section>
       <section class="card">
-        <h3 class="card-title">De dónde salen las observaciones</h3>
+        <h2 class="card-title">De dónde salen las observaciones</h2>
         <p class="mb-2 text-xs text-muted">La inteligencia (cruce del software inventariado con NVD) encuentra sin escanear; nuclei y Grype confirman.</p>
-        <div class="h-44"><canvas data-chart="sources" aria-label="Observaciones por fuente" role="img"></canvas></div>
-        <details class="mt-2 text-xs"><summary class="cursor-pointer text-muted">Ver datos</summary><div class="table-wrap mt-1"><table class="data-table"><tbody>{% for label, value, _c in charts.source_bars %}<tr><td>{{ label }}</td><td class="font-mono">{{ value }}</td></tr>{% empty %}<tr><td class="table-empty">Sin observaciones.</td></tr>{% endfor %}</tbody></table></div></details>
+        <div class="h-44"><canvas data-chart="sources" aria-label="Observaciones por fuente; los datos están en la tabla «Ver datos»" role="img"></canvas></div>
+        <details class="fold mt-2 text-xs"><summary>Ver datos</summary><div class="table-wrap mt-1"><table class="data-table"><thead><tr><th scope="col">Fuente</th><th scope="col">Observaciones</th></tr></thead><tbody>{% for label, value, _c in charts.source_bars %}<tr><td>{{ label }}</td><td class="font-mono">{{ value|miles }}</td></tr>{% empty %}<tr><td colspan="2" class="table-empty">Sin observaciones.</td></tr>{% endfor %}</tbody></table></div></details>
       </section>
     </div>
 
     <section class="card">
-      <h3 class="card-title">Lo que el sistema hizo por sí solo <span class="font-normal text-muted">(últimos {{ data.window_days }} días)</span></h3>
+      <h2 class="card-title">Lo que el sistema hizo por sí solo <span class="font-normal text-muted">(últimos {{ data.window_days }} días)</span></h2>
       <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <div><p class="stat-label">Decisiones del planificador</p><p class="stat-value">{{ data.automation.decisions_window }}</p><p class="text-xs text-muted">{{ data.automation.auto_approved_window }} aprobadas solas</p></div>
-        <div><p class="stat-label">Escaneos ejecutados</p><p class="stat-value">{{ data.automation.scans_window }}</p><p class="text-xs text-muted">{% for tool, n in data.tools.by_tool.items %}{{ tool|lower }} {{ n }}{% if not forloop.last %} · {% endif %}{% endfor %}</p></div>
-        <div><p class="stat-label">Vulnerabilidades consolidadas</p><p class="stat-value">{{ data.automation.vulns_consolidated_window }}</p><p class="text-xs text-muted">{{ data.vulnerabilities.by_ai }} evaluadas por IA</p></div>
-        <div><p class="stat-label">Descripciones redactadas</p><p class="stat-value">{{ data.automation.vulns_described_window }}</p><p class="text-xs text-muted">{{ data.vulnerabilities.described }} de {{ data.vulnerabilities.sustained }} con texto</p></div>
-        <div><p class="stat-label">Riesgos valorados</p><p class="stat-value">{{ data.automation.risks_assessed_window }}</p><p class="text-xs text-muted">{{ data.risks.by_ai }} abiertos por IA</p></div>
-        <div><p class="stat-label">Sincronizaciones de inteligencia</p><p class="stat-value">{{ data.automation.cti_syncs_window }}</p><p class="text-xs text-muted">{{ data.cti.cves|default:"—" }} CVE en el espejo</p></div>
-        <div><p class="stat-label">Horas de modelo local</p><p class="stat-value">{{ data.llm.hours_window }}</p><p class="text-xs text-muted">{{ data.llm.ok_window }} / {{ data.llm.calls_window }} respuestas válidas</p></div>
+        <div><p class="stat-label">Decisiones del planificador</p><p class="stat-value">{{ data.automation.decisions_window|miles }}</p><p class="text-xs text-muted">{{ data.automation.auto_approved_window|miles }} aprobadas solas</p></div>
+        <div><p class="stat-label">Escaneos ejecutados</p><p class="stat-value">{{ data.automation.scans_window|miles }}</p><p class="text-xs text-muted">{% for tool, n in data.tools.by_tool.items %}{{ tool|lower }} {{ n }}{% if not forloop.last %} · {% endif %}{% endfor %}</p></div>
+        <div><p class="stat-label">Vulnerabilidades consolidadas</p><p class="stat-value">{{ data.automation.vulns_consolidated_window|miles }}</p><p class="text-xs text-muted">en total, {{ data.vulnerabilities.by_ai|miles }} evaluadas por IA</p></div>
+        <div><p class="stat-label">Descripciones redactadas</p><p class="stat-value">{{ data.automation.vulns_described_window|miles }}</p><p class="text-xs text-muted">en total, {{ data.vulnerabilities.described|miles }} de {{ data.vulnerabilities.sustained|miles }} con texto</p></div>
+        <div><p class="stat-label">Riesgos valorados</p><p class="stat-value">{{ data.automation.risks_assessed_window|miles }}</p><p class="text-xs text-muted">{{ data.risks.by_ai|miles }} abiertos valorados por IA</p></div>
+        <div><p class="stat-label">Sincronizaciones de inteligencia</p><p class="stat-value">{{ data.automation.cti_syncs_window|miles }}</p><p class="text-xs text-muted">{{ data.cti.cves|miles|default:"—" }} CVE en el espejo</p></div>
+        <div><p class="stat-label">Horas de modelo local</p><p class="stat-value">{{ data.llm.hours_window }}</p><p class="text-xs text-muted">{{ data.llm.ok_window|miles }} de {{ data.llm.calls_window|miles }} respuestas válidas</p></div>
         <div><p class="stat-label">Detección → valoración</p><p class="stat-value">{% if data.timing.detect_to_assess_hours is not None %}{{ data.timing.detect_to_assess_hours }} h{% else %}—{% endif %}</p><p class="text-xs text-muted">tiempo medio</p></div>
       </div>
       <p class="mt-3 text-xs text-muted">Todo esto ocurrió sin intervención humana: el lazo descubre, reconcilia con inteligencia, decide, escanea, consolida, redacta y valora. Las personas deciden el tratamiento y aprueban lo que la automatización no puede.</p>
     </section>
 
     <section class="card">
-      <h3 class="card-title">Riesgos que más pesan</h3>
+      <h2 class="card-title">Riesgos que más pesan</h2>
       <div class="table-wrap">
         <table class="data-table">
-          <thead><tr><th>Riesgo</th><th>Activo</th><th>Inteligencia</th><th>P × I</th><th>Nivel</th><th>Tratamiento</th></tr></thead>
+          <thead><tr><th scope="col">Riesgo</th><th scope="col">Activo</th><th scope="col" class="col-md">Inteligencia</th><th scope="col" class="col-lg">P × I</th><th scope="col">Nivel</th><th scope="col">Tratamiento</th></tr></thead>
           <tbody>
             {% for r in top_risks %}
             <tr>
               <td><a href="{% url 'detection:risk' r.pk %}" class="font-medium">{{ r.title|truncatechars:80 }}</a></td>
               <td><a href="{% url 'assets:detail' r.asset_id %}">{{ r.asset.name }}</a></td>
-              <td class="text-xs">{% intel_badges r as badges %}{% if badges %}{{ badges }}{% else %}<span class="text-muted">sin explotación conocida</span>{% endif %}</td>
-              <td class="font-mono text-xs whitespace-nowrap">{{ r.likelihood }} × {{ r.impact }}</td>
+              <td class="col-md text-xs">{% intel_badges r as badges %}{% if badges %}{{ badges }}{% else %}<span class="text-muted">sin explotación conocida</span>{% endif %}</td>
+              <td class="col-lg font-mono text-xs whitespace-nowrap">{{ r.likelihood }} × {{ r.impact }}</td>
               <td>{% risk_level_badge r.level %}</td>
-              <td class="text-xs">{% if r.treatment %}{{ r.get_treatment_display }}{% else %}<span class="text-muted">sin decidir</span>{% endif %}</td>
+              <td class="text-xs">{% if r.treatment %}{{ r.get_treatment_display }}{% else %}<a href="{% url 'detection:risk' r.pk %}#tratamiento" class="text-medium">sin decidir →</a>{% endif %}</td>
             </tr>
             {% empty %}<tr><td colspan="6" class="table-empty">No hay riesgos abiertos.</td></tr>{% endfor %}
           </tbody>
@@ -97,17 +114,32 @@
   </div>
 
   <div class="flex flex-col gap-4">
-    <section class="card flex flex-col gap-2">
-      <h3 class="card-title mb-0">Matriz de riesgos</h3>
-      {% include "detection/_risk_matrix.html" with matrix=matrix compact=True %}
-      <p class="text-xs text-muted">{{ data.risks.open }} riesgo(s) abiertos en {{ data.risks.assets_with_risk }} activo(s); {{ data.risks.untreated }} sin tratamiento decidido.</p>
+    <section class="today" id="hoy" aria-labelledby="hoy-titulo">
+      <h2 class="card-title mb-2" id="hoy-titulo">Qué hago hoy</h2>
+      {% if today %}
+      <ul class="flex flex-col">
+        {% for item in today %}
+        <li class="today-item">
+          <span class="flex items-start gap-2 text-sm"><span class="{% if item.level == 'critical' %}badge-critical{% elif item.level == 'high' %}badge-high{% else %}badge-medium{% endif %} shrink-0">{{ item.count|miles }}</span><span>{{ item.text }}</span></span>
+          <a href="{{ item.url }}" class="btn-secondary btn-sm shrink-0">{{ item.action }}</a>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="text-sm text-ink-soft">Nada espera una decisión humana: sin riesgos críticos, plazos vencidos, aprobaciones pendientes ni fallas.</p>
+      {% endif %}
     </section>
-    <div id="avisos" hx-get="{% url 'home_block' 'alerts' %}" hx-trigger="every 30s" hx-swap="outerHTML">{% include "presentation/_home_alerts.html" %}</div>
-    {% if blocks.activity %}<div id="pulso" hx-get="{% url 'home_block' 'pulse' %}" hx-trigger="every 30s" hx-swap="outerHTML">{% include "presentation/_home_pulse.html" %}</div>{% endif %}
+    <section class="card flex flex-col gap-2">
+      <h2 class="card-title mb-0">Matriz de riesgos</h2>
+      {% include "detection/_risk_matrix.html" with matrix=matrix compact=True %}
+      <p class="text-xs text-muted">{{ data.risks.open|pl:"riesgo abierto,riesgos abiertos" }} en {{ data.risks.assets_with_risk|pl:"activo,activos" }}; {{ data.risks.untreated }} sin tratamiento decidido. <a href="{% url 'detection:risks' %}">Abrir la matriz navegable →</a></p>
+    </section>
+    {% include "presentation/_home_alerts.html" %}
+    {% if blocks.activity %}{% include "presentation/_home_pulse.html" %}{% endif %}
     <section class="card">
-      <h3 class="card-title">Tu cuenta</h3>
+      <h2 class="card-title">Tu cuenta</h2>
       <dl class="kv-grid text-sm">
-        <div><dt class="kv-label">Rol</dt><dd class="kv-value font-mono">{% if role %}{{ role.name }}{% else %}<span class="text-muted">sin rol</span>{% endif %}</dd></div>
+        <div><dt class="kv-label">Rol</dt><dd class="kv-value">{% if user.is_superuser %}Superusuario{% elif role %}{{ role.name }}{% else %}<span class="text-muted">sin rol asignado</span>{% endif %}</dd></div>
         <div><dt class="kv-label">Verificación en dos pasos</dt><dd class="kv-value">{% if has_mfa %}<span class="badge-low">activa</span>{% else %}<a href="{% url 'accounts:security' %}" class="badge-medium hover:no-underline">inactiva · activar</a>{% endif %}</dd></div>
         <div><dt class="kv-label">Sesiones activas</dt><dd class="kv-value font-mono">{{ session_count }}</dd></div>
       </dl>
@@ -116,7 +148,7 @@
 </div>
 {% else %}
 <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
-  <div class="card"><p class="stat-label">Tu rol</p><p class="mt-1 font-mono text-base font-semibold">{% if role %}{{ role.name }}{% else %}<span class="text-muted">sin rol asignado</span>{% endif %}</p></div>
+  <div class="card"><p class="stat-label">Tu rol</p><p class="mt-1 text-base font-semibold">{% if user.is_superuser %}Superusuario{% elif role %}{{ role.name }}{% else %}<span class="text-muted">sin rol asignado</span>{% endif %}</p></div>
   <div class="card"><p class="stat-label">Verificación en dos pasos</p><p class="mt-1">{% if has_mfa %}<span class="badge-low">activa</span>{% else %}<a href="{% url 'accounts:security' %}" class="badge-medium hover:no-underline">inactiva · activar</a>{% endif %}</p></div>
   <div class="card"><p class="stat-label">Sesiones activas</p><p class="stat-value">{{ session_count }}</p></div>
 </div>

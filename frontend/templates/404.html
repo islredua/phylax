@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}No encontrado{% endblock %}
+{% block page_title %}Esta página no existe{% endblock %}
+{% block content %}
+<div class="card max-w-xl">
+  <p class="text-sm">La dirección no corresponde a ninguna pantalla, o el elemento fue eliminado o fusionado con otro.</p>
+  <div class="mt-4 flex gap-2"><a href="{% url 'home' %}" class="btn-primary">Ir a Inicio</a><a href="javascript:history.back()" class="btn-secondary">Volver</a></div>
+</div>
+{% endblock %}

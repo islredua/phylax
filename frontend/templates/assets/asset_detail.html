@@ -15,7 +15,7 @@
     {% if perms.assets.change_asset and asset.status != 'RETIRED' %}
       {% if asset.status == 'UNCONFIRMED' %}<a href="{% url 'assets:confirm' asset.pk %}" class="btn-primary btn-sm">Confirmar</a>{% endif %}
       <a href="{% url 'assets:edit' asset.pk %}" class="btn-secondary btn-sm">Editar</a>
-      <form method="post" action="{% url 'assets:retire' asset.pk %}">{% csrf_token %}<button class="btn-secondary btn-sm" type="submit">Retirar</button></form>
+      <form method="post" action="{% url 'assets:retire' asset.pk %}" data-confirm="Retirar el activo «{{ asset.name }}» es definitivo: sale del inventario, deja de escanearse y no se puede reactivar. ¿Retirarlo?">{% csrf_token %}<button class="btn-danger-soft btn-sm" type="submit" title="Definitivo: no se puede deshacer">Retirar</button></form>
     {% endif %}
   </div>
 </div>
@@ -62,7 +62,7 @@
     {% include "assets/_scan_action.html" with extra_class="w-full" %}
     {% endif %}
     {% if perms.assets.change_asset and asset.status != 'IGNORED' and asset.status != 'RETIRED' %}
-    <form method="post" action="{% url 'assets:ignore' asset.pk %}">{% csrf_token %}<button class="btn-secondary w-full" type="submit">Ignorar</button></form>
+    <form method="post" action="{% url 'assets:ignore' asset.pk %}">{% csrf_token %}<button class="btn-secondary w-full" type="submit" title="Deja de escanearse y de generar riesgos, pero se conserva y se puede restaurar. «Retirar» es definitivo.">Ignorar</button></form>
     {% endif %}
     {% if asset.status == 'IGNORED' %}
     <div class="alert-info text-sm">Activo ignorado.</div>
@@ -119,7 +119,7 @@
         <td>{% if i.is_primary %}<span class="badge-primary">principal</span>{% endif %}</td>
         <td class="font-mono text-xs">{{ i.first_seen|date:"Y-m-d H:i" }}</td>
         <td class="font-mono text-xs">{{ i.last_seen|date:"Y-m-d H:i" }}</td>
-        <td class="text-right">{% if perms.assets.change_asset %}<form method="post" action="{% url 'assets:identifier_remove' asset.pk i.pk %}">{% csrf_token %}<button class="btn-secondary btn-sm" type="submit">Quitar</button></form>{% endif %}</td>
+        <td class="text-right">{% if perms.assets.change_asset %}<form method="post" action="{% url 'assets:identifier_remove' asset.pk i.pk %}" data-confirm="¿Quitar el identificador {{ i.value }}? Si el descubrimiento lo vuelve a ver, podría crear un activo nuevo.">{% csrf_token %}<button class="btn-danger-soft btn-sm" type="submit">Quitar</button></form>{% endif %}</td>
       </tr>
       {% empty %}<tr><td colspan="6" class="table-empty">Sin identificadores.</td></tr>{% endfor %}
     </tbody>

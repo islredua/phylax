@@ -9,6 +9,8 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.cache import never_cache
 from django.views.generic import FormView, ListView, TemplateView
 
+from apps.core.views import PaginationMixin
+
 from . import mfa, user_admin, user_sessions
 from .models import AuditLogEntry, MFADevice
 from .roles import ROLES
@@ -29,7 +31,7 @@ class TargetUserMixin:
         return context
 
 
-class UserListView(PermissionRequiredMixin, ListView):
+class UserListView(PermissionRequiredMixin, PaginationMixin, ListView):
     permission_required = "accounts.view_user"
     raise_exception = True
     template_name = "users/user_list.html"

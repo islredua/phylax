@@ -24,7 +24,7 @@ HOME_PERMS = {
     "activity": "detection.view_detectionevent",
     "assets": "assets.view_asset",
 }
-NARRATIVE_PENDING_KEY = "home:narrative:pending"
+from .narrative import NARRATIVE_PENDING_KEY  # noqa: E402  (reexportado para las pruebas)
 
 
 def _home_blocks(user):
@@ -117,10 +117,9 @@ class HomeView(TemplateView):
             return context
         data = indicators.current()
         rows = indicators.trend()
-        story = narrative.latest()
-        if story is None:
-            story = narrative.generate(use_llm=False, data=data)
-            narrative.maybe_refresh()
+        # Un GET no escribe: si aún no hay narrativa se muestra la regla sin guardar y
+        # ``beat`` (refresh_health_narrative) genera la primera.
+        story = narrative.latest() or narrative.rule_preview(data)
         open_risks = list(
             Risk.objects.filter(status__in=indicators.RISK_OPEN).select_related("asset")
         )
@@ -135,6 +134,9 @@ class HomeView(TemplateView):
             narrative=story,
             narrative_pending=bool(cache.get(NARRATIVE_PENDING_KEY)),
             linker=Linker.from_db(),
+            today=indicators.today(data),
+            health_url=indicators.health_target(data),
+            has_trend=any(r["has_data"] for r in rows),
         )
         return context
 
@@ -147,13 +149,16 @@ def chart_payload(data, rows):
 
     level_label = dict(RiskLevel.choices)
     levels = ["CRITICAL", "VERY_HIGH", "HIGH", "MODERATE", "LOW"]
-    labels = [r["day"].strftime("%d %b") for r in rows]
+    from apps.core.templatetags.ui import MESES_CORTOS
+
+    labels = [f"{r['day'].day} {MESES_CORTOS[r['day'].month - 1]}" for r in rows]
     risks_url = reverse("detection:risks")
     panel_url = reverse("detection:panel")
     priority = data["vulnerabilities"]["priority"]
     sources = sorted(data["observations"]["by_source"].items(), key=lambda kv: -kv[1])
     return {
         "computed_at": timezone.localtime().strftime("%H:%M"),
+        "has_trend": any(r["has_data"] for r in rows),
         "risk_trend": {
             "labels": labels,
             "series": [
@@ -287,9 +292,10 @@ class HomeFragmentView(PermissionRequiredMixin, TemplateView):
             from .links import Linker
 
             context.update(
-                narrative=narrative.latest(),
+                narrative=narrative.latest() or narrative.rule_preview(data),
                 narrative_pending=bool(cache.get(NARRATIVE_PENDING_KEY)),
                 linker=Linker.from_db(),
+                health_url=indicators.health_target(data),
             )
         return context
 
@@ -333,7 +339,7 @@ class HomeReportView(PermissionRequiredMixin, View):
         from . import indicators, narrative
 
         data = indicators.current()
-        story = narrative.latest() or narrative.generate(use_llm=False, data=data)
+        story = narrative.latest() or narrative.rule_preview(data)
         open_risks = list(
             Risk.objects.filter(status__in=indicators.RISK_OPEN).select_related("asset")
         )
@@ -343,6 +349,8 @@ class HomeReportView(PermissionRequiredMixin, View):
             "narrative": story,
             "top_risks": indicators.top_risks(limit=10),
             "alerts": indicators.alerts(data),
+            "today": indicators.today(data),
+            "alert_label": indicators.ALERT_LEVEL_LABEL,
             "matrix": risks.matrix(open_risks),
             "charts": _charts(data, indicators.trend()),
             "generated_at": timezone.now(),
@@ -379,10 +387,14 @@ class HomeExportView(PermissionRequiredMixin, View):
     def get(self, request, kind):
         import csv
 
+        from apps.core.templatetags.ui import fecha
         from apps.detection.descriptions import SUSTAINED
-        from apps.detection.models import Risk, Vulnerability
+        from apps.detection.models import FindingSeverity, Risk, Vulnerability
 
         from . import indicators
+        from .templatetags.presentation_tags import SOURCE_LABELS
+
+        severity_label = dict(FindingSeverity.choices)
 
         stamp = timezone.localdate().isoformat()
         response = HttpResponse(content_type="text/csv; charset=utf-8")
@@ -425,7 +437,7 @@ class HomeExportView(PermissionRequiredMixin, View):
                         r.get_treatment_display() if r.treatment else "",
                         r.owner,
                         r.get_assessment_source_display(),
-                        r.assessed_at.isoformat() if r.assessed_at else "",
+                        fecha(r.assessed_at) if r.assessed_at else "",
                         "; ".join(v.key for v in r.vulnerabilities.all()),
                     ]
                 )
@@ -464,16 +476,16 @@ class HomeExportView(PermissionRequiredMixin, View):
                         v.component.label if v.component else "",
                         v.get_status_display(),
                         v.plausibility,
-                        v.severity,
+                        severity_label.get(v.severity, v.severity),
                         v.cvss_score,
                         v.epss_score,
                         "sí" if v.in_kev else "no",
-                        v.kev_due_at or "",
+                        v.kev_due_at.isoformat() if v.kev_due_at else "",
                         v.technical_score,
                         v.contextual_score,
-                        "; ".join(sources),
-                        v.first_detected_at.date().isoformat(),
-                        v.last_seen_at.isoformat(),
+                        "; ".join(SOURCE_LABELS.get(s, s) for s in sources),
+                        fecha(v.first_detected_at),
+                        fecha(v.last_seen_at),
                     ]
                 )
         else:
