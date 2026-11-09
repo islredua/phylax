@@ -25,6 +25,7 @@ from . import (
     activity,
     automation,
     consolidation,
+    descriptions,
     events,
     findings,
     planner,
@@ -40,23 +41,37 @@ from .forms import (
     ObservationForm,
     PauseForm,
     ProfileForm,
+    RejectForm,
     ReviewForm,
     RiskFilterForm,
     RiskTreatmentForm,
     SourceForm,
+    VulnerabilityBulkForm,
     VulnerabilityFilterForm,
     VulnerabilityStatusForm,
 )
 from .models import (
     OPEN_STATUSES,
     VULN_OPEN_STATUSES,
+    Action,
     DetectionEvent,
     Finding,
     FindingSeverity,
     PlannedAction,
     Risk,
+    RiskEvent,
+    RiskEventKind,
     Vulnerability,
+    VulnerabilityStatus,
 )
+
+# Parámetros que no son filtros: con cualquier otro presente, la lista está filtrada y un
+# resultado vacío significa «sin coincidencias», no «falta consolidar».
+NON_FILTER_PARAMS = {"asset", "page", "per_page", "tab"}
+
+
+def filters_active(params):
+    return any(value for key, value in params.items() if key not in NON_FILTER_PARAMS)
 
 
 class Perm(PermissionRequiredMixin):
@@ -148,12 +163,14 @@ def asset_tab_context(asset, tab):
         "consolidation_pending": consolidation.is_pending(asset.pk),
     }
     if tab == "riesgos":
-        listed = list(
-            filter_risks(params)[0].order_by("-likelihood", "-impact", "-first_identified_at")
-        )
+        listed = list(risks.triage_order(filter_risks(params)[0]))
         ctx.update(risks=listed, matrix=risks.matrix(listed))
     elif tab == "vulnerabilidades":
-        ctx["vulnerabilities"] = list(filter_vulnerabilities(params)[0])
+        from . import descriptions
+
+        listed = list(filter_vulnerabilities(params)[0])
+        ctx["vulnerabilities"] = listed
+        ctx["describing"] = descriptions.pending_ids([v.pk for v in listed])
     elif tab == "observaciones":
         ctx["findings"] = order_findings(filter_findings(params)[0])
     return ctx
@@ -182,10 +199,28 @@ def filter_vulnerabilities(params):
             qs = qs.filter(in_kev=True, kev_due_at__lt=timezone.localdate())
         if data["exploitable"]:
             qs = qs.filter(Q(in_kev=True) | Q(cvss_score__gte=9))
+        if data["status_source"]:
+            qs = qs.filter(status_source=data["status_source"])
+        if data["source"]:
+            qs = qs.filter(observations__sources__contains=[data["source"]]).distinct()
+        if data["component"]:
+            words = data["component"].split()
+            for word in words:
+                qs = qs.filter(
+                    Q(component__name__icontains=word)
+                    | Q(component__vendor__icontains=word)
+                    | Q(component__version__icontains=word)
+                    | Q(title__icontains=word)
+                )
+        if data["days"]:
+            cutoff = timezone.now() - timezone.timedelta(days=data["days"])
+            qs = qs.filter(Q(status_at__gte=cutoff) | Q(resolved_at__gte=cutoff))
         if data["asset"]:
             qs = qs.filter(asset_id=data["asset"])
     if status == "all":
         pass
+    elif status == "resolved":
+        qs = qs.filter(status__in=consolidation.RESOLVED_STATUSES)
     elif status:
         qs = qs.filter(status=status)
     else:
@@ -221,8 +256,149 @@ class PanelView(Perm, PaginationMixin, ListView):
             consolidation_pending=consolidation.is_pending(asset_id) if asset_id else False,
             queue_size=actions.approval_queue().count(),
             automation=automation.summary(),
+            filters_active=filters_active(self.request.GET),
+            describing=descriptions.pending_ids([v.pk for v in context["vulnerabilities"]]),
+            bulk_statuses=list(HUMAN_STATUS_LABELS.items()),
         )
         return context
+
+
+class VulnerabilityBulkView(Perm, View):
+    """Triaje en lote: el mismo estado (y nota) para todas las vulnerabilidades marcadas."""
+
+    permission_required = "detection.work_findings"
+
+    def post(self, request):
+        back = _safe_next(request, reverse("detection:panel"))
+        ids = request.POST.getlist("ids")
+        form = VulnerabilityBulkForm(request.POST)
+        if not ids:
+            messages.error(request, "Marca al menos una vulnerabilidad.")
+            return HttpResponseRedirect(back)
+        if not form.is_valid():
+            messages.error(request, "Elige el estado que quieres fijar.")
+            return HttpResponseRedirect(back)
+        done, failed = 0, []
+        for vuln_id in ids:
+            try:
+                consolidation.set_status(
+                    vuln_id,
+                    user=request.user,
+                    status=form.cleaned_data["status"],
+                    note=form.cleaned_data["note"],
+                )
+                done += 1
+            except (ValueError, Vulnerability.DoesNotExist) as error:
+                failed.append(str(error))
+        label = HUMAN_STATUS_LABELS[form.cleaned_data["status"]].lower()
+        if done:
+            messages.success(
+                request,
+                f"{done} vulnerabilidad{'es' if done != 1 else ''} → {label}, fijado por ti.",
+            )
+        if failed:
+            messages.error(request, f"{len(failed)} no se cambiaron: {failed[0]}")
+        return HttpResponseRedirect(back)
+
+
+def verification_plan(vuln, observations):
+    """«Qué falta para decidir» de una vulnerabilidad por verificar: el motivo de la duda en
+    palabras y los pasos que el sistema puede dar (escanear, reescanear) o que la persona decide
+    (no aplica). Sin pasos no hay bloque vacío: se explica qué sí se puede hacer."""
+    from . import capabilities
+
+    if vuln.status != VulnerabilityStatus.NEEDS_VERIFICATION:
+        return None
+    import re
+
+    flags = list(vuln.rule_flags or [])
+    reasons = []
+    for flag in flags:
+        quoted = re.search(r"«([^»]+)»", flag)
+        value = quoted.group(1) if quoted else ""
+        if flag.startswith("versión imprecisa"):
+            reasons.append(
+                f"nmap solo pudo leer la versión «{value}», que es imprecisa: el cruce con NVD no "
+                "puede saber si la versión instalada cae en el rango afectado."
+            )
+        elif flag.startswith("paquete de distribución"):
+            reasons.append(
+                f"La versión «{value}» es un paquete de la distribución: suele corregir el fallo "
+                "sin cambiar el número de versión, así que el cruce con NVD puede ser un falso "
+                "positivo (parche retroportado)."
+            )
+        elif flag.startswith("software no observado"):
+            reasons.append(
+                f"La plantilla habla de {flag[len('software no observado: '):]}, que no aparece "
+                "en el software observado del activo."
+            )
+    if not reasons:
+        reasons.append(
+            "La IA no encontró evidencia directa (versión exacta en rango, varias fuentes o "
+            "comparador específico) y por eso no la dio por probable."
+        )
+    caps = capabilities.for_asset(vuln.asset_id)
+    sources = {s for f in observations for s in (f.sources or [])}
+    steps = []
+    if str(Action.DETECT_VULNS) in caps.allowed_actions and "NUCLEI" not in sources:
+        steps.append(
+            {
+                "key": "detect",
+                "label": "Detectar con herramienta",
+                "help": "nuclei prueba el CVE contra el servicio y responde si lo encuentra.",
+            }
+        )
+    if str(Action.RESCAN_SERVICES) in caps.allowed_actions:
+        steps.append(
+            {
+                "key": "rescan",
+                "label": "Reescanear servicios",
+                "help": "Vuelve a leer las versiones con nmap; puede precisar la versión.",
+            }
+        )
+    blocker = caps.scan_blocker if not caps.can_scan_network else ""
+    return {"reasons": reasons, "steps": steps, "blocker": blocker}
+
+
+class VulnerabilityVerifyView(Perm, View):
+    """Botones de «Qué falta para decidir»: escanear con herramienta o reescanear servicios."""
+
+    permission_required = "detection.request_evaluation"
+
+    def post(self, request, pk):
+        vuln = get_object_or_404(Vulnerability.objects.select_related("asset"), pk=pk)
+        back = _safe_next(request, reverse("detection:vulnerability", args=[pk]))
+        mode = request.POST.get("mode", "detect")
+        action = Action.RESCAN_SERVICES if mode == "rescan" else Action.DETECT_VULNS
+        try:
+            planned = actions.request_manual(
+                vuln.asset_id,
+                action,
+                user=request.user,
+                reason=f"Verificar «{vuln.title}» ({vuln.key}) pedida desde la vulnerabilidad.",
+            )
+        except (ValidationError, PermissionDenied) as error:
+            _messages_from(request, error)
+            return HttpResponseRedirect(back)
+        consolidation.add_note(
+            pk,
+            user=request.user,
+            text=f"Pidió «{planned.get_action_display()}» para verificarla "
+            f"({planned.get_status_display().lower()}).",
+        )
+        if planned.status in ("PROPOSED", "NEEDS_REVIEW"):
+            messages.success(
+                request,
+                f"{planned.get_action_display()} propuesta: espera aprobación en la cola "
+                "(modo manual).",
+            )
+        else:
+            messages.success(
+                request,
+                f"{planned.get_action_display()}: {planned.get_status_display().lower()}. "
+                "Al terminar, la consolidación vuelve a decidir el estado.",
+            )
+        return HttpResponseRedirect(back)
 
 
 class VulnerabilityDetailView(Perm, TemplateView):
@@ -258,8 +434,38 @@ class VulnerabilityDetailView(Perm, TemplateView):
             baselines=scoring.baselines(
                 cvss=vuln.cvss_score, epss=vuln.epss_score, severity=vuln.severity
             ),
+            verification=verification_plan(vuln, observations),
+            next_vuln=next_in_asset(vuln),
+            pending_action=PlannedAction.objects.filter(
+                asset_id=vuln.asset_id,
+                status__in=("PROPOSED", "NEEDS_REVIEW", "APPROVED", "QUEUED", "RUNNING"),
+                action__in=(Action.DETECT_VULNS, Action.RESCAN_SERVICES),
+            )
+            .order_by("-created_at")
+            .first(),
         )
         return context
+
+
+def next_in_asset(vuln):
+    """La siguiente vulnerabilidad abierta del mismo activo en orden de triaje (puntaje
+    contextual), para revisar una tras otra sin volver a la lista."""
+    if vuln.status not in VULN_OPEN_STATUSES:
+        return None
+    ordered = list(
+        Vulnerability.objects.filter(asset_id=vuln.asset_id, status__in=VULN_OPEN_STATUSES)
+        .order_by("-contextual_score", "pk")
+        .values_list("pk", flat=True)
+    )
+    try:
+        index = ordered.index(vuln.pk)
+    except ValueError:
+        return None
+    return (
+        Vulnerability.objects.filter(pk=ordered[index + 1]).first()
+        if index + 1 < len(ordered)
+        else None
+    )
 
 
 class VulnerabilityDescriptionView(Perm, View):
@@ -298,11 +504,11 @@ def origin_story(vuln, observations):
                 }
             )
         else:
-            where = f" en {comp.port}/{comp.protocol or 'tcp'}" if comp.port else ""
+            # comp.label ya incluye «· 25/tcp» cuando hay puerto: no se repite.
             steps.append(
                 {
                     "when": comp.first_seen,
-                    "what": f"El descubrimiento observó {comp.label}{where} en el activo.",
+                    "what": f"El descubrimiento observó {comp.label} en el activo.",
                     "source": "Inventario",
                 }
             )
@@ -507,6 +713,12 @@ def filter_risks(params):
             qs = qs.filter(treatment="")
         elif data["treatment"]:
             qs = qs.filter(treatment=data["treatment"])
+        if data["kev_overdue"]:
+            qs = qs.filter(risks.kev_overdue_filter()).distinct()
+        if data["likelihood"]:
+            qs = qs.filter(likelihood=data["likelihood"])
+        if data["impact"]:
+            qs = qs.filter(impact=data["impact"])
         if data["asset"]:
             qs = qs.filter(asset_id=data["asset"])
     if status == "all":
@@ -515,6 +727,15 @@ def filter_risks(params):
         qs = qs.filter(status=status)
     else:
         qs = qs.filter(status__in=("OPEN", "TREATED", "ACCEPTED"))
+    from django.db.models import OuterRef, Subquery
+
+    qs = qs.annotate(
+        closed_reason=Subquery(
+            RiskEvent.objects.filter(risk=OuterRef("pk"), kind=RiskEventKind.CLOSED)
+            .order_by("-occurred_at", "-id")
+            .values("message")[:1]
+        )
+    )
     return qs, form
 
 
@@ -528,7 +749,7 @@ class RiskRegisterView(Perm, PaginationMixin, ListView):
 
     def get_queryset(self):
         qs, self.filter_form = filter_risks(self.request.GET)
-        return qs.order_by("-likelihood", "-impact", "-first_identified_at")
+        return risks.triage_order(qs)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -543,6 +764,8 @@ class RiskRegisterView(Perm, PaginationMixin, ListView):
             asset_id=asset_id,
             asset=listed[0].asset if asset_id and listed else None,
             consolidation_pending=consolidation.is_pending(asset_id) if asset_id else False,
+            today=risks.today(asset_id),
+            filters_active=filters_active(self.request.GET),
         )
         if asset_id and context["asset"] is None:
             from apps.assets.models import Asset
@@ -566,6 +789,8 @@ class RiskDetailView(Perm, TemplateView):
             intel=risks.intelligence(risk.vulnerabilities.select_related("cve")),
             timeline=risk.events.select_related("actor").order_by("-occurred_at", "-id"),
             matrix=risks.matrix([risk]),
+            closure=risks.closure(risk),
+            consolidation_pending=consolidation.is_pending(risk.asset_id),
             treatment_form=RiskTreatmentForm(
                 initial={
                     "treatment": risk.treatment,
@@ -588,12 +813,16 @@ class RiskReportView(Perm, View):
         from django.template.loader import render_to_string
 
         risk = get_object_or_404(Risk.objects.select_related("asset", "decided_by"), pk=pk)
+        evidence = risks.evidence(risk)
         context = {
             "risk": risk,
             "asset": risk.asset,
-            "evidence": risks.evidence(risk),
+            "evidence": evidence,
+            "evidence_groups": group_evidence(evidence),
+            "described": [row for row in evidence if row["vuln"].summary][:5],
             "intel": risks.intelligence(risk.vulnerabilities.select_related("cve")),
             "timeline": risk.events.select_related("actor").order_by("occurred_at", "id"),
+            "closure": risks.closure(risk),
             "generated_at": timezone.now(),
             "generated_by": request.user,
         }
@@ -606,12 +835,44 @@ class RiskReportView(Perm, View):
         return render(request, "detection/risk_report.html", context)
 
 
+def group_evidence(rows):
+    """Evidencia del reporte agrupada por software afectado: una fila por componente con sus
+    vulnerabilidades, en vez de una tabla con decenas de filas casi iguales."""
+    groups = {}
+    for row in rows:
+        vuln = row["vuln"]
+        label = vuln.component.label if vuln.component else "Sin software identificado"
+        group = groups.setdefault(
+            label,
+            {"component": label, "rows": [], "kev": 0, "max_score": None, "sources": set()},
+        )
+        group["rows"].append(row)
+        group["kev"] += 1 if vuln.in_kev else 0
+        group["sources"].update(row["sources"])
+        score = vuln.contextual_score
+        if score is not None and (group["max_score"] is None or score > group["max_score"]):
+            group["max_score"] = score
+    out = sorted(groups.values(), key=lambda g: g["max_score"] or 0, reverse=True)
+    for group in out:
+        group["sources"] = sorted(group["sources"])
+        group["count"] = len(group["rows"])
+    return out
+
+
 class RiskTreatmentView(Perm, View):
     permission_required = "detection.work_findings"
 
     def post(self, request, pk):
         form = RiskTreatmentForm(request.POST)
         back = _safe_next(request, reverse("detection:risk", args=[pk]))
+        risk = get_object_or_404(Risk, pk=pk)
+        if risk.status == "CLOSED":
+            messages.error(
+                request,
+                "El riesgo está cerrado: no admite tratamiento. Si vuelve a sostenerse, se "
+                "reabre solo y entonces podrás decidirlo.",
+            )
+            return HttpResponseRedirect(back)
         if not form.is_valid():
             messages.error(request, "Revisa el tratamiento: faltan datos o no son válidos.")
             return HttpResponseRedirect(back)
@@ -658,6 +919,7 @@ class ObservationsView(Perm, PaginationMixin, ListView):
             asset_id=self.filter_form.cleaned_data.get("asset")
             if self.filter_form.is_valid()
             else None,
+            filters_active=filters_active(self.request.GET),
         )
         return context
 
@@ -666,18 +928,42 @@ class ObservationCreateView(Perm, TemplateView):
     permission_required = "detection.work_findings"
     template_name = "detection/observation_form.html"
 
-    def _asset(self, request):
+    def _asset(self, request, required=True):
         from apps.assets.models import Asset
 
-        return get_object_or_404(Asset, pk=request.GET.get("asset") or request.POST.get("asset"))
+        asset_id = request.GET.get("asset") or request.POST.get("asset")
+        if not asset_id and not required:
+            return None
+        return get_object_or_404(Asset, pk=asset_id)
+
+    def _choices(self):
+        from apps.assets.models import Asset
+
+        return Asset.objects.filter(status__in=("ACTIVE", "STALE")).order_by("name")[:500]
 
     def get(self, request):
-        asset = self._asset(request)
-        return render(request, self.template_name, {"asset": asset, "form": ObservationForm()})
+        # Desde Observaciones sin activo: se elige aquí mismo.
+        asset = self._asset(request, required=False)
+        return render(
+            request,
+            self.template_name,
+            {
+                "asset": asset,
+                "form": ObservationForm(),
+                "assets": None if asset else self._choices(),
+            },
+        )
 
     def post(self, request):
-        asset = self._asset(request)
+        asset = self._asset(request, required=False)
         form = ObservationForm(request.POST)
+        if asset is None:
+            messages.error(request, "Elige el activo donde viste la observación.")
+            return render(
+                request,
+                self.template_name,
+                {"asset": None, "form": form, "assets": self._choices()},
+            )
         if form.is_valid():
             try:
                 finding = findings.add_manual_observation(
@@ -691,7 +977,7 @@ class ObservationCreateView(Perm, TemplateView):
                     "Observación registrada; la consolidación con IA la tomará en cuenta en breve.",
                 )
                 return redirect("detection:finding", pk=finding.pk)
-        return render(request, self.template_name, {"asset": asset, "form": form})
+        return render(request, self.template_name, {"asset": asset, "form": form, "assets": None})
 
 
 class FindingDetailView(Perm, TemplateView):
@@ -704,14 +990,36 @@ class FindingDetailView(Perm, TemplateView):
             Finding.objects.select_related("asset", "cve", "component", "status_changed_by"),
             pk=kwargs["pk"],
         )
+        evidence = list(finding.evidence.select_related("component"))
         context.update(
             finding=finding,
-            evidence=finding.evidence.select_related("component"),
+            evidence=evidence,
+            external_hosts=external_evidence_hosts(finding, evidence),
             timeline=finding.events.select_related("actor").order_by("-occurred_at", "-id"),
             consolidated=finding.consolidated,
             consolidation_pending=consolidation.is_pending(finding.asset_id),
         )
         return context
+
+
+def external_evidence_hosts(finding, evidence):
+    """Hosts de «matched-at» que no son identificadores del activo: la plantilla coincidió en un
+    tercero (RDAP, un inquilino en la nube), no en el activo. Se marcan en la evidencia."""
+    from urllib.parse import urlsplit
+
+    own = {i.value.lower() for i in finding.asset.identifiers.all()}
+    own.add(finding.asset.name.lower())
+    hosts = set()
+    for ev in evidence:
+        matched = (ev.data or {}).get("matched-at")
+        if not matched:
+            continue
+        text = str(matched)
+        host = urlsplit(text if "://" in text else f"//{text}").hostname or text
+        host = host.lower().strip("[]")
+        if host and host not in own and not any(host == o or host.startswith(o + ":") for o in own):
+            hosts.add(host)
+    return hosts
 
 
 class FindingTransitionView(Perm, View):
@@ -805,10 +1113,16 @@ class EventDetailView(Perm, TemplateView):
         event = get_object_or_404(
             DetectionEvent.objects.select_related("asset", "cve", "batch"), pk=kwargs["pk"]
         )
+        related = Finding.objects.none()
+        if event.asset_id and event.cve_id:
+            related = Finding.objects.filter(asset_id=event.asset_id, cve_id=event.cve_id)
+        elif event.cve_id:
+            related = Finding.objects.filter(cve_id=event.cve_id).select_related("asset")[:20]
         context.update(
             event=event,
             decisions=event.decisions.select_related("inference", "asset"),
             actions=event.actions.select_related("asset"),
+            related_findings=related,
         )
         return context
 
@@ -940,14 +1254,19 @@ class RejectActionView(Perm, View):
     permission_required = "detection.approve_actions"
 
     def post(self, request, pk):
-        form = ReviewForm(request.POST)
-        note = form.cleaned_data["note"] if form.is_valid() else ""
+        # En la cola cada tarjeta lleva su propio campo («note_<id>»); en el detalle es «note».
+        raw = request.POST.get(f"note_{pk}") or request.POST.get("note") or ""
+        form = RejectForm({"note": raw.strip()})
+        back = _safe_next(request, reverse("detection:queue"))
+        if not form.is_valid():
+            messages.error(request, "Indica el motivo del rechazo: queda en la bitácora.")
+            return HttpResponseRedirect(back)
         try:
-            actions.reject(pk, user=request.user, note=note)
+            actions.reject(pk, user=request.user, note=form.cleaned_data["note"])
             messages.success(request, "Acción rechazada.")
         except ValidationError as error:
             _messages_from(request, error)
-        return HttpResponseRedirect(_safe_next(request, reverse("detection:queue")))
+        return HttpResponseRedirect(back)
 
 
 class BulkQueueView(Perm, View):
@@ -960,22 +1279,36 @@ class BulkQueueView(Perm, View):
             messages.error(request, "Selecciona al menos una acción.")
             return redirect("detection:queue")
         if decision == "reject":
+            form = RejectForm({"note": (request.POST.get("note") or "").strip()})
+            if not form.is_valid():
+                messages.error(request, "Indica el motivo del rechazo: se aplica a todas.")
+                return redirect("detection:queue")
             done, failed = [], []
             for action_id in ids:
                 try:
                     done.append(
-                        actions.reject(action_id, user=request.user, note="Rechazada en lote")
+                        actions.reject(
+                            action_id,
+                            user=request.user,
+                            note=f"Rechazada en lote: {form.cleaned_data['note']}"[:500],
+                        )
                     )
                 except (ValidationError, PlannedAction.DoesNotExist) as exc:
                     failed.append((action_id, str(exc)))
-            label = "rechazada(s)"
+            label = "rechazada" if len(done) == 1 else "rechazadas"
         else:
             done, failed = actions.approve_many(ids, user=request.user)
-            label = "aprobada(s) en lote"
+            label = "aprobada en lote" if len(done) == 1 else "aprobadas en lote"
         if done:
-            messages.success(request, f"{len(done)} acción(es) {label}.")
+            messages.success(
+                request, f"{len(done)} acci{'ón' if len(done) == 1 else 'ones'} {label}."
+            )
         if failed:
-            messages.warning(request, f"{len(failed)} acción(es) ya no esperaban aprobación.")
+            n = len(failed)
+            messages.warning(
+                request,
+                f"{n} acci{'ón' if n == 1 else 'ones'} ya no esperaba{'' if n == 1 else 'n'} aprobación.",
+            )
         return redirect("detection:queue")
 
 
@@ -1044,6 +1377,9 @@ class PauseView(Perm, View):
         form = PauseForm(request.POST)
         reason = form.cleaned_data["reason"] if form.is_valid() else ""
         paused = request.POST.get("paused") == "1"
+        if paused and not reason.strip():
+            messages.error(request, "Indica el motivo de la pausa: queda en la bitácora.")
+            return redirect("detection:automation")
         automation.set_paused(paused, user=request.user, reason=reason)
         messages.success(
             request, "Pausa de emergencia activada." if paused else "Automatización reanudada."

@@ -17,9 +17,10 @@ import unicodedata
 from django.db import transaction
 from django.utils import timezone
 
+from apps.assets import catalogs
 from apps.assets import services as assets_services
 from apps.llm.client import register_mock, run_structured
-from apps.llm.language import looks_spanish
+from apps.llm.language import fix_spanish, looks_spanish
 from apps.llm.prompts import load_prompt
 from apps.llm.schemas import RISK_ASSESSMENT_SCHEMA, RiskAssessmentOutput
 from apps.llm.status import active_model
@@ -114,20 +115,36 @@ def rule_title(consequence, asset_name, cause):
     return _clean(f"{CONSEQUENCE_LABEL[consequence]} en {asset_name} por {cause}", 160)
 
 
+def role_label(context):
+    """Nombre legible de la función de negocio (catálogo), nunca el código («CORREO»)."""
+    code = context.business_role or ""
+    return catalogs.label(catalogs.BUSINESS_ROLE, code) if code else "el activo"
+
+
+def environment_label(context):
+    code = context.environment or ""
+    return catalogs.label(catalogs.ENVIRONMENT, code) if code else "entorno sin definir"
+
+
 def _rule_texts(vulns, context, asset_name, consequence):
-    role = context.business_role or "el activo"
-    env = context.environment or "entorno sin definir"
+    role = role_label(context)
+    env = environment_label(context)
     exposure = {"INTERNET": "expuesto a internet", "DMZ": "en la DMZ"}.get(
         context.exposure, "en la red interna"
     )
     names = "; ".join(_clean(v.title, 90) for v in vulns[:3])
     if len(vulns) > 3:
         names += f" y {len(vulns) - 3} más"
+    count = len(vulns)
+    sustained = (
+        "una vulnerabilidad sostenida" if count == 1 else f"{count} vulnerabilidades sostenidas"
+    )
+    them = "la explota" if count == 1 else "las explota"
     description = (
-        f"El activo ({role}, {env}, {exposure}) presenta {len(vulns)} vulnerabilidad(es) "
-        f"sostenida(s): {names}. Si alguien las explota, la consecuencia más probable es "
-        f"{CONSEQUENCE_LABEL[consequence].lower()}. Valoración por regla: la IA no evaluó este "
-        "escenario, así que la descripción se limita a lo que dicen las vulnerabilidades."
+        f"El activo ({role}, {env}, {exposure}) presenta {sustained}: {names}. Si alguien "
+        f"{them}, la consecuencia más probable es {CONSEQUENCE_LABEL[consequence].lower()}. "
+        "Valoración por regla: la IA no evaluó este escenario, así que la descripción se limita "
+        "a lo que dicen las vulnerabilidades."
     )
     data_words = {
         "RESTRINGIDA": "datos restringidos",
@@ -142,11 +159,15 @@ def _rule_texts(vulns, context, asset_name, consequence):
         consequence,
         f"La operación que depende de {role.lower()} se vería afectada hasta contener el incidente.",
     )
-    recommendations = []
+    recommendations, seen = [], set()
     for v in vulns:
         for action in v.actions or []:
-            if action not in recommendations and looks_spanish(action):
-                recommendations.append(_clean(action, 220))
+            text = _clean(action, 220)
+            # Misma recomendación con distinta puntuación o mayúsculas: una sola vez.
+            norm = re.sub(r"[^a-z0-9áéíóúñ ]+", "", text.lower()).strip()
+            if norm and norm not in seen and looks_spanish(text):
+                seen.add(norm)
+                recommendations.append(text)
     recommendations = recommendations[:4] + [
         "Verificar la corrección con un nuevo escaneo del activo."
     ]
@@ -201,6 +222,14 @@ def intelligence(vulns, *, today=None):
     return summary
 
 
+def percentile_100(value):
+    """EPSS publica el percentil como fracción (0.998): se muestra como «100», no «1.00»."""
+    if value is None:
+        return "—"
+    value = float(value)
+    return f"{value * 100:.0f}" if value <= 1 else f"{value:.0f}"
+
+
 def _intelligence_text(s):
     if not s["total"]:
         return ""
@@ -233,7 +262,7 @@ def _intelligence_text(s):
         pct = f"{s['epss_max'] * 100:.1f} %"
         tail = ""
         if s["epss_percentile"] is not None:
-            tail = f" (percentil {s['epss_percentile']:.2f})"
+            tail = f" (percentil {percentile_100(s['epss_percentile'])})"
         level = "alta" if s["epss_max"] >= s["epss_high"] else "baja"
         parts.append(
             f"La probabilidad de explotación en 30 días (EPSS) más alta es {pct}{tail}, "
@@ -265,8 +294,8 @@ def rule_items(vulns, context, index, asset_name="el activo"):
                 "title": rule_title(consequence, asset_name, _clean(vuln.title, 100)),
                 "consequence": consequence,
                 "scenario": (
-                    f"Un atacante aprovecha «{_clean(vuln.title, 120)}» en {context.business_role or 'el activo'} "
-                    f"({context.environment or 'entorno sin definir'}) para comprometerlo. "
+                    f"Un atacante aprovecha «{_clean(vuln.title, 120)}» en {role_label(context)} "
+                    f"({environment_label(context)}) para comprometerlo. "
                     "Valoración por regla: la IA no evaluó este escenario."
                 ),
                 "description": description,
@@ -359,10 +388,11 @@ def build_payload(asset_id, vulns, context):
         },
         "asset": {
             "name": _clean(asset["name"], 120),
-            "type": asset["asset_type"],
+            "type": catalogs.label(catalogs.ASSET_TYPE, asset["asset_type"]) or asset["asset_type"],
             "description": _clean(asset.get("description"), 300),
-            "business_role": context.business_role,
-            "environment": context.environment,
+            # Etiquetas legibles, no códigos: el modelo copia en sus textos lo que recibe.
+            "business_role": catalogs.label(catalogs.BUSINESS_ROLE, context.business_role) or None,
+            "environment": catalogs.label(catalogs.ENVIRONMENT, context.environment) or None,
             "criticality": context.criticality,
             "exposure": context.exposure,
             "data_classification": context.data_classification,
@@ -625,13 +655,15 @@ def _apply(asset_id, item, context, *, by_rule, log_obj, now):
         },
     )
     previous = (risk.likelihood, risk.impact, risk.level)
-    risk.title = item["title"][:200]
+    risk.title = fix_spanish(item["title"])[:200]
     risk.consequence = item.get("consequence", "")
-    risk.scenario = item["scenario"]
-    risk.description = item.get("description", "")
-    risk.impact_description = item.get("impact_description", "")
-    risk.intelligence_summary = item.get("intelligence_summary") or intelligence(vulns)["text"]
-    risk.recommendations = list(item.get("recommendations") or [])
+    risk.scenario = fix_spanish(item["scenario"])
+    risk.description = fix_spanish(item.get("description", ""))
+    risk.impact_description = fix_spanish(item.get("impact_description", ""))
+    risk.intelligence_summary = fix_spanish(
+        item.get("intelligence_summary") or intelligence(vulns)["text"]
+    )
+    risk.recommendations = _dedupe([fix_spanish(r) for r in (item.get("recommendations") or [])])
     risk.threat_source = item["threat_source"]
     risk.likelihood, risk.impact, risk.level = likelihood, impact, level
     risk.rationale = item.get("rationale", "")
@@ -833,10 +865,61 @@ def add_note(risk_id, *, user, text):
     return risk
 
 
+def _dedupe(texts):
+    out, seen = [], set()
+    for text in texts:
+        norm = re.sub(r"[^a-z0-9áéíóúñ ]+", "", str(text).lower()).strip()
+        if norm and norm not in seen:
+            seen.add(norm)
+            out.append(text)
+    return out
+
+
+LEVEL_ORDER = {
+    RiskLevel.CRITICAL: 0,
+    RiskLevel.VERY_HIGH: 1,
+    RiskLevel.HIGH: 2,
+    RiskLevel.MODERATE: 3,
+    RiskLevel.LOW: 4,
+}
+
+
+def level_rank():
+    """Expresión para ordenar por nivel (crítico primero) en una consulta."""
+    from django.db.models import Case, IntegerField, Value, When
+
+    return Case(
+        *[When(level=level, then=Value(rank)) for level, rank in LEVEL_ORDER.items()],
+        default=Value(9),
+        output_field=IntegerField(),
+    )
+
+
+def triage_order(qs):
+    """Orden de trabajo del registro: nivel, luego puntaje P×I, luego lo más antiguo sin tratar."""
+    from django.db.models import F
+
+    return qs.annotate(level_rank=level_rank(), pxi=F("likelihood") * F("impact")).order_by(
+        "level_rank", "-pxi", "-likelihood", "first_identified_at"
+    )
+
+
+def kev_overdue_filter(today=None):
+    """Riesgos con alguna vulnerabilidad en KEV cuyo plazo de CISA ya venció."""
+    from django.db.models import Q
+
+    today = today or timezone.localdate()
+    return Q(vulnerabilities__in_kev=True, vulnerabilities__kev_due_at__lt=today)
+
+
 def summary(asset_id=None):
+    from datetime import timedelta
+
     qs = Risk.objects.filter(status__in=RISK_OPEN_STATUSES)
+    closed = Risk.objects.filter(status=RiskStatus.CLOSED)
     if asset_id:
         qs = qs.filter(asset_id=asset_id)
+        closed = closed.filter(asset_id=asset_id)
     return {
         "open": qs.count(),
         "critical": qs.filter(level=RiskLevel.CRITICAL).count(),
@@ -844,7 +927,137 @@ def summary(asset_id=None):
         "high": qs.filter(level=RiskLevel.HIGH).count(),
         "untreated": qs.filter(treatment="").count(),
         "accepted": qs.filter(status=RiskStatus.ACCEPTED).count(),
+        "kev_overdue": qs.filter(kev_overdue_filter()).distinct().count(),
+        "closed": closed.count(),
+        "closed_week": closed.filter(closed_at__gte=timezone.now() - timedelta(days=7)).count(),
     }
+
+
+CLOSURE_LABELS = (
+    ("Reemplazado", "reemplazado por otro riesgo"),
+    ("Ninguna de sus vulnerabilidades sigue abierta", "sus vulnerabilidades se resolvieron"),
+    ("Ninguna de sus vulnerabilidades está sostenida", "sin vulnerabilidad sostenida"),
+)
+
+
+def closure_label(message):
+    """Motivo corto del cierre a partir del mensaje del evento ``CLOSED``."""
+    text = str(message or "")
+    for prefix, label in CLOSURE_LABELS:
+        if text.startswith(prefix):
+            return label
+    return text[:60].rstrip(". ").lower() if text else "cerrado"
+
+
+def closure(risk):
+    """Último cierre del riesgo: evento, motivo corto y, si fue reemplazado, los riesgos que
+    hoy expresan sus vulnerabilidades. ``None`` si el riesgo no está cerrado."""
+    if risk.status != RiskStatus.CLOSED:
+        return None
+    event = risk.events.filter(kind=RiskEventKind.CLOSED).order_by("-occurred_at", "-id").first()
+    message = event.message if event else ""
+    replacements = []
+    if message.startswith("Reemplazado") or not message:
+        replacements = list(
+            Risk.objects.filter(
+                asset_id=risk.asset_id,
+                status__in=RISK_OPEN_STATUSES,
+                vulnerabilities__in=risk.vulnerabilities.all(),
+            )
+            .exclude(pk=risk.pk)
+            .distinct()
+            .order_by("-likelihood", "-impact")[:5]
+        )
+    return {
+        "at": event.occurred_at if event else risk.closed_at,
+        "message": message or "Cerrado",
+        "label": closure_label(message),
+        "replacements": replacements,
+    }
+
+
+def today(asset_id=None):
+    """«Hoy» del registro: lo que una persona debe decidir primero, con enlace a cada lista."""
+    from django.db.models import Q
+    from django.urls import reverse
+
+    from apps.assets.models import Asset
+
+    suffix = f"&asset={asset_id}" if asset_id else ""
+    base = reverse("detection:risks")
+    panel = reverse("detection:panel")
+    open_qs = Risk.objects.filter(status__in=RISK_OPEN_STATUSES)
+    vulns = Vulnerability.objects.filter(status__in=VULN_OPEN_STATUSES)
+    if asset_id:
+        open_qs = open_qs.filter(asset_id=asset_id)
+        vulns = vulns.filter(asset_id=asset_id)
+    items = []
+    critical = open_qs.filter(level=RiskLevel.CRITICAL, treatment="").count()
+    if critical:
+        items.append(
+            {
+                "level": "critical",
+                "count": critical,
+                "text": "riesgo crítico sin tratamiento decidido"
+                if critical == 1
+                else "riesgos críticos sin tratamiento decidido",
+                "action": "Decidir",
+                "url": f"{base}?level=CRITICAL&treatment=none{suffix}",
+            }
+        )
+    overdue = open_qs.filter(kev_overdue_filter()).distinct().count()
+    if overdue:
+        items.append(
+            {
+                "level": "critical",
+                "count": overdue,
+                "text": "riesgo con plazo de remediación de CISA vencido"
+                if overdue == 1
+                else "riesgos con plazo de remediación de CISA vencido",
+                "action": "Ver",
+                "url": f"{base}?kev_overdue=1{suffix}",
+            }
+        )
+    # Posibles vulnerabilidades explotables sin verificar en activos importantes y sin riesgo:
+    # no aparecen en el registro porque la valoración no las sostiene todavía.
+    unverified = vulns.filter(status=VulnerabilityStatus.NEEDS_VERIFICATION).filter(
+        Q(in_kev=True) | Q(cvss_score__gte=9)
+    )
+    exposed_assets = (
+        Asset.objects.filter(
+            pk__in=unverified.values("asset_id"), criticality__in=("CRITICO", "ALTO")
+        )
+        .exclude(pk__in=open_qs.values("asset_id"))
+        .count()
+    )
+    if exposed_assets:
+        items.append(
+            {
+                "level": "high",
+                "count": exposed_assets,
+                "text": "activo de criticidad alta con posibles vulnerabilidades explotables sin "
+                "verificar y sin riesgo registrado"
+                if exposed_assets == 1
+                else "activos de criticidad alta con posibles vulnerabilidades explotables sin "
+                "verificar y sin riesgo registrado",
+                "action": "Verificar",
+                "url": f"{panel}?status=NEEDS_VERIFICATION&exploitable=1{suffix}",
+            }
+        )
+    untreated = open_qs.filter(treatment="").exclude(level=RiskLevel.CRITICAL).count()
+    if untreated:
+        items.append(
+            {
+                "level": "medium",
+                "count": untreated,
+                "text": "riesgo más espera una decisión de tratamiento"
+                if untreated == 1
+                else "riesgos más esperan una decisión de tratamiento",
+                "action": "Revisar",
+                "url": f"{base}?treatment=none{suffix}",
+            }
+        )
+    return items
 
 
 def matrix(risks):

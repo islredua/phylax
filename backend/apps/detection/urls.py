@@ -34,6 +34,12 @@ urlpatterns = [
         views.VulnerabilityNoteView.as_view(),
         name="vulnerability_note",
     ),
+    path(
+        "vulnerabilities/<uuid:pk>/verify/",
+        views.VulnerabilityVerifyView.as_view(),
+        name="vulnerability_verify",
+    ),
+    path("vulnerabilities/bulk/", views.VulnerabilityBulkView.as_view(), name="vulnerability_bulk"),
     path("risks/<uuid:pk>/", views.RiskDetailView.as_view(), name="risk"),
     path("risks/<uuid:pk>/report/", views.RiskReportView.as_view(), name="risk_report"),
     path("risks/<uuid:pk>/treatment/", views.RiskTreatmentView.as_view(), name="risk_treatment"),

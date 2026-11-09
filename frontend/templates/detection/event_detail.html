@@ -6,13 +6,22 @@
 {% block content %}
 <section class="card">
   <dl class="kv-grid">
-    <div><dt class="kv-label">Sobre</dt><dd class="kv-value">{% if event.asset %}<a href="{% url 'assets:detail' event.asset_id %}">{{ event.asset.name }}</a>{% endif %} {% if event.cve %}<span class="font-mono">{{ event.cve_id }}</span>{% endif %}</dd></div>
-    <div><dt class="kv-label">Recibido / procesado</dt><dd class="kv-value font-mono text-xs">{{ event.created_at|date:"Y-m-d H:i:s" }} · {{ event.processed_at|date:"Y-m-d H:i:s"|default:"—" }}</dd></div>
+    <div><dt class="kv-label">Sobre</dt><dd class="kv-value">{% if event.asset %}<a href="{% url 'assets:detail' event.asset_id %}">{{ event.asset.name }}</a>{% endif %}{% if event.cve %} <a href="{% url 'detection:observations' %}?q={{ event.cve_id }}&amp;status=all" class="font-mono" title="Observaciones de este CVE en el inventario">{{ event.cve_id }}</a>{% if event.cve.cvss_score %} <span class="text-xs text-muted">CVSS {{ event.cve.cvss_score }}</span>{% endif %}{% if event.cve.kev_added_at %} <span class="badge-critical">KEV</span>{% endif %}{% endif %}{% if not event.asset and not event.cve %}—{% endif %}</dd></div>
+    <div><dt class="kv-label">Recibido</dt><dd class="kv-value font-mono text-xs">{{ event.created_at|fecha:True }}</dd></div>
+    <div><dt class="kv-label">Procesado</dt><dd class="kv-value font-mono text-xs">{{ event.processed_at|fecha:True }}</dd></div>
     <div><dt class="kv-label">Filtro rápido</dt><dd class="kv-value">{{ event.triage_reason|default:"—" }}</dd></div>
-    <div><dt class="kv-label">Lote</dt><dd class="kv-value">{% if event.batch %}{{ event.batch.get_source_display }} · {{ event.batch.size }} evento(s){% else %}—{% endif %}</dd></div>
+    <div><dt class="kv-label">Lote</dt><dd class="kv-value">{% if event.batch %}{{ event.batch.get_source_display }} · {{ event.batch.size|pl:"evento,eventos" }}{% if event.batch.reference %} · <span class="font-mono text-xs">{{ event.batch.reference|truncatechars:24 }}</span>{% endif %}{% else %}—{% endif %}</dd></div>
     <div><dt class="kv-label">Pidió</dt><dd class="kv-value font-mono text-xs">{{ event.requested_by.get_username|default:"sistema" }}</dd></div>
   </dl>
-  {% if event.reconciliation %}<p class="kv-label mt-3">Reconciliación previa (sin escanear)</p><pre class="code-block">{{ event.reconciliation }}</pre>{% endif %}
+  {% if event.reconciliation %}
+  <p class="kv-label mt-3">Reconciliación previa (sin escanear)</p>
+  <dl class="kv-grid mt-1 text-xs">{% for key, value in event.reconciliation.items %}<div><dt class="kv-label">{{ key|reconciliation_label }}</dt><dd class="kv-value">{{ value|human_value }}</dd></div>{% endfor %}</dl>
+  <details class="fold mt-2"><summary>Datos crudos</summary><pre class="code-block mt-2 text-xs">{{ event.reconciliation|pretty_json }}</pre></details>
+  {% endif %}
+  {% if related_findings %}
+  <p class="kv-label mt-3">Observaciones relacionadas</p>
+  <ul class="mt-1 flex flex-col gap-1 text-sm">{% for f in related_findings %}<li><a href="{% url 'detection:finding' f.pk %}" class="font-mono text-xs">{{ f.vulnerability_id }}</a>{% if not event.asset %} en <a href="{% url 'assets:detail' f.asset_id %}">{{ f.asset.name }}</a>{% endif %} · {{ f.title|truncatechars:70 }} {% finding_status_badge f.status %}{% if f.consolidated_id %} · <a href="{% url 'detection:vulnerability' f.consolidated_id %}">vulnerabilidad</a>{% endif %}</li>{% endfor %}</ul>
+  {% endif %}
 </section>
 {% for d in decisions %}
 <section class="card flex flex-col gap-2">
@@ -23,14 +32,15 @@
   </div>
   <p class="text-ink-soft">{{ d.rationale|linebreaksbr }}</p>
   {% if d.evidence %}<ul class="flex flex-wrap gap-1">{% for e in d.evidence %}<li class="badge-neutral">{{ e }}</li>{% endfor %}</ul>{% endif %}
-  <p class="font-mono text-[11px] text-muted">{{ d.created_at|date:"Y-m-d H:i:s" }} · modelo {{ d.model_requested|default:"—" }}{% if d.model_responded and d.model_responded != d.model_requested %} → respondió {{ d.model_responded }}{% endif %} · prompt {{ d.prompt_version }}{% if d.duration_ms %} · {{ d.duration_ms|floatformat:0 }} ms{% endif %}{% if d.category %} · categoría {{ d.category }}{% endif %}</p>
-  <details><summary class="cursor-pointer text-xs text-primary">Entrada que recibió el modelo</summary><pre class="code-block mt-2">{{ d.input_payload }}</pre></details>
+  <p class="text-xs text-muted">{{ d.created_at|fecha:True }}{% if d.fallback %} · por regla{% else %} · modelo {{ d.model_requested|default:"—" }}{% if d.model_responded and d.model_responded != d.model_requested %} (respondió {{ d.model_responded }}){% endif %} · prompt {{ d.prompt_version }}{% endif %}{% if d.duration_ms %} · {{ d.duration_ms|floatformat:0 }} ms{% endif %}{% if d.category %} · plantillas: {{ d.category|category_label }}{% endif %}</p>
+  {% if d.input_payload %}<details class="fold"><summary>Entrada que recibió el modelo</summary><pre class="code-block mt-2 text-xs">{{ d.input_payload|pretty_json }}</pre></details>{% endif %}
+  {% with planned=d.planned %}{% if planned %}<p class="text-sm"><a href="{% url 'detection:action' planned.pk %}">Ver la acción</a> {% action_status_badge planned.status %}</p>{% endif %}{% endwith %}
 </section>
 {% empty %}<p class="text-sm text-muted">{% if event.status == 'READY' %}Esperando al planificador.{% elif event.status == 'RECONCILED' %}Se resolvió con la reconciliación: no hizo falta el planificador.{% else %}Sin decisión.{% endif %}</p>{% endfor %}
 {% if actions %}
 <section class="flex flex-col gap-2"><h3 class="eyebrow">Acciones</h3>
-<div class="table-wrap"><table class="data-table"><thead><tr><th>Acción</th><th>Estado</th><th>Prioridad</th><th>Resultado</th></tr></thead><tbody>
-{% for a in actions %}<tr><td><a href="{% url 'detection:action' a.pk %}">{{ a.get_action_display }}</a></td><td>{% action_status_badge a.status %}</td><td class="font-mono text-xs">{{ a.priority }}</td><td class="text-xs">{{ a.error|default:a.result }}</td></tr>{% endfor %}
+<div class="table-wrap"><table class="data-table"><thead><tr><th scope="col">Acción</th><th scope="col">Estado</th><th scope="col">Prioridad</th><th scope="col">Resultado</th></tr></thead><tbody>
+{% for a in actions %}<tr><td><a href="{% url 'detection:action' a.pk %}">{{ a.get_action_display }}</a></td><td>{% action_status_badge a.status %}</td><td class="font-mono text-xs">{{ a.priority }}</td><td class="text-xs">{% if a.error %}<span class="text-critical">{{ a.error }}</span>{% elif a.result.execution %}<a href="{% url 'detection:execution' a.result.execution %}">ejecución de herramienta</a>{% elif a.result.watch %}ítem de vigilancia{% elif a.result %}{{ a.result|pretty_json|truncatechars:120 }}{% else %}—{% endif %}</td></tr>{% endfor %}
 </tbody></table></div></section>
 {% endif %}
 {% endblock %}

@@ -126,6 +126,55 @@ def enqueue_from_decision(decision):
     return action
 
 
+def request_manual(asset_id, action, *, user, reason=""):
+    """Una persona pide una acción concreta («Detectar con herramienta» desde una vulnerabilidad
+    por verificar). Pasa por la misma cola, modo y guardarraíles que las decisiones del
+    planificador; la decisión queda marcada como pedida a mano, sin consultar al modelo."""
+    from .models import DetectionEvent, EventKind, EventStatus, PlannerDecision
+
+    if user is not None and not user.has_perm("detection.request_evaluation"):
+        raise PermissionDenied("No tienes permiso para pedir escaneos.")
+    from . import capabilities
+
+    action = str(action)
+    caps = capabilities.for_asset(asset_id)
+    if action not in caps.allowed_actions:
+        raise ValidationError(
+            caps.unavailable_actions.get(action, "La acción no está disponible para este activo.")
+        )
+    now = timezone.now()
+    event, batch = events.ingest_asset_event(
+        EventKind.MANUAL_EVALUATION,
+        asset_id,
+        payload={"requested_action": action, "reason": reason[:255]},
+        requested_by=user,
+        source=events.BatchSource.MANUAL,
+    )
+    if batch is None:
+        raise ValidationError("Ya hay una evaluación pendiente para este activo.")
+    # El evento no pasa por el filtro ni por el planificador: la persona ya decidió.
+    DetectionEvent.objects.filter(pk=event.pk).update(
+        status=EventStatus.PLANNED, processed_at=now, triage_reason="acción pedida a mano"
+    )
+    batch.processed_at = now
+    batch.stats = {"manual": 1}
+    batch.save(update_fields=["processed_at", "stats", "updated_at"])
+    who = user.get_username() if user is not None else "sistema"
+    decision = PlannerDecision.objects.create(
+        event=event,
+        asset_id=asset_id,
+        action=action,
+        urgency=Urgency.HIGH,
+        category="cves" if action == str(Action.DETECT_VULNS) else "",
+        rationale=reason or f"Pedida a mano por {who}.",
+        evidence=["pedida por una persona"],
+        prompt_version="manual",
+        fallback=True,
+        fallback_reason="acción pedida por una persona; el planificador no intervino",
+    )
+    return enqueue_from_decision(decision)
+
+
 # --------------------------------------------------------------------------
 # Aprobación humana
 # --------------------------------------------------------------------------

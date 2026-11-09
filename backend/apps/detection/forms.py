@@ -10,7 +10,12 @@ from .models import (
     FindingSeverity,
     FindingSource,
     FindingStatus,
+    StatusSource,
 )
+
+# Estados que las observaciones usan de verdad desde que los estados de negocio (confirmada,
+# falso positivo, riesgo aceptado) se deciden en la vulnerabilidad consolidada.
+OBSERVATION_STATUSES = (FindingStatus.NEW, FindingStatus.REOPENED, FindingStatus.MITIGATED)
 
 TRANSITION_LABELS = {
     FindingStatus.CONFIRMED: "Confirmar",
@@ -33,12 +38,16 @@ class FindingFilterForm(StyledMixin, forms.Form):
     status = forms.ChoiceField(
         label="Estado",
         required=False,
-        choices=[("", "Abiertos"), ("all", "Todos"), *FindingStatus.choices],
+        choices=[
+            ("", "Abiertas"),
+            ("all", "Todas"),
+            *[(s.value, s.label) for s in OBSERVATION_STATUSES],
+        ],
     )
     in_kev = forms.ChoiceField(
         label="KEV",
         required=False,
-        choices=[("", "Todos"), ("1", "Solo en KEV"), ("0", "Fuera de KEV")],
+        choices=[("", "Todas"), ("1", "Solo en KEV"), ("0", "Fuera de KEV")],
     )
     environment = forms.ChoiceField(
         label="Entorno", required=False, choices=catalog_choices(catalogs.ENVIRONMENT, "Todos")
@@ -60,6 +69,15 @@ class NoteForm(forms.Form):
 
 class ReviewForm(forms.Form):
     note = forms.CharField(required=False, max_length=500)
+
+
+class RejectForm(forms.Form):
+    """Rechazar exige decir por qué: la nota queda en la acción y en la bitácora."""
+
+    note = forms.CharField(
+        max_length=500,
+        error_messages={"required": "Indica el motivo del rechazo."},
+    )
 
 
 class AutomationForm(StyledMixin, forms.Form):
@@ -197,7 +215,17 @@ class VulnerabilityFilterForm(StyledMixin, forms.Form):
     status = forms.ChoiceField(
         label="Estado",
         required=False,
-        choices=[("", "Abiertas"), ("all", "Todas"), *VulnerabilityStatus.choices],
+        choices=[
+            ("", "Abiertas"),
+            ("all", "Todas"),
+            ("resolved", "Resueltas o descartadas"),
+            *VulnerabilityStatus.choices,
+        ],
+    )
+    status_source = forms.ChoiceField(
+        label="Quién fijó el estado",
+        required=False,
+        choices=[("", "Cualquiera"), *StatusSource.choices],
     )
     in_kev = forms.ChoiceField(
         label="KEV",
@@ -206,6 +234,25 @@ class VulnerabilityFilterForm(StyledMixin, forms.Form):
     )
     environment = forms.ChoiceField(
         label="Entorno", required=False, choices=catalog_choices(catalogs.ENVIRONMENT, "Todos")
+    )
+    source = forms.ChoiceField(
+        label="Fuente",
+        required=False,
+        choices=[("", "Todas"), *FindingSource.choices],
+        help_text="Herramienta o cruce que la sustenta.",
+    )
+    component = forms.CharField(
+        label="Software",
+        required=False,
+        widget=forms.TextInput(attrs={"placeholder": "p. ej. samba, openssh 8"}),
+        help_text="Para triar en lote todas las del mismo componente.",
+    )
+    days = forms.IntegerField(
+        label="Cambiadas en los últimos días",
+        required=False,
+        min_value=1,
+        max_value=365,
+        widget=forms.NumberInput(attrs={"placeholder": "7"}),
     )
     overdue = forms.BooleanField(label="Plazo de CISA vencido", required=False)
     exploitable = forms.BooleanField(
@@ -217,6 +264,13 @@ class VulnerabilityFilterForm(StyledMixin, forms.Form):
 
 
 class VulnerabilityStatusForm(forms.Form):
+    status = forms.ChoiceField(choices=list(HUMAN_STATUS_LABELS.items()))
+    note = forms.CharField(required=False, max_length=2000)
+
+
+class VulnerabilityBulkForm(forms.Form):
+    """Triaje en lote: un estado y una nota para todas las vulnerabilidades marcadas."""
+
     status = forms.ChoiceField(choices=list(HUMAN_STATUS_LABELS.items()))
     note = forms.CharField(required=False, max_length=2000)
 
@@ -266,6 +320,13 @@ class RiskFilterForm(StyledMixin, forms.Form):
         label="Tratamiento",
         required=False,
         choices=[("", "Todos"), ("none", "Sin decidir"), *RiskTreatment.choices],
+    )
+    kev_overdue = forms.BooleanField(label="Plazo de CISA vencido", required=False)
+    likelihood = forms.IntegerField(
+        required=False, min_value=1, max_value=5, widget=forms.HiddenInput()
+    )
+    impact = forms.IntegerField(
+        required=False, min_value=1, max_value=5, widget=forms.HiddenInput()
     )
     asset = forms.UUIDField(required=False, widget=forms.HiddenInput())
 

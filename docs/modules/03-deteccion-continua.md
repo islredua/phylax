@@ -189,10 +189,13 @@ cabeceras, credenciales por defecto, exposición de información). El flujo:
    PHPUnit sobre Apache dispara igual, así que es duda, no descarte); «versión exacta en el rango
    afectado» cuando el SBOM analizado por Grype, un banner exacto con fabricante coincidente o
    varias fuentes sostienen la coincidencia → piso de estado `LIKELY` (`rule_status_floor`): si el
-   modelo dice «requiere verificación» con plausibilidad ≥ 0.7, la evidencia manda, y si además el
-   CVE está en KEV la duda del modelo no cuenta (sube a `LIKELY` con plausibilidad ≥ 0.7,
+   modelo dice «requiere verificación», la evidencia manda sea cual sea su plausibilidad (sube a
+   `LIKELY` con plausibilidad ≥ 0.6, `EXACT_FLOOR_PLAUSIBILITY`; con KEV, ≥ 0.7,
    `KEV_FLOOR_PLAUSIBILITY`: Apache 2.4.49 con CVE-2021-41773 no puede quedar «por verificar» con
-   0.1); sin LLM el ítem por regla sale `LIKELY` 0.8 en vez de 0.5; y, para coincidencias que solo vienen de la CTI, «versión imprecisa
+   0.1, y un probable falso positivo en KEV tampoco). Antes el piso solo aplicaba con plausibilidad
+   ≥ 0.7 y en el laboratorio 220 vulnerabilidades con versión exacta en rango se quedaban «por
+   verificar» sin que nadie pudiera verificarlas. Sin LLM el ítem por regla sale `LIKELY` 0.8 en
+   vez de 0.5; y, para coincidencias que solo vienen de la CTI, «versión imprecisa
    según nmap» («4», «2.2.X - 2.3.X» → tope 0.5) o «paquete de distribución: posible parche
    retroportado» («9.2p1 Debian 2+deb12u10» → tope 0.6), ambas con tope de estado
    `NEEDS_VERIFICATION` (`rule_status_cap`): la IA no puede afirmar `CONFIRMED` hasta que otra
@@ -320,7 +323,31 @@ Organización**. Detalle de riesgo: descripción a alto nivel con consecuencia y
 escenario, posible impacto, recomendaciones, valoración (probabilidad × impacto = nivel, por qué),
 posición en la matriz, evidencia técnica (cada vulnerabilidad ligada con puntajes, estado y lo que
 la sustenta), tratamiento (opción, responsable, residual, nota), notas, línea de tiempo y botones
-«Descargar reporte» (HTML imprimible / PDF) y «Markdown».
+«Reporte» (HTML imprimible / PDF, con **resumen ejecutivo** y evidencia agrupada por software
+afectado) y «Markdown». El registro ordena por nivel y luego por probabilidad × impacto
+(`risks.triage_order`), abre con el bloque **Hoy** (`risks.today`: críticos sin tratamiento,
+plazos de CISA vencidos, activos de criticidad alta con posibles vulnerabilidades explotables sin
+verificar y sin riesgo, el resto sin decidir), las celdas de la matriz enlazan al registro
+filtrado por esa casilla (`?likelihood=&impact=`), el título se muestra como «Consecuencia en
+activo» con la causa técnica debajo (`Risk.headline` / `Risk.cause`) y las tarjetas suman «Plazo
+CISA vencido» y «Cerrados». Un riesgo cerrado muestra arriba el motivo del cierre y los riesgos
+que lo reemplazaron (`risks.closure`), oculta el formulario de tratamiento (el servidor también lo
+rechaza) y en la lista dice «cerrado: reemplazado por otro riesgo» en lugar de «sin decidir».
+
+**Qué falta para decidir** (`views.verification_plan`): una vulnerabilidad «por verificar» abre
+con el motivo de la duda en palabras (versión imprecisa de nmap, paquete de distribución, software
+no observado) y los pasos que el sistema puede dar: «Detectar con herramienta» crea una acción
+`DETECT_VULNS` y «Reescanear servicios» una `RESCAN_SERVICES` (`actions.request_manual`: decisión
+marcada «pedida a mano», sin planificador, por la misma cola, modo y guardarraíles; el evento
+queda `PLANNED` y la vulnerabilidad anota la petición), y «No aplica» fija falso positivo con nota
+a nombre de la persona. Si ya hay una acción en marcha sobre el activo se enlaza en vez de duplicar;
+sin IP autorizada se explica el bloqueo. **Triaje en lote** (`/detection/vulnerabilities/bulk/`,
+permiso `work_findings`): casillas en la lista, un estado y una nota para todas las marcadas
+(`consolidation.set_status` una por una: aceptar o falso positivo siguen exigiendo nota); el
+filtro «Software» (componente) sirve para triar todas las de Samba «3.X - 4.X» de una vez. Filtros
+nuevos: quién fijó el estado (IA / regla / persona), fuente, software, «cambiadas en los últimos N
+días», y el estado «Resueltas o descartadas» con la tarjeta «Resueltas esta semana». El detalle
+ofrece «Siguiente del activo» (orden por puntaje contextual) para revisar una tras otra.
 
 Detalle de vulnerabilidad: **Descripción** (en español, redactada por IA o por una persona; si
 falta, «la IA está redactando» y la tarjeta se refresca sola), impacto para la organización,
@@ -361,6 +388,15 @@ que las pantallas de Detección), con «Reevaluar con IA» / «Registrar observa
 riesgo, una vulnerabilidad o una observación sigue siendo una sola pantalla (la de Detección, su
 URL canónica), pero con miga y «Volver» hacia la pestaña del activo: no hay dos pantallas para el
 mismo objeto y la persona no pierde el contexto.
+
+Rechazar una acción (una o en lote) exige un **motivo** (`RejectForm`, campo `note` o
+`note_<id>` por tarjeta; en lote queda «Rechazada en lote: …»); el atajo «A» pide confirmación y
+la pausa de emergencia exige motivo y confirmación. Los textos que el modelo redacta
+(vulnerabilidades, riesgos, descripciones) pasan por `apps.llm.language.fix_spanish` al guardarse:
+concordancia de género y número en sustantivos técnicos frecuentes («un denegación» → «una
+denegación», «estos vulnerabilidades» → «estas…») y faltas como «injectar». Los tres payloads al
+modelo llevan etiquetas de catálogo (Correo, Producción) y no códigos (CORREO, PROD), que el
+modelo copiaba en sus descripciones.
 
 En la cola de aprobación y en el detalle de cada acción, el bloque **«Qué se revisa»** se calcula
 por reglas, no por el LLM: hallazgos abiertos (y en KEV), software registrado, últimos escaneos,

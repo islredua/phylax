@@ -277,9 +277,8 @@ def pretty_json(value):
         return str(value)
 
 
-@register.filter
-def factor_label(value):
-    return {
+FACTOR_LABELS = {
+    "f": {
         "NONE": "ninguna",
         "LOW": "baja",
         "MEDIUM": "media",
@@ -287,7 +286,70 @@ def factor_label(value):
         "CRITICAL": "crítica",
         "PARTIAL": "parciales",
         "STRONG": "fuertes",
-    }.get(value, (value or "—").lower())
+    },
+    "m": {
+        "NONE": "ninguno",
+        "LOW": "bajo",
+        "MEDIUM": "medio",
+        "HIGH": "alto",
+        "CRITICAL": "crítico",
+        "PARTIAL": "parciales",
+        "STRONG": "fuertes",
+    },
+}
+
+
+@register.filter
+def factor_label(value, gender="f"):
+    """Etiqueta del factor concordada con el sustantivo: «explotabilidad alta», «impacto crítico»."""
+    return FACTOR_LABELS.get(gender, FACTOR_LABELS["f"]).get(value, (value or "—").lower())
+
+
+@register.filter
+def percentil(value):
+    """Percentil EPSS como entero 0–100 («percentil 100», no «1.00»)."""
+    from apps.detection.risks import percentile_100
+
+    return percentile_100(value)
+
+
+@register.filter
+def closure_label(message):
+    from apps.detection.risks import closure_label as label
+
+    return label(message)
+
+
+@register.filter
+def guardrail_label(check):
+    return {
+        "accion_permitida": "Acción permitida",
+        "pausa": "Automatización sin pausa",
+        "ventana": "Dentro de la ventana",
+        "activo_en_alcance": "Activo en alcance",
+        "objetivos": "Objetivos para la herramienta",
+        "concurrencia": "Concurrencia de escaneos",
+        "tasa": "Escaneos por hora",
+    }.get(check, str(check).replace("_", " "))
+
+
+@register.filter
+def category_label(value):
+    return {
+        "cves": "CVE conocidos",
+        "cves-web": "CVE conocidos (web)",
+        "cves-network": "CVE conocidos (red)",
+        "exposures": "exposiciones",
+        "misconfig": "configuraciones inseguras",
+        "all": "todas las plantillas",
+    }.get(value, value)
+
+
+@register.filter
+def mode_label(value):
+    from apps.detection.models import AutomationMode
+
+    return AutomationMode(value).label if value in AutomationMode.values else (value or "—")
 
 
 @register.filter
@@ -344,3 +406,47 @@ def risk_status_badge(value):
 @register.filter
 def risk_cell_class(level):
     return RISK_CELL_STYLE.get(level, "")
+
+
+@register.filter
+def looks_spanish(text):
+    from apps.llm.language import looks_spanish as check
+
+    return check(text)
+
+
+RECONCILIATION_LABELS = {
+    "new_products": "Productos nuevos",
+    "components": "Componentes vigentes",
+    "matched": "Coincidencias con NVD",
+    "findings": "Observaciones",
+    "created": "Observaciones nuevas",
+    "updated": "Observaciones actualizadas",
+    "resolved": "Observaciones resueltas",
+    "assets": "Activos afectados",
+    "cves": "CVE revisados",
+    "matches": "Coincidencias con NVD",
+    "reopened": "Observaciones reabiertas",
+    "execution": "Ejecución",
+    "watch": "Vigilancia",
+}
+
+
+@register.filter
+def reconciliation_label(key):
+    return RECONCILIATION_LABELS.get(key, str(key).replace("_", " ").capitalize())
+
+
+@register.filter
+def human_value(value):
+    """Un valor de un dict de resultado en texto: listas separadas por comas, booleanos en
+    español, ``None`` como raya; lo demás tal cual."""
+    if value is None or value == "" or value == [] or value == {}:
+        return "—"
+    if isinstance(value, bool):
+        return "sí" if value else "no"
+    if isinstance(value, list | tuple | set):
+        return ", ".join(str(v) for v in value)
+    if isinstance(value, dict):
+        return "; ".join(f"{k}: {human_value(v)}" for k, v in value.items())
+    return str(value)

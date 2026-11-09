@@ -5,7 +5,7 @@
     <p class="muted"><span class="badge-primary">generando…</span> el LLM local redacta a partir de tipos, funciones, datos y productos del inventario (sin IP ni nombres de equipo).</p>
   {% elif profile.draft_state == 'READY' %}
     <p class="text-ink-soft">{{ profile.draft_description|linebreaksbr }}</p>
-    <p class="font-mono text-[11px] text-muted">{{ profile.draft_inference.model|default:"—" }} · {{ profile.draft_requested_at|date:"Y-m-d H:i" }}{% if profile.draft_inference.accelerator == 'mock' %} · simulado{% endif %}</p>
+    <p class="font-mono text-[11px] text-muted">{{ profile.draft_inference.model|default:"—" }} · {{ profile.draft_requested_at|fecha }}{% if profile.draft_inference.accelerator == 'mock' %} · simulado{% endif %}</p>
     <p class="text-xs text-muted">Copia el texto a la descripción y edítalo; el borrador no se aplica solo.</p>
     {% if can_manage %}<form method="post" action="{% url 'organization_draft' %}">{% csrf_token %}<input type="hidden" name="discard" value="1"><button class="btn-secondary btn-sm" type="submit">Descartar borrador</button></form>{% endif %}
   {% elif profile.draft_state == 'FAILED' %}

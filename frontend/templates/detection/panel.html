@@ -4,7 +4,7 @@
 {% block toolbar %}
 <div class="toolbar">
   <div class="flex flex-wrap items-center gap-2">
-    <h2>Vulnerabilidades <span class="ml-1 font-mono text-xs font-normal text-muted">{{ paginator.count }}</span></h2>
+    <h2>Vulnerabilidades <span class="ml-1 font-mono text-xs font-normal text-muted">{{ paginator.count|miles }}</span></h2>
     {% if automation.paused %}<span class="badge-critical" title="Ningún escaneo ni decisión corre mientras dure la pausa">automatización en pausa</span>{% elif automation.mode == 'MANUAL' %}<span class="badge-medium">modo manual</span>{% else %}<span class="badge-low">modo automático</span>{% endif %}
     {% if queue_size %}<a href="{% url 'detection:queue' %}" class="badge-high hover:no-underline">{{ queue_size }} por aprobar</a>{% endif %}
     {% if consolidation_pending %}<span class="badge-primary" title="La IA está consolidando las observaciones de este activo">consolidación en curso</span>{% endif %}
@@ -18,25 +18,52 @@
 </div>
 {% endblock %}
 {% block content %}
-<div class="grid grid-cols-2 gap-3 lg:grid-cols-6">
-  <a href="?status={% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Abiertas</p><p class="stat-value">{{ summary.open }}</p></a>
-  <a href="?status=CONFIRMED{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Confirmadas</p><p class="stat-value {% if summary.confirmed %}text-critical{% endif %}">{{ summary.confirmed }}</p></a>
-  <a href="?severity=CRITICAL{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Críticas</p><p class="stat-value {% if summary.critical %}text-critical{% endif %}">{{ summary.critical }}</p></a>
-  <a href="?in_kev=1{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Explotación activa (KEV)</p><p class="stat-value {% if summary.in_kev %}text-critical{% endif %}">{{ summary.in_kev }}</p></a>
-  <a href="?status=NEEDS_VERIFICATION{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Requieren verificación</p><p class="stat-value {% if summary.needs_verification %}text-medium{% endif %}">{{ summary.needs_verification }}</p></a>
-  <a href="{% url 'detection:observations' %}{% if asset_id %}?asset={{ asset_id }}{% endif %}" class="card hover:no-underline" title="Capa cruda: lo que reportó cada herramienta"><p class="stat-label">Observaciones abiertas</p><p class="stat-value">{{ observations_open }}{% if unconsolidated %} <span class="text-xs font-normal text-muted">{{ unconsolidated }} sin consolidar</span>{% endif %}</p></a>
+<div class="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
+  <a href="?status={% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Abiertas</p><p class="stat-value">{{ summary.open|miles }}</p></a>
+  <a href="?status=CONFIRMED{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Confirmadas</p><p class="stat-value {% if summary.confirmed %}text-critical{% endif %}">{{ summary.confirmed|miles }}</p></a>
+  <a href="?severity=CRITICAL{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Críticas</p><p class="stat-value {% if summary.critical %}text-critical{% endif %}">{{ summary.critical|miles }}</p></a>
+  <a href="?in_kev=1{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Explotación activa (KEV)</p><p class="stat-value {% if summary.in_kev %}text-critical{% endif %}">{{ summary.in_kev|miles }}</p></a>
+  <a href="?status=NEEDS_VERIFICATION{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Requieren verificación</p><p class="stat-value {% if summary.needs_verification %}text-medium{% endif %}">{{ summary.needs_verification|miles }}</p></a>
+  <a href="?status=resolved&amp;days=7{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline" title="Mitigadas, falsos positivos y riesgos aceptados en los últimos siete días, con quién lo decidió y por qué"><p class="stat-label">Resueltas esta semana</p><p class="stat-value">{{ summary.resolved_week|miles }}</p></a>
+  <a href="{% url 'detection:observations' %}{% if asset_id %}?asset={{ asset_id }}{% endif %}" class="card hover:no-underline" title="Capa cruda: lo que reportó cada herramienta"><p class="stat-label">Observaciones abiertas</p><p class="stat-value">{{ observations_open|miles }}{% if unconsolidated %} <span class="text-xs font-normal text-muted">{{ unconsolidated|miles }} sin consolidar</span>{% endif %}</p></a>
 </div>
 
 <form method="get" class="card grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6 lg:items-end">
-  {% for field in filter_form %}{% if field.name != 'asset' %}
+  {% for field in filter_form %}{% if field.widget_type == 'hidden' %}{{ field }}{% elif field.widget_type == 'checkbox' %}
+  <label class="flex items-center gap-2 pb-2 text-sm" title="{{ field.help_text }}">{{ field }} {{ field.label }}</label>
+  {% else %}
   <div class="{% if field.name == 'q' %}lg:col-span-2{% endif %}">
     <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}
+    {% if field.help_text %}<p class="form-help" id="{{ field.auto_id }}_helptext">{{ field.help_text }}</p>{% endif %}
   </div>
-  {% else %}{{ field }}{% endif %}{% endfor %}
+  {% endif %}{% endfor %}
   <div class="flex gap-2"><button type="submit" class="btn-primary">Filtrar</button><a href="{% url 'detection:panel' %}{% if asset_id %}?asset={{ asset_id }}{% endif %}" class="btn-secondary">Limpiar</a></div>
 </form>
 
-<p class="text-xs text-muted">Orden por <strong>puntaje contextual</strong>: lo técnico (CVSS, EPSS, KEV) ponderado con la criticidad, exposición y datos del activo y con lo que la IA estimó del caso. El estado lo pone la IA y una persona puede corregirlo.</p>
+<p class="text-xs text-muted">Orden por <strong>puntaje contextual</strong>: lo técnico (CVSS, EPSS, KEV) ponderado con la criticidad, exposición y datos del activo y con lo que la IA estimó del caso. El estado lo pone la IA y una persona puede corregirlo, una a una o en lote.</p>
+{% if perms.detection.work_findings and vulnerabilities %}
+<form method="post" action="{% url 'detection:vulnerability_bulk' %}" class="flex flex-col gap-2" data-no-busy>
+  {% csrf_token %}
+  <input type="hidden" name="next" value="{{ request.get_full_path }}">
+  <div class="card flex flex-wrap items-end gap-3 py-3" data-bulk data-bulk-hint-empty="Marca vulnerabilidades en la tabla y elige el estado." data-bulk-hint-action="Elige el estado que quieres fijar.">
+    <div>
+      <label class="form-label" for="bulk-status">Estado para las marcadas</label>
+      <select id="bulk-status" name="status" class="form-input w-auto" data-bulk-action required>
+        <option value="">Elige un estado…</option>
+        {% for value, label in bulk_statuses %}<option value="{{ value }}" data-param="{% if value == 'ACCEPTED' or value == 'FALSE_POSITIVE' %}note{% endif %}" data-confirm="¿Fijar «{{ label|lower }}» en {n} vulnerabilidades? Quedarán a tu nombre y la IA ya no las tocará.">{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+    <div data-bulk-param="note" class="grow">
+      <label class="form-label" for="bulk-note">Nota (obligatoria para aceptar el riesgo o falso positivo)</label>
+      <input id="bulk-note" name="note" class="form-input" maxlength="2000" placeholder="Por qué se decide así">
+    </div>
+    <button type="submit" class="btn-secondary" data-bulk-submit>Fijar en <span data-bulk-count>las</span> marcadas</button>
+    <p class="w-full text-xs text-muted" data-bulk-hint>Marca vulnerabilidades en la tabla y elige el estado.</p>
+  </div>
+  {% include "detection/_vulnerability_rows.html" with bulk=True %}
+</form>
+{% else %}
 {% include "detection/_vulnerability_rows.html" %}
+{% endif %}
 {% include "_pagination.html" %}
 {% endblock %}

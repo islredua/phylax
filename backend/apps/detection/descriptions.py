@@ -14,6 +14,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
+from apps.assets import catalogs
 from apps.assets import services as assets_services
 from apps.llm.client import register_mock, run_structured
 from apps.llm.language import looks_spanish
@@ -52,6 +53,15 @@ def is_pending(vuln_id) -> bool:
     return bool(cache.get(_pending_key(vuln_id)))
 
 
+def pending_ids(vuln_ids) -> set:
+    """Las vulnerabilidades de la lista cuya descripción está en cola (una sola consulta)."""
+    ids = [str(v) for v in vuln_ids]
+    if not ids:
+        return set()
+    found = cache.get_many([_pending_key(v) for v in ids])
+    return {v for v in ids if found.get(_pending_key(v))}
+
+
 def build_payload(vuln):
     context = assets_services.get_asset_context(vuln.asset_id)
     asset = assets_services.get_asset_summary(vuln.asset_id)
@@ -76,8 +86,9 @@ def build_payload(vuln):
     return {
         "asset": {
             "name": clean(asset["name"], 120),
-            "business_role": context.business_role,
-            "environment": context.environment,
+            # Etiquetas legibles, no códigos: el modelo copia en sus textos lo que recibe.
+            "business_role": catalogs.label(catalogs.BUSINESS_ROLE, context.business_role) or None,
+            "environment": catalogs.label(catalogs.ENVIRONMENT, context.environment) or None,
             "criticality": context.criticality,
             "exposure": context.exposure,
             "data_classification": context.data_classification,

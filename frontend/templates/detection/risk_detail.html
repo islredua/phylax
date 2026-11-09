@@ -1,21 +1,31 @@
 {% extends "base.html" %}
 {% load detection_tags inventory %}
 {% block title %}{{ risk.title }}{% endblock %}
-{% block breadcrumb_tail %}<li><a href="{% url 'assets:detail' risk.asset_id %}?tab=riesgos">{{ risk.asset.name }}</a></li><li>{{ risk.title|truncatechars:60 }}</li>{% endblock %}
+{% block breadcrumb_tail %}<li><a href="{% url 'assets:detail' risk.asset_id %}?tab=riesgos">{{ risk.asset.name }}</a></li><li>{{ risk.headline|truncatechars:60 }}</li>{% endblock %}
 {% block toolbar %}
 <div class="toolbar">
   <div class="flex flex-wrap items-center gap-2">
-    <h2>{{ risk.title }}</h2>
+    <h2>{{ risk.headline }}</h2>
     {% risk_level_badge risk.level %}{% risk_status_badge risk.status %}{% status_source_badge risk.assessment_source %}
+    {% if consolidation_pending %}<span class="badge-primary">la IA está reevaluando</span>{% endif %}
   </div>
   <div class="page-actions">
-    <a href="{% url 'detection:risk_report' risk.pk %}" class="btn-primary btn-sm" target="_blank" rel="noopener" title="Reporte completo del riesgo, listo para imprimir o guardar como PDF desde el navegador">Descargar reporte</a>
+    {% if perms.detection.request_evaluation %}<form method="post" action="{% url 'detection:asset_consolidate' risk.asset_id %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}"><button class="btn-secondary btn-sm" type="submit" title="Vuelve a consolidar las vulnerabilidades del activo y a valorar sus riesgos con la IA">Reevaluar con IA</button></form>{% endif %}
+    <a href="{% url 'detection:risk_report' risk.pk %}" class="btn-primary btn-sm" title="Reporte completo del riesgo, listo para imprimir o guardar como PDF desde el navegador">Reporte</a>
     <a href="{% url 'detection:risk_report' risk.pk %}?format=md" class="btn-secondary btn-sm" title="El mismo reporte en Markdown, para pegarlo en un ticket o un documento">Markdown</a>
     <a href="{% url 'assets:detail' risk.asset_id %}?tab=riesgos" class="btn-secondary btn-sm">← Riesgos de {{ risk.asset.name }}</a>
   </div>
 </div>
 {% endblock %}
 {% block content %}
+{% if risk.cause %}<p class="-mt-2 text-sm text-ink-soft">por {{ risk.cause }}</p>{% endif %}
+{% if closure %}
+<div class="alert-info" role="status">
+  <strong>Riesgo cerrado el {{ closure.at|fecha }}:</strong> {{ closure.message }}.
+  {% if closure.replacements %} Hoy sus vulnerabilidades se expresan en {% for r in closure.replacements %}<a href="{% url 'detection:risk' r.pk %}" class="font-medium">{{ r.headline }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}.{% endif %}
+  Si la valoración vuelve a sostenerlo, se reabre solo con su historia.
+</div>
+{% endif %}
 <div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
   <div class="flex flex-col gap-4">
     <section class="card">
@@ -27,7 +37,7 @@
       <p class="mt-1 text-ink-soft">{% if risk.impact_description %}{{ risk.impact_description }}{% else %}<span class="text-muted">La IA no describió el impacto; la valoración de abajo lo estima en {{ risk.impact }} / 5.</span>{% endif %}</p>
       <p class="kv-label mt-4">Recomendaciones</p>
       {% if risk.recommendations %}<ol class="mt-1 flex flex-col gap-1 pl-5 text-ink-soft">{% for r in risk.recommendations %}<li>{{ r }}</li>{% endfor %}</ol>{% else %}<p class="mt-1 text-sm text-muted">Sin recomendaciones propias; ver las acciones de cada vulnerabilidad ligada.</p>{% endif %}
-      <p class="mt-4 text-xs text-muted">{% if risk.assessment_source == 'AI' %}Redactado y valorado por IA ({{ risk.model }}, prompt {{ risk.prompt_version }}) el {{ risk.assessed_at|date:"Y-m-d H:i" }}; se revalora en cada consolidación del activo. El tratamiento es siempre decisión de una persona.{% else %}Valorado por regla (sin IA) el {{ risk.assessed_at|date:"Y-m-d H:i" }}: la descripción resume las vulnerabilidades; se redactará mejor cuando el modelo esté disponible.{% endif %}</p>
+      <p class="mt-4 text-xs text-muted">{% if risk.assessment_source == 'AI' %}Redactado y valorado por IA ({{ risk.model }}, prompt {{ risk.prompt_version }}) el {{ risk.assessed_at|fecha }}; se revalora en cada consolidación del activo. El tratamiento es siempre decisión de una persona.{% else %}Valorado por regla (sin IA) el {{ risk.assessed_at|fecha }}: la descripción resume las vulnerabilidades ligadas y la valoración sale de explotabilidad, KEV, exposición y criticidad.{% if perms.detection.request_evaluation %} Pulsa «Reevaluar con IA» para que el modelo lo redacte y valore.{% endif %}{% endif %}</p>
     </section>
 
     <section class="card">
@@ -36,9 +46,9 @@
       <p class="text-ink-soft">{{ intel.text }}</p>
       {% if risk.intelligence_summary and risk.assessment_source == 'AI' and risk.intelligence_summary != intel.text %}<p class="kv-label mt-4">Lectura de la IA</p><p class="mt-1 text-sm text-ink-soft">{{ risk.intelligence_summary }}</p>{% endif %}
       <dl class="kv-grid mt-4 text-sm">
-        <div><dt class="kv-label">En KEV (CISA)</dt><dd class="kv-value">{{ intel.kev_count }} de {{ intel.total }}{% if intel.kev_since %} · desde {{ intel.kev_since }}{% endif %}{% if intel.ransomware_count %} · {{ intel.ransomware_count }} en ransomware{% endif %}</dd></div>
-        <div><dt class="kv-label">Plazo de remediación CISA</dt><dd class="kv-value">{% if intel.kev_due %}{{ intel.kev_due }}{% if intel.kev_overdue %} <span class="badge-critical">vencido</span>{% endif %}{% else %}—{% endif %}</dd></div>
-        <div><dt class="kv-label">EPSS máximo</dt><dd class="kv-value font-mono text-xs">{% if intel.epss_max is not None %}{{ intel.epss_max|epss_pct }}{% if intel.epss_percentile is not None %} (percentil {{ intel.epss_percentile|floatformat:2 }}){% endif %} · {{ intel.epss_key }}{% else %}—{% endif %}</dd></div>
+        <div><dt class="kv-label">En KEV (CISA)</dt><dd class="kv-value">{{ intel.kev_count }} de {{ intel.total }}{% if intel.kev_since %} · desde el {{ intel.kev_since|fecha }}{% endif %}{% if intel.ransomware_count %} · {{ intel.ransomware_count }} en ransomware{% endif %}</dd></div>
+        <div><dt class="kv-label">Plazo de remediación CISA</dt><dd class="kv-value">{% if intel.kev_due %}{{ intel.kev_due|fecha }}{% if intel.kev_overdue %} <span class="badge-critical">vencido</span>{% endif %}{% else %}—{% endif %}</dd></div>
+        <div><dt class="kv-label">EPSS máximo</dt><dd class="kv-value font-mono text-xs">{% if intel.epss_max is not None %}{{ intel.epss_max|epss_pct }}{% if intel.epss_percentile is not None %} (percentil {{ intel.epss_percentile|percentil }}){% endif %} · {{ intel.epss_key }}{% else %}—{% endif %}</dd></div>
         <div><dt class="kv-label">Confirmadas por más de una fuente</dt><dd class="kv-value">{{ intel.multi_source_count }} de {{ intel.total }}{% if intel.cti_only_count %} · {{ intel.cti_only_count }} solo por inteligencia{% endif %}</dd></div>
       </dl>
       <p class="mt-3 text-xs text-muted">Datos del espejo local de NVD, del catálogo KEV de CISA y de EPSS (FIRST), sincronizados en <a href="{% url 'detection:sources' %}">Fuentes CTI</a>. La probabilidad del riesgo tiene un piso cuando hay explotación activa en un activo expuesto.</p>
@@ -52,24 +62,24 @@
         <div><dt class="kv-label">Probabilidad</dt><dd class="kv-value font-mono">{{ risk.likelihood }} / 5</dd></div>
         <div><dt class="kv-label">Impacto</dt><dd class="kv-value font-mono">{{ risk.impact }} / 5</dd></div>
         <div><dt class="kv-label">Nivel</dt><dd class="kv-value">{% risk_level_badge risk.level %} <span class="font-mono text-xs text-muted">{{ risk.likelihood }} × {{ risk.impact }} = {{ risk.score }}</span></dd></div>
-        <div><dt class="kv-label">Identificado / valorado</dt><dd class="kv-value font-mono text-xs">{{ risk.first_identified_at|date:"Y-m-d H:i" }} · {{ risk.assessed_at|date:"Y-m-d H:i" }}</dd></div>
+        <div><dt class="kv-label">Identificado / valorado</dt><dd class="kv-value font-mono text-xs">{{ risk.first_identified_at|fecha }} · {{ risk.assessed_at|fecha }}</dd></div>
       </dl>
       {% if risk.rationale %}<p class="kv-label mt-4">Por qué estos valores</p><p class="mt-1 text-sm text-ink-soft">{{ risk.rationale }}</p>{% endif %}
     </section>
 
     <section class="card">
-      <h3 class="card-title">Evidencia técnica <span class="font-mono text-xs font-normal text-muted">{{ evidence|length }} vulnerabilidad(es)</span></h3>
+      <h3 class="card-title">Evidencia técnica <span class="font-mono text-xs font-normal text-muted">{{ evidence|length|pl:"vulnerabilidad,vulnerabilidades" }}</span></h3>
       <div class="table-wrap">
         <table class="data-table">
-          <thead><tr><th>Vulnerabilidad</th><th title="Puntaje contextual · técnico">Puntajes</th><th>Estado</th><th>Inteligencia</th><th>Qué la sustenta</th></tr></thead>
+          <thead><tr><th scope="col">Vulnerabilidad</th><th scope="col" title="Puntaje contextual · técnico">Puntajes</th><th scope="col">Estado</th><th scope="col" class="col-md">Inteligencia</th><th scope="col" class="col-lg">Qué la sustenta</th></tr></thead>
           <tbody>
             {% for row in evidence %}
             <tr>
               <td><a href="{% url 'detection:vulnerability' row.vuln.pk %}">{{ row.vuln.title|truncatechars:80 }}</a> {% kev_badge row.vuln.in_kev %}<p class="font-mono text-xs text-muted">{{ row.vuln.key }}{% if row.vuln.component %} · {{ row.vuln.component.label }}{% endif %}</p></td>
               <td class="whitespace-nowrap">{% score_badge row.vuln.contextual_score %} <span class="font-mono text-xs text-muted">{{ row.vuln.technical_score|default_if_none:"—" }}</span><p class="text-xs text-muted">CVSS {{ row.vuln.cvss_score|default_if_none:"—" }} · EPSS {{ row.vuln.epss_score|epss_pct }}</p></td>
               <td>{% vuln_status_badge row.vuln.status %} {% status_source_badge row.vuln.status_source %}<p class="text-xs text-muted">plausibilidad {{ row.vuln.plausibility|pct }}</p></td>
-              <td class="text-xs text-ink-soft">{{ row.intel }}</td>
-              <td class="text-xs">{{ row.observations }} observación(es): {% for s in row.sources %}<span class="badge-neutral">{{ s|source_label }}</span> {% endfor %}{% if row.templates %}<p class="font-mono text-muted">{{ row.templates|join:", "|truncatechars:80 }}</p>{% endif %}{% if row.matched %}<p class="font-mono text-muted">{{ row.matched|join:" · "|truncatechars:80 }}</p>{% endif %}</td>
+              <td class="col-md text-xs text-ink-soft">{{ row.intel }}</td>
+              <td class="col-lg text-xs">{{ row.observations|pl:"observación,observaciones" }}: {% for s in row.sources %}<span class="badge-neutral">{{ s|source_label }}</span> {% endfor %}{% if row.templates %}<p class="font-mono text-muted">{{ row.templates|join:", "|truncatechars:80 }}</p>{% endif %}{% if row.matched %}<p class="font-mono text-muted">{{ row.matched|join:" · "|truncatechars:80 }}</p>{% endif %}</td>
             </tr>
             {% empty %}<tr><td colspan="5" class="table-empty">Ninguna vulnerabilidad ligada.</td></tr>{% endfor %}
           </tbody>
@@ -81,17 +91,19 @@
   <div class="flex flex-col gap-4">
     <section class="card flex flex-col gap-2">
       <h3 class="card-title mb-0">Posición en la matriz</h3>
-      {% include "detection/_risk_matrix.html" with matrix=matrix compact=True %}
+      {% include "detection/_risk_matrix.html" with matrix=matrix compact=True asset_id=risk.asset_id %}
     </section>
 
-    <section class="card flex flex-col gap-3">
+    <section class="card flex flex-col gap-3" id="tratamiento">
       <h3 class="card-title mb-0">Tratamiento</h3>
       {% if risk.treatment %}
       <p class="text-sm">{{ risk.get_treatment_display }}{% if risk.owner %} · responsable <strong>{{ risk.owner }}</strong>{% endif %}</p>
-      <p class="text-xs text-muted">Decidido por <span class="font-mono">{{ risk.decided_by.get_username|default:"—" }}</span> el {{ risk.decided_at|date:"Y-m-d H:i" }}.{% if risk.treatment_note %} «{{ risk.treatment_note }}»{% endif %}</p>
+      <p class="text-xs text-muted">Decidido por <span class="font-mono">{{ risk.decided_by.get_username|default:"—" }}</span> el {{ risk.decided_at|fecha }}.{% if risk.treatment_note %} «{{ risk.treatment_note }}»{% endif %}</p>
       {% if risk.residual_level %}<p class="text-sm">Riesgo residual: {% risk_level_badge risk.residual_level %} <span class="font-mono text-xs text-muted">{{ risk.residual_likelihood }} × {{ risk.residual_impact }}</span></p>{% endif %}
+      {% elif closure %}<p class="text-xs text-muted">Se cerró sin tratamiento decidido: no hace falta decidir nada mientras siga cerrado.</p>
       {% else %}<p class="text-xs text-muted">Nadie ha decidido todavía qué hacer con este riesgo. La IA no decide tratamientos.</p>{% endif %}
       {% if perms.detection.work_findings %}
+      {% if not closure %}
       <form method="post" action="{% url 'detection:risk_treatment' risk.pk %}" class="flex flex-col gap-2 border-t border-line-soft pt-3">
         {% csrf_token %}
         <label class="form-label" for="treatment">Opción (ISO/IEC 27005)</label>
@@ -104,8 +116,9 @@
         </div>
         <label class="form-label" for="treatment-note">Nota (obligatoria para aceptar)</label>
         <textarea id="treatment-note" name="note" class="form-input" rows="3" maxlength="2000"></textarea>
-        <button class="btn-primary" type="submit">Registrar tratamiento</button>
+        <button class="btn-primary" type="submit">{% if risk.treatment %}Actualizar tratamiento{% else %}Registrar tratamiento{% endif %}</button>
       </form>
+      {% endif %}
       <form method="post" action="{% url 'detection:risk_note' risk.pk %}" class="flex flex-col gap-2 border-t border-line-soft pt-3">
         {% csrf_token %}
         <label class="form-label" for="note-text">Agregar nota</label>
@@ -121,11 +134,11 @@
   <h3 class="eyebrow">Línea de tiempo</h3>
   <div class="table-wrap">
     <table class="data-table">
-      <thead><tr><th>Cuándo</th><th>Qué pasó</th><th>Detalle</th><th>Quién</th></tr></thead>
+      <thead><tr><th scope="col">Cuándo</th><th scope="col">Qué pasó</th><th scope="col">Detalle</th><th scope="col">Quién</th></tr></thead>
       <tbody>
         {% for ev in timeline %}
         <tr>
-          <td class="font-mono text-xs whitespace-nowrap">{{ ev.occurred_at|date:"Y-m-d H:i:s" }}</td>
+          <td class="font-mono text-xs whitespace-nowrap">{{ ev.occurred_at|fecha:True }}</td>
           <td><span class="badge-neutral">{{ ev.get_kind_display }}</span></td>
           <td class="text-xs text-ink-soft">{{ ev.message }}</td>
           <td class="font-mono text-xs">{{ ev.actor.get_username|default:"sistema" }}</td>

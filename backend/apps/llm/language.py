@@ -53,3 +53,84 @@ def looks_spanish(text: str | None, *, min_words: int = 3) -> bool:
 def non_spanish(*texts: str | None) -> list[str]:
     """Los textos de la lista que no parecen español (para registrar qué se descartó)."""
     return [t for t in texts if t and not looks_spanish(t)]
+
+
+# --- Concordancia básica ------------------------------------------------------------------
+# El modelo de 7B tropieza con el género y el número de los sustantivos técnicos («un
+# denegación de servicio», «estos vulnerabilidades», «injectar»). Son errores de forma, no de
+# fondo, así que se corrigen de manera determinista antes de guardar el texto; lo que no está en
+# estas listas se deja tal cual.
+
+_FEMININE = (
+    "denegación|inyección|ejecución|elevación|escalada|exposición|divulgación|fuga|falsificación|"
+    "omisión|lectura|escritura|sobrescritura|manipulación|revelación|condición|desreferencia|"
+    "validación|configuración|vulnerabilidad|pérdida|interrupción|toma|suplantación|evasión|"
+    "autenticación|autorización|corrupción|filtración|desbordamiento de pila|carga|descarga|"
+    "contraseña|cabecera|clave|sesión|cookie|consulta|petición|solicitud|respuesta|versión"
+)
+_FEMININE_PLURAL = (
+    "vulnerabilidades|fallas|debilidades|versiones|configuraciones|credenciales|cabeceras|"
+    "contraseñas|claves|sesiones|cookies|consultas|peticiones|solicitudes|respuestas|"
+    "inyecciones|ejecuciones|exposiciones|fugas|actualizaciones|correcciones|medidas"
+)
+_SINGULAR_DETS = {
+    "un": "una",
+    "este": "esta",
+    "el": "la",
+    "mismo": "misma",
+    "otro": "otra",
+    "dicho": "dicha",
+    "ese": "esa",
+    "aquel": "aquella",
+    "ningún": "ninguna",
+    "algún": "alguna",
+    "cualquier": "cualquier",
+}
+_PLURAL_DETS = {
+    "estos": "estas",
+    "los": "las",
+    "unos": "unas",
+    "muchos": "muchas",
+    "algunos": "algunas",
+    "otros": "otras",
+    "varios": "varias",
+    "dichos": "dichas",
+    "esos": "esas",
+    "todos": "todas",
+    "aquellos": "aquellas",
+    "ningunos": "ningunas",
+}
+_SING_RE = re.compile(rf"\b({'|'.join(_SINGULAR_DETS)}) ({_FEMININE})\b", re.IGNORECASE)
+_PLUR_RE = re.compile(rf"\b({'|'.join(_PLURAL_DETS)}) ({_FEMININE_PLURAL})\b", re.IGNORECASE)
+_SPELLING = (
+    (re.compile(r"\binjec(t|c)", re.IGNORECASE), lambda m: m.group(0)[0] + "nyec" + m.group(1)),
+    (re.compile(r"\bvulnerabilidade\b", re.IGNORECASE), lambda m: m.group(0)[:-1]),
+    (re.compile(r"\bactualizacion\b"), lambda m: "actualización"),
+    (re.compile(r"\bversion\b"), lambda m: "versión"),
+    (re.compile(r"\bejecucion\b"), lambda m: "ejecución"),
+    (re.compile(r"\bcodigo\b"), lambda m: "código"),
+    (re.compile(r"\bautenticacion\b"), lambda m: "autenticación"),
+    (re.compile(r"\binformacion\b"), lambda m: "información"),
+)
+
+
+def _agree(table):
+    def repl(match):
+        det, noun = match.group(1), match.group(2)
+        fixed = table.get(det.lower(), det)
+        if det[0].isupper():
+            fixed = fixed[0].upper() + fixed[1:]
+        return f"{fixed} {noun}"
+
+    return repl
+
+
+def fix_spanish(text: str | None) -> str:
+    """Corrige concordancia y faltas frecuentes del modelo sin tocar el sentido del texto."""
+    if not text:
+        return text or ""
+    out = _SING_RE.sub(_agree(_SINGULAR_DETS), str(text))
+    out = _PLUR_RE.sub(_agree(_PLURAL_DETS), out)
+    for pattern, repl in _SPELLING:
+        out = pattern.sub(repl, out)
+    return out

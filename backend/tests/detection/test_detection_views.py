@@ -243,7 +243,7 @@ def test_activity_feed_and_detail_pages(client, as_role, fake_tool):
     )
     action = PlannedAction.objects.get(event=event)
     action_body = client.get(f"/detection/actions/{action.pk}/").content.decode()
-    assert "Guardarraíles verificados" in action_body and "concurrencia" in action_body
+    assert "Guardarraíles verificados" in action_body and "Concurrencia de escaneos" in action_body
     execution = action.executions.get()
     exec_body = client.get(f"/detection/executions/{execution.pk}/").content.decode()
     assert "-jsonl" in exec_body and "CVE-2021-41773" in exec_body
@@ -278,9 +278,14 @@ def test_queue_approve_reject_and_bulk(client, as_role, fake_tool):
     a1, a2 = PlannedAction.objects.get(event=e1), PlannedAction.objects.get(event=e2)
     body = client.get("/detection/queue/").content.decode()
     assert "data-queue" in body and "web-norte" in body and "api-sur" in body
-    client.post(f"/detection/actions/{a2.pk}/reject/", {"note": "no hoy"})
+    # Sin motivo no se rechaza; con el campo por tarjeta («note_<id>») sí.
+    client.post(f"/detection/actions/{a2.pk}/reject/", {})
+    a2.refresh_from_db()
+    assert a2.status != ActionStatus.REJECTED
+    client.post(f"/detection/actions/{a2.pk}/reject/", {f"note_{a2.pk}": "no hoy"})
     a2.refresh_from_db()
     assert a2.status == ActionStatus.REJECTED and a2.rejected_by == operator
+    assert a2.review_note == "no hoy"
     client.post("/detection/queue/bulk/", {"ids": [str(a1.pk), str(a2.pk)], "decision": "approve"})
     a1.refresh_from_db()
     assert a1.status == ActionStatus.DONE and a1.approved_in_bulk
@@ -296,9 +301,20 @@ def test_queue_bulk_reject_and_cancel(client, as_role):
     event, batch = events.ingest_asset_event(EventKind.MANUAL_EVALUATION, asset.pk)
     events.process_batch(batch.pk)
     action = PlannedAction.objects.get(event=event)
-    client.post("/detection/queue/bulk/", {"ids": [str(action.pk)], "decision": "reject"})
+    # Rechazar en lote sin motivo no hace nada: el motivo queda en la bitácora.
+    response = client.post(
+        "/detection/queue/bulk/", {"ids": [str(action.pk)], "decision": "reject"}, follow=True
+    )
+    action.refresh_from_db()
+    assert action.status == ActionStatus.PROPOSED
+    assert "Indica el motivo del rechazo" in response.content.decode()
+    client.post(
+        "/detection/queue/bulk/",
+        {"ids": [str(action.pk)], "decision": "reject", "note": "ventana de cambios cerrada"},
+    )
     action.refresh_from_db()
     assert action.status == ActionStatus.REJECTED
+    assert action.review_note == "Rechazada en lote: ventana de cambios cerrada"
     automation.set_paused(True, user=None)
     event2, batch2 = events.ingest_asset_event(EventKind.ASSET_CONFIRMED, asset.pk)
     from apps.detection.models import PlannerDecision

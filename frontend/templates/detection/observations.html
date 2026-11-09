@@ -8,7 +8,7 @@
     <span class="text-xs text-muted">lo que reportó cada herramienta, la reconciliación CTI o una persona; la IA las consolida en <a href="{% url 'detection:panel' %}{% if asset_id %}?asset={{ asset_id }}{% endif %}">vulnerabilidades</a></span>
   </div>
   <div class="page-actions">
-    {% if asset_id and perms.detection.work_findings %}<a href="{% url 'detection:observation_new' %}?asset={{ asset_id }}" class="btn-primary btn-sm">Registrar observación</a>{% endif %}
+    {% if perms.detection.work_findings %}<a href="{% url 'detection:observation_new' %}{% if asset_id %}?asset={{ asset_id }}{% endif %}" class="btn-primary btn-sm">Registrar observación</a>{% endif %}
     {% if asset_id %}<a href="{% url 'assets:detail' asset_id %}" class="btn-secondary btn-sm">← Activo</a>{% endif %}
   </div>
 </div>

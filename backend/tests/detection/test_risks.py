@@ -186,8 +186,8 @@ def test_register_and_detail_pages(client, as_role):
     asset = _asset_with_vulns()
     risk = Risk.objects.get(asset=asset)
     body = client.get("/detection/").content.decode()
-    assert risk.title[:40] in body and "Matriz de los riesgos" in body and "api-pagos" in body
-    assert "Sin tratamiento decidido" in body and "sin decidir" in body
+    assert risk.headline in body and "Matriz de los riesgos" in body and "api-pagos" in body
+    assert "Sin tratamiento decidido" in body and "sin decidir" in body and "Hoy" in body
     body = client.get(f"/detection/?asset={asset.pk}").content.decode()
     assert f"Riesgos de {asset.name}" in body and "Reevaluar con IA" in body
     assert client.get("/detection/?level=LOW").context["paginator"].count == 0
@@ -227,7 +227,7 @@ def test_register_and_detail_pages(client, as_role):
     page = client.get(f"/inventory/{asset.pk}/").content.decode()
     assert "?tab=riesgos" in page and "Riesgos <span" in page
     tab = client.get(f"/inventory/{asset.pk}/?tab=riesgos").content.decode()
-    assert risk.title[:30] in tab and f"/detection/risks/{risk.pk}/" in tab
+    assert risk.headline in tab and f"/detection/risks/{risk.pk}/" in tab
     strip = client.get(f"/detection/assets/{asset.pk}/pipeline/").content.decode()
     assert "1 riesgo(s)" in strip
 
@@ -354,7 +354,7 @@ def test_risk_detail_and_report_expose_description_evidence_and_downloads(client
         "Recomendaciones",
         "Valoración (ISO/IEC 27005)",
         "Evidencia técnica",
-        "Descargar reporte",
+        "Reporte",
         f"/detection/risks/{risk.pk}/report/",
         risk.get_consequence_display(),
     ):
@@ -364,13 +364,15 @@ def test_risk_detail_and_report_expose_description_evidence_and_downloads(client
     report = client.get(f"/detection/risks/{risk.pk}/report/")
     html = report.content.decode()
     assert report.status_code == 200 and "<!DOCTYPE html>" in html
-    assert risk.title in html and "Evidencia técnica" in html and "window.print()" in html
+    assert risk.headline in html and "Evidencia técnica" in html and "window.print()" in html
     assert "api-pagos" in html and "Generado por Atalaya" in html
+    assert "Resumen ejecutivo" in html and "Software afectado" in html
     md = client.get(f"/detection/risks/{risk.pk}/report/?format=md")
     assert md.status_code == 200 and md["Content-Type"].startswith("text/markdown")
     assert md["Content-Disposition"].startswith('attachment; filename="riesgo-api-pagos-')
     text = md.content.decode()
-    assert text.startswith(f"# {risk.title}") and "## Evidencia técnica" in text
+    assert text.startswith(f"# {risk.headline}") and "## Evidencia técnica" in text
+    assert "## Resumen ejecutivo" in text
     assert "{%" not in text and "{{" not in text
 
 
@@ -532,7 +534,7 @@ def test_intelligence_summary_counts_kev_epss_and_sources(client, as_role):
     text = intel["text"]
     assert "catálogo de explotación activa de CISA (KEV) desde 2025-03-01" in text
     assert "venció el 2025-03-22" in text and "ransomware" in text and "42.0 %" in text
-    assert "percentil 0.97" in text and "solo del cruce con el espejo de NVD" in text
+    assert "percentil 97" in text and "solo del cruce con el espejo de NVD" in text
     assert risks.vuln_intel_line(vulns[0]).startswith("KEV desde 2025-03-01 · plazo CISA")
     assert risks.intelligence([])["text"] == ""
 
@@ -572,7 +574,7 @@ def test_intelligence_summary_counts_kev_epss_and_sources(client, as_role):
     html = client.get(f"/detection/risks/{risk.pk}/report/").content.decode()
     md = client.get(f"/detection/risks/{risk.pk}/report/?format=md").content.decode()
     assert "Inteligencia de amenazas" in html and "## Inteligencia de amenazas" in md
-    assert "KEV desde 2025-03-01" in html and "Inteligencia (NVD)" in md
+    assert "desde el 2025-03-01" in html and "Inteligencia (NVD)" in md
 
 
 def test_rule_risks_without_kev_say_so_and_payload_carries_intelligence(client, as_role):

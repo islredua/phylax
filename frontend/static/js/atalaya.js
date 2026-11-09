@@ -38,8 +38,8 @@
       count.textContent = String(n);
       submit.disabled = n === 0 || !action.value;
       hint.textContent = n === 0
-        ? "Marca activos en la tabla para aplicarles una acción."
-        : !action.value ? "Elige la acción a aplicar." : "";
+        ? (bar.getAttribute("data-bulk-hint-empty") || "Marca filas en la tabla para aplicarles una acción.")
+        : !action.value ? (bar.getAttribute("data-bulk-hint-action") || "Elige la acción a aplicar.") : "";
       if (all) {
         var total = boxes().length;
         all.checked = total > 0 && n === total;
@@ -96,10 +96,35 @@
       }
       refresh();
     });
+    var bulkNote = form.querySelector("[data-queue-note]");
+    function plural(n, one, many) { return n + " " + (n === 1 ? one : many); }
     form.addEventListener("submit", function (e) {
       var button = e.submitter;
-      if (button === reject && !window.confirm("¿Rechazar " + selected() + " acción(es)?")) {
-        e.preventDefault();
+      if (button === reject) {
+        if (bulkNote && !bulkNote.value.trim()) {
+          e.preventDefault();
+          bulkNote.setCustomValidity("Indica el motivo del rechazo.");
+          bulkNote.reportValidity();
+          bulkNote.addEventListener("input", function () { bulkNote.setCustomValidity(""); }, { once: true });
+          return;
+        }
+        if (!window.confirm("¿Rechazar " + plural(selected(), "acción", "acciones") + " con ese motivo?")) e.preventDefault();
+        return;
+      }
+      if (button === approve) {
+        if (!window.confirm("¿Aprobar " + plural(selected(), "acción", "acciones") + "? Se ejecutarán cuando pasen los guardarraíles.")) e.preventDefault();
+        return;
+      }
+      // Rechazo de una sola tarjeta: su campo de motivo es obligatorio.
+      if (button && button.hasAttribute("data-reject-button")) {
+        var box = button.closest("[data-reject]");
+        var note = box && box.querySelector("[data-reject-note]");
+        if (note && !note.value.trim()) {
+          e.preventDefault();
+          note.setCustomValidity("Indica el motivo del rechazo.");
+          note.reportValidity();
+          note.addEventListener("input", function () { note.setCustomValidity(""); }, { once: true });
+        }
       }
     });
     document.addEventListener("keydown", function (e) {

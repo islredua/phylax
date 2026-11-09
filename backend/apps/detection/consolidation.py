@@ -19,17 +19,19 @@ import logging
 import re
 import unicodedata
 from dataclasses import dataclass, field
+from datetime import timedelta
 
 from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
 
+from apps.assets import catalogs
 from apps.assets import services as assets_services
 from apps.cti.products import product_key
 from apps.cti.versions import is_distro_package, precision
 from apps.llm.client import register_mock, run_structured
-from apps.llm.language import looks_spanish, non_spanish
+from apps.llm.language import fix_spanish, looks_spanish, non_spanish
 from apps.llm.prompts import load_prompt
 from apps.llm.schemas import VULN_ASSESSMENT_SCHEMA, VulnAssessmentOutput
 from apps.llm.status import active_model
@@ -59,6 +61,7 @@ LOW_PLAUSIBILITY = 0.3
 MISMATCH_PLAUSIBILITY = 0.5  # plantilla cuyo producto no aparece en el software del activo
 EXACT_PLAUSIBILITY = 0.8  # versión exacta en rango, SBOM/Grype o varias fuentes, sin LLM
 KEV_FLOOR_PLAUSIBILITY = 0.7  # versión exacta en rango + KEV: el modelo no puede bajar de aquí
+EXACT_FLOOR_PLAUSIBILITY = 0.6  # versión exacta en rango sin KEV: piso al subirla a «probable»
 # Etiquetas de plantilla que nombran una tecnología concreta (si no está en el software
 # observado, la observación es poco plausible).
 TECH_TAGS = {
@@ -406,10 +409,11 @@ def build_payload(asset_id, groups, components):
         },
         "asset": {
             "name": clean(asset["name"], 120),
-            "type": asset["asset_type"],
+            "type": catalogs.label(catalogs.ASSET_TYPE, asset["asset_type"]) or asset["asset_type"],
             "description": clean(asset.get("description"), 300),
-            "business_role": context.business_role,
-            "environment": context.environment,
+            # Etiquetas legibles, no códigos: el modelo copia en sus textos lo que recibe.
+            "business_role": catalogs.label(catalogs.BUSINESS_ROLE, context.business_role) or None,
+            "environment": catalogs.label(catalogs.ENVIRONMENT, context.environment) or None,
             "criticality": context.criticality,
             "exposure": context.exposure,
             "data_classification": context.data_classification,
@@ -622,22 +626,24 @@ def _apply_item(asset_id, item, group, context, *, by_rule, log_obj, now):
         status = VulnerabilityStatus.LIKELY_FALSE_POSITIVE
     elif group and group.status_cap and status in ("CONFIRMED", "LIKELY"):
         status = group.status_cap
-    elif (
-        group
-        and group.status_floor
-        and status == VulnerabilityStatus.NEEDS_VERIFICATION
-        and plausibility >= 0.7
-    ):
-        # El modelo duda pese a la versión exacta en rango: la evidencia manda.
+    elif group and group.status_floor and status == VulnerabilityStatus.NEEDS_VERIFICATION:
+        # Versión exacta del producto dentro del rango afectado (o SBOM, o varias fuentes) y el
+        # modelo aun así duda: la evidencia manda y la vulnerabilidad queda «probable». Sin el
+        # piso, cientos de casos con la versión exacta en rango se quedaban «por verificar» sin
+        # que nadie pudiera verificarlos. Piso de plausibilidad acotado para que el puntaje no
+        # contradiga el estado; con KEV el piso es más alto.
         status = group.status_floor
+        plausibility = max(
+            plausibility, KEV_FLOOR_PLAUSIBILITY if group.in_kev else EXACT_FLOOR_PLAUSIBILITY
+        )
     elif (
         group
         and group.status_floor
         and group.in_kev
-        and status in (VulnerabilityStatus.NEEDS_VERIFICATION, "LIKELY_FALSE_POSITIVE")
+        and status == VulnerabilityStatus.LIKELY_FALSE_POSITIVE
     ):
         # Versión exacta en el rango afectado y explotación activa conocida (KEV): la duda del
-        # modelo no basta para dejarla «por verificar». Piso acotado, como las anclas de riesgo.
+        # modelo no basta para descartarla. Piso acotado, como las anclas de riesgo.
         status = group.status_floor
         plausibility = max(plausibility, KEV_FLOOR_PLAUSIBILITY)
     cve = next((f.cve for f in findings if f.cve_id), None)
@@ -674,9 +680,9 @@ def _apply_item(asset_id, item, group, context, *, by_rule, log_obj, now):
     keep_text = vuln.summary and vuln.description_source in (StatusSource.AI, StatusSource.HUMAN)
     if described:
         vuln.title = title[:200]
-        vuln.summary = item["summary"]
-        vuln.business_impact = item.get("business_impact", "")
-        vuln.actions = list(item.get("actions") or [])
+        vuln.summary = fix_spanish(item["summary"])
+        vuln.business_impact = fix_spanish(item.get("business_impact", ""))
+        vuln.actions = [fix_spanish(a) for a in (item.get("actions") or [])]
         vuln.description_source = StatusSource.AI
         vuln.described_at = now
     elif not keep_text:
@@ -698,7 +704,7 @@ def _apply_item(asset_id, item, group, context, *, by_rule, log_obj, now):
         "compensating_controls": item["compensating_controls"],
     }
     vuln.adjustment = ctx.breakdown["adjustment"]
-    vuln.adjustment_reason = item.get("adjustment_reason", "")[:255]
+    vuln.adjustment_reason = fix_spanish(item.get("adjustment_reason", ""))[:255]
     vuln.rule_flags = list(group.rule_flags) if group else []
     vuln.assessment_source = StatusSource.RULE if by_rule else StatusSource.AI
     vuln.inference = log_obj if not by_rule else None
@@ -964,6 +970,11 @@ def last_consolidated_at(asset_id):
 # Decisión humana
 # --------------------------------------------------------------------------
 
+RESOLVED_STATUSES = (
+    VulnerabilityStatus.MITIGATED,
+    VulnerabilityStatus.FALSE_POSITIVE,
+    VulnerabilityStatus.ACCEPTED,
+)
 HUMAN_STATUSES = (
     VulnerabilityStatus.CONFIRMED,
     VulnerabilityStatus.NEEDS_VERIFICATION,
@@ -1034,4 +1045,10 @@ def summary(asset_id=None):
         "in_kev": open_qs.filter(in_kev=True).count(),
         "needs_verification": open_qs.filter(status=VulnerabilityStatus.NEEDS_VERIFICATION).count(),
         "likely_fp": open_qs.filter(status=VulnerabilityStatus.LIKELY_FALSE_POSITIVE).count(),
+        # Lo que se cerró en los últimos siete días (mitigada, falso positivo o riesgo aceptado):
+        # la vista «qué se resolvió y por qué».
+        "resolved_week": qs.filter(
+            status__in=RESOLVED_STATUSES,
+            status_at__gte=timezone.now() - timedelta(days=7),
+        ).count(),
     }

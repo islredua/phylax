@@ -13,8 +13,8 @@ only_remedies: solo los pasos siguientes.
       {% if caps.open_findings %}{{ caps.open_findings }}{% if caps.open_findings_in_kev %} ({{ caps.open_findings_in_kev }} en KEV){% endif %}{% if top_findings %}: {% for f in top_findings %}<a href="{% url 'detection:finding' f.pk %}" class="font-mono text-xs">{{ f.vulnerability_id }}</a>{% if f.in_kev %} <span class="badge-critical">KEV</span>{% endif %}{% if not forloop.last %}, {% endif %}{% endfor %}{% endif %}
       {% else %}ninguno: Atalaya no tiene vulnerabilidades registradas en este activo{% endif %}</li>
     <li><strong>Software registrado:</strong> {% if caps.components %}{{ caps.components }} componente(s){% else %}ninguno, el activo aún no se ha observado{% endif %}</li>
-    <li><strong>Últimos escaneos:</strong> servicios {{ caps.last_service_scan_at|date:"Y-m-d"|default:"nunca" }} · vulnerabilidades {{ caps.last_vuln_scan_at|date:"Y-m-d"|default:"nunca" }} · SBOM {{ caps.last_sbom_scan_at|date:"Y-m-d"|default:"nunca" }}</li>
-    <li><strong>Alcance desde Atalaya:</strong> {% if caps.reachable is None %}sin verificar{% elif caps.reachable %}responde{% else %}<span class="badge-medium">no respondió</span>{% endif %}{% if caps.reachability_checked_at %} <span class="font-mono text-xs">{{ caps.reachability_checked_at|date:"Y-m-d H:i" }}</span>{% endif %}</li>
+    <li><strong>Últimos escaneos:</strong> servicios {{ caps.last_service_scan_at|fecha }} · vulnerabilidades {{ caps.last_vuln_scan_at|fecha }} · SBOM {{ caps.last_sbom_scan_at|fecha }}</li>
+    <li><strong>Alcance desde Atalaya:</strong> {% if caps.reachable is None %}sin verificar{% elif caps.reachable %}responde{% else %}<span class="badge-medium">no respondió</span>{% endif %}{% if caps.reachability_checked_at %} <span class="font-mono text-xs">{{ caps.reachability_checked_at|fecha }}</span>{% endif %}</li>
     {% if caps.blockers %}<li><strong>Qué no se pudo hacer:</strong> {{ caps.blockers|join:"; " }}</li>{% endif %}
   </ul>
   {% endif %}

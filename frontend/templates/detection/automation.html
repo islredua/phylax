@@ -8,15 +8,15 @@
     <span class="badge-neutral">{{ planner_calls }} decisiones esta hora</span>
   </div>
   {% if can_manage %}
-  <form method="post" action="{% url 'detection:automation_pause' %}" class="flex items-end gap-2">{% csrf_token %}
+  <form method="post" action="{% url 'detection:automation_pause' %}" class="flex items-end gap-2"{% if not config.paused %} data-confirm="La pausa de emergencia detiene el planificador y el despacho de acciones hasta que alguien reanude. ¿Continuar?"{% endif %}>{% csrf_token %}
     {% if config.paused %}<input type="hidden" name="paused" value="0"><button class="btn-primary btn-sm" type="submit">Reanudar</button>
-    {% else %}<input type="hidden" name="paused" value="1"><input name="reason" class="form-input w-56 py-1 text-xs" placeholder="Motivo de la pausa" maxlength="255"><button class="btn-danger btn-sm" type="submit">Pausa de emergencia</button>{% endif %}
+    {% else %}<input type="hidden" name="paused" value="1"><div><label class="form-label" for="pause-reason">Motivo de la pausa</label><input id="pause-reason" name="reason" class="form-input w-56 py-1 text-xs" placeholder="Obligatorio; queda en la bitácora" maxlength="255" required></div><button class="btn-danger btn-sm" type="submit">Pausa de emergencia</button>{% endif %}
   </form>
   {% endif %}
 </div>
 {% endblock %}
 {% block content %}
-{% if config.paused %}<div class="alert-error">Pausa de emergencia activada por <span class="font-mono">{{ config.paused_by.get_username|default:"—" }}</span> el {{ config.paused_at|date:"Y-m-d H:i" }}{% if config.pause_reason %}: {{ config.pause_reason }}{% endif %}. El planificador y el despacho están detenidos; las acciones aprobadas esperan.</div>{% endif %}
+{% if config.paused %}<div class="alert-error">Pausa de emergencia activada por <span class="font-mono">{{ config.paused_by.get_username|default:"—" }}</span> el {{ config.paused_at|fecha }}{% if config.pause_reason %}: {{ config.pause_reason }}{% endif %}. El planificador y el despacho están detenidos; las acciones aprobadas esperan.</div>{% endif %}
 <div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
   <form method="post" class="card flex flex-col gap-4" novalidate>
     {% csrf_token %}
@@ -54,6 +54,6 @@
 </div>
 <section class="flex flex-col gap-2"><h3 class="eyebrow">Bitácora de lo ejecutado automáticamente</h3>
 <div class="table-wrap"><table class="data-table"><thead><tr><th>Cuándo</th><th>Qué</th><th>Activo</th><th>Quién</th><th>Detalle</th></tr></thead><tbody>
-{% for l in log_entries %}<tr><td class="font-mono text-xs whitespace-nowrap">{{ l.timestamp|date:"Y-m-d H:i:s" }}</td><td>{% if l.action_id %}<a href="{% url 'detection:action' l.action_id %}">{{ l.get_kind_display }}</a>{% else %}{{ l.get_kind_display }}{% endif %}</td><td class="text-xs">{{ l.asset.name|default:"—" }}</td><td class="font-mono text-xs">{{ l.user.get_username|default:"sistema" }}</td><td class="text-xs text-ink-soft">{{ l.message }}</td></tr>{% empty %}<tr><td colspan="5" class="table-empty">Aún no se ha ejecutado nada automáticamente.</td></tr>{% endfor %}
+{% for l in log_entries %}<tr><td class="font-mono text-xs whitespace-nowrap">{{ l.timestamp|fecha:True }}</td><td>{% if l.action_id %}<a href="{% url 'detection:action' l.action_id %}">{{ l.get_kind_display }}</a>{% else %}{{ l.get_kind_display }}{% endif %}</td><td class="text-xs">{{ l.asset.name|default:"—" }}</td><td class="font-mono text-xs">{{ l.user.get_username|default:"sistema" }}</td><td class="text-xs text-ink-soft">{{ l.message }}</td></tr>{% empty %}<tr><td colspan="5" class="table-empty">Aún no se ha ejecutado nada automáticamente.</td></tr>{% endfor %}
 </tbody></table></div></section>
 {% endblock %}

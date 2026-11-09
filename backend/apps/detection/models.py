@@ -622,6 +622,17 @@ class Risk(UUIDModel):
         return self.likelihood * self.impact
 
     @property
+    def headline(self):
+        """«Consecuencia en activo» del título; la causa técnica va aparte (``cause``)."""
+        head, sep, _ = self.title.partition(" por ")
+        return head if sep else self.title
+
+    @property
+    def cause(self):
+        _, sep, cause = self.title.partition(" por ")
+        return cause if sep else ""
+
+    @property
     def is_open(self):
         return self.status in RISK_OPEN_STATUSES
 

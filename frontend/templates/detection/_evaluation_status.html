@@ -9,7 +9,7 @@
   {% endif %}
 {% else %}
   <div class="flex flex-wrap items-center justify-between gap-2">
-    <p class="eyebrow mb-0">Última evaluación · {{ progress.event.created_at|date:"Y-m-d H:i" }}{% if progress.in_flight %} · <span class="text-primary">en curso…</span>{% endif %}</p>
+    <p class="eyebrow mb-0">Última evaluación · {{ progress.event.created_at|fecha }}{% if progress.in_flight %} · <span class="text-primary">en curso…</span>{% endif %}</p>
     <a href="{% url 'detection:event' progress.event.pk %}" class="text-xs">Ver evento</a>
   </div>
   <ol class="flex flex-col gap-1">
