@@ -139,6 +139,10 @@
 }
 
 @layer components {
+  /* Inicio: menciones enlazadas dentro de la narrativa */
+  .nar-link {
+    @apply text-primary underline decoration-dotted underline-offset-2 hover:decoration-solid;
+  }
   /* --- Estructura --- */
   .app-shell {
     @apply min-h-screen md:grid md:grid-cols-[232px_minmax(0,1fr)];

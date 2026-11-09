@@ -100,6 +100,7 @@ class HomeView(TemplateView):
         from apps.detection.models import Risk
 
         from . import indicators, narrative
+        from .links import Linker
 
         context = super().get_context_data(**kwargs)
         user = self.request.user
@@ -133,8 +134,114 @@ class HomeView(TemplateView):
             pulse=activity.recent(limit=12) if blocks["activity"] else [],
             narrative=story,
             narrative_pending=bool(cache.get(NARRATIVE_PENDING_KEY)),
+            linker=Linker.from_db(),
         )
         return context
+
+
+def chart_payload(data, rows):
+    """Series para las gráficas dinámicas (Chart.js vendorizado); cada serie sabe a dónde lleva."""
+    from apps.detection.models import RiskLevel
+
+    from .templatetags.presentation_tags import COLORS, LEVEL_COLORS, SOURCE_COLORS, SOURCE_LABELS
+
+    level_label = dict(RiskLevel.choices)
+    levels = ["CRITICAL", "VERY_HIGH", "HIGH", "MODERATE", "LOW"]
+    labels = [r["day"].strftime("%d %b") for r in rows]
+    risks_url = reverse("detection:risks")
+    panel_url = reverse("detection:panel")
+    priority = data["vulnerabilities"]["priority"]
+    sources = sorted(data["observations"]["by_source"].items(), key=lambda kv: -kv[1])
+    return {
+        "computed_at": timezone.localtime().strftime("%H:%M"),
+        "risk_trend": {
+            "labels": labels,
+            "series": [
+                {
+                    "key": lvl,
+                    "label": level_label[lvl],
+                    "color": LEVEL_COLORS[lvl],
+                    "url": f"{risks_url}?level={lvl}",
+                    "values": [
+                        (r["risks_by_level"] or {}).get(lvl) if r["has_data"] else None
+                        for r in rows
+                    ],
+                }
+                for lvl in levels
+            ],
+        },
+        "vuln_trend": {
+            "labels": labels,
+            "series": [
+                {
+                    "label": "Vulnerabilidades sostenidas",
+                    "color": COLORS["primary"],
+                    "url": panel_url,
+                    "values": [r["vulns_sustained"] for r in rows],
+                },
+                {
+                    "label": "Con explotación activa (KEV)",
+                    "color": COLORS["critical"],
+                    "url": f"{panel_url}?in_kev=1",
+                    "values": [r["vulns_kev"] for r in rows],
+                },
+            ],
+        },
+        "levels": {
+            "labels": [level_label[lvl] for lvl in levels],
+            "series": [
+                {
+                    "label": "Riesgos abiertos",
+                    "colors": [LEVEL_COLORS[lvl] for lvl in levels],
+                    "urls": [f"{risks_url}?level={lvl}" for lvl in levels],
+                    "values": [data["risks"]["by_level"].get(lvl, 0) for lvl in levels],
+                }
+            ],
+        },
+        "sources": {
+            "labels": [SOURCE_LABELS.get(k, k) for k, _ in sources],
+            "series": [
+                {
+                    "label": "Observaciones",
+                    "colors": [SOURCE_COLORS.get(k, COLORS["muted"]) for k, _ in sources],
+                    "urls": [reverse("detection:observations") for _ in sources],
+                    "values": [v for _, v in sources],
+                }
+            ],
+        },
+        "priority": {
+            "labels": ["Críticas", "Altas"],
+            "series": [
+                {
+                    "label": "Solo CVSS",
+                    "color": COLORS["muted"],
+                    "urls": [f"{panel_url}?severity=CRITICAL", f"{panel_url}?severity=HIGH"],
+                    "values": [priority["cvss_critical"], priority["cvss_high"]],
+                },
+                {
+                    "label": "Contextual (Atalaya)",
+                    "color": COLORS["primary"],
+                    "urls": [panel_url, panel_url],
+                    "values": [priority["contextual_critical"], priority["contextual_high"]],
+                },
+            ],
+        },
+    }
+
+
+class HomeChartsView(PermissionRequiredMixin, View):
+    """JSON de las gráficas de Inicio; el navegador lo vuelve a pedir cada minuto."""
+
+    permission_required = "detection.view_risk"
+    raise_exception = True
+
+    def get(self, request):
+        from django.http import JsonResponse
+
+        from . import indicators
+
+        data = indicators.current()
+        return JsonResponse(chart_payload(data, indicators.trend()))
 
 
 class HomeFragmentView(PermissionRequiredMixin, TemplateView):
@@ -177,9 +284,12 @@ class HomeFragmentView(PermissionRequiredMixin, TemplateView):
         elif block == "pulse":
             context.update(pulse=activity.recent(limit=12))
         elif block == "narrative":
+            from .links import Linker
+
             context.update(
                 narrative=narrative.latest(),
                 narrative_pending=bool(cache.get(NARRATIVE_PENDING_KEY)),
+                linker=Linker.from_db(),
             )
         return context
 

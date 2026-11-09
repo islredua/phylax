@@ -237,3 +237,16 @@ def legend(items):
 
 
 from django.utils.html import format_html_join  # noqa: E402
+
+
+@register.filter
+def linkify(text, linker):
+    """Texto de la narrativa con enlaces a los apartados que lo sustentan (ver ``links.Linker``)."""
+    if linker is None:
+        return text
+    return linker.render(str(text))
+
+
+@register.filter
+def get_level(mapping, key):
+    return (mapping or {}).get(key, "—")

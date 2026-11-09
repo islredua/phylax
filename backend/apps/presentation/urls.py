@@ -4,6 +4,7 @@ from apps.detection.views import DraftView, OrganizationView
 
 from .views import (
     AdministrationView,
+    HomeChartsView,
     HomeExportView,
     HomeFragmentView,
     HomeReportView,
@@ -16,6 +17,7 @@ urlpatterns = [
     path("", HomeView.as_view(), name="home"),
     # Fragmentos HTMX de Inicio (indicators · alerts · pulse · narrative), reporte y descargas.
     path("home/block/<str:block>/", HomeFragmentView.as_view(), name="home_block"),
+    path("home/charts.json", HomeChartsView.as_view(), name="home_charts"),
     path("home/narrative/refresh/", NarrativeRefreshView.as_view(), name="home_narrative_refresh"),
     path("home/report/", HomeReportView.as_view(), name="home_report"),
     path("home/export/<str:kind>.csv", HomeExportView.as_view(), name="home_export"),

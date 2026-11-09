@@ -20,11 +20,24 @@ riesgos conforme a ISO/IEC 27005 y un modelo de lenguaje local que redacta para 
 | **Pulso del sistema** | `detection.activity.recent(12)` | Sondeo cada 30 s |
 | **Descargas** | reporte ejecutivo HTML imprimible / Markdown (`/home/report/`), CSV de riesgos abiertos y de vulnerabilidades sostenidas (`/home/export/<kind>.csv`) | Al pedirlas |
 
-Las gráficas son SVG generadas en el servidor (`presentation_tags`: `svg_trend`, `svg_bars`,
-`svg_compare`, `legend`), sin librerías ni CDN, con los tokens del sistema visual. Los colores de
-nivel son fijos por identidad (crítico rojo, muy alto naranja, alto ámbar, moderado marino, bajo
-verde) y las fuentes también (inteligencia marino, nuclei naranja, Grype verde). Siempre hay leyenda
-cuando hay dos o más series y la última cifra se rotula directamente.
+Las gráficas de Inicio son dinámicas: Chart.js 4.4.1 vendorizado en `frontend/static/vendor`
+(MIT, sin CDN) y `frontend/static/js/home-charts.js` leen `/home/charts.json` al cargar y cada 60 s,
+actualizan las series en sitio con animación, muestran tooltips al pasar el cursor y, al hacer clic
+en un punto o barra, abren la lista que lo sustenta (riesgos filtrados por nivel, vulnerabilidades en
+KEV, observaciones, actividad). Cada gráfica tiene debajo un «Ver datos» con la tabla, que es lo que
+queda sin JavaScript. El reporte imprimible usa SVG generado en el servidor (`presentation_tags`:
+`svg_trend`, `svg_bars`, `svg_compare`, `legend`) porque no corre scripts. Los colores de nivel son
+fijos por identidad (crítico rojo, muy alto naranja, alto ámbar, moderado marino, bajo verde) y las
+fuentes también (inteligencia marino, nuclei naranja, Grype verde).
+
+**Narrativa enlazada.** `presentation.links.Linker` (una instancia por petición, filtro `linkify`)
+convierte las menciones del texto en enlaces: títulos de riesgos abiertos → detalle del riesgo;
+nombres de activos → ficha del activo; claves CVE → detalle de la vulnerabilidad si está vigente;
+«N riesgos críticos / muy altos / altos / abiertos» → registro de riesgos filtrado; «explotación
+activa», «KEV», «plazo de CISA» → vulnerabilidades en KEV; «acciones por aprobar» → cola;
+«decisiones», «escaneos» → actividad; «sincronizaciones de inteligencia», «NVD», «EPSS» → fuentes;
+«activos» → inventario. El semáforo enlaza al registro de riesgos (críticos si está en rojo). El
+texto se escapa siempre; solo se insertan `<a>` con URLs del sistema.
 
 ## Permisos
 

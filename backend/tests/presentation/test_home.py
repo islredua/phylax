@@ -351,3 +351,64 @@ def test_beat_tasks_snapshot_and_refresh(monkeypatch):
     assert tasks.refresh_health_narrative()["result"] == "queued"
     out = tasks.generate_health_narrative(force=True)
     assert out == {"created": True, "by_rule": False}
+
+
+# --- enlaces y gráficas dinámicas ---------------------------------------------------------------
+
+
+def test_linker_turns_mentions_into_links_and_escapes_the_rest():
+    from apps.presentation.links import Linker
+
+    asset = AssetFactory(name="api-pagos")
+    _asset_with_risk("crm-legacy")
+    risk = Risk.objects.filter(status="OPEN").first()
+    linker = Linker(
+        assets=[("api-pagos", asset.pk)],
+        risks=[(risk.title, risk.pk)] if risk else [],
+        vulns=[("CVE-2025-29927", "00000000-0000-0000-0000-000000000001")],
+    )
+    html = str(
+        linker.render(
+            "Hay 13 riesgos abiertos, 1 crítico; api-pagos y crm-legacy con explotación activa (KEV) "
+            "y plazo de CISA vencido; 2 acciones esperan aprobación <b>x</b> CVE-2025-29927."
+        )
+    )
+    assert '<a href="/detection/" class="nar-link">13 riesgos abiertos</a>' in html
+    assert '<a href="/detection/?level=CRITICAL" class="nar-link">1 crítico</a>' in html
+    assert f'<a href="/inventory/{asset.pk}/" class="nar-link">api-pagos</a>' in html
+    assert "crm-legacy</a>" not in html  # no está en la lista del enlazador
+    assert (
+        'href="/detection/vulnerabilities/?in_kev=1" class="nar-link">explotación activa (KEV)</a>'
+        in html
+    )
+    assert 'href="/detection/queue/" class="nar-link">2 acciones esperan aprobación</a>' in html
+    assert "&lt;b&gt;x&lt;/b&gt;" in html
+    assert 'class="nar-link">CVE-2025-29927</a>' in html
+    if risk:
+        assert f'href="/detection/risks/{risk.pk}/"' in str(linker.render(f"Urge «{risk.title}»"))
+
+
+def test_home_narrative_links_to_the_sections_and_charts_are_dynamic(client, as_role):
+    as_role(OPERATOR)
+    _asset_with_risk()
+    body = client.get("/").content.decode()
+    assert 'class="nar-link"' in body and "vendor/chart-4.4.1.umd.js" in body
+    assert body.count("<canvas") == 5 and 'data-home-charts="/home/charts.json"' in body
+    assert "Ver datos" in body  # tabla de respaldo sin JS
+    payload = client.get("/home/charts.json").json()
+    assert set(payload) == {
+        "computed_at",
+        "risk_trend",
+        "vuln_trend",
+        "levels",
+        "sources",
+        "priority",
+    }
+    levels = payload["levels"]["series"][0]
+    assert levels["urls"][0] == "/detection/?level=CRITICAL"
+    assert sum(levels["values"]) == Risk.objects.filter(status="OPEN").count()
+    assert len(payload["risk_trend"]["labels"]) == 30
+    assert payload["sources"]["labels"]
+    assert payload["priority"]["series"][1]["label"].startswith("Contextual")
+    client.logout()
+    assert client.get("/home/charts.json").status_code in (302, 403)
