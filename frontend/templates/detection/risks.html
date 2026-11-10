@@ -31,27 +31,26 @@
   </ul>
 </section>
 {% endif %}
-<div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_auto]">
-  <div class="flex flex-col gap-4">
-    <div class="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
-      <a href="?status={% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Abiertos</p><p class="stat-value">{{ summary.open|miles }}</p></a>
-      <a href="?level=CRITICAL{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Críticos</p><p class="stat-value {% if summary.critical %}text-critical{% endif %}">{{ summary.critical|miles }}</p></a>
-      <a href="?level=VERY_HIGH{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Muy altos</p><p class="stat-value {% if summary.very_high %}text-critical{% endif %}">{{ summary.very_high|miles }}</p></a>
-      <a href="?kev_overdue=1{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline" title="Riesgos con alguna vulnerabilidad en KEV cuyo plazo de remediación de CISA ya venció"><p class="stat-label">Plazo CISA vencido</p><p class="stat-value {% if summary.kev_overdue %}text-critical{% endif %}">{{ summary.kev_overdue|miles }}</p></a>
-      <a href="?treatment=none{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Sin tratamiento decidido</p><p class="stat-value {% if summary.untreated %}text-high{% endif %}">{{ summary.untreated|miles }}</p></a>
-      <a href="?overdue=1{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline" title="Tratamientos con fecha compromiso vencida y aceptaciones con revisión vencida"><p class="stat-label">Seguimiento vencido</p><p class="stat-value {% if summary.overdue %}text-critical{% endif %}">{{ summary.overdue|miles }}</p></a>
-      <a href="?status=ACCEPTED{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Aceptados</p><p class="stat-value">{{ summary.accepted|miles }}</p></a>
-      <a href="?status=CLOSED{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline" title="Riesgos que la valoración ya no sostiene; cada uno conserva el motivo del cierre"><p class="stat-label">Cerrados</p><p class="stat-value">{{ summary.closed|miles }}{% if summary.closed_week %} <span class="text-xs font-normal text-muted">{{ summary.closed_week|miles }} esta semana</span>{% endif %}</p></a>
-    </div>
-    <form method="get" class="card grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6 lg:items-end">
-      {% for field in filter_form %}{% if field.widget_type == 'hidden' %}{{ field }}{% elif field.widget_type == 'checkbox' %}
-      <label class="flex items-center gap-2 pb-2 text-sm">{{ field }} {{ field.label }}</label>
-      {% else %}
-      <div class="{% if field.name == 'q' %}lg:col-span-2{% endif %}"><label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}</div>
-      {% endif %}{% endfor %}
-      <div class="flex gap-2"><button type="submit" class="btn-primary">Filtrar</button><a href="{% url 'detection:risks' %}{% if asset_id %}?asset={{ asset_id }}{% endif %}" class="btn-secondary">Limpiar</a></div>
-    </form>
-  </div>
+{# Los números generales van a todo lo ancho, en su propia fila: ocho tarjetas con aire. #}
+<div class="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-8">
+  <a href="?status={% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Abiertos</p><p class="stat-value">{{ summary.open|miles }}</p></a>
+  <a href="?level=CRITICAL{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Críticos</p><p class="stat-value {% if summary.critical %}text-critical{% endif %}">{{ summary.critical|miles }}</p></a>
+  <a href="?level=VERY_HIGH{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Muy altos</p><p class="stat-value {% if summary.very_high %}text-critical{% endif %}">{{ summary.very_high|miles }}</p></a>
+  <a href="?kev_overdue=1{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline" title="Riesgos con alguna vulnerabilidad en KEV cuyo plazo de remediación de CISA ya venció"><p class="stat-label">Plazo CISA vencido</p><p class="stat-value {% if summary.kev_overdue %}text-critical{% endif %}">{{ summary.kev_overdue|miles }}</p></a>
+  <a href="?treatment=none{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Sin tratamiento decidido</p><p class="stat-value {% if summary.untreated %}text-high{% endif %}">{{ summary.untreated|miles }}</p></a>
+  <a href="?overdue=1{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline" title="Tratamientos con fecha compromiso vencida y aceptaciones con revisión vencida"><p class="stat-label">Seguimiento vencido</p><p class="stat-value {% if summary.overdue %}text-critical{% endif %}">{{ summary.overdue|miles }}</p></a>
+  <a href="?status=ACCEPTED{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Aceptados</p><p class="stat-value">{{ summary.accepted|miles }}</p></a>
+  <a href="?status=CLOSED{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline" title="Riesgos que la valoración ya no sostiene; cada uno conserva el motivo del cierre"><p class="stat-label">Cerrados</p><p class="stat-value">{{ summary.closed|miles }}{% if summary.closed_week %} <span class="text-xs font-normal text-muted">{{ summary.closed_week|miles }} esta semana</span>{% endif %}</p></a>
+</div>
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+  <form method="get" class="card grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6 lg:items-end">
+    {% for field in filter_form %}{% if field.widget_type == 'hidden' %}{{ field }}{% elif field.widget_type == 'checkbox' %}
+    <label class="flex items-center gap-2 pb-2 text-sm">{{ field }} {{ field.label }}</label>
+    {% else %}
+    <div class="{% if field.name == 'q' %}lg:col-span-2{% endif %}"><label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}</div>
+    {% endif %}{% endfor %}
+    <div class="flex gap-2"><button type="submit" class="btn-primary">Filtrar</button><a href="{% url 'detection:risks' %}{% if asset_id %}?asset={{ asset_id }}{% endif %}" class="btn-secondary">Limpiar</a></div>
+  </form>
   <section class="card flex flex-col gap-2">
     <h3 class="card-title mb-0">Matriz de los riesgos listados</h3>
     {% include "detection/_risk_matrix.html" with matrix=matrix compact=True %}
