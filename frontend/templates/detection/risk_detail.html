@@ -97,7 +97,9 @@
     <section class="card flex flex-col gap-3" id="tratamiento">
       <h3 class="card-title mb-0">Tratamiento</h3>
       {% if risk.treatment %}
-      <p class="text-sm">{{ risk.get_treatment_display }}{% if risk.owner %} · responsable <strong>{{ risk.owner }}</strong>{% endif %}</p>
+      <p class="text-sm">{{ risk.get_treatment_display }}{% if risk.owner %} · responsable <strong><a href="{% url 'detection:risks' %}?owner={{ risk.owner|urlencode }}" title="Todos los riesgos de este responsable">{{ risk.owner }}</a></strong>{% endif %}</p>
+      {% if risk.target_date %}<p class="text-sm">Fecha compromiso: <span class="font-mono text-xs">{{ risk.target_date|fecha_corta }}</span>{% if risk.target_overdue %} <span class="badge-critical">vencida</span>{% endif %}</p>{% endif %}
+      {% if risk.review_at %}<p class="text-sm">Revisar la decisión el <span class="font-mono text-xs">{{ risk.review_at|fecha_corta }}</span>{% if risk.review_overdue %} <span class="badge-high">revisión vencida</span>{% endif %}</p>{% endif %}
       <p class="text-xs text-muted">Decidido por <span class="font-mono">{{ risk.decided_by.get_username|default:"—" }}</span> el {{ risk.decided_at|fecha }}.{% if risk.treatment_note %} «{{ risk.treatment_note }}»{% endif %}</p>
       {% if risk.residual_level %}<p class="text-sm">Riesgo residual: {% risk_level_badge risk.residual_level %} <span class="font-mono text-xs text-muted">{{ risk.residual_likelihood }} × {{ risk.residual_impact }}</span></p>{% endif %}
       {% elif closure %}<p class="text-xs text-muted">Se cerró sin tratamiento decidido: no hace falta decidir nada mientras siga cerrado.</p>
@@ -110,6 +112,10 @@
         <select id="treatment" name="treatment" class="form-input">{% for value, label in treatment_form.fields.treatment.choices %}<option value="{{ value }}"{% if value == risk.treatment %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
         <label class="form-label" for="owner">Responsable</label>
         <input id="owner" name="owner" class="form-input" maxlength="120" value="{{ risk.owner }}" placeholder="Equipo o persona">
+        <div class="grid grid-cols-2 gap-2">
+          <div><label class="form-label" for="target_date">Fecha compromiso</label><input id="target_date" name="target_date" type="date" class="form-input" value="{{ risk.target_date|date:'Y-m-d' }}"><p class="form-help">Obligatoria al mitigar o transferir.</p></div>
+          <div><label class="form-label" for="review_at">Revisar el</label><input id="review_at" name="review_at" type="date" class="form-input" value="{{ risk.review_at|date:'Y-m-d' }}"><p class="form-help">Al aceptar; si se deja vacío, en 180 días.</p></div>
+        </div>
         <div class="grid grid-cols-2 gap-2">
           <div><label class="form-label" for="residual_likelihood">Probabilidad residual</label><select id="residual_likelihood" name="residual_likelihood" class="form-input"><option value="">—</option>{% for i in "12345" %}<option value="{{ i }}"{% if risk.residual_likelihood|stringformat:"s" == i %} selected{% endif %}>{{ i }}</option>{% endfor %}</select></div>
           <div><label class="form-label" for="residual_impact">Impacto residual</label><select id="residual_impact" name="residual_impact" class="form-input"><option value="">—</option>{% for i in "12345" %}<option value="{{ i }}"{% if risk.residual_impact|stringformat:"s" == i %} selected{% endif %}>{{ i }}</option>{% endfor %}</select></div>

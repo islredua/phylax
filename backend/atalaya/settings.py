@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     "apps.scoring",
     "apps.detection",
     "apps.presentation",
+    "apps.alerts",
 ]
 
 MIDDLEWARE = [
@@ -129,6 +130,12 @@ EMAIL_BACKEND = os.environ.get(
     "DJANGO_EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
 )
 DEFAULT_FROM_EMAIL = os.environ.get("DJANGO_DEFAULT_FROM_EMAIL", "atalaya@localhost")
+
+# --- Avisos (F3) ---
+# URL pública de Atalaya para los enlaces de los avisos (correo, webhook).
+ATALAYA_BASE_URL = os.environ.get("ATALAYA_BASE_URL", "http://localhost:8000")
+# Horas que una acción puede esperar aprobación antes de avisar.
+ALERTS_ACTION_WAIT_HOURS = int(os.environ.get("ALERTS_ACTION_WAIT_HOURS", "4"))
 
 # --- Cifrado de campos (tokens de registry) ---
 # Lista separada por comas; la primera cifra, todas descifran (rotación).
@@ -273,6 +280,11 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.detection.tasks.dispatch_actions",
         "schedule": 60.0,
     },
+    # Avisos (F3): correo/webhook con los hechos nuevos que piden a una persona.
+    "alerts-dispatch": {
+        "task": "apps.alerts.tasks.dispatch_alerts",
+        "schedule": crontab(minute="*/10"),
+    },
 }
 
 # --- Archivos subidos (SBOM, XML de discovery, cargas temporales) ---
@@ -356,6 +368,8 @@ DETECTION_CONSOLIDATE_DELAY_S = int(os.environ.get("DETECTION_CONSOLIDATE_DELAY_
 DETECTION_CONSOLIDATE_CHUNK = int(os.environ.get("DETECTION_CONSOLIDATE_CHUNK", "25"))
 # Cuántas vulnerabilidades sin descripción en español se redactan solas tras cada consolidación.
 DETECTION_DESCRIBE_BATCH = int(os.environ.get("DETECTION_DESCRIBE_BATCH", "10"))
+# Multiplicador del lote cuando la cola ``llm`` está vacía (F9: el modelo ocioso no debe esperar).
+DETECTION_DESCRIBE_BURST = int(os.environ.get("DETECTION_DESCRIBE_BURST", "4"))
 # Cada cuántos segundos beat encola otro lote (DETECTION_DESCRIBE_BATCH) de descripciones pendientes.
 DETECTION_DESCRIBE_EVERY = float(os.environ.get("DETECTION_DESCRIBE_EVERY", "120"))
 # EPSS a partir del cual una vulnerabilidad se considera de explotación probable (FIRST sugiere 0.1).

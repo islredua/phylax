@@ -226,15 +226,45 @@ def request_description(vuln, *, requested_by=None, countdown=0) -> bool:
     return True
 
 
+def llm_queue_length():
+    """Mensajes esperando en la cola ``llm`` del broker (Redis), o ``None`` si no se puede saber."""
+    try:
+        from atalaya.celery import app
+
+        with app.connection_for_read() as conn:
+            return int(conn.default_channel.client.llen("llm"))
+    except Exception:  # pragma: no cover - sin broker alcanzable: lote normal
+        return None
+
+
+_PROBE = object()
+
+
+def adaptive_limit(base=None, *, queue_length=_PROBE):
+    """Lote del drenaje: el normal si la cola ``llm`` tiene trabajo, varias veces mayor si está libre.
+
+    Con ~10 cada 120 s, 400 pendientes tardaban 80 min aunque el modelo estuviera ocioso (F9).
+    La regla es acotada: solo crece cuando no hay nada esperando en la cola, nunca compite con
+    consolidaciones ni planificaciones en marcha.
+    """
+    base = base if base is not None else int(getattr(settings, "DETECTION_DESCRIBE_BATCH", 10))
+    if queue_length is _PROBE:
+        queue_length = llm_queue_length()
+    if queue_length == 0:
+        return base * int(getattr(settings, "DETECTION_DESCRIBE_BURST", 4))
+    return base
+
+
 def queue_missing_everywhere(limit=None) -> int:
     """Drenaje periódico: redacta poco a poco todas las sostenidas sin descripción.
 
     La consolidación solo encola un lote por activo y el resto se redactaba al abrir el detalle;
     con cientos de vulnerabilidades la mayoría quedaba sin texto. Esta tarea de ``beat`` toma las
     de mayor puntaje contextual de toda la plataforma, sin repetir las que ya están en cola, y
-    deja que la cola ``llm`` (un hilo) avance entre consolidaciones.
+    deja que la cola ``llm`` (un hilo) avance entre consolidaciones. El tamaño del lote se adapta
+    a la cola (``adaptive_limit``).
     """
-    limit = limit if limit is not None else int(getattr(settings, "DETECTION_DESCRIBE_BATCH", 10))
+    limit = limit if limit is not None else adaptive_limit()
     queued = 0
     qs = (
         Vulnerability.objects.filter(status__in=SUSTAINED, summary="")

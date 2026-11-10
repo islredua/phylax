@@ -13,6 +13,8 @@ logger = logging.getLogger(__name__)
 @shared_task(acks_late=True, soft_time_limit=3000, time_limit=3300)
 def sync_cti_sources():
     """Beat horario: sincroniza las fuentes habilitadas cuyo intervalo venció."""
+    for run in services.mark_interrupted_runs():
+        logger.warning("CTI %s: sincronización %s marcada como interrumpida", run.source, run.pk)
     runs = services.sync_due_sources()
     for run in runs:
         logger.info("CTI %s: %s (%d cambios)", run.source, run.status, run.changes)

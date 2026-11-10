@@ -156,6 +156,9 @@ def compute(now=None) -> dict:
         "high": by_level.get(RiskLevel.HIGH, 0),
         "untreated": risks.filter(treatment="").count(),
         "treated": risks.exclude(treatment="").count(),
+        "followup_overdue": risks.filter(
+            Q(status="TREATED", target_date__lt=today) | Q(status="ACCEPTED", review_at__lt=today)
+        ).count(),
         "by_ai": risks.filter(assessment_source="AI").count(),
         "closed_window": Risk.objects.filter(status="CLOSED", closed_at__gte=since).count(),
         "new_window": risks.filter(first_identified_at__gte=since).count(),
@@ -574,6 +577,14 @@ def today(data=None) -> list[dict]:
         "activos de criticidad alta con posibles vulnerabilidades explotables sin verificar",
         "Verificar con una herramienta",
         f"{panel_url}?status=NEEDS_VERIFICATION&exploitable=1",
+    )
+    add(
+        "high",
+        r.get("followup_overdue", 0),
+        "riesgo con fecha compromiso o revisión vencida",
+        "riesgos con fecha compromiso o revisión vencida",
+        "Dar seguimiento",
+        f"{risks_url}?overdue=1",
     )
     add(
         "medium",

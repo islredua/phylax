@@ -52,9 +52,11 @@ IMMUTABLE_MODELS = {
     ("detection", "plannerdecision"),
     ("detection", "automationlogentry"),
     ("scanners", "toolexecution"),
+    ("alerts", "notification"),
 }
 # Configuración que solo admin modifica; el operador solo la consulta.
 ADMIN_MANAGED_MODELS = {
+    ("alerts", "notificationchannel"),
     ("assets", "networkrange"),
     ("assets", "containerregistry"),
     ("assets", "catalogentry"),

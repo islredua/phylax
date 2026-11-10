@@ -724,6 +724,10 @@ def filter_risks(params):
             qs = qs.filter(treatment=data["treatment"])
         if data["kev_overdue"]:
             qs = qs.filter(risks.kev_overdue_filter()).distinct()
+        if data["owner"]:
+            qs = qs.filter(owner__icontains=data["owner"].strip())
+        if data["overdue"]:
+            qs = qs.filter(risks.followup_overdue_filter())
         if data["likelihood"]:
             qs = qs.filter(likelihood=data["likelihood"])
         if data["impact"]:
@@ -774,6 +778,7 @@ class RiskRegisterView(Perm, PaginationMixin, ListView):
             asset=listed[0].asset if asset_id and listed else None,
             consolidation_pending=consolidation.is_pending(asset_id) if asset_id else False,
             today=risks.today(asset_id),
+            owners=risks.by_owner(asset_id),
             filters_active=filters_active(self.request.GET),
         )
         if asset_id and context["asset"] is None:
@@ -804,6 +809,8 @@ class RiskDetailView(Perm, TemplateView):
                 initial={
                     "treatment": risk.treatment,
                     "owner": risk.owner,
+                    "target_date": risk.target_date,
+                    "review_at": risk.review_at,
                     "residual_likelihood": risk.residual_likelihood,
                     "residual_impact": risk.residual_impact,
                 }
@@ -1469,6 +1476,7 @@ class SourcesView(Perm, View):
     template_name = "detection/sources.html"
 
     def _context(self, forms=None):
+        cti.mark_interrupted_runs()  # F10: nada se queda «en curso» para siempre
         sources = cti.ensure_sources()
         forms = forms or {}
         rows = []

@@ -322,6 +322,12 @@ class RiskFilterForm(StyledMixin, forms.Form):
         choices=[("", "Todos"), ("none", "Sin decidir"), *RiskTreatment.choices],
     )
     kev_overdue = forms.BooleanField(label="Plazo de CISA vencido", required=False)
+    owner = forms.CharField(
+        label="Responsable",
+        required=False,
+        widget=forms.TextInput(attrs={"placeholder": "Equipo o persona"}),
+    )
+    overdue = forms.BooleanField(label="Fecha compromiso o revisión vencida", required=False)
     likelihood = forms.IntegerField(
         required=False, min_value=1, max_value=5, widget=forms.HiddenInput()
     )
@@ -334,6 +340,8 @@ class RiskFilterForm(StyledMixin, forms.Form):
 class RiskTreatmentForm(forms.Form):
     treatment = forms.ChoiceField(choices=RiskTreatment.choices)
     owner = forms.CharField(required=False, max_length=120)
+    target_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}))
+    review_at = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}))
     note = forms.CharField(required=False, max_length=2000)
     residual_likelihood = forms.TypedChoiceField(
         required=False, choices=[("", "—"), *SCALE], coerce=int, empty_value=None

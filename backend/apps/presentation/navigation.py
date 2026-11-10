@@ -228,6 +228,15 @@ SECTIONS = (
                 ("assets.manage_registries",),
                 ("assets:registry_create", "assets:registry_edit", "assets:registry_delete"),
             ),
+            # Avisos: los configura el administrador y los consulta el Lector; el Analista no ve
+            # Administración (ADR-004), aunque la pantalla le responda si entra por URL.
+            Tab(
+                "alerts",
+                "Avisos",
+                "alerts:settings",
+                ("alerts.manage_alerts", "accounts.view_auditlogentry"),
+                ("alerts:*",),
+            ),
         ),
     ),
     Section(

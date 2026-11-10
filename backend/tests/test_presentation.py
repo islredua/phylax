@@ -51,6 +51,7 @@ def test_sidebar_shows_sections_not_subsections(client, admin_user):
         "home_settings",
         "catalogs",
         "registries",
+        "alerts",
     ]
     assert nav.main[3].url_name == "administration"
 
@@ -98,7 +99,8 @@ def test_administration_hidden_for_operator(client, make_user):
 def test_auditor_sees_administration_tabs(client, auditor_user):
     client.force_login(auditor_user)
     nav = client.get("/administration/").context["nav"]
-    assert [t.key for t in nav.tabs] == ["overview", "organization", "users", "audit"]
+    # El Lector consulta también los avisos configurados (solo lectura).
+    assert [t.key for t in nav.tabs] == ["overview", "organization", "users", "audit", "alerts"]
 
 
 def test_tabs_are_filtered_by_permission(make_user):
@@ -111,7 +113,7 @@ def test_tabs_are_filtered_by_permission(make_user):
     user = type(user).objects.get(pk=user.pk)  # limpia la caché de permisos
     nav = build_navigation(user, "accounts:audit_log")
     assert nav.section.key == "administration"
-    assert [t.key for t in nav.tabs] == ["overview", "organization", "audit"]
+    assert [t.key for t in nav.tabs] == ["overview", "organization", "audit", "alerts"]
 
 
 def test_anonymous_navigation_is_empty():

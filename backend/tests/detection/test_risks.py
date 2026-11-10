@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from django.utils import timezone
 
 from apps.accounts.roles import ADMIN, AUDITOR, OPERATOR
 from apps.cti import services as cti
@@ -149,6 +150,7 @@ def test_treatment_is_human_and_persists_across_reassessment(make_user):
         note="Parchar en la ventana",
         residual_likelihood=1,
         residual_impact=4,
+        target_date=timezone.localdate() + timezone.timedelta(days=14),
     )
     risk.refresh_from_db()
     assert risk.status == RiskStatus.TREATED and risk.decided_by == user
@@ -215,6 +217,7 @@ def test_register_and_detail_pages(client, as_role):
             "note": "Póliza ciber",
             "residual_likelihood": "2",
             "residual_impact": "2",
+            "target_date": (timezone.localdate() + timezone.timedelta(days=30)).isoformat(),
         },
     )
     risk.refresh_from_db()

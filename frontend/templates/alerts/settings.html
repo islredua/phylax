@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Avisos{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <h2>Avisos</h2>
+  {% if can_manage %}<div class="page-actions"><form method="post" action="{% url 'alerts:dispatch' %}">{% csrf_token %}<button class="btn-secondary btn-sm" type="submit" title="Normalmente se envían solos cada 10 minutos">Enviar pendientes ahora</button></form><a href="{% url 'alerts:channel_create' %}" class="btn-primary btn-sm">Nuevo canal</a></div>{% endif %}
+</div>
+{% endblock %}
+{% block content %}
+<p class="muted">Atalaya avisa por correo o por webhook cuando pasa algo que pide a una persona: un riesgo crítico nuevo, un plazo de CISA o una fecha compromiso vencidos, una acción que lleva horas esperando aprobación o el modelo local caído. Cada hecho se avisa una sola vez por canal; la revisión corre cada 10 minutos.</p>
+
+<section class="flex flex-col gap-2">
+  <h3 class="eyebrow">Canales</h3>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th scope="col">Nombre</th><th scope="col">Tipo</th><th scope="col" class="col-md">Destino</th><th scope="col">Avisa cuando</th><th scope="col">Estado</th><th scope="col" class="col-md">Último envío</th><th scope="col"></th></tr></thead>
+      <tbody>
+        {% for c in channels %}
+        <tr>
+          <td class="font-medium">{{ c.name }}</td>
+          <td class="text-xs">{{ c.get_kind_display|truncatechars:22 }}</td>
+          <td class="col-md font-mono text-xs break-all">{{ c.target|truncatechars:60 }}</td>
+          <td class="text-xs">{% for label in c.event_labels %}<span class="badge-neutral mb-1 mr-1">{{ label }}</span>{% empty %}<span class="text-muted">ninguno</span>{% endfor %}</td>
+          <td>{% if not c.enabled %}<span class="badge-neutral">deshabilitado</span>{% elif c.last_error %}<span class="badge-critical" title="{{ c.last_error }}">falló</span> <span class="text-xs text-critical">{{ c.last_error|truncatechars:60 }}</span>{% else %}<span class="badge-low">activo</span>{% endif %}</td>
+          <td class="col-md font-mono text-xs">{{ c.last_sent_at|fecha }}</td>
+          <td class="text-right">{% if can_manage %}<div class="flex justify-end gap-1"><form method="post" action="{% url 'alerts:channel_test' c.pk %}">{% csrf_token %}<button class="btn-secondary btn-sm" type="submit">Probar</button></form><a href="{% url 'alerts:channel_edit' c.pk %}" class="btn-secondary btn-sm">Editar</a><form method="post" action="{% url 'alerts:channel_delete' c.pk %}" data-confirm="¿Eliminar el canal «{{ c.name }}»? Dejará de recibir avisos.">{% csrf_token %}<button class="btn-danger-soft btn-sm" type="submit">Eliminar</button></form></div>{% endif %}</td>
+        </tr>
+        {% empty %}<tr><td colspan="7" class="table-empty">Sin canales: nadie recibe avisos todavía.{% if can_manage %} <a href="{% url 'alerts:channel_create' %}">Crear el primero</a> (un correo del equipo o un webhook de Slack/Teams).{% endif %}</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="flex flex-col gap-2">
+  <h3 class="eyebrow">Qué se avisaría hoy</h3>
+  <div class="grid grid-cols-2 gap-3 lg:grid-cols-5">
+    {% for value, label, n in preview %}
+    <div class="card"><p class="stat-label">{{ label }}</p><p class="stat-value {% if n %}text-high{% endif %}">{{ n }}</p></div>
+    {% endfor %}
+  </div>
+  <p class="text-xs text-muted">Hechos vigentes ahora mismo; los que ya se avisaron a un canal no se repiten en ese canal.</p>
+</section>
+
+<section class="flex flex-col gap-2">
+  <h3 class="eyebrow">Notificaciones recientes</h3>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th scope="col">Fecha</th><th scope="col">Canal</th><th scope="col">Evento</th><th scope="col" class="col-md">Asunto</th><th scope="col">Resultado</th></tr></thead>
+      <tbody>
+        {% for n in recent %}
+        <tr>
+          <td class="font-mono text-xs whitespace-nowrap">{{ n.created_at|fecha:True }}</td>
+          <td class="text-xs">{{ n.channel.name }}</td>
+          <td class="text-xs">{{ n.get_event_display }}</td>
+          <td class="col-md text-xs text-ink-soft">{{ n.subject }}</td>
+          <td>{% if n.status == 'SENT' %}<span class="badge-low">enviado</span>{% else %}<span class="badge-critical">falló</span> <span class="text-xs text-critical" title="{{ n.error }}">{{ n.error|truncatechars:70 }}</span>{% endif %}</td>
+        </tr>
+        {% empty %}<tr><td colspan="5" class="table-empty">Todavía no se ha enviado ningún aviso.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

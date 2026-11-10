@@ -9,6 +9,7 @@ vulnerabilidades abiertas se cierra con evento.
 
 from __future__ import annotations
 
+import datetime
 import json
 import logging
 import re
@@ -817,20 +818,58 @@ def derive_risks(asset_id, *, requested_by=None, use_llm=True):
 # --------------------------------------------------------------------------
 
 
-def set_treatment(
-    risk_id, *, user, treatment, owner="", note="", residual_likelihood=None, residual_impact=None
+# Al aceptar un riesgo sin fecha de revisión, se revisa en este plazo (ISO/IEC 27005: la
+# aceptación no es definitiva).
+ACCEPT_REVIEW_DAYS = 180
+
+
+def set_treatment(  # noqa: PLR0913 - decisión humana con todos sus datos
+    risk_id,
+    *,
+    user,
+    treatment,
+    owner="",
+    note="",
+    residual_likelihood=None,
+    residual_impact=None,
+    target_date=None,
+    review_at=None,
 ):
-    """Una persona decide el tratamiento. Aceptar exige nota y queda con autor."""
+    """Una persona decide el tratamiento. Aceptar exige nota y queda con autor.
+
+    Mitigar y transferir exigen una fecha compromiso (``target_date``) para poder dar seguimiento
+    (F4); aceptar fija una fecha de revisión (``review_at``, 180 días si no se da).
+    """
     if treatment not in RiskTreatment.values:
         raise ValueError("Tratamiento no válido.")
     note = (note or "").strip()
     if treatment == RiskTreatment.ACCEPT and not note:
         raise ValueError("Aceptar un riesgo exige una nota que lo justifique.")
+    today = timezone.localdate()
+    if treatment in (RiskTreatment.MITIGATE, RiskTreatment.TRANSFER):
+        if not target_date:
+            raise ValueError(
+                f"{RiskTreatment(treatment).label} exige una fecha compromiso para dar seguimiento."
+            )
+        if target_date < today:
+            raise ValueError("La fecha compromiso no puede estar en el pasado.")
+    if treatment == RiskTreatment.ACCEPT:
+        review_at = review_at or today + datetime.timedelta(days=ACCEPT_REVIEW_DAYS)
+        if review_at <= today:
+            raise ValueError("La fecha de revisión debe ser posterior a hoy.")
+        target_date = None
+    elif treatment == RiskTreatment.AVOID:
+        target_date = target_date or None
+        review_at = None
+    else:
+        review_at = None
     now = timezone.now()
     with transaction.atomic():
         risk = Risk.objects.select_for_update().get(pk=risk_id)
         risk.treatment = treatment
         risk.owner = (owner or "").strip()[:120]
+        risk.target_date = target_date
+        risk.review_at = review_at
         risk.treatment_note = note
         risk.decided_by = user
         risk.decided_at = now
@@ -848,6 +887,10 @@ def set_treatment(
         message = f"{RiskTreatment(treatment).label}"
         if risk.owner:
             message += f" · responsable {risk.owner}"
+        if risk.target_date:
+            message += f" · compromiso {risk.target_date:%Y-%m-%d}"
+        if risk.review_at:
+            message += f" · revisar el {risk.review_at:%Y-%m-%d}"
         if risk.residual_level:
             message += f" · residual {RiskLevel(risk.residual_level).label.lower()}"
         if note:
@@ -928,6 +971,7 @@ def summary(asset_id=None):
         "untreated": qs.filter(treatment="").count(),
         "accepted": qs.filter(status=RiskStatus.ACCEPTED).count(),
         "kev_overdue": qs.filter(kev_overdue_filter()).distinct().count(),
+        "overdue": qs.filter(followup_overdue_filter()).count(),
         "closed": closed.count(),
         "closed_week": closed.filter(closed_at__gte=timezone.now() - timedelta(days=7)).count(),
     }
@@ -976,6 +1020,35 @@ def closure(risk):
     }
 
 
+def followup_overdue_filter(today=None):
+    """Tratamientos con fecha compromiso vencida o aceptaciones con revisión vencida (F4)."""
+    from django.db.models import Q
+
+    today = today or timezone.localdate()
+    return Q(status=RiskStatus.TREATED, target_date__lt=today) | Q(
+        status=RiskStatus.ACCEPTED, review_at__lt=today
+    )
+
+
+def by_owner(asset_id=None):
+    """Riesgos abiertos agrupados por responsable: cuántos lleva cada quien y cuántos vencidos."""
+    from django.db.models import Count, Q
+
+    qs = Risk.objects.filter(status__in=RISK_OPEN_STATUSES).exclude(owner="")
+    if asset_id:
+        qs = qs.filter(asset_id=asset_id)
+    rows = (
+        qs.values("owner")
+        .annotate(
+            total=Count("id"),
+            overdue=Count("id", filter=followup_overdue_filter()),
+            critical=Count("id", filter=Q(level=RiskLevel.CRITICAL)),
+        )
+        .order_by("-overdue", "-critical", "-total", "owner")
+    )
+    return list(rows)
+
+
 def today(asset_id=None):
     """«Hoy» del registro: lo que una persona debe decidir primero, con enlace a cada lista."""
     from django.db.models import Q
@@ -1016,6 +1089,19 @@ def today(asset_id=None):
                 else "riesgos con plazo de remediación de CISA vencido",
                 "action": "Ver",
                 "url": f"{base}?kev_overdue=1{suffix}",
+            }
+        )
+    overdue_followup = open_qs.filter(followup_overdue_filter()).count()
+    if overdue_followup:
+        items.append(
+            {
+                "level": "high",
+                "count": overdue_followup,
+                "text": "riesgo con fecha compromiso o revisión vencida"
+                if overdue_followup == 1
+                else "riesgos con fecha compromiso o revisión vencida",
+                "action": "Dar seguimiento",
+                "url": f"{base}?overdue=1{suffix}",
             }
         )
     # Posibles vulnerabilidades explotables sin verificar en activos importantes y sin riesgo:

@@ -296,6 +296,33 @@ def _finish(run, source, *, error=None, sha256="", detail=None):
     return run
 
 
+# Una sincronización «en curso» más allá del límite de la tarea más larga (``pull_product_coverage``,
+# 3700 s) ya no corre en ningún worker: se perdió con un reinicio o una caída (F10).
+SYNC_TIME_LIMIT_S = 3700
+SYNC_GRACE_S = 300
+INTERRUPTED_MESSAGE = "El proceso se detuvo sin terminar (reinicio o caída del worker)."
+
+
+def mark_interrupted_runs(now=None):
+    """Cierra como ``INTERRUPTED`` los runs «en curso» que superaron el límite de tiempo.
+
+    Misma regla acotada que las ejecuciones huérfanas de los escáneres: no se adivina nada, solo
+    se aplica el límite que la propia tarea ya tiene. La fuente deja de verse «en curso».
+    """
+    now = now or timezone.now()
+    limit = now - timedelta(seconds=SYNC_TIME_LIMIT_S + SYNC_GRACE_S)
+    stale = list(CtiSyncRun.objects.filter(status=SyncStatus.RUNNING, started_at__lt=limit))
+    for run in stale:
+        run.status = SyncStatus.INTERRUPTED
+        run.finished_at = now
+        run.error = INTERRUPTED_MESSAGE
+        run.save(update_fields=["status", "finished_at", "error"])
+        CtiSource.objects.filter(kind=run.source, last_status=SyncStatus.RUNNING).update(
+            last_status=SyncStatus.INTERRUPTED, last_detail=INTERRUPTED_MESSAGE[:255]
+        )
+    return stale
+
+
 def _emit(run, changes):
     changes = [c for c in changes if c is not None]
     if changes:

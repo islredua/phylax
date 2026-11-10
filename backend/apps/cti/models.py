@@ -28,7 +28,7 @@ class CtiSource(models.Model):
     interval_hours = models.PositiveSmallIntegerField("intervalo (horas)", default=24)
     last_run_at = models.DateTimeField(null=True, blank=True)
     last_success_at = models.DateTimeField(null=True, blank=True)
-    last_status = models.CharField(max_length=10, blank=True)
+    last_status = models.CharField(max_length=12, blank=True)
     last_detail = models.CharField(max_length=255, blank=True)
     updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
@@ -163,6 +163,7 @@ class SyncStatus(models.TextChoices):
     RUNNING = "RUNNING", "En curso"
     SUCCEEDED = "SUCCEEDED", "Completada"
     FAILED = "FAILED", "Fallida"
+    INTERRUPTED = "INTERRUPTED", "Interrumpida"
 
 
 class SyncTrigger(models.TextChoices):
@@ -179,7 +180,7 @@ class CtiSyncRun(UUIDModel):
     trigger = models.CharField(
         max_length=10, choices=SyncTrigger.choices, default=SyncTrigger.SCHEDULED
     )
-    status = models.CharField(max_length=10, choices=SyncStatus.choices, default=SyncStatus.RUNNING)
+    status = models.CharField(max_length=12, choices=SyncStatus.choices, default=SyncStatus.RUNNING)
     started_at = models.DateTimeField(auto_now_add=True)
     finished_at = models.DateTimeField(null=True, blank=True)
     records_seen = models.PositiveIntegerField(default=0)

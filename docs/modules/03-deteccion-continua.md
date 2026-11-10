@@ -427,7 +427,10 @@ una hora entre consolidaciones.
 
 `DETECTION_DESCRIBE_BATCH` (10): cuántas vulnerabilidades sostenidas sin descripción en español se
 redactan solas tras cada consolidación, de mayor a menor puntaje; las demás se redactan al abrir su
-detalle. `manage.py rescore_vulnerabilities [--asset N] [--all]` recalcula el contextual de las vulnerabilidades
+detalle. `DETECTION_DESCRIBE_BURST` (4): multiplicador del lote del drenaje periódico cuando la cola
+`llm` del broker está vacía (`descriptions.adaptive_limit`): con el modelo ocioso se redactan 40
+por pasada en lugar de 10, y en cuanto hay consolidaciones o planificaciones esperando vuelve al
+lote normal (F9). `manage.py rescore_vulnerabilities [--asset N] [--all]` recalcula el contextual de las vulnerabilidades
 abiertas con la versión actual del algoritmo y los factores guardados, sin IA (tras cambiar pesos o
 anclas). `DETECTION_CONSOLIDATE_DELAY_S`, `DETECTION_CONSOLIDATE_CHUNK`, `SCORING_W_*` (pesos del Módulo 4:
 `CVSS`, `EPSS`, `KEV`, `TECHNICAL`, `CRITICALITY`, `EXPOSURE`, `DATA`, `EXPLOITABILITY`), `NUCLEI_TEMPLATES_DIR`,
@@ -435,7 +438,50 @@ anclas). `DETECTION_CONSOLIDATE_DELAY_S`, `DETECTION_CONSOLIDATE_CHUNK`, `SCORIN
 `OrganizationProfile`.
 
 Beat: `sync-cti-sources` (hh:20), `detection-process-pending` (1 min), `detection-time-reviews`
-(hh:40), `detection-plan-stragglers` (5 min), `detection-dispatch-actions` (1 min).
+(hh:40), `detection-plan-stragglers` (5 min), `detection-dispatch-actions` (1 min),
+`alerts-dispatch` (10 min).
+
+**Sincronizaciones interrumpidas (F10).** Una sincronización CTI «en curso» que supere el límite
+de tiempo de la tarea más larga (3700 s + 5 min de gracia) ya no corre en ningún worker: la regla
+`cti.services.mark_interrupted_runs` la cierra como `INTERRUPTED` con el motivo y pone la fuente en
+el mismo estado. Se aplica al inicio de `sync-cti-sources` y al abrir Fuentes CTI, así que la
+pantalla nunca muestra «en curso» para siempre.
+
+## Avisos (`apps.alerts`, F3)
+
+Administración › **Avisos**. Un *canal* es un correo (una o varias direcciones) o un webhook
+(POST con JSON; el cuerpo incluye la clave `text` que entienden los webhooks entrantes de Slack y
+Teams) suscrito a uno o más eventos:
+
+| Evento | Regla (sin IA) | Clave de deduplicación |
+|---|---|---|
+| Riesgo crítico nuevo | `Risk` abierto, nivel crítico, sin tratamiento, identificado después de crear el canal | `risk-critical:<id>` |
+| Plazo de CISA vencido | vulnerabilidad sostenida en KEV con `kev_due_at` pasado | `kev-overdue:<id>:<fecha>` |
+| Fecha compromiso o revisión vencida | `Risk` en tratamiento con `target_date` pasada, o aceptado con `review_at` pasada | `followup:<id>:<fecha>` |
+| Acción esperando aprobación | `PlannedAction` propuesta o en revisión desde hace más de `ALERTS_ACTION_WAIT_HOURS` (4) | `action-waiting:<id>` |
+| El modelo local no responde | `llm.status` con `available=False` | `llm-down:<día>` |
+
+`alerts.services.dispatch` corre cada 10 minutos (`alerts-dispatch`) y también a mano («Enviar
+pendientes ahora»): por canal y evento junta los hechos que aún no se le han avisado en **un solo
+mensaje** (máximo 20 renglones, con enlaces absolutos construidos con `ATALAYA_BASE_URL`) y deja
+una `Notification` por hecho con el resultado; si el envío falla, queda `FAILED` con el error y se
+reintenta en la siguiente pasada. «Probar» envía un mensaje de prueba inmediato. La pantalla
+muestra además «Qué se avisaría hoy» (conteo vigente por evento) y las notificaciones recientes.
+Permisos: `alerts.view_notificationchannel` para consultar (Analista y Lector),
+`alerts.manage_alerts` (solo administrador) para crear, editar, probar y eliminar canales. El
+correo usa `DJANGO_EMAIL_BACKEND` (consola en desarrollo).
+
+## Seguimiento del tratamiento (F4)
+
+`Risk.target_date` (fecha compromiso) y `Risk.review_at` (revisar el). `risks.set_treatment` exige
+fecha compromiso futura al **mitigar** o **transferir**; al **aceptar** fija `review_at` (la dada o
+180 días, `ACCEPT_REVIEW_DAYS`) porque la aceptación no es definitiva; evitar no lleva fechas. El
+registro muestra la fecha bajo el tratamiento (en rojo si venció), ofrece el filtro «Fecha
+compromiso o revisión vencida» (`?overdue=1`) y el filtro por responsable (`?owner=`), la tarjeta
+«Seguimiento vencido» y la tabla plegable **Por responsable** (riesgos abiertos, críticos y
+vencidos de cada quien, con enlace a «sus riesgos»); el nombre del responsable en una fila o en
+el detalle lleva a esa vista. «Hoy» del registro y de Inicio añaden «N riesgos con fecha
+compromiso o revisión vencida → Dar seguimiento», y el evento de Avisos correspondiente lo notifica.
 
 **Ollama con GPU de 8 GiB** (`docker-compose.gpu.yml`): `OLLAMA_NUM_PARALLEL=1` y
 `OLLAMA_FLASH_ATTENTION=1`. Con los 4 hilos por defecto la caché KV del modelo de 7B (contexto

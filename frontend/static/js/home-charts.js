@@ -12,12 +12,19 @@
   if (!root || typeof Chart === "undefined") return;
   var url = root.getAttribute("data-home-charts");
   var every = parseInt(root.getAttribute("data-every") || "60", 10) * 1000;
+  // Colores desde los tokens del sistema visual (ADR-011): un tema futuro solo redefine el CSS.
+  var rootStyle = getComputedStyle(document.documentElement);
+  function token(name, fallback) {
+    var value = rootStyle.getPropertyValue(name).trim();
+    return value || fallback;
+  }
+  var GRID = token("--color-line", "#e2e8f0");
   var font = getComputedStyle(document.body).fontFamily;
   Chart.defaults.font.family = font;
   Chart.defaults.font.size = 11;
-  Chart.defaults.color = "#475569";
+  Chart.defaults.color = token("--color-ink-soft", "#475569");
   Chart.defaults.plugins.legend.display = false; // la leyenda es HTML (.legend) fuera del lienzo
-  Chart.defaults.plugins.tooltip.backgroundColor = "#0f172a";
+  Chart.defaults.plugins.tooltip.backgroundColor = token("--color-ink", "#0f172a");
   Chart.defaults.plugins.tooltip.padding = 8;
   Chart.defaults.animation.duration = 500;
 
@@ -77,7 +84,7 @@
         interaction: { mode: "index", intersect: false },
         scales: {
           x: { grid: { display: false }, ticks: { maxTicksLimit: 8 } },
-          y: { beginAtZero: true, grid: { color: "#e2e8f0" }, ticks: { precision: 0 } }
+          y: { beginAtZero: true, grid: { color: GRID }, ticks: { precision: 0 } }
         }
       }, clickable)
     });
@@ -105,8 +112,8 @@
         indexAxis: horizontal ? "y" : "x",
         responsive: true, maintainAspectRatio: false,
         scales: horizontal
-          ? { x: { beginAtZero: true, grid: { color: "#e2e8f0" }, ticks: { precision: 0 } }, y: { grid: { display: false } } }
-          : { x: { grid: { display: false } }, y: { beginAtZero: true, grid: { color: "#e2e8f0" }, ticks: { precision: 0 } } },
+          ? { x: { beginAtZero: true, grid: { color: GRID }, ticks: { precision: 0 } }, y: { grid: { display: false } } }
+          : { x: { grid: { display: false } }, y: { beginAtZero: true, grid: { color: GRID }, ticks: { precision: 0 } } },
         plugins: { legend: { display: data.series.length > 1, position: "bottom" } }
       }, clickable)
     });

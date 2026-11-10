@@ -6,6 +6,7 @@ de activos se hace siempre vía ``apps.assets.services`` (D6).
 
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 from apps.core.models import UUIDModel
 
@@ -586,6 +587,12 @@ class Risk(UUIDModel):
     )
     treatment = models.CharField(max_length=10, choices=RiskTreatment.choices, blank=True)
     owner = models.CharField(max_length=120, blank=True, help_text="Responsable del tratamiento.")
+    target_date = models.DateField(
+        null=True, blank=True, help_text="Fecha compromiso para completar el tratamiento."
+    )
+    review_at = models.DateField(
+        null=True, blank=True, help_text="Cuándo volver a revisar la decisión (aceptados)."
+    )
     treatment_note = models.TextField(blank=True)
     residual_likelihood = models.PositiveSmallIntegerField(null=True, blank=True)
     residual_impact = models.PositiveSmallIntegerField(null=True, blank=True)
@@ -635,6 +642,24 @@ class Risk(UUIDModel):
     @property
     def is_open(self):
         return self.status in RISK_OPEN_STATUSES
+
+    @property
+    def target_overdue(self):
+        """Fecha compromiso vencida con el tratamiento aún en curso."""
+        return bool(
+            self.target_date
+            and self.status == RiskStatus.TREATED
+            and self.target_date < timezone.localdate()
+        )
+
+    @property
+    def review_overdue(self):
+        """Riesgo aceptado cuya fecha de revisión ya pasó."""
+        return bool(
+            self.review_at
+            and self.status == RiskStatus.ACCEPTED
+            and self.review_at < timezone.localdate()
+        )
 
     @property
     def human_decided(self):
