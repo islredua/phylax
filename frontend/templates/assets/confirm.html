@@ -3,16 +3,18 @@
 {% block breadcrumb_tail %}<li><a href="{% url 'assets:detail' asset.pk %}">{{ asset.name }}</a></li><li>Confirmar</li>{% endblock %}
 {% block toolbar %}<div class="toolbar"><h2>Confirmar «{{ asset.name }}»</h2><a href="{{ back }}" class="btn-secondary btn-sm">← Volver</a></div>{% endblock %}
 {% block content %}
+<p class="text-sm text-ink-soft">Al confirmarlo entra al inventario: se escanean sus servicios (si su IP está autorizada) y la IA sugiere la criticidad con el contexto que des aquí.</p>
 <form method="post" class="card grid max-w-3xl grid-cols-1 gap-4 md:grid-cols-2" novalidate>
   {% csrf_token %}
   <input type="hidden" name="next" value="{{ back }}">
   {% if form.non_field_errors %}<div class="alert-error md:col-span-2" role="alert">{% for e in form.non_field_errors %}{{ e }} {% endfor %}</div>{% endif %}
   {% for field in form %}
   <div class="{% if field.name == 'description' %}md:col-span-2{% endif %}">
-    <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}
+    <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}{% if field.name == 'description' %} <span class="badge-neutral ml-1 align-middle text-[11px] font-normal">recomendada para la IA</span>{% endif %}</label>{{ field }}
+    {% if field.help_text %}<p class="form-help" id="{{ field.auto_id }}_helptext">{{ field.help_text }}</p>{% endif %}
     {% for e in field.errors %}<p class="form-error">{{ e }}</p>{% endfor %}
   </div>
   {% endfor %}
-  <div class="flex gap-2 md:col-span-2"><button class="btn-primary" type="submit">Confirmar activo</button></div>
+  <div class="flex gap-2 md:col-span-2"><button class="btn-primary" type="submit">Confirmar activo</button><a href="{{ back }}" class="btn-secondary">Cancelar</a></div>
 </form>
 {% endblock %}

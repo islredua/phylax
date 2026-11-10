@@ -322,10 +322,21 @@ def _scan_step(asset_id, caps, run, scan_active):
     )
 
 
-def _criticality_step(asset_id, summary, scan_active, llm_ready):
+def plural(n, one, many):
+    """«1 riesgo», «3 riesgos»: nunca «riesgo(s)»."""
+    return f"{n} {one if n == 1 else many}"
+
+
+def _criticality_step(asset_id, summary, scan_active, llm_ready, llm_blocker=""):
     label = "Criticidad con IA"
     if not llm_ready:
-        return PipelineStep("criticality", label, "failed", "el modelo LLM no está descargado")
+        detail = (llm_blocker or "El modelo LLM no está descargado").rstrip(".")
+        return PipelineStep(
+            "criticality",
+            label,
+            "failed",
+            f"{detail[:1].lower()}{detail[1:]}; se puede fijar a mano",
+        )
     if summary["suggestion_in_flight"]:
         return PipelineStep(
             "criticality", label, "active", "el modelo analiza el contexto del activo…"
@@ -432,7 +443,11 @@ def _consolidation_step(asset_id, evaluation, scan_active):
         from .models import RISK_OPEN_STATUSES, Risk
 
         open_risks = Risk.objects.filter(asset_id=asset_id, status__in=RISK_OPEN_STATUSES).count()
-        detail = f"{open_vulns} abierta(s) de {open_obs} observación(es) · {open_risks} riesgo(s)"
+        detail = (
+            f"{plural(open_vulns, 'abierta', 'abiertas')} de "
+            f"{plural(open_obs, 'observación', 'observaciones')} · "
+            f"{plural(open_risks, 'riesgo', 'riesgos')}"
+        )
         if last:
             detail += f" · {timezone.localtime(last):%Y-%m-%d %H:%M}"
         if unconsolidated:
@@ -456,7 +471,7 @@ def _consolidation_step(asset_id, evaluation, scan_active):
 def asset_pipeline(asset_id):
     """El activo contado como un solo hilo, para la tarjeta Acciones del activo."""
     from apps.discovery import services as discovery
-    from apps.llm.status import active_model_ready
+    from apps.llm.status import active_model_ready, unavailable_reason
 
     summary = assets_services.get_asset_summary(asset_id)
     caps = capabilities.for_asset(asset_id)
@@ -465,7 +480,9 @@ def asset_pipeline(asset_id):
     evaluation = evaluation_progress(asset_id)
     steps = [
         _scan_step(asset_id, caps, run, scan_active),
-        _criticality_step(asset_id, summary, scan_active, active_model_ready()),
+        _criticality_step(
+            asset_id, summary, scan_active, active_model_ready(), unavailable_reason()
+        ),
         _evaluation_step(asset_id, caps, evaluation, scan_active),
         _consolidation_step(asset_id, evaluation, scan_active),
     ]

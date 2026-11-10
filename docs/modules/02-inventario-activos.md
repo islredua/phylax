@@ -239,12 +239,66 @@ carecer de entorno y función hasta confirmarse.
 
 Sección **Inventario** (Activos · Por confirmar · Clasificación · Conflictos · Imágenes ·
 Rangos de red · Descubrimiento · Importar/Exportar) y pestañas **LLM**, **Catálogos** y
-**Registries** en Administración. El descubrimiento no es una sección aparte: es el mecanismo
-que llena el inventario y sus pantallas (rangos y ejecuciones de nmap) viven en esa sección. Migas de pan en todas las
-pantallas (ADR-007). El detalle de una ejecución de descubrimiento muestra la salida legible
-de nmap (`-oN`) en vivo. Detalle de activo con subpestañas Resumen, **Riesgos, Vulnerabilidades,
-Observaciones** (las listas del Módulo 3 dentro del activo, con conteos y según permiso),
-Identificadores, Servicios, SBOM, Sugerencias LLM, Historial y Descubrimientos.
+**Registros de imágenes** en Administración. El descubrimiento no es una sección aparte: es el
+mecanismo que llena el inventario y sus pantallas (rangos y ejecuciones de nmap) viven en esa
+sección. Migas de pan en todas las pantallas (ADR-007). Las correcciones de la revisión UX del
+2026-11-09 (A1–A12, F6, F7) fijaron estas reglas:
+
+- **Activos.** Orden por cabecera (`?sort=criticality|-criticality|name|last_seen|…`; las
+  criticidades se ordenan por rango, no alfabéticamente, y los sin clasificar van juntos). Chips
+  de estado con `{% querystring %}`: conservan los demás filtros. Filtro y chip **«Revisar IA · N»**
+  (`?criticality=llm_auto`): activos cuya criticidad la aplicó la IA sin que nadie la revise. La
+  barra de acciones en lote se pliega a una pista hasta que se marca algo (`bulk-idle`). Estado
+  vacío distinto con y sin filtros, con enlaces a Descubrimiento e Importar.
+- **Detalle del activo.** Nueve pestañas: Resumen, Riesgos, Vulnerabilidades, Observaciones,
+  **Servicios y escaneos** (servicios + las ejecuciones que lo tocaron; `?tab=descubrimientos`
+  sigue abriendo aquí), Identificadores, SBOM, **Criticidad (IA)** y Historial. Las listas de
+  Detección muestran las 20 más recientes con «Ver todas en Detección». Cabecera con una sola
+  marca de criticidad («Alto · por IA, sin revisar»); Ignorar/Restaurar/Retirar en el menú
+  «Más acciones», cada uno con su consecuencia. «Autorizado para escaneo» (alcance) y
+  «Conectividad desde Atalaya» (sondeo) son dos filas distintas; el botón es «Comprobar
+  conectividad». La tarjeta de sugerencia pliega la telemetría del modelo (ms, tok/s,
+  acelerador) en «detalles técnicos». El historial muestra booleanos como «sí/no».
+- **Alta y confirmación.** Formulario por secciones: Identidad, Identificadores (etiquetas
+  `sr-only`), **Contexto para la IA** (plegable, marcado «recomendado») y Autorización de
+  escaneo. Un error de autorización cae en su campo (`authorization_reference` o
+  `authorize_scan`), no como error general. Confirmar tiene «Cancelar» y conserva `next`.
+- **Confirmación en lote (F6).** `POST /inventory/confirm/bulk/` con `ids[]`, `environment` y
+  `business_role` (heredados por todos; el nombre y tipo observados se conservan). Disponible en
+  «Por confirmar» y en el detalle de una ejecución, con el entorno del rango preseleccionado.
+  Cada activo confirmado dispara el escaneo de servicios (si su IP está autorizada) y, si no
+  hubo escaneo, la sugerencia de criticidad.
+- **Descubrimiento.** La lista permite **lanzar** sobre cualquier rango con autorización vigente
+  (`POST /discovery/runs/launch/`) y filtrar por estado (`active`, `SUCCEEDED`, `FAILED`,
+  `CANCELLED`), perfil y rango. El detalle de una ejecución pone primero los hosts con una
+  columna **Progreso** («escaneando servicios…», «la IA calcula la criticidad…», badge de
+  criticidad o «sin criticidad»), el contador «N sin criticidad · clasificación» (excluye los que
+  tienen algo en curso), la barra de confirmación en lote y, plegada, la evidencia técnica (argv y
+  salida de nmap). El modo de nmap se muestra como «con/sin privilegios». Cancelar pide
+  confirmación.
+- **Rangos.** Un rango con autorización caducada ofrece **«Renovar autorización»**
+  (`range_edit?renovar=1`, con aviso y foco en «Vigente hasta») en lugar de «Descubrir»; el
+  vigente ofrece «Descubrir» (barrido) desde la fila. Estados vacíos con el siguiente paso en Por
+  confirmar, Rangos, Ejecuciones, Imágenes, Registros y Conflictos.
+- **Importación (A8).** Campo opcional **Referencia de la autorización**; si se deja vacío se
+  anota archivo, usuario y fecha (`csv_io.authorize_reference`). La pantalla lista cada columna
+  con su significado y los **valores aceptados** generados desde los catálogos y enumeraciones
+  (`csv_io.column_help`).
+- **Clasificación (A9).** Explica que la IA aplica la criticidad sola cuando el activo no tenía
+  ninguna; contadores «Sugerencias por decidir», «Calculadas por IA sin revisar» (enlaza a
+  `?criticality=llm_auto`), «Sin criticidad» y «Fallidas en 24 h».
+- **LLM caído (F7).** `llm.status.active_model_ready()` es falso también cuando Ollama no
+  responde y `unavailable_reason()` da el motivo. Las pantallas lo muestran («El servidor LLM
+  (Ollama) no responde; la criticidad se puede fijar a mano editando el activo»), el botón de
+  sugerencia queda deshabilitado y el proceso del activo marca el paso de criticidad como fallido
+  con la misma razón.
+- **Administración (A11, A12).** «Registros de imágenes» y «Restablecer MFA» en lugar de
+  anglicismos; en LLM el error de cada inferencia se ve en la fila y los comandos de descarga van
+  en un plegable; «Contraseñas temporales pendientes» enlaza a `/users/?status=active&temp=1`
+  (filtro nuevo); Seguridad muestra las 10 sesiones más recientes y pide confirmación antes de
+  cerrar las demás; la bitácora y los conflictos muestran los metadatos como clave → valor en
+  español (filtros `clave` y `valor`); Catálogos muestra «0» y los identificadores requeridos con
+  su etiqueta; la verificación MFA dice que el código de respaldo va en el mismo campo.
 
 ## Autorización
 
@@ -257,7 +311,7 @@ Identificadores, Servicios, SBOM, Sugerencias LLM, Historial y Descubrimientos.
 | Exportar CSV | ✔ | ✔ | ✔ |
 | Lanzar descubrimiento (`discovery.run_discovery`) | ✔ | ✔ | — |
 | Rangos y alcance (`assets.manage_scope`) | ✔ | — | — |
-| Registries y tokens (`assets.manage_registries`) | ✔ | — | — |
+| Registros de imágenes y tokens (`assets.manage_registries`) | ✔ | — | — |
 | Catálogos (`assets.manage_catalogs`) | ✔ | — | — |
 | Modelo LLM del sistema (`llm.manage_llm`) | ✔ | — | — |
 

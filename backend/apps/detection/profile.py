@@ -56,7 +56,10 @@ def update_profile(*, user, fields):
     for name, value in fields.items():
         if name not in EDITABLE_FIELDS:
             raise ValueError(f"Campo no editable: {name}")
-        setattr(profile, name, (value or "").strip())
+        # Texto plano: el nombre y el giro van a reportes y al modelo; sin marcas de Markdown.
+        from apps.core.templatetags.ui import plain
+
+        setattr(profile, name, plain((value or "").strip()) or "")
     if len(profile.description) > 1200:
         raise ValidationError(
             "La descripción no debe pasar de 1200 caracteres: es contexto de cada consulta al LLM."

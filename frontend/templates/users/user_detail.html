@@ -21,8 +21,8 @@
       <div><dt class="kv-label">Estado</dt><dd class="kv-value">{% if target.is_active %}<span class="badge-low">activo</span>{% else %}<span class="badge-neutral">inactivo</span>{% endif %}{% if target.must_change_password %} <span class="badge-medium">contraseña temporal pendiente</span>{% endif %}</dd></div>
       <div><dt class="kv-label">Verificación en dos pasos</dt><dd class="kv-value">{% if has_mfa %}<span class="badge-low">activa</span>{% else %}<span class="badge-neutral">inactiva</span>{% endif %}</dd></div>
       <div><dt class="kv-label">Sesiones activas</dt><dd class="kv-value font-mono">{{ sessions|length }}</dd></div>
-      <div><dt class="kv-label">Último acceso</dt><dd class="kv-value font-mono text-xs">{{ target.last_login|date:"Y-m-d H:i"|default:"nunca" }}</dd></div>
-      <div><dt class="kv-label">Alta</dt><dd class="kv-value font-mono text-xs">{{ target.date_joined|date:"Y-m-d H:i" }}</dd></div>
+      <div><dt class="kv-label">Último acceso</dt><dd class="kv-value font-mono text-xs">{% if target.last_login %}{{ target.last_login|fecha }}{% else %}nunca{% endif %}</dd></div>
+      <div><dt class="kv-label">Alta</dt><dd class="kv-value font-mono text-xs">{{ target.date_joined|fecha }}</dd></div>
     </dl>
   </section>
 
@@ -35,7 +35,7 @@
     <a href="{% url 'users:reactivate' target.pk %}" class="btn-secondary justify-start">Reactivar</a>
     {% endif %}
     <a href="{% url 'users:reset_password' target.pk %}" class="btn-secondary justify-start">Asignar contraseña temporal</a>
-    {% if has_mfa %}<a href="{% url 'users:reset_mfa' target.pk %}" class="btn-secondary justify-start">Resetear MFA</a>{% endif %}
+    {% if has_mfa %}<a href="{% url 'users:reset_mfa' target.pk %}" class="btn-secondary justify-start">Restablecer MFA</a>{% endif %}
     {% if sessions %}<a href="{% url 'users:revoke_sessions' target.pk %}" class="btn-secondary justify-start">Cerrar sesiones</a>{% endif %}
     <p class="mt-1 text-xs text-muted">Todas las acciones quedan registradas en la bitácora con tu usuario.</p>
   </section>
@@ -55,7 +55,7 @@
       <tbody>
         {% for entry in recent_events %}
         <tr>
-          <td class="font-mono text-xs whitespace-nowrap text-ink-soft">{{ entry.timestamp|date:"Y-m-d H:i:s" }}</td>
+          <td class="font-mono text-xs whitespace-nowrap text-ink-soft">{{ entry.timestamp|fecha:True }}</td>
           <td>{% include "accounts/_event_badge.html" %}</td>
           <td class="font-mono text-xs">{{ entry.ip_address|default:"—" }}</td>
           <td class="font-mono text-xs text-ink-soft">{% for key, value in entry.metadata.items %}{% if key != "username" %}{{ key }}={{ value }} {% endif %}{% endfor %}</td>

@@ -11,9 +11,14 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views import View
 from django.views.generic import ListView
 
-from apps.assets.enums import AssetOrigin, AssetStatus, ServiceState
-from apps.assets.forms import DiscoveryLaunchForm
-from apps.assets.models import Asset, NetworkRange
+from apps.assets.enums import AssetOrigin, AssetStatus, ServiceState, SuggestionState
+from apps.assets.forms import (
+    ConfirmBulkForm,
+    DiscoveryLaunchForm,
+    DiscoveryLaunchFromListForm,
+    RunFilterForm,
+)
+from apps.assets.models import Asset, CriticalitySuggestion, NetworkRange
 from apps.core.views import PaginationMixin
 
 from . import services
@@ -50,6 +55,18 @@ def observed_hosts(run, show=""):
         .prefetch_related("identifiers")
         .order_by("status", "name")[:300]
     )
+    ids = [a.pk for a in hosts]
+    # Progreso tras confirmar (A3): escaneo de servicios en curso y criticidad en cálculo.
+    scanning = set(
+        DiscoveryRun.objects.filter(
+            target_asset_id__in=ids, status__in=("QUEUED", "RUNNING")
+        ).values_list("target_asset_id", flat=True)
+    )
+    suggesting = set(
+        CriticalitySuggestion.objects.filter(
+            asset_id__in=ids, state=SuggestionState.PENDING
+        ).values_list("asset_id", flat=True)
+    )
     for asset in hosts:
         # Alta por esta ejecución: origen descubrimiento y creado durante el run.
         asset.new_in_run = (
@@ -58,7 +75,31 @@ def observed_hosts(run, show=""):
             and asset.created_at >= run.started_at
             and (run.finished_at is None or asset.created_at <= run.finished_at)
         )
+        asset.scan_active = asset.pk in scanning
+        asset.suggestion_active = asset.pk in suggesting
     return hosts, counts
+
+
+SCAN_MODE_LABELS = {
+    "privileged": "con privilegios (SYN, detección de SO)",
+    "unprivileged": "sin privilegios (connect)",
+}
+
+
+def filter_runs(params):
+    qs = DiscoveryRun.objects.select_related("network_range", "target_asset", "requested_by")
+    form = RunFilterForm(params or None)
+    if form.is_valid():
+        data = form.cleaned_data
+        if data["status"] == "active":
+            qs = qs.filter(status__in=("QUEUED", "RUNNING"))
+        elif data["status"]:
+            qs = qs.filter(status=data["status"])
+        if data["profile"]:
+            qs = qs.filter(profile=data["profile"])
+        if data["network_range"]:
+            qs = qs.filter(network_range=data["network_range"])
+    return qs, form
 
 
 class RunListView(Perm, PaginationMixin, ListView):
@@ -66,7 +107,24 @@ class RunListView(Perm, PaginationMixin, ListView):
     template_name = "discovery/run_list.html"
     context_object_name = "runs"
     paginate_by = 25
-    queryset = DiscoveryRun.objects.select_related("network_range", "target_asset", "requested_by")
+
+    def get_queryset(self):
+        qs, self.filter_form = filter_runs(self.request.GET)
+        return qs
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        launch_form = DiscoveryLaunchFromListForm()
+        context.update(
+            filter_form=self.filter_form,
+            launch_form=launch_form,
+            launchable=launch_form.fields["network_range"].queryset.exists(),
+            has_ranges=NetworkRange.objects.exists(),
+            filters_active=any(
+                v for k, v in self.request.GET.items() if k not in ("page", "per_page")
+            ),
+        )
+        return context
 
 
 class RunDetailView(Perm, View):
@@ -89,10 +147,34 @@ class RunDetailView(Perm, View):
             "open_conflicts": run.conflicts_found.filter(resolved=False).count(),
             "output": output,
             "output_truncated": truncated,
+            "scan_mode_label": SCAN_MODE_LABELS.get(run.scan_mode, run.scan_mode or "—"),
+            # Sin criticidad y sin nada en curso que vaya a dársela: ahí sí hace falta alguien.
+            "unclassified": sum(
+                1
+                for a in hosts
+                if a.status in (AssetStatus.ACTIVE, AssetStatus.STALE)
+                and not a.criticality
+                and not a.scan_active
+                and not a.suggestion_active
+            ),
+            "confirm_bulk_form": ConfirmBulkForm(
+                initial={"environment": run.network_range.environment if run.network_range else ""}
+            ),
         }
         if request.htmx:
             return render(request, "discovery/_run_status.html", context)
         return render(request, "discovery/run_detail.html", context)
+
+
+def _launch(request, rng, profile, back):
+    try:
+        run = services.request_discovery(user=request.user, profile=profile, network_range=rng)
+    except ValidationError as error:
+        for message in error.messages:
+            messages.error(request, message)
+        return redirect(back)
+    messages.success(request, f"Descubrimiento de {rng.name} en cola.")
+    return redirect("discovery:run_detail", pk=run.pk)
 
 
 class LaunchView(Perm, View):
@@ -101,19 +183,31 @@ class LaunchView(Perm, View):
     def post(self, request, range_pk):
         rng = get_object_or_404(NetworkRange, pk=range_pk)
         form = DiscoveryLaunchForm(request.POST)
+        back = reverse("assets:range_detail", args=[rng.pk])
+        if request.POST.get("next") == "ranges":
+            back = reverse("assets:ranges")
         if not form.is_valid():
             messages.error(request, "Elige un perfil.")
-            return redirect("assets:range_detail", pk=rng.pk)
-        try:
-            run = services.request_discovery(
-                user=request.user, profile=form.cleaned_data["profile"], network_range=rng
-            )
-        except ValidationError as error:
-            for message in error.messages:
-                messages.error(request, message)
-            return redirect("assets:range_detail", pk=rng.pk)
-        messages.success(request, "Descubrimiento en cola.")
-        return redirect("discovery:run_detail", pk=run.pk)
+            return redirect(back)
+        return _launch(request, rng, form.cleaned_data["profile"], back)
+
+
+class LaunchFromListView(Perm, View):
+    """«Descubrir un rango…» desde la lista de ejecuciones (A2)."""
+
+    permission_required = "discovery.run_discovery"
+
+    def post(self, request):
+        form = DiscoveryLaunchFromListForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, "Elige un rango autorizado y un perfil.")
+            return redirect("discovery:runs")
+        return _launch(
+            request,
+            form.cleaned_data["network_range"],
+            form.cleaned_data["profile"],
+            reverse("discovery:runs"),
+        )
 
 
 class RescanView(Perm, View):

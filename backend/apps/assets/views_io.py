@@ -26,7 +26,10 @@ class ImportExportView(Perm, View):
         return render(
             request,
             self.template_name,
-            {"recent": PendingUpload.objects.filter(user=request.user, kind=UploadKind.CSV)[:5]},
+            {
+                "recent": PendingUpload.objects.filter(user=request.user, kind=UploadKind.CSV)[:5],
+                "column_help": csv_io.column_help(),
+            },
         )
 
     def post(self, request):
@@ -50,7 +53,12 @@ class ImportExportView(Perm, View):
             except ValidationError as exc:
                 error = " ".join(exc.messages)
         if error:
-            return render(request, self.template_name, {"error": error}, status=400)
+            return render(
+                request,
+                self.template_name,
+                {"error": error, "column_help": csv_io.column_help()},
+                status=400,
+            )
         plan = csv_io.plan_import(rows)
         pending = PendingUpload(
             user=request.user,
@@ -64,6 +72,9 @@ class ImportExportView(Perm, View):
                 # Autorizar el escaneo de los equipos nuevos (IP privada) con el archivo como referencia.
                 "authorize_hosts": bool(request.POST.get("authorize_hosts"))
                 and request.user.has_perm("discovery.run_discovery"),
+                "authorization_reference": (request.POST.get("authorization_reference") or "")[
+                    :255
+                ],
             },
         )
         pending.file.save(f"{pending.pk}.csv", ContentFile(raw), save=False)

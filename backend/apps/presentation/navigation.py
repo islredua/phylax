@@ -223,7 +223,7 @@ SECTIONS = (
             ),
             Tab(
                 "registries",
-                "Registries",
+                "Registros de imágenes",
                 "assets:registries",
                 ("assets.manage_registries",),
                 ("assets:registry_create", "assets:registry_edit", "assets:registry_delete"),

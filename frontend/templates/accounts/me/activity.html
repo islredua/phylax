@@ -8,7 +8,7 @@
     <tbody>
       {% for entry in entries %}
       <tr>
-        <td class="font-mono text-xs whitespace-nowrap text-ink-soft">{{ entry.timestamp|date:"Y-m-d H:i:s" }}</td>
+        <td class="font-mono text-xs whitespace-nowrap text-ink-soft">{{ entry.timestamp|fecha:True }}</td>
         <td>{% include "accounts/_event_badge.html" %}</td>
         <td class="font-mono text-xs">{{ entry.ip_address|default:"—" }}</td>
         <td class="max-w-xs truncate text-xs text-muted" title="{{ entry.user_agent }}">{{ entry.user_agent|default:"—" }}</td>

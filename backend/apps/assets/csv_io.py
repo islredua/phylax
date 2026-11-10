@@ -266,11 +266,64 @@ def _probe_after_import(asset, user):
 
 
 def authorize_reference(upload):
-    """Referencia con la que se autorizan los equipos de una importación, o ``None``."""
-    if not (upload.meta or {}).get("authorize_hosts"):
+    """Referencia con la que se autorizan los equipos de una importación, o ``None``.
+
+    Si la persona escribió una (oficio, ticket) se usa esa; si no, se anota el archivo, quién lo
+    importó y cuándo.
+    """
+    meta = upload.meta or {}
+    if not meta.get("authorize_hosts"):
         return None
+    if (meta.get("authorization_reference") or "").strip():
+        return meta["authorization_reference"].strip()[:255]
     who = upload.user.get_username() if upload.user_id else "sistema"
     return f"Importación CSV «{upload.original_filename}» por {who} el {upload.created_at:%Y-%m-%d}"
+
+
+COLUMN_LABELS = {
+    "name": "Nombre del activo (obligatorio)",
+    "asset_type": "Tipo (obligatorio)",
+    "ipv4": "Dirección IPv4",
+    "ipv6": "Dirección IPv6",
+    "fqdn": "Nombre DNS completo",
+    "mac": "Dirección MAC",
+    "image_ref": "Referencia de imagen de contenedor",
+    "description": "Descripción (recomendada para la IA)",
+    "business_role": "Función de negocio",
+    "environment": "Entorno",
+    "criticality": "Criticidad (queda como «Importación»)",
+    "exposure": "Exposición (se fija a mano, no se hereda del rango)",
+    "data_classification": "Clasificación de datos",
+    "data_categories": "Categorías de datos",
+    "tags": "Etiquetas",
+    "business_owner": "Responsable de negocio",
+}
+
+
+def column_help():
+    """(columna, qué es, valores aceptados) para la pantalla de importación (A8)."""
+    from .enums import DataCategory
+
+    rows = []
+    for column in COLUMNS:
+        if column in CATALOG_COLUMNS:
+            values = ", ".join(
+                f"{code} ({label})" for code, label in catalogs.choices(CATALOG_COLUMNS[column])
+            )
+        elif column in ENUM_COLUMNS:
+            values = ", ".join(f"{v} ({lbl})" for v, lbl in ENUM_COLUMNS[column].choices)
+        elif column == "data_categories":
+            values = "separadas con |: " + ", ".join(
+                f"{v} ({lbl})" for v, lbl in DataCategory.choices
+            )
+        elif column == "tags":
+            values = "texto libre, separadas con |"
+        elif column in IDENTIFIER_COLUMNS:
+            values = "al menos un identificador por fila"
+        else:
+            values = "texto libre"
+        rows.append((column, COLUMN_LABELS.get(column, column), values))
+    return rows
 
 
 def _authorize_after_import(asset, user, reference):

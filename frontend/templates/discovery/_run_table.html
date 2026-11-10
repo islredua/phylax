@@ -1,21 +1,22 @@
 {% load inventory %}
 <div class="table-wrap">
   <table class="data-table">
-    <thead><tr><th>Fecha</th><th>Perfil</th><th>Objetivo</th><th>Estado</th><th>Hosts</th><th>Nuevos</th><th>Actualizados</th><th>Conflictos</th><th>Solicitó</th></tr></thead>
+    <thead><tr><th scope="col">Fecha</th><th scope="col">Perfil</th><th scope="col">Objetivo</th><th scope="col">Estado</th><th scope="col">Hosts</th><th scope="col" class="col-md">Nuevos</th><th scope="col" class="col-md">Actualizados</th><th scope="col" class="col-md">Conflictos</th><th scope="col" class="col-lg">Solicitó</th><th scope="col"></th></tr></thead>
     <tbody>
       {% for r in runs %}
       <tr>
-        <td class="font-mono text-xs whitespace-nowrap"><a href="{% url 'discovery:run_detail' r.pk %}">{{ r.created_at|date:"Y-m-d H:i" }}</a></td>
+        <td class="font-mono text-xs whitespace-nowrap"><a href="{% url 'discovery:run_detail' r.pk %}">{{ r.created_at|fecha }}</a></td>
         <td>{{ r.get_profile_display }}</td>
-        <td>{% if r.network_range %}{{ r.network_range.name }}{% elif r.target_asset %}{{ r.target_asset.name }}{% else %}—{% endif %}</td>
+        <td>{% if r.network_range %}<a href="{% url 'assets:range_detail' r.network_range_id %}">{{ r.network_range.name }}</a>{% elif r.target_asset %}<a href="{% url 'assets:detail' r.target_asset_id %}">{{ r.target_asset.name }}</a>{% else %}—{% endif %}</td>
         <td>{% run_status_badge r %}</td>
         <td class="font-mono">{{ r.hosts_up }}</td>
-        <td class="font-mono">{{ r.assets_created }}</td>
-        <td class="font-mono">{{ r.assets_updated }}</td>
-        <td class="font-mono">{% if r.conflicts %}<span class="text-high">{{ r.conflicts }}</span>{% else %}0{% endif %}</td>
-        <td class="font-mono text-xs">{{ r.requested_by.get_username|default:"programado" }}</td>
+        <td class="col-md font-mono">{% if r.assets_created %}<a href="{% url 'discovery:run_detail' r.pk %}?show=pending#observed-hosts" title="Ver los hosts por confirmar">{{ r.assets_created }}</a>{% else %}0{% endif %}</td>
+        <td class="col-md font-mono">{{ r.assets_updated }}</td>
+        <td class="col-md font-mono">{% if r.conflicts %}<a href="{% url 'assets:conflicts' %}" class="text-high">{{ r.conflicts }}</a>{% else %}0{% endif %}</td>
+        <td class="col-lg font-mono text-xs">{{ r.requested_by.get_username|default:"programado" }}</td>
+        <td class="text-right"><a href="{% url 'discovery:run_detail' r.pk %}" class="btn-secondary btn-sm">Ver</a></td>
       </tr>
-      {% empty %}<tr><td colspan="9" class="table-empty">Sin ejecuciones.</td></tr>{% endfor %}
+      {% empty %}<tr><td colspan="10" class="table-empty">{% if filters_active %}Ninguna ejecución coincide con estos filtros. <a href="{% url 'discovery:runs' %}">Limpiar filtros</a>{% else %}Sin ejecuciones todavía. Un descubrimiento recorre un rango autorizado con nmap y propone los equipos que encuentra como «por confirmar».{% endif %}</td></tr>{% endfor %}
     </tbody>
   </table>
 </div>

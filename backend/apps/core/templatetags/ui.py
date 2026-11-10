@@ -139,3 +139,59 @@ def porcentaje(value, decimales=0):
     except (TypeError, ValueError):
         return "—"
     return f"{number:.{int(decimales)}f} %"
+
+
+# Claves técnicas que aparecen en metadatos (bitácora de auditoría, resultados) → palabras.
+CLAVES = {
+    "attempt": "intento",
+    "attempts": "intentos",
+    "sessions_closed": "sesiones cerradas",
+    "matched_account": "cuenta coincidente",
+    "username": "usuario",
+    "role": "rol",
+    "roles": "roles",
+    "target": "usuario afectado",
+    "target_id": "usuario afectado",
+    "actor": "quién",
+    "reason": "motivo",
+    "ip": "IP",
+    "model": "modelo",
+    "previous": "anterior",
+    "new": "nuevo",
+    "field": "campo",
+    "fields": "campos",
+    "count": "cantidad",
+    "created": "creados",
+    "updated": "actualizados",
+    "asset": "activo",
+    "asset_id": "activo",
+    "status": "estado",
+    "is_active": "activo",
+    "must_change_password": "contraseña temporal",
+    "mfa": "verificación en dos pasos",
+    "backup_codes": "códigos de respaldo",
+    "session_key": "sesión",
+    "path": "ruta",
+    "method": "método",
+}
+
+
+@register.filter
+def clave(value):
+    """Nombre legible de una clave técnica (``sessions_closed`` → «sesiones cerradas»)."""
+    key = str(value)
+    return CLAVES.get(key, key.replace("_", " "))
+
+
+@register.filter
+def valor(value):
+    """Valor legible: booleanos en español, listas separadas por coma, vacío como «—»."""
+    if value is None or value == "" or value == []:
+        return "—"
+    if isinstance(value, bool):
+        return "sí" if value else "no"
+    if isinstance(value, list | tuple | set):
+        return ", ".join(str(valor(v)) for v in value)
+    if isinstance(value, dict):
+        return "; ".join(f"{clave(k)}: {valor(v)}" for k, v in value.items())
+    return value

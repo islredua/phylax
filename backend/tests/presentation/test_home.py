@@ -529,9 +529,9 @@ def test_chart_labels_are_spanish_months(client, as_role):
     _asset_with_risk()
     labels = client.get("/home/charts.json").json()["risk_trend"]["labels"]
     assert all(
-        l.split()[1]
+        label.split()[1]
         in ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
-        for l in labels
+        for label in labels
     )
 
 
@@ -544,7 +544,7 @@ def test_report_and_csv_use_spanish_labels_and_local_dates(client, as_role):
     md = client.get("/home/report/?format=md").content.decode()
     assert "## Qué hay que decidir" in md and "**critical**" not in md
     csv_body = client.get("/home/export/vulnerabilities.csv").content.decode()
-    header, *rows = [r for r in csv_body.splitlines() if r]
+    header, *rows = (r for r in csv_body.splitlines() if r)
     assert rows
     assert "CRITICAL" not in csv_body and "CTI_MATCH" not in csv_body
     assert "T" not in rows[0].split(",")[-1]  # fecha local, no ISO con «T»

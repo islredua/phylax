@@ -16,13 +16,20 @@
     var params = bar.querySelectorAll("[data-bulk-param]");
 
     function boxes() {
-      return form.querySelectorAll('input[name="ids"]');
+      // Casillas dentro del formulario o asociadas a él con form="id" (tarjetas sueltas).
+      var inside = Array.prototype.slice.call(form.querySelectorAll('input[name="ids"]'));
+      if (form.id) {
+        var outside = document.querySelectorAll('input[name="ids"][form="' + form.id + '"]');
+        inside = inside.concat(Array.prototype.slice.call(outside));
+      }
+      return inside;
     }
     function selected() {
-      return Array.prototype.filter.call(boxes(), function (b) { return b.checked; }).length;
+      return boxes().filter(function (b) { return b.checked; }).length;
     }
     function current() {
-      return action.options[action.selectedIndex];
+      // <select> de acción, o un <input hidden> cuando la barra tiene una sola acción.
+      return action.options ? action.options[action.selectedIndex] : action;
     }
     function refresh() {
       var param = current().getAttribute("data-param") || "";
@@ -37,6 +44,8 @@
       var n = selected();
       count.textContent = String(n);
       submit.disabled = n === 0 || !action.value;
+      // Sin selección, la barra se reduce a su pista: no compite con la tabla.
+      bar.classList.toggle("bulk-idle", n === 0);
       hint.textContent = n === 0
         ? (bar.getAttribute("data-bulk-hint-empty") || "Marca filas en la tabla para aplicarles una acción.")
         : !action.value ? (bar.getAttribute("data-bulk-hint-action") || "Elige la acción a aplicar.") : "";
@@ -48,11 +57,13 @@
     }
 
     action.addEventListener("change", refresh);
-    form.addEventListener("change", function (e) {
+    document.addEventListener("change", function (e) {
       if (e.target === all) {
         boxes().forEach(function (b) { b.checked = all.checked; });
       }
-      refresh();
+      if (e.target === all || e.target.name === "ids" || form.contains(e.target)) {
+        refresh();
+      }
     });
     form.addEventListener("submit", function (e) {
       var message = current().getAttribute("data-confirm");

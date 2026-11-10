@@ -13,7 +13,7 @@
   <article class="card flex flex-col gap-3">
     <div class="flex flex-wrap items-center justify-between gap-2">
       <p><span class="badge-high">{{ c.get_identifier_kind_display }}</span> <span class="font-mono">{{ c.identifier_value }}</span></p>
-      <p class="font-mono text-xs text-muted">{{ c.get_source_display }} · {{ c.created_at|date:"Y-m-d H:i" }}{% if c.discovery_run %} · <a href="{% url 'discovery:run_detail' c.discovery_run_id %}">ejecución</a>{% endif %}</p>
+      <p class="font-mono text-xs text-muted">{{ c.get_source_display }} · {{ c.created_at|fecha }}{% if c.discovery_run %} · <a href="{% url 'discovery:run_detail' c.discovery_run_id %}">ejecución</a>{% endif %}</p>
     </div>
     <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
       {% for a in c.candidate_assets.all %}
@@ -23,9 +23,11 @@
       </div>
       {% endfor %}
     </div>
-    <details><summary class="cursor-pointer text-xs text-primary">Datos observados</summary><pre class="code-block mt-2">{{ c.observed_payload|pprint }}</pre></details>
+    <details class="fold"><summary class="text-xs">Datos observados</summary>
+      <dl class="kv-grid mt-2">{% for key, value in c.observed_payload.items %}<div><dt class="kv-label">{{ key|clave }}</dt><dd class="kv-value font-mono text-xs">{{ value|valor }}</dd></div>{% empty %}<p class="text-xs text-muted">Sin datos adicionales.</p>{% endfor %}</dl>
+    </details>
     {% if c.resolved %}
-      <p class="text-xs text-muted">{{ c.get_resolution_display }} por <span class="font-mono">{{ c.resolved_by.get_username|default:"—" }}</span> el {{ c.resolved_at|date:"Y-m-d H:i" }}.</p>
+      <p class="text-xs text-muted">{{ c.get_resolution_display }} por <span class="font-mono">{{ c.resolved_by.get_username|default:"—" }}</span> el {{ c.resolved_at|fecha }}.</p>
     {% elif perms.assets.change_assetconflict %}
     <div class="flex flex-wrap items-end gap-2 border-t border-line-soft pt-3">
       <form method="post" action="{% url 'assets:resolve_conflict' c.pk %}" class="flex items-end gap-2">
@@ -41,7 +43,7 @@
     {% endif %}
   </article>
   {% empty %}
-  <p class="card muted">{% if show_resolved %}No hay conflictos resueltos.{% else %}No hay conflictos abiertos.{% endif %}</p>
+  <div class="card flex flex-col gap-1"><p class="font-medium">{% if show_resolved %}No hay conflictos resueltos.{% else %}No hay conflictos abiertos.{% endif %}</p><p class="text-sm text-ink-soft">{% if show_resolved %}Los que se resuelvan quedarán aquí con quién decidió y cómo.{% else %}Aparecen cuando un descubrimiento ve un mismo identificador (MAC, IP, nombre) en dos activos distintos. Nada que hacer por ahora.{% endif %}</p></div>
   {% endfor %}
 </div>
 {% include "_pagination.html" %}

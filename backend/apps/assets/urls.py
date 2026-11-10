@@ -22,6 +22,7 @@ urlpatterns = [
     path("<uuid:pk>/ignore/", views.TransitionView.as_view(), {"action": "ignore"}, name="ignore"),
     path("<uuid:pk>/retire/", views.TransitionView.as_view(), {"action": "retire"}, name="retire"),
     path("<uuid:pk>/confirm/", views.ConfirmView.as_view(), name="confirm"),
+    path("confirm/bulk/", views.ConfirmBulkView.as_view(), name="confirm_bulk"),
     path("<uuid:pk>/merge/", views.MergeView.as_view(), name="merge"),
     path("<uuid:pk>/suggest/", views.SuggestView.as_view(), name="suggest"),
     path("<uuid:pk>/suggest/status/", views.SuggestionStatusView.as_view(), name="suggest_status"),

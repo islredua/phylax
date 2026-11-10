@@ -320,7 +320,7 @@ def test_bulk_reports_failures_without_stopping(client, as_role):
     body = response.content.decode()
     ignored.refresh_from_db()
     assert ignored.status == AssetStatus.ACTIVE
-    assert "aplicado a 1" in body and "1 activo(s) sin cambios" in body
+    assert "aplicado a 1" in body and "1 activo sin cambios" in body
     # Valor fuera del catálogo: no se aplica y se informa por activo.
     response = client.post(
         "/inventory/bulk/",

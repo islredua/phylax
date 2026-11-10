@@ -170,7 +170,7 @@ class PauseForm(forms.Form):
 
 class ProfileForm(StyledMixin, forms.Form):
     name = forms.CharField(label="Nombre", required=False, max_length=200)
-    sector = forms.CharField(label="Giro", required=False, max_length=120)
+    sector = forms.CharField(label="Giro", required=False, max_length=200)
     location = forms.CharField(label="Ubicación", required=False, max_length=120)
     description = forms.CharField(
         label="Descripción",

@@ -10,8 +10,9 @@
 <form method="get" class="card grid grid-cols-1 gap-3 md:grid-cols-5 md:items-end">
   {% for field in filter_form %}
   <div>
+    {% if field.name == 'temp' %}<label class="flex items-center gap-2 text-sm">{{ field }} {{ field.label }}</label>{% else %}
     <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-    {{ field }}
+    {{ field }}{% endif %}
   </div>
   {% endfor %}
   <div class="flex gap-2">
@@ -33,7 +34,7 @@
         <td>{% for g in u.groups.all %}<span class="badge-primary">{{ g.name }}</span>{% if not forloop.last %} {% endif %}{% empty %}<span class="text-muted">sin rol</span>{% endfor %}</td>
         <td class="whitespace-nowrap">{% if u.is_active %}<span class="badge-low">activo</span>{% else %}<span class="badge-neutral">inactivo</span>{% endif %}{% if u.must_change_password %} <span class="badge-medium">contraseña temporal</span>{% endif %}</td>
         <td>{% if u.has_mfa %}<span class="badge-low">activo</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
-        <td class="font-mono text-xs whitespace-nowrap text-ink-soft">{{ u.last_login|date:"Y-m-d H:i"|default:"nunca" }}</td>
+        <td class="font-mono text-xs whitespace-nowrap text-ink-soft">{% if u.last_login %}{{ u.last_login|fecha }}{% else %}nunca{% endif %}</td>
       </tr>
       {% empty %}
       <tr><td colspan="6" class="table-empty">Sin usuarios para los filtros seleccionados.</td></tr>

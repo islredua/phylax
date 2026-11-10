@@ -146,6 +146,10 @@ def order_findings(qs):
     return items
 
 
+# Las pestañas del activo muestran lo más urgente; el resto se ve en Detección con filtros (A1).
+ASSET_TAB_LIMIT = 20
+
+
 def asset_tab_context(asset, tab):
     """Datos de las pestañas Riesgos / Vulnerabilidades / Observaciones de la página del activo.
 
@@ -161,6 +165,7 @@ def asset_tab_context(asset, tab):
         .filter(consolidated__isnull=True)
         .count(),
         "consolidation_pending": consolidation.is_pending(asset.pk),
+        "tab_limit": ASSET_TAB_LIMIT,
     }
     if tab == "riesgos":
         listed = list(risks.triage_order(filter_risks(params)[0]))
@@ -168,11 +173,15 @@ def asset_tab_context(asset, tab):
     elif tab == "vulnerabilidades":
         from . import descriptions
 
-        listed = list(filter_vulnerabilities(params)[0])
+        qs = filter_vulnerabilities(params)[0]
+        ctx["tab_total"] = qs.count()
+        listed = list(qs[:ASSET_TAB_LIMIT])
         ctx["vulnerabilities"] = listed
         ctx["describing"] = descriptions.pending_ids([v.pk for v in listed])
     elif tab == "observaciones":
-        ctx["findings"] = order_findings(filter_findings(params)[0])
+        ordered = order_findings(filter_findings(params)[0])
+        ctx["tab_total"] = len(ordered)
+        ctx["findings"] = ordered[:ASSET_TAB_LIMIT]
     return ctx
 
 

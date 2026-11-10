@@ -5,11 +5,11 @@
   <p class="eyebrow">Paso 2 de 2</p>
   <h1>Verificación en dos pasos</h1>
 </div>
-<p class="muted">Escribe el código de 6 dígitos de tu app autenticadora.</p>
+<p class="muted">Escribe el código de 6 dígitos de tu app autenticadora. Si no tienes acceso a ella, escribe en el mismo campo uno de tus códigos de respaldo.</p>
 <form method="post" class="flex flex-col gap-4" novalidate>
   {% csrf_token %}
   {% include "registration/_form_fields.html" %}
-  <p class="text-xs text-muted">¿Sin acceso a tu app? Usa uno de tus códigos de respaldo.</p>
+  <p class="text-xs text-muted">Cada código de respaldo sirve una sola vez.</p>
   <button type="submit" class="btn-primary w-full">Verificar</button>
 </form>
 <p class="text-center text-xs"><a href="{% url 'accounts:login' %}">Cancelar</a></p>

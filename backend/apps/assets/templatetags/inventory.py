@@ -96,3 +96,15 @@ def catalog(value, kind):
     from apps.assets.catalogs import label
 
     return label(kind, value) if value else "—"
+
+
+SCAN_MODE_LABELS = {
+    "privileged": "con privilegios (SYN, detección de SO)",
+    "unprivileged": "sin privilegios (connect)",
+}
+
+
+@register.filter
+def scan_mode_label(value):
+    """Modo de nmap en palabras (``privileged`` → «con privilegios…»)."""
+    return SCAN_MODE_LABELS.get(value, value or "—")

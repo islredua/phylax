@@ -13,7 +13,7 @@ cada 20 s mientras espera a una persona.
     <li class="flex flex-col gap-1">
       <div class="flex flex-wrap items-baseline gap-2">
         <span class="font-mono text-xs text-muted">{{ forloop.counter }}</span>
-        <span class="{% if s.state == 'done' %}badge-low{% elif s.state == 'active' %}badge-primary{% elif s.state == 'waiting' %}badge-medium{% elif s.state == 'failed' or s.state == 'blocked' %}badge-critical{% else %}badge-neutral{% endif %}" title="{{ s.state }}">{{ s.label }}</span>
+        <span class="{% if s.state == 'done' %}badge-low{% elif s.state == 'active' %}badge-primary{% elif s.state == 'waiting' %}badge-medium{% elif s.state == 'failed' or s.state == 'blocked' %}badge-critical{% else %}badge-neutral{% endif %}">{{ s.label }}</span>
         {% if s.state == 'active' %}<span class="text-xs text-primary">en curso…</span>{% elif s.state == 'waiting' %}<span class="text-xs text-muted">esperando</span>{% elif s.state == 'pending' %}<span class="text-xs text-muted">pendiente</span>{% elif s.state == 'stopped' %}<span class="text-xs text-muted">no se evaluó</span>{% elif s.state == 'blocked' %}<span class="text-xs text-critical">no se puede</span>{% endif %}
       </div>
       <p class="pl-5 text-ink-soft">{% if s.url %}<a href="{{ s.url }}">{{ s.detail }}</a>{% else %}{{ s.detail }}{% endif %}</p>

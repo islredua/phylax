@@ -1148,7 +1148,7 @@ class OrganizationProfile(models.Model):
     """
 
     name = models.CharField("nombre", max_length=200, blank=True)
-    sector = models.CharField("giro", max_length=120, blank=True)
+    sector = models.CharField("giro", max_length=200, blank=True)
     location = models.CharField("ubicación", max_length=120, blank=True)
     description = models.TextField(
         "descripción",

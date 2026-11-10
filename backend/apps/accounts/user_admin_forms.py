@@ -27,6 +27,7 @@ class UserFilterForm(StyledFormMixin, forms.Form):
     mfa = forms.ChoiceField(
         label="MFA", required=False, choices=[("", "Todos"), ("yes", "Activo"), ("no", "Inactivo")]
     )
+    temp = forms.BooleanField(label="Solo con contraseña temporal pendiente", required=False)
 
 
 class BaseUserForm(StyledFormMixin, forms.ModelForm):

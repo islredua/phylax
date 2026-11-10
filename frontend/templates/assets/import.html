@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load inventory %}
 {% block title %}Importar / Exportar{% endblock %}
 {% block toolbar %}<div class="toolbar"><h2>Importar / Exportar</h2></div>{% endblock %}
 {% block content %}
@@ -9,10 +10,11 @@
     {% csrf_token %}
     <h3 class="card-title mb-0">Importar CSV</h3>
     <p class="text-sm text-ink-soft">Primero verás una vista previa con la acción de cada fila (crear, actualizar, conflicto o error); nada se escribe hasta confirmar. Máximo 5 MB y 5 000 filas.</p>
-    <input type="file" name="file" accept=".csv,text/csv" class="form-input" required aria-label="Archivo CSV">
+    <div><label class="form-label" for="import-file">Archivo CSV</label><input id="import-file" type="file" name="file" accept=".csv,text/csv" class="form-input" required></div>
     {% if perms.discovery.run_discovery %}
     <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="authorize_hosts" value="1" class="checkbox" checked> Autorizar el escaneo de los equipos nuevos</label>
-    <p class="form-help">Para cada activo nuevo con IP privada fuera de los rangos registrados se crea una autorización de un solo equipo a tu nombre, con el archivo como referencia. Así Atalaya puede sondearlos, escanearlos y evaluarlos sin registrar antes cada red.</p>
+    <p class="form-help">Para cada activo nuevo con IP privada fuera de los rangos registrados se crea una autorización de un solo equipo a tu nombre. Así Atalaya puede sondearlos, escanearlos y evaluarlos sin registrar antes cada red.</p>
+    <div><label class="form-label" for="import-reference">Referencia de la autorización <span class="text-muted">(opcional)</span></label><input id="import-reference" name="authorization_reference" class="form-input" maxlength="255" placeholder="Oficio, ticket o motivo"><p class="form-help">Si se deja vacía se anota el archivo, quién lo importó y cuándo.</p></div>
     {% endif %}
     <div class="flex flex-wrap gap-2"><button class="btn-primary" type="submit">Ver vista previa</button><a href="{% url 'assets:import_template' %}" class="btn-secondary">Descargar plantilla</a></div>
   </form>
@@ -23,20 +25,24 @@
     <div><a href="{% url 'assets:export' %}" class="btn-secondary">Exportar todo</a></div>
   </section>
 </div>
-<section class="card">
-  <h3 class="card-title">Formato</h3>
-  <pre class="code-block">name,asset_type,ipv4,ipv6,fqdn,mac,image_ref,description,business_role,environment,criticality,exposure,data_classification,data_categories,tags,business_owner</pre>
-  <ul class="mt-3 list-disc space-y-1 pl-5 text-sm text-ink-soft">
-    <li>Obligatorios: <span class="font-mono">name</span>, <span class="font-mono">asset_type</span> y al menos un identificador.</li>
-    <li><span class="font-mono">data_categories</span> y <span class="font-mono">tags</span> se separan con <span class="font-mono">|</span>.</li>
-    <li>Si viene <span class="font-mono">criticality</span>, su origen queda como «Importación»; si viene <span class="font-mono">exposure</span>, se fija manualmente.</li>
-    <li>Las filas que coinciden con un activo existente lo actualizan (resolución por identificadores).</li>
-  </ul>
+<section class="card flex flex-col gap-3">
+  <h3 class="card-title mb-0">Columnas del CSV</h3>
+  <p class="text-sm text-ink-soft">Los encabezados van en inglés tal cual (son los nombres técnicos de los campos); los valores de catálogo y de lista se escriben con el <strong>código</strong> indicado. Obligatorios: <span class="font-mono">name</span>, <span class="font-mono">asset_type</span> y al menos un identificador. Las filas que coinciden con un activo existente lo actualizan.</p>
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th scope="col">Columna</th><th scope="col">Qué es</th><th scope="col">Valores aceptados</th></tr></thead>
+      <tbody>
+        {% for column, label, values in column_help %}
+        <tr><td class="font-mono text-xs">{{ column }}</td><td class="text-sm">{{ label }}</td><td class="text-xs text-ink-soft">{{ values }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </section>
 {% if recent %}
 <section class="flex flex-col gap-2">
   <h3 class="eyebrow">Tus importaciones recientes</h3>
-  <ul class="flex flex-col gap-1 text-sm">{% for u in recent %}<li><a href="{% url 'assets:import_status' u.pk %}">{{ u.original_filename }}</a> <span class="badge-neutral">{{ u.get_status_display }}</span> <span class="font-mono text-xs text-muted">{{ u.created_at|date:"Y-m-d H:i" }}</span></li>{% endfor %}</ul>
+  <ul class="flex flex-col gap-1 text-sm">{% for u in recent %}<li><a href="{% url 'assets:import_status' u.pk %}">{{ u.original_filename }}</a> <span class="badge-neutral">{{ u.get_status_display }}</span> <span class="font-mono text-xs text-muted">{{ u.created_at|fecha }}</span></li>{% endfor %}</ul>
 </section>
 {% endif %}
 {% endblock %}

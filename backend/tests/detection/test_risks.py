@@ -229,7 +229,7 @@ def test_register_and_detail_pages(client, as_role):
     tab = client.get(f"/inventory/{asset.pk}/?tab=riesgos").content.decode()
     assert risk.headline in tab and f"/detection/risks/{risk.pk}/" in tab
     strip = client.get(f"/detection/assets/{asset.pk}/pipeline/").content.decode()
-    assert "1 riesgo(s)" in strip
+    assert "1 riesgo" in strip and "riesgo(s)" not in strip
 
 
 def test_auditor_reads_only(client, as_role):

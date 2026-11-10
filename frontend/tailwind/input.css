@@ -457,4 +457,39 @@
   details.fold[open] > summary::before {
     content: "▾ ";
   }
+  /* Menú desplegable de acciones secundarias (detalle del activo). */
+  details.menu {
+    @apply relative;
+  }
+  details.menu > summary {
+    @apply cursor-pointer list-none select-none;
+  }
+  details.menu > summary::-webkit-details-marker {
+    display: none;
+  }
+  .menu-panel {
+    @apply absolute right-0 z-20 mt-1 flex w-72 flex-col rounded border border-line bg-surface p-1
+      shadow-lg;
+  }
+  .menu-item {
+    @apply flex w-full flex-col items-start gap-0.5 rounded px-3 py-2 text-left text-sm
+      hover:bg-primary-soft;
+  }
+  .menu-item-danger {
+    @apply hover:bg-critical-soft;
+  }
+  .menu-item-danger > .font-medium {
+    @apply text-critical;
+  }
+  /* Barra de acciones en lote plegada hasta que se marca algo (atalaya.js). */
+  [data-bulk].bulk-idle > :not([data-bulk-hint]) {
+    display: none;
+  }
+  /* Cabeceras ordenables. */
+  .th-sort {
+    @apply text-inherit no-underline hover:text-primary;
+  }
+  .th-sort-active {
+    @apply text-primary;
+  }
 }

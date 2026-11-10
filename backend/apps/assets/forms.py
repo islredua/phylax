@@ -3,6 +3,8 @@
 from django import forms
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
+from django.db.models import Q
+from django.utils import timezone
 
 from . import catalogs
 from .enums import (
@@ -57,7 +59,12 @@ class AssetFilterForm(StyledMixin, forms.Form):
     criticality = forms.ChoiceField(
         label="Criticidad",
         required=False,
-        choices=[("", "Todas"), *Criticality.choices, ("none", "Sin clasificar")],
+        choices=[
+            ("", "Todas"),
+            *Criticality.choices,
+            ("none", "Sin clasificar"),
+            ("llm_auto", "Calculada por IA, sin revisar"),
+        ],
     )
     exposure = forms.ChoiceField(
         label="Exposición", required=False, choices=_blank("Todas", Exposure.choices)
@@ -100,7 +107,10 @@ class AssetForm(StyledMixin, forms.Form):
         label="Descripción",
         required=False,
         widget=forms.Textarea(attrs={"rows": 4}),
-        help_text="Qué hace, qué datos maneja y quién lo usa.",
+        help_text=(
+            "Qué hace, qué datos maneja y quién lo usa. Recomendada: es lo que la IA lee para "
+            "sugerir la criticidad y explicar los riesgos."
+        ),
     )
     criticality = forms.ChoiceField(
         label="Criticidad", required=False, choices=_blank("Sin clasificar", Criticality.choices)
@@ -130,7 +140,10 @@ class AssetForm(StyledMixin, forms.Form):
     business_owner = forms.CharField(label="Responsable de negocio", required=False, max_length=200)
     tags = forms.CharField(label="Etiquetas", required=False, help_text="Separadas por comas.")
     in_scope = forms.BooleanField(
-        label="Dentro del alcance de escaneo", required=False, initial=True
+        label="Autorizado para escaneo",
+        required=False,
+        initial=True,
+        help_text="Desmárcalo para que Atalaya nunca lo sondee ni lo escanee.",
     )
 
     CONTEXT_FIELDS = (
@@ -144,6 +157,24 @@ class AssetForm(StyledMixin, forms.Form):
         "technical_owner",
         "business_owner",
         "in_scope",
+    )
+    # Secciones del formulario: lo imprescindible y el contexto que lee la IA (A10).
+    IDENTITY_FIELDS = (
+        "name",
+        "asset_type",
+        "environment",
+        "business_role",
+        "criticality",
+        "exposure",
+        "in_scope",
+    )
+    AI_CONTEXT_FIELDS = (
+        "description",
+        "data_classification",
+        "data_categories",
+        "technical_owner",
+        "business_owner",
+        "tags",
     )
 
     @classmethod
@@ -237,7 +268,10 @@ class ConfirmForm(StyledMixin, forms.Form):
         label="Función de negocio", choices=catalog_choices(catalogs.BUSINESS_ROLE, "—")
     )
     description = forms.CharField(
-        label="Descripción", required=False, widget=forms.Textarea(attrs={"rows": 3})
+        label="Descripción",
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 3}),
+        help_text="Recomendada para la IA: con ella sugiere la criticidad y explica los riesgos.",
     )
     data_classification = forms.ChoiceField(
         label="Clasificación de datos",
@@ -247,7 +281,18 @@ class ConfirmForm(StyledMixin, forms.Form):
     criticality = forms.ChoiceField(
         label="Criticidad",
         required=False,
-        choices=_blank("Sin clasificar (se pedirá sugerencia al LLM)", Criticality.choices),
+        choices=_blank("Sin clasificar (la IA la sugerirá)", Criticality.choices),
+    )
+
+
+class ConfirmBulkForm(StyledMixin, forms.Form):
+    """Confirmación en lote de hosts descubiertos: todos heredan el mismo entorno y función."""
+
+    environment = forms.ChoiceField(
+        label="Entorno", choices=catalog_choices(catalogs.ENVIRONMENT, "Elige…")
+    )
+    business_role = forms.ChoiceField(
+        label="Función de negocio", choices=catalog_choices(catalogs.BUSINESS_ROLE, "Elige…")
     )
 
 
@@ -312,6 +357,55 @@ class DiscoveryLaunchForm(forms.Form):
     )
 
 
+class DiscoveryLaunchFromListForm(StyledMixin, forms.Form):
+    """«Descubrir un rango…» desde la lista de ejecuciones: rango autorizado + perfil."""
+
+    network_range = forms.ModelChoiceField(
+        label="Rango", queryset=NetworkRange.objects.none(), empty_label="Elige un rango…"
+    )
+    profile = forms.ChoiceField(
+        label="Perfil",
+        choices=[
+            ("HOST_SWEEP", "Barrido de hosts (rápido)"),
+            ("SERVICE_SCAN", "Escaneo de servicios (barrido + top 1000 puertos)"),
+        ],
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        now = timezone.now()
+        self.fields["network_range"].queryset = NetworkRange.objects.filter(
+            Q(in_scope=True)
+            & (Q(authorization_expires_at__isnull=True) | Q(authorization_expires_at__gt=now))
+        ).order_by("name")
+
+
+class RunFilterForm(StyledMixin, forms.Form):
+    status = forms.ChoiceField(
+        label="Estado",
+        required=False,
+        choices=[
+            ("", "Todos"),
+            ("active", "En cola o en curso"),
+            ("SUCCEEDED", "Terminadas"),
+            ("FAILED", "Fallidas"),
+            ("CANCELLED", "Canceladas"),
+        ],
+    )
+    profile = forms.ChoiceField(
+        label="Perfil",
+        required=False,
+        choices=[
+            ("", "Todos"),
+            ("HOST_SWEEP", "Barrido de hosts"),
+            ("SERVICE_SCAN", "Escaneo de servicios"),
+        ],
+    )
+    network_range = forms.ModelChoiceField(
+        label="Rango", required=False, queryset=NetworkRange.objects.all(), empty_label="Todos"
+    )
+
+
 class ImageForm(StyledMixin, forms.Form):
     ref = forms.CharField(
         label="Referencia de imagen",
@@ -325,7 +419,7 @@ class ImageForm(StyledMixin, forms.Form):
         widget=forms.TextInput(attrs={"placeholder": "sha256:…"}),
     )
     registry = forms.ModelChoiceField(
-        label="Registry",
+        label="Registro de imágenes",
         required=False,
         queryset=ContainerRegistry.objects.all(),
         empty_label="Detectar por host",
