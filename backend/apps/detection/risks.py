@@ -567,8 +567,9 @@ def rule_items(vulns, context, index, asset_name="el activo"):
 
 
 def _is_weakness(vuln):
-    """Debilidad de configuración (cabeceras, SRI, enumeración…): sin CVE ni software propio."""
-    return not software_key(vuln) and not str(vuln.key).upper().startswith("CVE-")
+    """Debilidad de configuración (cabeceras, SRI, enumeración, versión expuesta…): hallazgo sin
+    CVE y sin componente del SBOM; el «en WordPress» del título no la convierte en software."""
+    return not str(vuln.key).upper().startswith("CVE-") and not getattr(vuln, "component_id", None)
 
 
 def _rule_group_key(vuln, context):
