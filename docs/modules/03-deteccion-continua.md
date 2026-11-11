@@ -274,8 +274,9 @@ descripción en tres intentos de tres y mezclaba datos de otro riesgo). La etapa
 equipo técnico: software y versión afectados, qué falla es cada vulnerabilidad (citada por su
 clave), cadena de ataque paso a paso, quién la observó y las recomendaciones; la plantilla
 convierte cada clave citada en un enlace a la ficha de la vulnerabilidad que abre en otra pestaña
-(`risk_text`), si el modelo no citó ninguna el código añade la lista de vulnerabilidades ligadas
-(`risks.with_references`) y si repitió las recomendaciones al final se quitan de ahí
+(`risk_text`); la lista completa de vulnerabilidades ligadas no se repite en esta sección porque ya
+está en la evidencia técnica (`risks.with_references` solo arma el detalle por regla si el modelo
+no dio ninguno), y si repitió las recomendaciones al final se quitan de ahí
 (`strip_recommendations`). La etapa 2 (`RISK_NARRATIVE`, `risk_narrative/v1.md`, una llamada
 corta por riesgo) escribe la **Descripción** para quien no es técnico en cuatro campos acotados que el código
 ensambla (qué es el activo para la organización, en qué consiste el riesgo y qué pasaría, por qué

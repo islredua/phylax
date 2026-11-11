@@ -987,21 +987,12 @@ def _adopt_by_component(items, vulns, index, covered):
 
 
 def with_references(details, vulns, context, consequence):
-    """Garantiza el detalle técnico: si el modelo no lo dio se arma por regla; si lo dio sin citar
-    ninguna vulnerabilidad ligada, se le añade la lista para que la plataforma pueda enlazarlas."""
-    consequence = consequence or RiskConsequence.OPERATIONS
-    if not details.strip():
-        return _rule_details(vulns, context, consequence)
-    if not any(v.key.lower() in details.lower() for v in vulns):
-        shown = _payload_order(vulns)[:8]
-        listing = ", ".join(
-            f"{v.key} ({v.component.label})" if v.component_id and v.component else v.key
-            for v in shown
-        )
-        if len(vulns) > len(shown):
-            listing += f" y {len(vulns) - len(shown)} más"
-        details = f"{details.rstrip()}\n\nVulnerabilidades ligadas: {listing}."
-    return details
+    """Garantiza el detalle técnico: si el modelo no lo dio, se arma por regla. No se añade la
+    lista de vulnerabilidades ligadas: ya está en la evidencia técnica; en el texto solo se enlazan
+    las que la propia narrativa menciona."""
+    if details.strip():
+        return details
+    return _rule_details(vulns, context, consequence or RiskConsequence.OPERATIONS)
 
 
 def _key_for(item, vulns):

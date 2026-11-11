@@ -404,7 +404,7 @@ def test_risk_detail_and_report_expose_description_evidence_and_downloads(client
         "Descripción",
         "Qué perdería la organización",
         "Detalles",
-        "Vulnerabilidades ligadas",
+        "la lista completa está en la evidencia técnica",
         'target="_blank"',
         "Recomendaciones",
         "Valoración (ISO/IEC 27005)",
@@ -829,7 +829,7 @@ def test_rule_texts_speak_to_two_readers():
     assert any(v.key in risk.details for v in risk.vulnerabilities.all())
 
 
-def test_details_always_cite_a_linked_vulnerability():
+def test_details_fall_back_to_rule_only_when_empty():
     v = SimpleNamespace(
         pk="a",
         key="CVE-2021-44228",
@@ -848,8 +848,8 @@ def test_details_always_cite_a_linked_vulnerability():
     )
     ctx = SimpleNamespace(exposure="DMZ", data_classification="RESTRINGIDA")
     text = "El modelo describió el ataque sin nombrar la vulnerabilidad."
-    out = risks.with_references(text, [v], ctx, "CONFIDENTIALITY")
-    assert out.startswith(text) and "Vulnerabilidades ligadas: CVE-2021-44228." in out
+    # Sin cita no se añade ninguna lista: las ligadas ya están en la evidencia técnica.
+    assert risks.with_references(text, [v], ctx, "CONFIDENTIALITY") == text
     assert risks.with_references("Explota CVE-2021-44228 en log4j.", [v], ctx, "") == (
         "Explota CVE-2021-44228 en log4j."
     )

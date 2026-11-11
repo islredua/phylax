@@ -39,12 +39,10 @@
 
     <section class="card">
       <h3 class="card-title">Detalles</h3>
-      <p class="mb-3 text-xs text-muted">Para el equipo técnico: software y versiones afectadas, cómo se encadenaría el ataque y qué lo sustenta. Cada vulnerabilidad citada abre su ficha en otra pestaña.</p>
+      <p class="mb-3 text-xs text-muted">Para el equipo técnico: software y versiones afectadas, cómo se encadenaría el ataque y qué lo sustenta. Las vulnerabilidades que cita el texto abren su ficha en otra pestaña; la lista completa está en la evidencia técnica.</p>
       <div class="flex flex-col gap-2 text-sm">{% risk_text risk.details|default:risk.scenario risk %}</div>
       <p class="kv-label mt-4">Recomendaciones</p>
       {% if risk.recommendations %}<ol class="mt-1 flex flex-col gap-1 pl-5 text-sm text-ink-soft">{% for r in risk.recommendations %}<li>{{ r }}</li>{% endfor %}</ol>{% else %}<p class="mt-1 text-sm text-muted">Sin recomendaciones propias; ver las acciones de cada vulnerabilidad ligada.</p>{% endif %}
-      <p class="kv-label mt-4">Vulnerabilidades ligadas</p>
-      <ul class="mt-1 flex flex-col gap-1 text-sm">{% for row in evidence %}<li><a href="{% url 'detection:vulnerability' row.vuln.pk %}" target="_blank" rel="noopener" title="Abre la vulnerabilidad en otra pestaña"><span class="font-mono text-xs">{{ row.vuln.key }}</span> · {{ row.vuln.title|truncatechars:90 }}</a>{% if row.vuln.component %} <span class="text-xs text-muted">· {{ row.vuln.component.label }}</span>{% endif %} {% kev_badge row.vuln.in_kev %}</li>{% empty %}<li class="text-muted">Ninguna vulnerabilidad ligada.</li>{% endfor %}</ul>
     </section>
 
     <section class="card">
