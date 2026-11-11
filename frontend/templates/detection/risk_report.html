@@ -1,0 +1,143 @@
+{% load detection_tags inventory %}<!DOCTYPE html>
+<html lang="es-MX">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Riesgo · {{ risk.title }}</title>
+<style>
+  :root { color-scheme: light; }
+  body { font: 11pt/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #1b1f24; margin: 0; background: #f4f5f7; }
+  .page { max-width: 820px; margin: 24px auto; background: #fff; padding: 40px 48px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  header { border-bottom: 2px solid #1b1f24; padding-bottom: 12px; margin-bottom: 20px; }
+  .eyebrow { font-size: 9pt; letter-spacing: .08em; text-transform: uppercase; color: #5b6472; margin: 0 0 4px; }
+  h1 { font-size: 18pt; margin: 0 0 6px; line-height: 1.25; }
+  h2 { font-size: 12.5pt; margin: 22px 0 6px; border-bottom: 1px solid #d9dde3; padding-bottom: 3px; }
+  .meta { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 9.5pt; color: #3c4653; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 9pt; border: 1px solid #c6ccd4; }
+  .lvl-CRITICAL, .lvl-VERY_HIGH { background: #7f1d1d; color: #fff; border-color: #7f1d1d; }
+  .lvl-HIGH { background: #c2410c; color: #fff; border-color: #c2410c; }
+  .lvl-MODERATE { background: #ca8a04; color: #fff; border-color: #ca8a04; }
+  .lvl-LOW { background: #15803d; color: #fff; border-color: #15803d; }
+  table { width: 100%; border-collapse: collapse; font-size: 9.5pt; margin-top: 6px; }
+  th, td { text-align: left; vertical-align: top; padding: 5px 6px; border-bottom: 1px solid #e5e8ec; }
+  th { font-weight: 600; color: #3c4653; background: #f7f8fa; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9pt; }
+  .muted { color: #5b6472; }
+  ol { padding-left: 20px; } li { margin: 2px 0; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 16px; font-size: 10pt; }
+  .grid dt { color: #5b6472; font-size: 9pt; } .grid dd { margin: 0; }
+  .toolbar { position: sticky; top: 0; background: #fff; border-bottom: 1px solid #d9dde3; padding: 10px 16px; display: flex; gap: 10px; align-items: center; font-size: 10pt; }
+  .toolbar button, .toolbar a { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid #c6ccd4; background: #fff; color: #1b1f24; text-decoration: none; cursor: pointer; }
+  .toolbar button.primary { background: #1b1f24; color: #fff; border-color: #1b1f24; }
+  footer { margin-top: 28px; padding-top: 10px; border-top: 1px solid #d9dde3; font-size: 8.5pt; color: #5b6472; }
+  @media print { body { background: #fff; } .page { box-shadow: none; margin: 0; padding: 0; max-width: none; } .toolbar { display: none; } h2 { break-after: avoid; } tr { break-inside: avoid; } }
+  @page { margin: 18mm 16mm; }
+</style>
+</head>
+<body>
+<div class="toolbar"><button class="primary" type="button" onclick="window.print()">Imprimir o guardar como PDF</button><a href="?format=md">Descargar Markdown</a><a href="{% url 'detection:risk' risk.pk %}">Volver al riesgo</a><span class="muted">El PDF se genera desde el navegador: Imprimir → Guardar como PDF.</span></div>
+<div class="page">
+<header>
+  <p class="eyebrow">Atalaya · Reporte de riesgo · ISO/IEC 27005:2022</p>
+  <h1>{{ risk.headline }}</h1>
+  {% if risk.cause %}<p class="muted" style="margin:0 0 8px">por {{ risk.cause }}</p>{% endif %}
+  <div class="meta">
+    <span class="badge lvl-{{ risk.level }}">Nivel {{ risk.get_level_display|lower }} · {{ risk.likelihood }} × {{ risk.impact }} = {{ risk.score }}</span>
+    <span>Estado: {{ risk.get_status_display }}</span>
+    {% if risk.consequence %}<span>Consecuencia: {{ risk.get_consequence_display }}</span>{% endif %}
+    <span>Fuente de amenaza: {{ risk.get_threat_source_display }}</span>
+    <span>Valorado por {% if risk.assessment_source == 'AI' %}IA ({{ risk.model }}){% else %}regla{% endif %} el {{ risk.assessed_at|fecha }}</span>
+  </div>
+</header>
+
+<h2>Resumen ejecutivo</h2>
+<p><strong>{{ risk.asset.name }}</strong> ({{ asset.business_role|catalog:"BUSINESS_ROLE" }}, {{ asset.environment|catalog:"ENVIRONMENT" }}, exposición {{ asset.exposure|choice_label:"Exposure"|lower }}) tiene un riesgo de nivel <strong>{{ risk.get_level_display|lower }}</strong> de <strong>{{ risk.get_consequence_display|default:"compromiso"|lower }}</strong>, sustentado en {{ evidence|length|pl:"vulnerabilidad,vulnerabilidades" }}{% if intel.kev_count %}, {{ intel.kev_count }} de ellas con explotación activa conocida (KEV){% if intel.kev_overdue %} y plazo de remediación de CISA vencido{% endif %}{% endif %}.</p>
+<ul>
+  <li><strong>Qué podría pasar:</strong> {{ risk.impact_description|default:risk.scenario }}</li>
+  <li><strong>Qué hacer primero:</strong> {% if risk.recommendations %}{{ risk.recommendations.0 }}{% else %}ver las acciones de cada vulnerabilidad ligada{% endif %}</li>
+  <li><strong>Decisión:</strong> {% if closure %}riesgo cerrado el {{ closure.at|fecha }} ({{ closure.message }}){% elif risk.treatment %}{{ risk.get_treatment_display }}{% if risk.owner %}, responsable {{ risk.owner }}{% endif %}, decidido por {{ risk.decided_by.get_username|default:"—" }} el {{ risk.decided_at|fecha }}{% else %}<em>pendiente: nadie ha decidido el tratamiento</em>{% endif %}</li>
+</ul>
+
+<h2>Activo</h2>
+<dl class="grid">
+  <div><dt>Nombre</dt><dd>{{ asset.name }}</dd></div>
+  <div><dt>Función de negocio</dt><dd>{{ asset.business_role|catalog:"BUSINESS_ROLE" }}</dd></div>
+  <div><dt>Entorno</dt><dd>{{ asset.environment|catalog:"ENVIRONMENT" }}</dd></div>
+  <div><dt>Criticidad</dt><dd>{{ asset.criticality|choice_label:"Criticality" }}</dd></div>
+  <div><dt>Exposición</dt><dd>{{ asset.exposure|choice_label:"Exposure" }}</dd></div>
+  <div><dt>Clasificación de datos</dt><dd>{{ asset.data_classification|choice_label:"DataClassification" }}</dd></div>
+  <div><dt>Responsable técnico</dt><dd>{{ asset.technical_owner.get_username|default:"—" }}</dd></div>
+  <div><dt>Responsable de negocio</dt><dd>{{ asset.business_owner|default:"—" }}</dd></div>
+  <div><dt>Identificadores</dt><dd class="mono">{% for i in asset.identifiers.all %}{{ i.value }}{% if not forloop.last %}, {% endif %}{% endfor %}</dd></div>
+</dl>
+
+<h2>Descripción</h2>
+{% risk_text risk.description|default:risk.scenario risk "" %}
+<h3>Qué perdería la organización</h3>
+{% if risk.impact_description %}{% risk_text risk.impact_description risk "" %}{% else %}<p class="muted">No descrito; la valoración estima el impacto en {{ risk.impact }} / 5.</p>{% endif %}
+
+<h2>Detalles</h2>
+<p class="muted">Para el equipo técnico: software y versiones afectadas, cadena de ataque y sustento.</p>
+{% risk_text risk.details|default:risk.scenario risk "" %}
+
+<h2>Inteligencia de amenazas</h2>
+<p>{{ intel.plain }}</p>
+<p class="muted">{{ intel.text }}</p>
+{% if risk.intelligence_summary and risk.assessment_source == 'AI' and risk.intelligence_summary != intel.text %}<p class="muted"><strong>Lectura de la IA:</strong> {{ risk.intelligence_summary }}</p>{% endif %}
+<dl class="grid">
+  <div><dt>En el catálogo de explotación activa (KEV, CISA)</dt><dd>{{ intel.kev_count }} de {{ intel.total }}{% if intel.kev_since %} · desde el {{ intel.kev_since|fecha }}{% endif %}{% if intel.ransomware_count %} · {{ intel.ransomware_count }} en ransomware{% endif %}</dd></div>
+  <div><dt>Plazo de remediación que fijó CISA</dt><dd>{% if intel.kev_due %}{{ intel.kev_due|fecha }}{% if intel.kev_overdue %} (vencido){% endif %}{% else %}—{% endif %}</dd></div>
+  <div><dt>Probabilidad de intento de explotación en 30 días (EPSS)</dt><dd>{% if intel.epss_max is not None %}{{ intel.epss_max|epss_pct }}{% if intel.epss_percentile is not None %} (percentil {{ intel.epss_percentile|percentil }}){% endif %} · {{ intel.epss_key }}{% else %}—{% endif %}</dd></div>
+  <div><dt>Confirmadas por más de una fuente</dt><dd>{{ intel.multi_source_count }} de {{ intel.total }}{% if intel.cti_only_count %} · {{ intel.cti_only_count }} solo por inteligencia{% endif %}</dd></div>
+</dl>
+<p class="muted">Fuentes: espejo local de NVD, catálogo KEV de CISA y EPSS (FIRST).</p>
+
+<h2>Valoración</h2>
+<dl class="grid">
+  <div><dt>Probabilidad</dt><dd>{{ risk.likelihood }} / 5</dd></div>
+  <div><dt>Impacto</dt><dd>{{ risk.impact }} / 5</dd></div>
+  <div><dt>Nivel</dt><dd>{{ risk.get_level_display }} ({{ risk.score }})</dd></div>
+</dl>
+{% if risk.rationale %}<p class="muted">{{ risk.rationale }}</p>{% endif %}
+<p class="muted">Matriz 5×5: 1–4 bajo · 5–9 moderado · 10–14 alto · 15–19 muy alto · 20–25 crítico.</p>
+
+<h2>Recomendaciones</h2>
+{% if risk.recommendations %}<ol>{% for r in risk.recommendations %}<li>{{ r }}</li>{% endfor %}</ol>{% else %}<p class="muted">Ver las acciones de cada vulnerabilidad.</p>{% endif %}
+
+<h2>Tratamiento</h2>
+{% if risk.treatment %}<p>{{ risk.get_treatment_display }}{% if risk.owner %} · responsable: {{ risk.owner }}{% endif %} · decidido por {{ risk.decided_by.get_username|default:"—" }} el {{ risk.decided_at|fecha }}.{% if risk.treatment_note %} «{{ risk.treatment_note }}»{% endif %}</p>{% if risk.residual_level %}<p>Riesgo residual: {{ risk.get_residual_level_display }} ({{ risk.residual_likelihood }} × {{ risk.residual_impact }}).</p>{% endif %}{% else %}<p class="muted">Sin tratamiento decidido todavía.</p>{% endif %}
+
+<h2>Evidencia técnica</h2>
+<p class="muted">{{ evidence|length|pl:"vulnerabilidad,vulnerabilidades" }} en {{ evidence_groups|length|pl:"componente de software,componentes de software" }}. Cada grupo lista sus CVE; el detalle completo de cada vulnerabilidad está en la plataforma.</p>
+<table>
+  <thead><tr><th>Software afectado</th><th>Vulnerabilidades</th><th>Mayor puntaje contextual</th><th>Fuentes</th><th>Identificadores</th></tr></thead>
+  <tbody>
+  {% for g in evidence_groups %}
+  <tr>
+    <td>{{ g.component }}</td>
+    <td>{{ g.count }}{% if g.kev %}<br><span class="badge">{{ g.kev|pl:"en KEV,en KEV" }}</span>{% endif %}</td>
+    <td class="mono">{{ g.max_score|default_if_none:"—" }}</td>
+    <td>{% for s in g.sources %}{{ s|source_label }}{% if not forloop.last %}, {% endif %}{% endfor %}</td>
+    <td class="mono muted">{% for row in g.rows %}{{ row.vuln.key }}{% if row.vuln.in_kev %}*{% endif %}{% if not forloop.last %}, {% endif %}{% endfor %}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="muted">* en el catálogo de explotación activa de CISA (KEV). Estados: {% regroup evidence by vuln.get_status_display as by_status %}{% for group in by_status %}{{ group.list|length }} {{ group.grouper|lower }}{% if not forloop.last %}, {% endif %}{% endfor %}.</p>
+{% if described %}
+<h2>Las vulnerabilidades principales, explicadas</h2>
+{% for row in described %}
+<p><strong>{{ row.vuln.title }}</strong> <span class="mono muted">{{ row.vuln.key }}</span> · {{ row.vuln.get_status_display|lower }}, puntaje contextual {{ row.vuln.contextual_score|default_if_none:"—" }}<br>{{ row.vuln.summary }}{% if row.vuln.actions %}<br><span class="muted">Acciones: {{ row.vuln.actions|join:" · " }}</span>{% endif %}</p>
+{% endfor %}
+{% endif %}
+
+<h2>Historia</h2>
+<table>
+  <thead><tr><th>Cuándo</th><th>Qué pasó</th><th>Detalle</th><th>Quién</th></tr></thead>
+  <tbody>{% for ev in timeline %}<tr><td class="mono">{{ ev.occurred_at|fecha }}</td><td>{{ ev.get_kind_display }}</td><td>{{ ev.message }}</td><td class="mono">{{ ev.actor.get_username|default:"sistema" }}</td></tr>{% endfor %}</tbody>
+</table>
+
+<footer>Generado por Atalaya el {{ generated_at|fecha }} para {{ generated_by.get_username }}. Las valoraciones marcadas «por IA» las produjo un modelo local y pueden corregirse en la plataforma; el tratamiento lo decide siempre una persona.</footer>
+</div>
+</body>
+</html>

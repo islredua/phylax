@@ -1,0 +1,11 @@
+<div id="avisos" hx-get="{% url 'home_block' 'alerts' %}" hx-trigger="every 30s" hx-swap="outerHTML">
+<section class="card">
+  <h2 class="card-title">Avisos <span class="font-mono text-xs font-normal text-muted">{{ alerts|length }}</span></h2>
+  <ul class="flex flex-col gap-2 text-sm">
+    {% for a in alerts %}
+    <li class="flex gap-2"><span class="{% if a.level == 'critical' %}badge-critical{% elif a.level == 'high' %}badge-high{% elif a.level == 'medium' %}badge-medium{% else %}badge-neutral{% endif %} shrink-0">{% if a.level == 'critical' %}crítico{% elif a.level == 'high' %}alto{% elif a.level == 'medium' %}medio{% else %}info{% endif %}</span><span><a href="{{ a.url }}">{{ a.text }}</a>{% if a.at %} <span class="font-mono text-xs text-muted" title="{{ a.at|fecha }}">{{ a.at|fecha_corta }} {{ a.at|hora }}</span>{% endif %}</span></li>
+    {% empty %}<li class="text-muted">Sin avisos: no hay riesgos críticos, plazos vencidos, aprobaciones pendientes ni fallas recientes.</li>{% endfor %}
+  </ul>
+  <p class="mt-2 text-xs text-muted">Derivados por reglas de los eventos del sistema; se actualizan cada 30 s.</p>
+</section>
+</div>

@@ -1,10 +1,12 @@
 """Vistas del inventario. Toda modificación pasa por ``services`` (que re-verifica permisos)."""
 
+from datetime import datetime, timedelta
+
 from django.contrib import messages
 from django.contrib.auth.mixins import PermissionRequiredMixin
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
-from django.db.models import Count, Exists, OuterRef, Q
+from django.db.models import Case, Count, Exists, IntegerField, OuterRef, Q, Value, When
 from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -12,31 +14,77 @@ from django.utils.http import url_has_allowed_host_and_scheme
 from django.views import View
 from django.views.generic import ListView, TemplateView
 
-from apps.llm.status import active_model, active_model_ready
+from apps.core.views import PaginationMixin
+from apps.llm.status import active_model, active_model_ready, unavailable_reason
 
 from . import catalogs, services
-from .enums import AssetStatus, Criticality, SuggestionState, SuggestionTrigger
+from .enums import AssetStatus, Criticality, CriticalitySource, SuggestionState, SuggestionTrigger
 from .forms import (
+    AssetCreateForm,
     AssetFilterForm,
     AssetForm,
+    ConfirmBulkForm,
     ConfirmForm,
     ConflictResolveForm,
     DecisionForm,
     IdentifierFormSet,
     MergeForm,
 )
-from .models import Asset, AssetConflict, CriticalitySuggestion
+from .models import Asset, AssetConflict, CriticalitySuggestion, NetworkRange
 
 HIDDEN_BY_DEFAULT = (AssetStatus.RETIRED, AssetStatus.IGNORED)
+# Pestañas del activo en el orden en que se trabaja: qué es → qué riesgo tiene → qué se vio →
+# cómo es por dentro → qué pasó. Los escaneos viven con los servicios que descubren.
 DETAIL_TABS = (
     ("resumen", "Resumen"),
+    ("riesgos", "Riesgos"),
+    ("vulnerabilidades", "Vulnerabilidades"),
+    ("observaciones", "Observaciones"),
+    ("servicios", "Servicios y escaneos"),
     ("identificadores", "Identificadores"),
-    ("servicios", "Servicios"),
     ("sbom", "SBOM"),
-    ("sugerencias", "Sugerencias LLM"),
+    ("sugerencias", "Criticidad (IA)"),
     ("historial", "Historial"),
-    ("descubrimientos", "Descubrimientos"),
 )
+# Enlaces antiguos a la pestaña de escaneos siguen funcionando.
+TAB_ALIASES = {"descubrimientos": "servicios"}
+# Orden de la lista por cabecera (``?sort=-criticality``). La criticidad ordena por gravedad, no
+# alfabéticamente, y los «sin clasificar» van al final.
+CRITICALITY_RANK = Case(
+    When(criticality=Criticality.CRITICO, then=Value(5)),
+    When(criticality=Criticality.ALTO, then=Value(4)),
+    When(criticality=Criticality.MEDIO, then=Value(3)),
+    When(criticality=Criticality.BAJO, then=Value(2)),
+    When(criticality=Criticality.INFORMATIVO, then=Value(1)),
+    default=Value(0),
+    output_field=IntegerField(),
+)
+# (clave de orden, cabecera, clases de la columna).
+LIST_COLUMNS = (
+    ("name", "Nombre", ""),
+    ("type", "Tipo", "col-md"),
+    ("", "Identificador", "col-lg"),
+    ("criticality", "Criticidad", ""),
+    ("exposure", "Exposición", "col-md"),
+    ("environment", "Entorno", "col-lg"),
+    ("status", "Estado", ""),
+    ("seen", "Visto", "col-md"),
+)
+SORTS = {
+    "name": ("name",),
+    "type": ("asset_type", "name"),
+    "criticality": ("criticality_rank", "name"),
+    "exposure": ("exposure", "name"),
+    "environment": ("environment", "name"),
+    "status": ("status", "name"),
+    "seen": ("last_seen", "name"),
+}
+# Pestañas del activo que muestran la capa de detección; requieren su permiso.
+DETECTION_TABS = {
+    "riesgos": "detection.view_risk",
+    "vulnerabilidades": "detection.view_vulnerability",
+    "observaciones": "detection.view_finding",
+}
 # (acción, etiqueta, parámetro que requiere: "tags", catálogo o None).
 BULK_ACTIONS = (
     ("tag", "Agregar etiquetas", "tags"),
@@ -50,7 +98,9 @@ BULK_ACTIONS = (
 )
 BULK_PARAM = {key: param for key, _, param in BULK_ACTIONS}
 # Acciones que no se pueden deshacer desde la interfaz: piden confirmación.
-BULK_CONFIRM = {"retire": "Los activos retirados no se pueden reactivar. ¿Retirar {n} activo(s)?"}
+BULK_CONFIRM = {
+    "retire": "Los activos retirados no se pueden reactivar. ¿Retirar los {n} seleccionados?"
+}
 
 
 class Perm(PermissionRequiredMixin):
@@ -119,7 +169,11 @@ def with_suggestion_flags(qs):
 
 def filter_assets(params):
     """Filtros de la lista (también los usa la exportación CSV). Devuelve ``(queryset, form)``."""
-    qs = Asset.objects.select_related("network_range").prefetch_related("identifiers", "tags")
+    qs = (
+        Asset.objects.select_related("network_range")
+        .prefetch_related("identifiers", "tags")
+        .annotate(criticality_rank=CRITICALITY_RANK)
+    )
     form = AssetFilterForm(params or None)
     status = ""
     if form.is_valid():
@@ -134,6 +188,8 @@ def filter_assets(params):
                 qs = qs.filter(**{name: data[name]})
         if data["criticality"] == "none":
             qs = qs.filter(criticality__isnull=True)
+        elif data["criticality"] == "llm_auto":
+            qs = qs.filter(criticality_source=CriticalitySource.LLM_AUTO)
         elif data["criticality"]:
             qs = qs.filter(criticality=data["criticality"])
         if data["network_range"]:
@@ -146,10 +202,23 @@ def filter_assets(params):
         qs = qs.filter(status=status)
     else:
         qs = qs.exclude(status__in=HIDDEN_BY_DEFAULT)
-    return qs.distinct().order_by("name"), form
+    return qs.distinct().order_by(*sort_fields((params or {}).get("sort", ""))), form
 
 
-class AssetListView(Perm, ListView):
+def sort_fields(sort):
+    """Campos de ``order_by`` para ``?sort=campo`` o ``?sort=-campo``; por defecto, el nombre."""
+    key = sort.lstrip("-")
+    fields = SORTS.get(key, SORTS["name"])
+    if key not in SORTS:
+        return fields
+    desc = sort.startswith("-")
+    first, *rest = fields
+    first = f"-{first}" if desc else first
+    # Con «-» los sin clasificar (rango 0) irían primero: siempre al final.
+    return (first, *rest)
+
+
+class AssetListView(Perm, PaginationMixin, ListView):
     permission_required = "assets.view_asset"
     template_name = "assets/asset_list.html"
     context_object_name = "assets"
@@ -169,9 +238,21 @@ class AssetListView(Perm, ListView):
         context = super().get_context_data(**kwargs)
         self.get_context_data_flags(context["assets"])
         counts = dict(Asset.objects.values_list("status").annotate(n=Count("id")))
+        sort = self.request.GET.get("sort", "")
         context.update(
             filter_form=self.filter_form,
             status_counts=[(s, label, counts.get(s, 0)) for s, label in AssetStatus.choices],
+            review_count=Asset.objects.filter(
+                criticality_source=CriticalitySource.LLM_AUTO,
+                status__in=(AssetStatus.ACTIVE, AssetStatus.STALE),
+            ).count(),
+            sort=sort,
+            columns=LIST_COLUMNS,
+            sort_key=sort.lstrip("-"),
+            sort_desc=sort.startswith("-"),
+            filters_active=any(
+                v for k, v in self.request.GET.items() if k not in ("page", "per_page", "sort")
+            ),
             bulk_actions=[
                 (k, label, param or "", BULK_CONFIRM.get(k, "")) for k, label, param in BULK_ACTIONS
             ],
@@ -228,11 +309,16 @@ class BulkActionView(Perm, View):
             return HttpResponseRedirect(back)
         label = {k: lbl for k, lbl, _ in BULK_ACTIONS}[action]
         if done:
-            messages.success(request, f"{label}: aplicado a {done} activo(s).")
+            messages.success(
+                request, f"{label}: aplicado a {done} activo{'s' if done != 1 else ''}."
+            )
         if failed:
             detail = "; ".join(f"{a.name}: {reason}" for a, reason in failed[:5])
             more = f" (y {len(failed) - 5} más)" if len(failed) > 5 else ""
-            messages.warning(request, f"{len(failed)} activo(s) sin cambios — {detail}{more}")
+            n = len(failed)
+            messages.warning(
+                request, f"{n} activo{'s' if n != 1 else ''} sin cambios — {detail}{more}"
+            )
         return HttpResponseRedirect(back)
 
 
@@ -251,6 +337,8 @@ def _display_value(field, value):
     if isinstance(value, list):
         inner = dict(getattr(field, "base_field", field).choices or ())
         return ", ".join(str(inner.get(v, v)) for v in value)
+    if isinstance(value, bool):
+        return "sí" if value else "no"
     return dict(field.choices or ()).get(value, value)
 
 
@@ -286,20 +374,46 @@ class AssetDetailView(Perm, TemplateView):
             pk=kwargs["pk"],
         )
         tab = self.request.GET.get("tab", "resumen")
-        if tab not in dict(DETAIL_TABS):
+        tab = TAB_ALIASES.get(tab, tab)
+        if tab not in dict(DETAIL_TABS) or (
+            tab in DETECTION_TABS and not self.request.user.has_perm(DETECTION_TABS[tab])
+        ):
             tab = "resumen"
         context.update(
             asset=asset,
             tab=tab,
-            tabs=DETAIL_TABS,
             criticality_choices=Criticality.choices,
             llm_model=active_model(),
             llm_ready=active_model_ready(),
+            llm_blocker=unavailable_reason(),
             in_flight=services.processing_suggestion(asset) is not None
             or services.suggestion_queued(asset.pk),
         )
         from apps.discovery import services as discovery
 
+        context["open_findings"] = asset.findings.filter(
+            status__in=("NEW", "CONFIRMED", "PRIORITIZED", "REOPENED")
+        ).count()
+        context["open_vulnerabilities"] = asset.vulnerabilities.filter(
+            status__in=("CONFIRMED", "LIKELY", "NEEDS_VERIFICATION", "LIKELY_FALSE_POSITIVE")
+        ).count()
+        context["open_risks"] = asset.risks.filter(
+            status__in=("OPEN", "TREATED", "ACCEPTED")
+        ).count()
+        counts = {
+            "riesgos": context["open_risks"],
+            "vulnerabilidades": context["open_vulnerabilities"],
+            "observaciones": context["open_findings"],
+        }
+        context["tabs"] = [
+            (key, label, counts.get(key))
+            for key, label in DETAIL_TABS
+            if key not in DETECTION_TABS or self.request.user.has_perm(DETECTION_TABS[key])
+        ]
+        if tab in DETECTION_TABS:
+            from apps.detection.views import asset_tab_context
+
+            context.update(asset_tab_context(asset, tab))
         runs = discovery.runs_for_asset(asset)
         context.update(
             can_scan=discovery.can_scan(asset),
@@ -311,6 +425,7 @@ class AssetDetailView(Perm, TemplateView):
             context["identifier_formset"] = IdentifierFormSet(prefix="ident")
         elif tab == "servicios":
             context["services"] = asset.services.order_by("state", "port")
+            context["runs"] = runs[:20]
         elif tab == "sbom":
             context["sboms"] = asset.sboms.select_related("uploaded_by")
         elif tab == "sugerencias":
@@ -319,8 +434,6 @@ class AssetDetailView(Perm, TemplateView):
             )
         elif tab == "historial":
             context["history"] = _history(asset)
-        elif tab == "descubrimientos":
-            context["runs"] = runs[:50]
         return context
 
 
@@ -337,6 +450,118 @@ def _identifiers_from(formset):
     ]
 
 
+def _authorize_scope(request, asset, ips, scope):
+    """Crea la autorización elegida en el alta (un host o su red) y devuelve la nota para el aviso."""
+    reference = scope["authorization_reference"]
+    expires = scope["authorization_expires_at"]
+    try:
+        if scope["register_network"]:
+            rng = services.register_network_for_host(
+                ips[0], user=request.user, reference=reference, expires_at=expires, asset=asset
+            )
+            return f"Red {rng.cidr} registrada y autorizada para escaneo."
+        created = [
+            services.authorize_host(
+                ip, user=request.user, reference=reference, expires_at=expires, asset=asset
+            )
+            for ip in ips
+        ]
+        created = [r for r in created if r is not None]
+        if created:
+            asset.refresh_from_db()
+            return "Escaneo autorizado para " + ", ".join(r.cidr for r in created) + "."
+    except (ValidationError, PermissionDenied) as error:
+        messages.warning(request, f"No se autorizó el escaneo: {error}")
+    return ""
+
+
+def _authorization_field(error):
+    """El error de autorización se muestra junto al campo que lo resuelve, no como aviso suelto."""
+    text = " ".join(getattr(error, "messages", [str(error)]))
+    if "referencia" in text:
+        return "authorization_reference"
+    if "rango" in text or "permiso" in text.lower():
+        return "authorize_scan"
+    return None
+
+
+def _apply_probe(token, asset, identifiers):
+    """Copia al activo el resultado de «Verificar alcance» si corresponde a una de sus IP."""
+    from apps.discovery import probe
+
+    state, result = probe.get_probe(token)
+    if state != "done" or result.ip not in {v for k, v in identifiers if k in ("IPV4", "IPV6")}:
+        return
+    services.record_reachability(
+        asset.pk,
+        up=result.up,
+        at=datetime.fromisoformat(result.checked_at),
+        error=result.error,
+    )
+
+
+class ProbeView(Perm, View):
+    """«Verificar alcance» desde el formulario de alta: sonda la primera IP capturada.
+
+    Devuelve el fragmento que se consulta solo hasta tener resultado. Informativo: el alta
+    nunca depende de él.
+    """
+
+    permission_required = "discovery.run_discovery"
+    template_name = "assets/_probe_result.html"
+
+    def post(self, request):
+        from apps.discovery import probe
+
+        formset = IdentifierFormSet(request.POST, prefix="ident")
+        ips = (
+            [v for k, v in _identifiers_from(formset) if k in ("IPV4", "IPV6")]
+            if formset.is_valid()
+            else []
+        )
+        authorized = request.POST.get("authorize_scan") in ("on", "true", "1")
+        if not ips:
+            return render(
+                request,
+                self.template_name,
+                {"state": "error", "error": "Captura primero una dirección IP para sondearla."},
+            )
+        try:
+            token = probe.start_probe(ips[0], user=request.user, authorized=authorized)
+        except ValidationError as error:
+            return render(
+                request,
+                self.template_name,
+                {"state": "error", "error": " ".join(error.messages)},
+            )
+        return _render_probe(request, token)
+
+
+class ProbeStatusView(Perm, View):
+    permission_required = "discovery.run_discovery"
+
+    def get(self, request, token):
+        return _render_probe(request, token)
+
+
+def _render_probe(request, token):
+    from apps.discovery import probe
+
+    state, result = probe.get_probe(token)
+    context = {"state": state, "token": token, "result": result, "match": None}
+    if state == "pending":
+        context["ip"] = probe.probe_ip(token)
+    elif state == "done" and result.up:
+        context["match"] = probe.matching_asset(result)
+    return render(request, "assets/_probe_result.html", context)
+
+
+FORM_SECTIONS = {
+    "identity_fields": AssetForm.IDENTITY_FIELDS,
+    "context_fields": AssetForm.AI_CONTEXT_FIELDS,
+}
+
+
 class AssetCreateView(Perm, View):
     permission_required = "assets.add_asset"
     template_name = "assets/asset_form.html"
@@ -346,18 +571,40 @@ class AssetCreateView(Perm, View):
             request,
             self.template_name,
             {
-                "form": AssetForm(),
+                "form": AssetCreateForm(),
                 "formset": IdentifierFormSet(prefix="ident"),
                 "asset": None,
+                **FORM_SECTIONS,
             },
         )
 
     def post(self, request):
-        form = AssetForm(request.POST)
+        form = AssetCreateForm(request.POST)
         formset = IdentifierFormSet(request.POST, prefix="ident")
         if form.is_valid() and formset.is_valid():
             identifiers = _identifiers_from(formset)
-            will_scan = _may_auto_scan(request.user, identifiers)
+            ips = [v for k, v in identifiers if k in ("IPV4", "IPV6")]
+            scope = form.cleaned_data
+            authorize = bool(ips) and (scope["authorize_scan"] or scope["register_network"])
+            to_authorize = []
+            if authorize:
+                # Se valida antes de crear el activo: una IP pública sin referencia, o un rango
+                # caducado que la cubre, no deben dejar un activo a medias.
+                try:
+                    to_authorize = services.validate_host_authorization(
+                        ips,
+                        user=request.user,
+                        reference=scope["authorization_reference"],
+                        register_network=scope["register_network"],
+                    )
+                except (ValidationError, PermissionDenied) as error:
+                    form.add_error(_authorization_field(error), error)
+                    return render(
+                        request,
+                        self.template_name,
+                        {"form": form, "formset": formset, "asset": None, **FORM_SECTIONS},
+                    )
+            will_scan = _may_auto_scan(request.user, identifiers) or bool(to_authorize)
             try:
                 asset = services.create_asset(
                     user=request.user,
@@ -372,15 +619,21 @@ class AssetCreateView(Perm, View):
             except ValidationError as error:
                 form.add_error(None, error)
             else:
+                scope_note = (
+                    _authorize_scope(request, asset, to_authorize, scope) if to_authorize else ""
+                )
+                _apply_probe(request.POST.get("probe_token"), asset, identifiers)
                 note = (
                     _auto_scan(request, asset, fallback_trigger=SuggestionTrigger.CREATE)
                     if will_scan
                     else _suggestion_note(asset)
                 )
-                messages.success(request, f"Activo creado. {note}".strip())
+                messages.success(request, f"Activo creado. {scope_note} {note}".strip())
                 return redirect("assets:detail", pk=asset.pk)
         return render(
-            request, self.template_name, {"form": form, "formset": formset, "asset": None}
+            request,
+            self.template_name,
+            {"form": form, "formset": formset, "asset": None, **FORM_SECTIONS},
         )
 
 
@@ -394,6 +647,7 @@ class AssetEditView(Perm, View):
             "formset": formset,
             "asset": asset,
             "identifiers": asset.identifiers.all(),
+            **FORM_SECTIONS,
         }
 
     def get(self, request, pk):
@@ -536,6 +790,7 @@ class SuggestionStatusView(Perm, View):
                 "in_flight": in_flight,
                 "llm_model": active_model(),
                 "llm_ready": active_model_ready(),
+                "llm_blocker": unavailable_reason(),
                 "htmx_target": request.GET.get("target", ""),
             },
         )
@@ -640,13 +895,27 @@ class ClassificationView(Perm, TemplateView):
         recent_failed = CriticalitySuggestion.objects.filter(
             state=SuggestionState.FAILED
         ).select_related("asset", "inference")[:10]
+        from django.utils import timezone
+
+        day_ago = timezone.now() - timedelta(hours=24)
         context.update(
             pending=pending,
             unclassified=unclassified,
+            unclassified_total=Asset.objects.filter(
+                criticality__isnull=True, status__in=(AssetStatus.ACTIVE, AssetStatus.STALE)
+            ).count(),
             failed=recent_failed,
+            failed_day=CriticalitySuggestion.objects.filter(
+                state=SuggestionState.FAILED, created_at__gte=day_ago
+            ).count(),
+            auto_count=Asset.objects.filter(
+                criticality_source=CriticalitySource.LLM_AUTO,
+                status__in=(AssetStatus.ACTIVE, AssetStatus.STALE),
+            ).count(),
             criticality_choices=Criticality.choices,
             llm_model=active_model(),
             llm_ready=active_model_ready(),
+            llm_blocker=unavailable_reason(),
         )
         return context
 
@@ -656,7 +925,7 @@ class ClassificationView(Perm, TemplateView):
 # --------------------------------------------------------------------------
 
 
-class UnconfirmedListView(Perm, ListView):
+class UnconfirmedListView(Perm, PaginationMixin, ListView):
     permission_required = "assets.view_asset"
     template_name = "assets/unconfirmed.html"
     context_object_name = "assets"
@@ -680,7 +949,80 @@ class UnconfirmedListView(Perm, ListView):
         for asset in context["assets"]:
             asset.merge_targets = services.merge_candidates(asset, pool)
         context["ignored_count"] = Asset.objects.filter(status=AssetStatus.IGNORED).count()
+        context["confirm_bulk_form"] = ConfirmBulkForm()
+        context["has_ranges"] = NetworkRange.objects.filter(in_scope=True).exists()
         return context
+
+
+def confirm_many(request, assets, *, environment, business_role, back):
+    """Confirma varios hosts descubiertos con el mismo entorno y función (F6).
+
+    Cada uno conserva su nombre y tipo; el escaneo de servicios y la sugerencia de criticidad
+    siguen el mismo camino que la confirmación uno a uno. Devuelve (confirmados, [(activo, motivo)]).
+    """
+    from apps.discovery import services as discovery
+
+    done, failed, scanning = 0, [], 0
+    for asset in assets:
+        will_scan = (
+            request.user.has_perm("discovery.run_discovery")
+            and not discovery.has_service_scan(asset)
+            and discovery.can_scan(asset)
+        )
+        try:
+            services.confirm_asset(
+                asset,
+                user=request.user,
+                fields={"environment": environment, "business_role": business_role},
+                suggest=not will_scan,
+            )
+        except ValidationError as error:
+            failed.append((asset, " ".join(error.messages)))
+            continue
+        done += 1
+        if will_scan:
+            asset.refresh_from_db()
+            if _auto_scan(request, asset, fallback_trigger=SuggestionTrigger.CONFIRM).startswith(
+                "Escaneo"
+            ):
+                scanning += 1
+    if done:
+        extra = f" {scanning} en escaneo de servicios." if scanning else ""
+        messages.success(
+            request,
+            f"{done} activo{'s' if done != 1 else ''} agregado{'s' if done != 1 else ''} al "
+            f"inventario.{extra}",
+        )
+    if failed:
+        detail = "; ".join(f"{a.name}: {reason}" for a, reason in failed[:5])
+        messages.warning(request, f"{len(failed)} sin confirmar — {detail}")
+    return done, failed
+
+
+class ConfirmBulkView(Perm, View):
+    permission_required = "assets.change_asset"
+
+    def post(self, request):
+        back = _safe_next(request, reverse("assets:unconfirmed"))
+        form = ConfirmBulkForm(request.POST)
+        ids = request.POST.getlist("ids")
+        if not ids:
+            messages.error(request, "Marca al menos un host por confirmar.")
+            return HttpResponseRedirect(back)
+        if not form.is_valid():
+            messages.error(request, "Elige el entorno y la función de negocio que heredarán.")
+            return HttpResponseRedirect(back)
+        assets = list(
+            Asset.objects.filter(pk__in=ids, status=AssetStatus.UNCONFIRMED).order_by("name")
+        )
+        confirm_many(
+            request,
+            assets,
+            environment=form.cleaned_data["environment"],
+            business_role=form.cleaned_data["business_role"],
+            back=back,
+        )
+        return HttpResponseRedirect(back)
 
 
 class ConfirmView(Perm, View):
@@ -762,7 +1104,7 @@ class MergeView(Perm, View):
         return HttpResponseRedirect(_safe_next(request, reverse("assets:unconfirmed")))
 
 
-class ConflictListView(Perm, ListView):
+class ConflictListView(Perm, PaginationMixin, ListView):
     permission_required = "assets.view_assetconflict"
     template_name = "assets/conflicts.html"
     context_object_name = "conflicts"

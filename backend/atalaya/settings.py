@@ -33,7 +33,9 @@ INSTALLED_APPS = [
     "apps.scanners",
     "apps.cti",
     "apps.scoring",
+    "apps.detection",
     "apps.presentation",
+    "apps.alerts",
 ]
 
 MIDDLEWARE = [
@@ -42,6 +44,8 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # Una petición HTMX sin sesión recibe 401 + HX-Redirect en vez del login incrustado.
+    "apps.core.middleware.HtmxLoginRedirectMiddleware",
     # Todas las vistas requieren sesión salvo las marcadas con @login_not_required
     # (health, login, password reset). Ver ADR-004.
     "django.contrib.auth.middleware.LoginRequiredMiddleware",
@@ -72,6 +76,8 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "apps.presentation.context_processors.navigation",
             ],
+            # Filtros de fecha/número/plural disponibles en toda plantilla sin {% load %}.
+            "builtins": ["apps.core.templatetags.ui"],
         },
     },
 ]
@@ -125,6 +131,12 @@ EMAIL_BACKEND = os.environ.get(
 )
 DEFAULT_FROM_EMAIL = os.environ.get("DJANGO_DEFAULT_FROM_EMAIL", "atalaya@localhost")
 
+# --- Avisos (F3) ---
+# URL pública de Atalaya para los enlaces de los avisos (correo, webhook).
+ATALAYA_BASE_URL = os.environ.get("ATALAYA_BASE_URL", "http://localhost:8000")
+# Horas que una acción puede esperar aprobación antes de avisar.
+ALERTS_ACTION_WAIT_HOURS = int(os.environ.get("ALERTS_ACTION_WAIT_HOURS", "4"))
+
 # --- Cifrado de campos (tokens de registry) ---
 # Lista separada por comas; la primera cifra, todas descifran (rotación).
 ATALAYA_FIELD_ENCRYPTION_KEYS = [
@@ -159,6 +171,9 @@ DISCOVERY_SWEEP_SYN_PORTS = "22,80,443,445,3389"
 DISCOVERY_SWEEP_ACK_PORTS = "80,443"
 DISCOVERY_SWEEP_HOST_TIMEOUT = os.environ.get("DISCOVERY_SWEEP_HOST_TIMEOUT", "2m")
 DISCOVERY_SERVICE_HOST_TIMEOUT = os.environ.get("DISCOVERY_SERVICE_HOST_TIMEOUT", "10m")
+# Sonda de alcance («Verificar alcance» al dar de alta): rápida, pocos puertos, sin -sV.
+DISCOVERY_PROBE_HOST_TIMEOUT = os.environ.get("DISCOVERY_PROBE_HOST_TIMEOUT", "5s")
+DISCOVERY_PROBE_PORTS = os.environ.get("DISCOVERY_PROBE_PORTS", "22,80,443,445,3389,8080,8443")
 DISCOVERY_TOP_PORTS = int(os.environ.get("DISCOVERY_TOP_PORTS", "1000"))
 DISCOVERY_TIMING = os.environ.get("DISCOVERY_TIMING", "T4")
 DISCOVERY_RUN_TIMEOUT_S = int(os.environ.get("DISCOVERY_RUN_TIMEOUT_S", "3600"))
@@ -192,9 +207,19 @@ CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_TASK_DEFAULT_QUEUE = "default"
 # Rutas por nombre exacto: solo la inferencia va a "llm" y solo nmap a "discovery".
 CELERY_TASK_ROUTES = {
+    "apps.presentation.tasks.generate_health_narrative": {"queue": "llm"},
     "apps.assets.tasks.suggest_criticality": {"queue": "llm"},
     "apps.assets.tasks.sweep_unclassified_criticality": {"queue": "llm"},
     "apps.discovery.tasks.run_discovery": {"queue": "discovery"},
+    "apps.discovery.tasks.probe_host": {"queue": "discovery"},
+    "apps.discovery.tasks.probe_asset": {"queue": "discovery"},
+    # Módulo 3: el planificador infiere en la cola llm; las herramientas corren en el
+    # worker de descubrimiento (único con acceso a las redes escaneadas).
+    "apps.detection.tasks.plan_event": {"queue": "llm"},
+    "apps.detection.tasks.draft_org_profile": {"queue": "llm"},
+    "apps.detection.tasks.consolidate_asset": {"queue": "llm"},
+    "apps.detection.tasks.describe_vulnerability": {"queue": "llm"},
+    "apps.scanners.tasks.run_tool": {"queue": "discovery"},
 }
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_BEAT_SCHEDULE = {
@@ -217,6 +242,48 @@ CELERY_BEAT_SCHEDULE = {
     "refresh-llm-status": {
         "task": "apps.llm.tasks.refresh_llm_status",
         "schedule": 60.0,
+    },
+    # Módulo 3: fuentes CTI (cada fuente respeta su propio intervalo).
+    "sync-cti-sources": {
+        "task": "apps.cti.tasks.sync_cti_sources",
+        "schedule": crontab(minute=20),
+    },
+    "detection-process-pending": {
+        "task": "apps.detection.tasks.process_pending_events",
+        "schedule": 60.0,
+    },
+    "home-health-snapshot": {
+        "task": "apps.presentation.tasks.snapshot_health",
+        "schedule": crontab(minute=5),
+    },
+    "scanners-recover-orphans": {
+        "task": "apps.scanners.tasks.recover_orphaned_executions",
+        "schedule": crontab(minute="*/5"),
+    },
+    "home-health-narrative": {
+        "task": "apps.presentation.tasks.refresh_health_narrative",
+        "schedule": crontab(minute="*/10"),
+    },
+    "detection-describe-pending": {
+        "task": "apps.detection.tasks.describe_pending_vulnerabilities",
+        "schedule": float(os.environ.get("DETECTION_DESCRIBE_EVERY", "120")),
+    },
+    "detection-time-reviews": {
+        "task": "apps.detection.tasks.emit_time_reviews",
+        "schedule": crontab(minute=40),
+    },
+    "detection-plan-stragglers": {
+        "task": "apps.detection.tasks.plan_stragglers",
+        "schedule": crontab(minute="*/5"),
+    },
+    "detection-dispatch-actions": {
+        "task": "apps.detection.tasks.dispatch_actions",
+        "schedule": 60.0,
+    },
+    # Avisos (F3): correo/webhook con los hechos nuevos que piden a una persona.
+    "alerts-dispatch": {
+        "task": "apps.alerts.tasks.dispatch_alerts",
+        "schedule": crontab(minute="*/10"),
     },
 }
 
@@ -262,12 +329,51 @@ NMAP_BIN = os.environ.get("NMAP_BIN", "/usr/bin/nmap")
 NUCLEI_BIN = os.environ.get("NUCLEI_BIN", "/usr/local/bin/nuclei")
 GRYPE_BIN = os.environ.get("GRYPE_BIN", "/usr/local/bin/grype")
 SCAN_RESULTS_DIR = os.environ.get("SCAN_RESULTS_DIR", "/data/scan-results")
+# Plantillas de nuclei (vacío = las que nuclei encuentre en su directorio por defecto).
+NUCLEI_TEMPLATES_DIR = os.environ.get("NUCLEI_TEMPLATES_DIR", "")
+# Tiempo máximo de una ejecución de nuclei o Grype.
+SCANNER_TIMEOUT_S = int(os.environ.get("SCANNER_TIMEOUT_S", "3600"))
 
-# --- CTI ---
+# --- CTI (Módulo 3: espejo local de NVD, EPSS y KEV) ---
 NVD_API_KEY = os.environ.get("NVD_API_KEY", "")
 NVD_API_BASE = os.environ.get("NVD_API_BASE", "https://services.nvd.nist.gov/rest/json/cves/2.0")
-EPSS_SNAPSHOT_URL = os.environ.get("EPSS_SNAPSHOT_URL", "")
-KEV_CATALOG_URL = os.environ.get("KEV_CATALOG_URL", "")
+EPSS_SNAPSHOT_URL = os.environ.get(
+    "EPSS_SNAPSHOT_URL", "https://epss.cyentia.com/epss_scores-current.csv.gz"
+)
+KEV_CATALOG_URL = os.environ.get(
+    "KEV_CATALOG_URL",
+    "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
+)
+# CTI_ONLINE=0 impide cualquier descarga (pruebas, entornos sin salida a internet).
+CTI_ONLINE = os.environ.get("CTI_ONLINE", "1") == "1"
+# Primera sincronización incremental de NVD: cuántos días hacia atrás.
+CTI_NVD_INITIAL_DAYS = int(os.environ.get("CTI_NVD_INITIAL_DAYS", "30"))
+# Espejo dirigido: cada cuántos días se vuelven a traer los CVE de un producto del inventario.
+CTI_PRODUCT_REFRESH_DAYS = int(os.environ.get("CTI_PRODUCT_REFRESH_DAYS", "7"))
+# Lectura de una página de NVD (2 000 CVE, 10–20 MB) con salidas lentas.
+CTI_HTTP_TIMEOUT_S = float(os.environ.get("CTI_HTTP_TIMEOUT_S", "600"))
+# «EPSS subió»: incremento mínimo entre snapshots, o primer puntaje por encima de CTI_EPSS_HIGH.
+CTI_EPSS_RISE_DELTA = float(os.environ.get("CTI_EPSS_RISE_DELTA", "0.1"))
+CTI_EPSS_HIGH = float(os.environ.get("CTI_EPSS_HIGH", "0.5"))
+
+# --- Detección continua (Módulo 3) ---
+# «Pasó mucho sin revisar»: días sin decisión del planificador sobre un activo, y días sin
+# que una fuente vuelva a ver un hallazgo abierto.
+DETECTION_ASSET_REVIEW_DAYS = int(os.environ.get("DETECTION_ASSET_REVIEW_DAYS", "14"))
+DETECTION_FINDING_REVIEW_DAYS = int(os.environ.get("DETECTION_FINDING_REVIEW_DAYS", "30"))
+# «Volver a evaluar» se ofrece solo si la última decisión del planificador es más vieja que esto.
+DETECTION_REEVALUATE_MINUTES = int(os.environ.get("DETECTION_REEVALUATE_MINUTES", "30"))
+# Consolidación de observaciones → vulnerabilidades: retardo agrupador y observaciones por llamada.
+DETECTION_CONSOLIDATE_DELAY_S = int(os.environ.get("DETECTION_CONSOLIDATE_DELAY_S", "20"))
+DETECTION_CONSOLIDATE_CHUNK = int(os.environ.get("DETECTION_CONSOLIDATE_CHUNK", "25"))
+# Cuántas vulnerabilidades sin descripción en español se redactan solas tras cada consolidación.
+DETECTION_DESCRIBE_BATCH = int(os.environ.get("DETECTION_DESCRIBE_BATCH", "10"))
+# Multiplicador del lote cuando la cola ``llm`` está vacía (F9: el modelo ocioso no debe esperar).
+DETECTION_DESCRIBE_BURST = int(os.environ.get("DETECTION_DESCRIBE_BURST", "4"))
+# Cada cuántos segundos beat encola otro lote (DETECTION_DESCRIBE_BATCH) de descripciones pendientes.
+DETECTION_DESCRIBE_EVERY = float(os.environ.get("DETECTION_DESCRIBE_EVERY", "120"))
+# EPSS a partir del cual una vulnerabilidad se considera de explotación probable (FIRST sugiere 0.1).
+DETECTION_EPSS_HIGH = float(os.environ.get("DETECTION_EPSS_HIGH", "0.1"))
 
 # --- Scoring weights ---
 SCORING_WEIGHTS = {

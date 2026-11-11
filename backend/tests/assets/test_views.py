@@ -320,7 +320,7 @@ def test_bulk_reports_failures_without_stopping(client, as_role):
     body = response.content.decode()
     ignored.refresh_from_db()
     assert ignored.status == AssetStatus.ACTIVE
-    assert "aplicado a 1" in body and "1 activo(s) sin cambios" in body
+    assert "aplicado a 1" in body and "1 activo sin cambios" in body
     # Valor fuera del catálogo: no se aplica y se informa por activo.
     response = client.post(
         "/inventory/bulk/",
@@ -363,8 +363,11 @@ def test_queued_suggestion_is_visible_and_refreshes(client, as_role, monkeypatch
     monkeypatch.setattr(tasks.auto_suggest_criticality, "delay", lambda *a: None)
     monkeypatch.setattr(services.transaction, "on_commit", lambda f, using=None, robust=False: f())
     services.schedule_suggestion(asset.pk, trigger="CREATE")
-    body = client.get(f"/inventory/{asset.pk}/").content.decode()
+    body = client.get(f"/inventory/{asset.pk}/?tab=sugerencias").content.decode()
     assert "Sugerencia en curso" in body and "suggest/status/?waiting=1" in body
+    # En Resumen, el hilo del activo muestra el paso de criticidad en curso.
+    strip = client.get(f"/detection/assets/{asset.pk}/pipeline/").content.decode()
+    assert "analiza el contexto" in strip and "every 5s" in strip
     row = client.get("/inventory/").content.decode()
     assert f'id="crit-{asset.pk}"' in row and "animate-spin" in row
     services.cache.delete(services._queued_key(asset.pk))
@@ -661,12 +664,12 @@ def test_no_model_selector_outside_admin_and_missing_model_warning(client, as_ro
     as_role(OPERATOR)
     asset = AssetFactory()
     cache.set(CACHE_KEY, {"available": True, "accelerator": "cpu", "installed": ["grande:7b"]})
-    body = client.get(f"/inventory/{asset.pk}/").content.decode()
+    body = client.get(f"/inventory/{asset.pk}/?tab=sugerencias").content.decode()
     assert (
         'name="model"' not in body and "Sugerir criticidad con IA" in body and "grande:7b" in body
     )
     cache.set(CACHE_KEY, {"available": True, "accelerator": "cpu", "installed": []})
-    body = client.get(f"/inventory/{asset.pk}/").content.decode()
+    body = client.get(f"/inventory/{asset.pk}/?tab=sugerencias").content.decode()
     assert "no está descargado" in body and "Sugerir criticidad con IA" not in body
 
 
@@ -823,7 +826,11 @@ def test_scan_buttons_and_redirect_stay_on_asset(client, as_role, monkeypatch):
     body = client.get(response.url).content.decode()
     assert "Escaneo en curso" in body and 'hx-select="#asset-runs"' in body
     discovery.DiscoveryRun.objects.update(status="SUCCEEDED")
-    assert "Re-escanear servicios" in client.get(f"/inventory/{asset.pk}/").content.decode()
+    assert (
+        "Re-escanear servicios"
+        in client.get(f"/inventory/{asset.pk}/?tab=servicios").content.decode()
+    )
+    assert "Re-escanear" in client.get(f"/detection/assets/{asset.pk}/pipeline/").content.decode()
 
 
 def test_manual_create_launches_scan_and_defers_suggestion(client, as_role, monkeypatch):

@@ -79,6 +79,7 @@ class OllamaClient:
 
 
 def _apply_metrics(log, data):
+    log.model_responded = str(data.get("model") or "")[:100]
     log.total_duration_ms = _ms(data.get("total_duration"))
     log.load_duration_ms = _ms(data.get("load_duration"))
     log.prompt_eval_count = data.get("prompt_eval_count")
@@ -90,8 +91,24 @@ def _apply_metrics(log, data):
         log.tokens_per_second = round(log.eval_count / (eval_ns / 1e9), 3)
 
 
+# Generadores de respuesta simulada por tarea (``LLM_MOCK_MODE``). Cada módulo registra el
+# suyo con ``register_mock``; la criticidad conserva el comportamiento original.
+MOCK_GENERATORS = {}
+
+
+def register_mock(task):
+    def decorator(fn):
+        MOCK_GENERATORS[task] = fn
+        return fn
+
+    return decorator
+
+
 def _mock_content(task, request_payload):
     """Respuesta simulada, válida y determinista para desarrollar sin Ollama."""
+    generator = MOCK_GENERATORS.get(task)
+    if generator is not None:
+        return json.dumps(generator(request_payload), ensure_ascii=False)
     digest = hashlib.sha256(json.dumps(request_payload, sort_keys=True).encode()).digest()
     classes = ("CRITICO", "ALTO", "MEDIO", "BAJO", "INFORMATIVO")
     data = request_payload.get("asset", request_payload)
@@ -118,6 +135,23 @@ def _mock_content(task, request_payload):
     )
 
 
+def retry_feedback(exc: ValidationError) -> str:
+    """Resumen legible de los errores de validación para pedir una corrección al modelo."""
+    lines = []
+    for err in exc.errors()[:6]:
+        where = ".".join(str(p) for p in err.get("loc", ())) or "respuesta"
+        lines.append(f"- {where}: {err.get('msg', 'valor no válido')}")
+    return (
+        "Tu respuesta anterior no cumplió el esquema o las reglas. Corrige SOLO lo señalado y "
+        "responde de nuevo con el JSON completo, en español:\n" + "\n".join(lines)
+    )
+
+
+def _strip_nul(text):
+    """PostgreSQL no admite U+0000 ni en texto ni en JSON; el modelo lo emite a veces como «\\u0000»."""
+    return (text or "").replace("\\u0000", "").replace("\x00", "")
+
+
 def run_structured(
     *,
     task,
@@ -132,8 +166,14 @@ def run_structured(
     options=None,
     client=None,
     keep_alive=None,
+    max_attempts=None,
 ):
-    """Ejecuta una inferencia con salida estructurada y devuelve el ``InferenceLog`` guardado."""
+    """Ejecuta una inferencia con salida estructurada y devuelve el ``InferenceLog`` guardado.
+
+    ``max_attempts`` permite a una tarea con reglas de redacción exigentes (riesgos) un reintento
+    más que el estándar.
+    """
+    max_attempts = max_attempts or MAX_ATTEMPTS
     options = options or default_options()
     log = InferenceLog(
         task=task,
@@ -149,6 +189,7 @@ def run_structured(
         if settings.LLM_MOCK_MODE:
             log.accelerator = "mock"
             log.attempts = 1
+            log.model_responded = model
             log.response_raw = _mock_content(task, request_payload)
             log.parsed = validator.model_validate_json(log.response_raw).model_dump()
             log.parsed_ok = True
@@ -163,16 +204,23 @@ def run_structured(
             )
             return log
         log.model_digest = installed[model]
-        for attempt in range(1, MAX_ATTEMPTS + 1):
+        conversation = list(messages)
+        for attempt in range(1, max_attempts + 1):
             log.attempts = attempt
             extra = {"keep_alive": keep_alive} if keep_alive is not None else {}
-            data = client.chat(model, messages, schema, options, **extra)
+            data = client.chat(model, conversation, schema, options, **extra)
             _apply_metrics(log, data)
-            log.response_raw = (data.get("message") or {}).get("content", "")
+            log.response_raw = _strip_nul((data.get("message") or {}).get("content", ""))
             try:
                 log.parsed = validator.model_validate_json(log.response_raw).model_dump()
             except ValidationError as exc:
                 log.error = f"Salida inválida (intento {attempt}): {exc.error_count()} error(es) de validación."
+                # El reintento ve su respuesta y qué falló: corrige en vez de repetir el error.
+                conversation = [
+                    *messages,
+                    {"role": "assistant", "content": log.response_raw[:4000]},
+                    {"role": "user", "content": retry_feedback(exc)},
+                ]
                 continue
             log.parsed_ok = True
             log.error = ""

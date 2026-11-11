@@ -23,6 +23,15 @@ class RangeListView(Perm, ListView):
             "authorized_by"
         )
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        from django.utils import timezone
+
+        now = timezone.now()
+        for rng in context["ranges"]:
+            rng.expired = rng.in_scope and not rng.is_authorized(now)
+        return context
+
 
 class RangeDetailView(Perm, TemplateView):
     permission_required = "assets.view_networkrange"
@@ -39,6 +48,7 @@ class RangeDetailView(Perm, TemplateView):
             asset_count=rng.assets.count(),
             launch_form=DiscoveryLaunchForm(),
             discoverable_error=self._discoverable_error(rng),
+            expired=rng.in_scope and not rng.is_authorized(),
         )
         return context
 
@@ -60,7 +70,13 @@ class RangeFormView(Perm, View):
     def get(self, request, pk=None):
         rng = get_object_or_404(NetworkRange, pk=pk) if pk else None
         return render(
-            request, self.template_name, {"form": NetworkRangeForm(instance=rng), "range": rng}
+            request,
+            self.template_name,
+            {
+                "form": NetworkRangeForm(instance=rng),
+                "range": rng,
+                "renewing": bool(request.GET.get("renovar")) and rng is not None,
+            },
         )
 
     def post(self, request, pk=None):

@@ -1,7 +1,40 @@
 {% extends "base.html" %}
-{% block title %}Ejecuciones de descubrimiento{% endblock %}
-{% block toolbar %}<div class="toolbar"><h2>Ejecuciones de descubrimiento <span class="ml-1 font-mono text-xs font-normal text-muted">{{ paginator.count }}</span></h2></div>{% endblock %}
+{% block title %}Descubrimiento{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <div class="flex flex-wrap items-center gap-2">
+    <h2>Descubrimiento <span class="ml-1 font-mono text-xs font-normal text-muted">{{ paginator.count }}</span></h2>
+    <span class="text-xs text-muted">barridos y escaneos de servicios con nmap sobre los rangos autorizados</span>
+  </div>
+</div>
+{% endblock %}
 {% block content %}
+{% if perms.discovery.run_discovery %}
+<section class="card flex flex-col gap-3">
+  <h3 class="card-title mb-0">Descubrir un rango</h3>
+  {% if launchable %}
+  <form method="post" action="{% url 'discovery:launch_from_list' %}" class="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
+    {% csrf_token %}
+    <div><label class="form-label" for="{{ launch_form.network_range.id_for_label }}">{{ launch_form.network_range.label }}</label>{{ launch_form.network_range }}</div>
+    <div><label class="form-label" for="{{ launch_form.profile.id_for_label }}">{{ launch_form.profile.label }}</label>{{ launch_form.profile }}</div>
+    <button class="btn-primary" type="submit">Descubrir ahora</button>
+  </form>
+  <p class="text-xs text-muted">Solo aparecen los rangos con autorización vigente. El barrido encuentra equipos; el escaneo de servicios además lee puertos y versiones (tarda más).</p>
+  {% elif has_ranges %}
+  <p class="text-sm text-medium">Ningún rango tiene autorización vigente. <a href="{% url 'assets:ranges' %}">Renuévala en Rangos de red</a> para poder descubrir.</p>
+  {% else %}
+  <p class="text-sm text-ink-soft">Todavía no hay rangos de red. {% if perms.assets.manage_scope %}<a href="{% url 'assets:range_create' %}">Registra el primero</a>{% else %}Pide a un administrador que registre el primero{% endif %}: sin un rango autorizado no se escanea nada.</p>
+  {% endif %}
+</section>
+{% endif %}
+
+<form method="get" class="card grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:items-end">
+  {% for field in filter_form %}
+  <div><label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}</div>
+  {% endfor %}
+  <div class="flex gap-2"><button type="submit" class="btn-primary">Filtrar</button><a href="{% url 'discovery:runs' %}" class="btn-secondary">Limpiar</a></div>
+</form>
+
 {% include "discovery/_run_table.html" with runs=runs %}
 {% include "_pagination.html" %}
 {% endblock %}

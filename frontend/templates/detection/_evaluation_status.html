@@ -1,0 +1,28 @@
+{% load detection_tags %}
+{# Última evaluación del activo contada como pasos (B). Se refresca sola mientras hay algo en curso. #}
+<div id="evaluation-status" class="flex flex-col gap-2 text-sm"{% if progress.poll and not embedded %} hx-get="{% url 'detection:evaluation_status' asset_id %}" hx-trigger="every {{ progress.poll }}s" hx-swap="outerHTML"{% endif %}>
+{% if not progress.event %}
+  <p class="text-xs text-muted">Sin evaluaciones todavía.</p>
+  {% if not progress.caps.can_evaluate %}
+  <div class="alert-warning text-sm"><strong>Atalaya aún no puede evaluar este activo:</strong> {{ progress.caps.blockers|join:"; " }}.</div>
+  {% include "detection/_review_facts.html" with caps=progress.caps asset_id=asset_id in_form=False only_remedies=True %}
+  {% endif %}
+{% else %}
+  <div class="flex flex-wrap items-center justify-between gap-2">
+    <p class="eyebrow mb-0">Última evaluación · {{ progress.event.created_at|fecha }}{% if progress.in_flight %} · <span class="text-primary">en curso…</span>{% endif %}</p>
+    <a href="{% url 'detection:event' progress.event.pk %}" class="text-xs">Ver evento</a>
+  </div>
+  <ol class="flex flex-col gap-1">
+    {% for s in progress.steps %}
+    <li class="flex flex-wrap items-baseline gap-2">
+      <span class="{% if s.state == 'done' %}badge-low{% elif s.state == 'active' %}badge-primary{% elif s.state == 'waiting' %}badge-medium{% elif s.state == 'failed' %}badge-critical{% else %}badge-neutral{% endif %}">{{ s.label }}</span>
+      <span class="text-ink-soft">{% if s.url %}<a href="{{ s.url }}">{{ s.detail }}</a>{% else %}{{ s.detail }}{% endif %}</span>
+    </li>
+    {% endfor %}
+  </ol>
+  {% if progress.outcome %}<div class="{{ progress.outcome_class }} text-sm">{{ progress.outcome }}{% if progress.outcome_url %} <a href="{{ progress.outcome_url }}">Ver</a>{% endif %}</div>{% endif %}
+  {% if progress.event.status == 'FILTERED' or progress.action.status == 'NEEDS_REVIEW' %}
+  {% include "detection/_review_facts.html" with caps=progress.caps asset_id=asset_id in_form=False only_remedies=True %}
+  {% endif %}
+{% endif %}
+</div>

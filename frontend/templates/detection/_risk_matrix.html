@@ -1,0 +1,23 @@
+{% load detection_tags %}
+{% comment %}Matriz 5×5 ISO/IEC 27005: filas impacto 5→1, columnas probabilidad 1→5. Recibe matrix (lista de filas de celdas) y opcionalmente compact. En modo compacto cada celda con riesgos enlaza al registro filtrado por esa casilla.{% endcomment %}
+<div class="flex gap-2 text-xs">
+  <div class="flex flex-col items-center justify-center"><span class="eyebrow mb-0 [writing-mode:vertical-rl] rotate-180">Impacto</span></div>
+  <div class="flex flex-col gap-1">
+    <table class="border-separate border-spacing-1" aria-label="Matriz de riesgo 5 por 5">
+      <tbody>
+        {% for row in matrix %}
+        <tr>
+          <th scope="row" class="w-6 text-right font-mono text-muted">{{ row.0.impact }}</th>
+          {% for cell in row %}
+          <td class="{{ cell.level|risk_cell_class }} h-9 min-w-9 rounded-sm text-center align-middle font-mono {% if compact %}w-9{% else %}w-16{% endif %}" title="Probabilidad {{ cell.likelihood }} × impacto {{ cell.impact }}: riesgo {{ cell.level|risk_level_label|lower }}{% if cell.risks %} · {{ cell.risks|length|pl:"riesgo,riesgos" }}{% endif %}">
+            {% if cell.risks %}{% if compact %}<a href="{% url 'detection:risks' %}?likelihood={{ cell.likelihood }}&amp;impact={{ cell.impact }}{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="block text-inherit hover:underline" aria-label="Ver {{ cell.risks|length|pl:'riesgo,riesgos' }} con probabilidad {{ cell.likelihood }} e impacto {{ cell.impact }}">{{ cell.risks|length }}</a>{% else %}{% for r in cell.risks %}<a href="{% url 'detection:risk' r.pk %}" class="block truncate px-1 text-inherit hover:underline" title="{{ r.title }}">●</a>{% endfor %}{% endif %}{% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+        <tr><th></th>{% for i in "12345" %}<th class="font-mono text-muted">{{ i }}</th>{% endfor %}</tr>
+      </tbody>
+    </table>
+    <p class="eyebrow mb-0 text-center">Probabilidad</p>
+  </div>
+</div>

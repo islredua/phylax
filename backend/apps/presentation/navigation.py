@@ -92,19 +92,7 @@ SECTIONS = (
                 ("assets.view_containerimage",),
                 ("assets:image_create",),
             ),
-            Tab(
-                "import",
-                "Importar/Exportar",
-                "assets:import",
-                ("assets.add_asset", "assets.view_asset"),
-                ("assets:import_preview", "assets:import_status"),
-            ),
-        ),
-    ),
-    Section(
-        key="discovery",
-        label="Descubrimiento",
-        tabs=(
+            # El descubrimiento es el mecanismo que llena el inventario: vive en esta sección.
             Tab(
                 "ranges",
                 "Rangos de red",
@@ -118,11 +106,81 @@ SECTIONS = (
                 ),
             ),
             Tab(
-                "runs",
-                "Ejecuciones",
+                "discovery",
+                "Descubrimiento",
                 "discovery:runs",
                 ("discovery.view_discoveryrun",),
                 ("discovery:*",),
+            ),
+            Tab(
+                "import",
+                "Importar/Exportar",
+                "assets:import",
+                ("assets.add_asset", "assets.view_asset"),
+                ("assets:import_preview", "assets:import_status"),
+            ),
+        ),
+    ),
+    Section(
+        key="detection",
+        label="Detección",
+        tabs=(
+            Tab(
+                "risks",
+                "Riesgos",
+                "detection:risks",
+                ("detection.view_risk",),
+                (
+                    "detection:risk",
+                    "detection:risk_report",
+                    "detection:risk_treatment",
+                    "detection:risk_note",
+                ),
+            ),
+            Tab(
+                "panel",
+                "Vulnerabilidades",
+                "detection:panel",
+                ("detection.view_vulnerability",),
+                (
+                    "detection:vulnerability",
+                    "detection:vulnerability_status",
+                    "detection:vulnerability_description",
+                    "detection:vulnerability_release",
+                    "detection:vulnerability_note",
+                    "detection:asset_consolidate",
+                    "detection:event",
+                    "detection:action",
+                    "detection:execution",
+                ),
+            ),
+            Tab(
+                "observations",
+                "Observaciones",
+                "detection:observations",
+                ("detection.view_finding",),
+                (
+                    "detection:finding",
+                    "detection:finding_transition",
+                    "detection:finding_note",
+                    "detection:observation_new",
+                ),
+            ),
+            Tab("activity", "Actividad", "detection:activity", ("detection.view_detectionevent",)),
+            Tab(
+                "queue",
+                "Cola de aprobación",
+                "detection:queue",
+                ("detection.view_plannedaction",),
+                ("detection:queue_bulk",),
+            ),
+            Tab("sources", "Fuentes CTI", "detection:sources", ("cti.view_ctisource",)),
+            Tab(
+                "automation",
+                "Automatización",
+                "detection:automation",
+                ("detection.view_automationsettings",),
+                ("detection:automation_pause",),
             ),
         ),
     ),
@@ -136,9 +194,26 @@ SECTIONS = (
                 "administration",
                 permissions=("accounts.view_user", "accounts.view_auditlogentry"),
             ),
+            # Perfil de la organización: contexto para detección, scoring y reportes; lo edita el
+            # administrador (manage_profile). Misma puerta que el resumen de Administración
+            # (administrador y Lector): el Analista no ve esta sección (ADR-004). La vista en sí
+            # exige detection.view_organizationprofile.
+            Tab(
+                "organization",
+                "Organización",
+                "organization",
+                ("accounts.view_user", "accounts.view_auditlogentry"),
+                ("organization_draft",),
+            ),
             Tab("users", "Usuarios", "users:list", ("accounts.view_user",), ("users:*",)),
             Tab("audit", "Bitácora", "accounts:audit_log", ("accounts.view_auditlogentry",)),
             Tab("llm", "LLM", "llm:settings", ("llm.manage_llm",)),
+            Tab(
+                "home_settings",
+                "Inicio",
+                "home_settings",
+                ("presentation.change_presentationsettings",),
+            ),
             Tab(
                 "catalogs",
                 "Catálogos",
@@ -148,10 +223,19 @@ SECTIONS = (
             ),
             Tab(
                 "registries",
-                "Registries",
+                "Registros de imágenes",
                 "assets:registries",
                 ("assets.manage_registries",),
                 ("assets:registry_create", "assets:registry_edit", "assets:registry_delete"),
+            ),
+            # Avisos: los configura el administrador y los consulta el Lector; el Analista no ve
+            # Administración (ADR-004), aunque la pantalla le responda si entra por URL.
+            Tab(
+                "alerts",
+                "Avisos",
+                "alerts:settings",
+                ("alerts.manage_alerts", "accounts.view_auditlogentry"),
+                ("alerts:*",),
             ),
         ),
     ),

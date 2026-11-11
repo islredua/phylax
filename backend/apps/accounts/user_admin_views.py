@@ -9,6 +9,8 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.cache import never_cache
 from django.views.generic import FormView, ListView, TemplateView
 
+from apps.core.views import PaginationMixin
+
 from . import mfa, user_admin, user_sessions
 from .models import AuditLogEntry, MFADevice
 from .roles import ROLES
@@ -29,7 +31,7 @@ class TargetUserMixin:
         return context
 
 
-class UserListView(PermissionRequiredMixin, ListView):
+class UserListView(PermissionRequiredMixin, PaginationMixin, ListView):
     permission_required = "accounts.view_user"
     raise_exception = True
     template_name = "users/user_list.html"
@@ -62,6 +64,8 @@ class UserListView(PermissionRequiredMixin, ListView):
                 queryset = queryset.filter(is_active=data["status"] == "active")
             if data["mfa"]:
                 queryset = queryset.filter(has_mfa=data["mfa"] == "yes")
+            if data["temp"]:
+                queryset = queryset.filter(must_change_password=True)
         return queryset.distinct()
 
     def get_context_data(self, **kwargs):
@@ -215,13 +219,13 @@ class UserResetPasswordView(UserActionView):
 
 class UserResetMFAView(UserActionView):
     action = "reset_mfa"
-    title = "Resetear verificación en dos pasos"
+    title = "Restablecer la verificación en dos pasos"
     description = (
         "Elimina el dispositivo y los códigos de respaldo del usuario (por ejemplo, si perdió "
         "su teléfono) y cierra sus sesiones. Si su rol exige MFA, deberá enrolarse de nuevo."
     )
-    confirm_label = "Resetear MFA"
-    success_message = "MFA reseteado."
+    confirm_label = "Restablecer MFA"
+    success_message = "Verificación en dos pasos restablecida."
     danger = True
 
 

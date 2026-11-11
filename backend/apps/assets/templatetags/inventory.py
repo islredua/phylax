@@ -34,9 +34,7 @@ RUN_STYLE = {
 @register.simple_tag
 def criticality_badge(value, source=None):
     if not value:
-        return mark_safe(
-            '<span class="badge-neutral">sin clasificar</span>'
-        )  # noqa: S308 (literal)
+        return mark_safe('<span class="badge-neutral">sin clasificar</span>')  # noqa: S308 (literal)
     label = Criticality(value).label
     title = CriticalitySource(source).label if source else ""
     badge = format_html(
@@ -98,3 +96,15 @@ def catalog(value, kind):
     from apps.assets.catalogs import label
 
     return label(kind, value) if value else "—"
+
+
+SCAN_MODE_LABELS = {
+    "privileged": "con privilegios (SYN, detección de SO)",
+    "unprivileged": "sin privilegios (connect)",
+}
+
+
+@register.filter
+def scan_mode_label(value):
+    """Modo de nmap en palabras (``privileged`` → «con privilegios…»)."""
+    return SCAN_MODE_LABELS.get(value, value or "—")

@@ -24,8 +24,9 @@
         {% if s.policy_adjusted %}<span class="pill-warn" title="{{ s.policy_rule }}">ajustada por política</span>{% else %}<span class="pill-ok" title="La clase del modelo está dentro de los límites de la política">coincide con la política</span>{% endif %}
       {% endif %}
     </div>
-    <p class="font-mono text-[11px] text-muted">
-      {{ s.get_trigger_display|lower }} · {{ s.model|default:"—" }}{% if s.reused_from_id %} · respuesta reutilizada{% endif %}{% if s.reused_from_id %}{% elif s.inference and s.inference.total_duration_ms %} · {{ s.inference.total_duration_ms|floatformat:0 }} ms{% endif %}{% if s.inference.tokens_per_second %} · {{ s.inference.tokens_per_second|floatformat:1 }} tok/s{% endif %}{% if s.inference.accelerator and s.inference.accelerator != 'unknown' %} · {{ s.inference.accelerator|upper }}{% endif %}
+    <p class="text-[11px] text-muted">
+      {{ s.get_trigger_display|lower }} · {{ s.created_at|fecha }}{% if s.reused_from_id %} · respuesta reutilizada{% endif %}
+      {% if s.inference and not s.reused_from_id %}<details class="inline"><summary class="inline cursor-pointer text-primary">detalles técnicos</summary> <span class="font-mono">{{ s.model|default:"—" }}{% if s.inference.total_duration_ms %} · {{ s.inference.total_duration_ms|floatformat:0 }} ms{% endif %}{% if s.inference.tokens_per_second %} · {{ s.inference.tokens_per_second|floatformat:1 }} tok/s{% endif %}{% if s.inference.accelerator and s.inference.accelerator != 'unknown' %} · {{ s.inference.accelerator|upper }}{% endif %}</span></details>{% endif %}
     </p>
   </div>
 
@@ -90,6 +91,6 @@
     </form>
   </div>
   {% elif s.decided_by %}
-  <p class="text-xs text-muted">Decidió <span class="font-mono">{{ s.decided_by.get_username }}</span> el {{ s.decided_at|date:"Y-m-d H:i" }}{% if s.final_value %}: criticidad <strong class="text-ink">{{ s.get_final_value_display|lower }}</strong>{% endif %}. <a href="{% url 'assets:detail' s.asset_id %}">Ver activo</a></p>
+  <p class="text-xs text-muted">Decidió <span class="font-mono">{{ s.decided_by.get_username }}</span> el {{ s.decided_at|fecha }}{% if s.final_value %}: criticidad <strong class="text-ink">{{ s.get_final_value_display|lower }}</strong>{% endif %}. <a href="{% url 'assets:detail' s.asset_id %}">Ver activo</a></p>
   {% endif %}
 </article>

@@ -24,7 +24,7 @@
   <div class="flex flex-wrap items-center justify-between gap-2">
     <h2>Sesiones activas</h2>
     {% if sessions|length > 1 %}
-    <form method="post" action="{% url 'accounts:session_revoke' %}">
+    <form method="post" action="{% url 'accounts:session_revoke' %}" data-confirm="¿Cerrar tus otras {{ sessions|length|add:'-1' }} sesiones? Tendrás que volver a iniciar sesión en esos dispositivos.">
       {% csrf_token %}
       <button type="submit" class="btn-secondary btn-sm">Cerrar las demás sesiones</button>
     </form>
@@ -32,14 +32,14 @@
   </div>
   <div class="table-wrap">
     <table class="data-table">
-      <thead><tr><th>Dispositivo</th><th>IP</th><th>Inicio</th><th>Última actividad</th><th></th></tr></thead>
+      <thead><tr><th scope="col">Dispositivo</th><th scope="col">IP</th><th scope="col" class="col-md">Inicio</th><th scope="col">Última actividad</th><th scope="col"></th></tr></thead>
       <tbody>
-        {% for s in sessions %}
+        {% for s in sessions|slice:":10" %}
         <tr>
           <td class="max-w-xs truncate text-xs text-ink-soft" title="{{ s.user_agent }}">{{ s.user_agent|default:"Desconocido" }}</td>
           <td class="font-mono text-xs">{{ s.ip_address|default:"—" }}</td>
-          <td class="font-mono text-xs whitespace-nowrap">{{ s.created_at|date:"Y-m-d H:i" }}</td>
-          <td class="font-mono text-xs whitespace-nowrap">{{ s.last_seen_at|date:"Y-m-d H:i" }}</td>
+          <td class="font-mono text-xs whitespace-nowrap">{{ s.created_at|fecha }}</td>
+          <td class="font-mono text-xs whitespace-nowrap">{{ s.last_seen_at|fecha }}</td>
           <td class="text-right">
             {% if s.session_key == current_session_key %}
             <span class="badge-primary">Esta sesión</span>
@@ -57,5 +57,6 @@
       </tbody>
     </table>
   </div>
+  {% if sessions|length > 10 %}<p class="text-xs text-muted">Se muestran las 10 más recientes de {{ sessions|length }}. «Cerrar las demás sesiones» cierra todas menos esta.</p>{% endif %}
 </section>
 {% endblock %}

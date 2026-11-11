@@ -1,14 +1,24 @@
 {% extends "base.html" %}
 {% block title %}Por confirmar{% endblock %}
-{% block toolbar %}<div class="toolbar"><h2>Por confirmar <span class="ml-1 font-mono text-xs font-normal text-muted">{{ paginator.count }}</span></h2></div>{% endblock %}
+{% block toolbar %}<div class="toolbar"><h2>Por confirmar <span class="ml-1 font-mono text-xs font-normal text-muted">{{ paginator.count }}</span></h2>{% if perms.discovery.run_discovery %}<a href="{% url 'discovery:runs' %}" class="btn-secondary btn-sm">Descubrir un rango…</a>{% endif %}</div>{% endblock %}
 {% block content %}
-<p class="muted">Hosts descubiertos pendientes de confirmar. {% if ignored_count %}<a href="{% url 'assets:list' %}?status=IGNORED">Ver ignorados ({{ ignored_count }})</a>{% endif %}</p>
+<p class="muted">Hosts que el descubrimiento vio y nadie ha confirmado todavía. Confirmar es decir «es nuestro y queremos vigilarlo». {% if ignored_count %}<a href="{% url 'assets:list' %}?status=IGNORED">Ver ignorados ({{ ignored_count }})</a>{% endif %}</p>
+{% if perms.assets.change_asset and assets %}
+<form method="post" action="{% url 'assets:confirm_bulk' %}" id="confirm-bulk">
+  {% csrf_token %}
+  <input type="hidden" name="next" value="{{ request.get_full_path }}">
+  {% include "assets/_confirm_bulk_bar.html" %}
+</form>
+{% endif %}
 <div class="flex flex-col gap-3">
   {% for a in assets %}
   <article class="card flex flex-col gap-3">
     <div class="flex flex-wrap items-baseline justify-between gap-2">
-      <a href="{% url 'assets:detail' a.pk %}" class="font-medium">{{ a.name }}</a>
-      <span class="font-mono text-xs text-muted">visto {{ a.last_seen|date:"Y-m-d H:i"|default:"—" }}</span>
+      <div class="flex items-center gap-2">
+        {% if perms.assets.change_asset %}<input type="checkbox" name="ids" value="{{ a.pk }}" form="confirm-bulk" class="checkbox" aria-label="Seleccionar {{ a.name }}">{% endif %}
+        <a href="{% url 'assets:detail' a.pk %}" class="font-medium">{{ a.name }}</a>
+      </div>
+      <span class="font-mono text-xs text-muted">visto {{ a.last_seen|fecha }}</span>
     </div>
     <div class="flex flex-wrap gap-1">{% for i in a.identifiers.all %}<span class="badge-neutral">{{ i.get_kind_display }} {{ i.value }}</span>{% endfor %}</div>
     {% if a.os_guess %}<p class="text-xs text-ink-soft">SO estimado: {{ a.os_guess }}</p>{% endif %}
@@ -32,7 +42,15 @@
     {% endif %}
   </article>
   {% empty %}
-  <p class="card muted">No hay activos por confirmar.</p>
+  <div class="card flex flex-col gap-2">
+    <p class="font-medium">No hay hosts por confirmar.</p>
+    <p class="text-sm text-ink-soft">Aparecen aquí cuando un descubrimiento ve un equipo que no está en el inventario.{% if not has_ranges %} Todavía no hay rangos de red registrados: el descubrimiento necesita uno con autorización vigente.{% endif %}</p>
+    <div class="flex flex-wrap gap-2">
+      {% if not has_ranges and perms.assets.manage_scope %}<a href="{% url 'assets:range_create' %}" class="btn-primary btn-sm">Registrar un rango</a>
+      {% elif perms.discovery.run_discovery %}<a href="{% url 'discovery:runs' %}" class="btn-primary btn-sm">Descubrir un rango…</a>{% endif %}
+      {% if ignored_count %}<a href="{% url 'assets:list' %}?status=IGNORED" class="btn-secondary btn-sm">Ver ignorados ({{ ignored_count }})</a>{% endif %}
+    </div>
+  </div>
   {% endfor %}
 </div>
 {% include "_pagination.html" %}

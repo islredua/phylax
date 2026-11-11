@@ -154,6 +154,28 @@ def test_only_one_active_run_per_range(lab_range, operator, django_capture_on_co
         services.request_discovery(user=operator, profile="HOST_SWEEP", network_range=lab_range)
 
 
+def test_asset_service_scan_request_is_idempotent(
+    lab_range, operator, django_capture_on_commit_callbacks
+):
+    """Al confirmar un host lo pide la persona y, por el evento de confirmación, el planificador:
+    el segundo pedido reutiliza el escaneo en cola en lugar de lanzar otro nmap."""
+    from apps.assets.models import IdentifierKind
+    from tests.factories import AssetFactory, AssetIdentifierFactory
+
+    asset = AssetFactory(name="host-lab")
+    AssetIdentifierFactory(asset=asset, kind=IdentifierKind.IPV4, value="172.30.10.7")
+    first = services.request_discovery(user=operator, profile="SERVICE_SCAN", asset=asset)
+    again = services.request_discovery(user=None, profile="SERVICE_SCAN", asset=asset)
+    assert again.pk == first.pk
+    assert DiscoveryRun.objects.filter(target_asset=asset).count() == 1
+    first.status = RunStatus.SUCCEEDED
+    first.save()
+    assert (
+        services.request_discovery(user=operator, profile="SERVICE_SCAN", asset=asset).pk
+        != first.pk
+    )
+
+
 # --- Ejecución con nmap simulado --------------------------------------------------
 
 

@@ -12,8 +12,8 @@
       <div><dt class="kv-label">Rol</dt><dd class="kv-value">{% if role %}<span class="badge-primary">{{ role.name }}</span>{% else %}<span class="text-muted">sin rol asignado</span>{% endif %}</dd></div>
       <div><dt class="kv-label">Nombre</dt><dd class="kv-value">{{ user.get_full_name|default:"—" }}</dd></div>
       <div><dt class="kv-label">Correo</dt><dd class="kv-value">{{ user.email|default:"—" }}</dd></div>
-      <div><dt class="kv-label">Último inicio de sesión</dt><dd class="kv-value font-mono text-xs">{{ user.last_login|date:"Y-m-d H:i"|default:"—" }}</dd></div>
-      <div><dt class="kv-label">Miembro desde</dt><dd class="kv-value font-mono text-xs">{{ user.date_joined|date:"Y-m-d" }}</dd></div>
+      <div><dt class="kv-label">Último inicio de sesión</dt><dd class="kv-value font-mono text-xs">{{ user.last_login|fecha }}</dd></div>
+      <div><dt class="kv-label">Miembro desde</dt><dd class="kv-value font-mono text-xs">{{ user.date_joined|fecha_corta }}</dd></div>
     </dl>
     <a href="{% url 'accounts:profile' %}" class="btn-secondary mt-4">Editar perfil</a>
   </section>

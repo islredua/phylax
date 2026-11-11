@@ -21,6 +21,7 @@ from .models import ACTIVE_STATUSES, DiscoveryProfile, DiscoveryRun, RunStatus
 from .parser import NmapParseError, parse_nmap_xml
 from .profiles import build_argv, validate_host_ip, validate_sweep_cidr
 from .runner import DiscoveryCancelledError, DiscoveryError, detect_scan_mode, run_nmap
+from .signals import run_finished
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,18 @@ def request_discovery(*, user, profile, network_range=None, asset=None):
         if not _asset_ips(asset):
             raise ValidationError("El activo no tiene IPs dentro del alcance autorizado.")
         profile = DiscoveryProfile.SERVICE_SCAN
+        # Idempotente: si ya hay un escaneo de servicios en cola o en curso para el activo (lo pidió
+        # la persona al confirmarlo y, a la vez, el planificador por el evento de confirmación), se
+        # reutiliza en lugar de lanzar un segundo nmap contra el mismo equipo.
+        active = (
+            DiscoveryRun.objects.filter(
+                target_asset=asset, profile=profile, status__in=ACTIVE_STATUSES
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        if active is not None:
+            return active
     try:
         with transaction.atomic():
             run = DiscoveryRun.objects.create(
@@ -160,6 +173,7 @@ def execute_run(run_id):
     if not claimed:
         return DiscoveryRun.objects.filter(pk=run_id).first()
     run = DiscoveryRun.objects.select_related("network_range", "target_asset").get(pk=run_id)
+    hosts = []
     try:
         cidr, ips = _targets_for(run)
         mode = detect_scan_mode()
@@ -198,16 +212,98 @@ def execute_run(run_id):
     if DiscoveryRun.objects.filter(pk=run_id, status=RunStatus.CANCELLED).exists():
         run.status = RunStatus.CANCELLED
     run.save()
+    if run.target_asset_id and run.status == RunStatus.SUCCEEDED:
+        # El escaneo dirigido es también la verificación de alcance del activo.
+        assets_services.record_reachability(run.target_asset_id, up=bool(hosts), at=started)
     if run.target_asset_id and run.status != RunStatus.CANCELLED:
         # Escaneo de un activo: ya con servicios, MAC y hostname, se calcula su criticidad.
         # La huella evita una inferencia nueva si el escaneo no cambió el contexto.
         assets_services.schedule_suggestion(run.target_asset_id, trigger="SCAN")
+    # Módulo 3: la acción «reescanear servicios» que lo pidió se cierra con este resultado.
+    run_finished.send(
+        sender=DiscoveryRun, run_id=run.pk, status=run.status, asset_id=run.target_asset_id
+    )
     return run
 
 
 def can_scan(asset):
     """``True`` si el activo tiene alguna IP dentro del alcance autorizado."""
     return bool(_asset_ips(asset))
+
+
+def scan_blocker(asset):
+    """``("", None)`` si el activo se puede escanear; si no, ``(motivo, id_del_rango_o_None)``.
+
+    El motivo es una frase para personas: le dice al analista qué arreglar (registrar un rango,
+    renovar una autorización, dar una IP al activo) en lugar de un «fuera del alcance» seco.
+    """
+    from django.utils import timezone
+
+    if not asset.in_scope:
+        return "el activo está excluido del alcance de escaneo", None
+    ips = list(
+        asset.identifiers.filter(kind__in=(IdentifierKind.IPV4, IdentifierKind.IPV6)).values_list(
+            "value", flat=True
+        )
+    )
+    if not ips:
+        return "el activo no tiene dirección IP", None
+    if any(assets_services.is_in_scope(ip) for ip in ips):
+        return "", None
+    now = timezone.now()
+    for ip in ips:
+        rng = assets_services.find_range_for_ip(ip)
+        if rng is None:
+            continue
+        if not rng.in_scope:
+            return f"el rango {rng.cidr} ({rng.name}) está fuera del alcance", rng.pk
+        if rng.authorization_expires_at and rng.authorization_expires_at <= now:
+            return (
+                f"la autorización del rango {rng.cidr} ({rng.name}) caducó el "
+                f"{timezone.localdate(rng.authorization_expires_at):%Y-%m-%d}",
+                rng.pk,
+            )
+    return f"la IP {ips[0]} no pertenece a ningún rango de red registrado", None
+
+
+def scan_blocker_for_asset_id(asset_id):
+    from apps.assets.models import Asset
+
+    asset = Asset.objects.filter(pk=asset_id).first()
+    if asset is None:
+        return "el activo ya no existe", None
+    return scan_blocker(asset)
+
+
+def can_scan_asset_id(asset_id):
+    """Variante por id para módulos que no manejan instancias del inventario (D6)."""
+    from apps.assets.models import Asset
+
+    asset = Asset.objects.filter(pk=asset_id).first()
+    return asset is not None and can_scan(asset)
+
+
+def latest_service_scan(asset_id):
+    """Último escaneo de servicios dirigido al activo (en curso primero), o ``None``."""
+    return (
+        DiscoveryRun.objects.filter(target_asset_id=asset_id, profile=DiscoveryProfile.SERVICE_SCAN)
+        .order_by("-created_at")
+        .first()
+    )
+
+
+def typical_service_scan_seconds():
+    """Mediana de los últimos escaneos de servicios terminados, para decir «suele tardar…»."""
+    from statistics import median
+
+    runs = DiscoveryRun.objects.filter(
+        profile=DiscoveryProfile.SERVICE_SCAN,
+        status=RunStatus.SUCCEEDED,
+        started_at__isnull=False,
+        finished_at__isnull=False,
+    ).order_by("-finished_at")[:5]
+    values = [(r.finished_at - r.started_at).total_seconds() for r in runs]
+    return round(median(values)) if values else None
 
 
 def has_service_scan(asset):

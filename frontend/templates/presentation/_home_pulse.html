@@ -1,0 +1,12 @@
+{% load detection_tags %}
+<div id="pulso" hx-get="{% url 'home_block' 'pulse' %}" hx-trigger="every 30s" hx-swap="outerHTML">
+<section class="card">
+  <h2 class="card-title">Pulso del sistema</h2>
+  <ul class="flex flex-col gap-1 text-xs">
+    {% for e in pulse %}
+    <li class="flex gap-2"><span class="font-mono whitespace-nowrap text-muted" title="{{ e.at|fecha }}">{{ e.at|hora }}</span><span class="shrink-0">{% if e.kind == 'event' %}{% event_status_badge e.badge %}{% elif e.kind == 'decision' %}{% urgency_badge e.badge %}{% elif e.kind == 'action' %}{% action_status_badge e.badge %}{% elif e.kind == 'execution' %}{% execution_status_badge e.badge %}{% else %}<span class="badge-neutral">bitácora</span>{% endif %}</span><span class="text-ink-soft">{% if e.url %}<a href="{{ e.url }}">{{ e.label }}</a>{% else %}{{ e.label }}{% endif %}{% if e.subject %} · {{ e.subject }}{% endif %}{% if e.text %} · {{ e.text|truncatechars:70 }}{% endif %}</span></li>
+    {% empty %}<li class="text-muted">Sin actividad reciente.</li>{% endfor %}
+  </ul>
+  <p class="mt-2 text-xs"><a href="{% url 'detection:activity' %}">Ver toda la actividad →</a></p>
+</section>
+</div>

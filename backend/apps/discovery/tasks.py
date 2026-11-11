@@ -22,3 +22,22 @@ def run_discovery(run_id):
 def run_scheduled_discoveries():
     """Beat cada 15 min: lanza los rangos con programación vencida."""
     return services.launch_scheduled()
+
+
+@shared_task(acks_late=True, soft_time_limit=90, time_limit=120)
+def probe_host(token, ip):
+    """Cola ``discovery``: sonda de alcance previa al alta; el resultado queda en caché."""
+    from . import probe
+
+    result = probe.run_probe(ip)
+    probe.finish_probe(token, result)
+    return result.up
+
+
+@shared_task(acks_late=True, soft_time_limit=90, time_limit=120)
+def probe_asset(asset_id):
+    """Cola ``discovery``: sonda de alcance de un activo ya guardado (importación)."""
+    from . import probe
+
+    result = probe.probe_asset(asset_id)
+    return None if result is None else result.up

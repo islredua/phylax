@@ -81,7 +81,8 @@
   /* Texto */
   --color-ink: #0f172a;
   --color-ink-soft: #475569;
-  --color-muted: #64748b;
+  /* 4.9:1 sobre blanco y 4.6:1 sobre canvas incluso en textos de 10–11 px. */
+  --color-muted: #5b6472;
 
   /* Severidad / estado */
   --color-critical: #b91c1c;
@@ -102,8 +103,8 @@
 /* Bases reutilizables con @apply (en Tailwind 4 solo las utilidades se pueden aplicar). */
 @utility btn {
   @apply inline-flex cursor-pointer items-center justify-center gap-1.5 rounded px-3.5 py-2
-    text-sm font-medium whitespace-nowrap hover:no-underline focus:ring-2
-    focus:ring-primary/40 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50;
+    text-sm font-medium whitespace-nowrap hover:no-underline focus-visible:ring-2
+    focus-visible:ring-primary/40 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50;
 }
 @utility badge {
   @apply inline-flex items-center rounded-[3px] px-1.5 py-0.5 font-mono text-[11px]
@@ -120,6 +121,14 @@
 @layer base {
   html {
     color-scheme: light;
+    scroll-behavior: smooth;
+  }
+  /* Foco visible y uniforme para teclado en cualquier control. */
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    @apply outline-2 outline-offset-2 outline-primary;
+  }
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus:not(:focus-visible) {
+    outline: none;
   }
   body {
     @apply bg-canvas font-sans text-sm text-ink antialiased;
@@ -139,6 +148,35 @@
 }
 
 @layer components {
+  /* --- Accesibilidad y estado de carga --- */
+  .skip-link {
+    @apply sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded
+      focus:bg-primary focus:px-3 focus:py-2 focus:text-white;
+  }
+  /* Barra de progreso de HTMX (hx-indicator en <body>): aparece mientras hay petición en vuelo. */
+  .hx-progress {
+    @apply pointer-events-none fixed top-0 left-0 z-50 h-0.5 w-0 bg-primary opacity-0
+      transition-[width,opacity] duration-300;
+  }
+  .htmx-request .hx-progress,
+  .hx-progress.htmx-request {
+    @apply w-3/4 opacity-100;
+  }
+  /* Elementos con hx-indicator propio: un texto «cargando…» que solo se ve durante la petición. */
+  .hx-loading {
+    @apply hidden text-xs text-muted;
+  }
+  .htmx-request .hx-loading,
+  .hx-loading.htmx-request {
+    @apply inline-flex items-center gap-1;
+  }
+  .htmx-request .hx-hide-loading {
+    @apply opacity-50;
+  }
+  /* Inicio: menciones enlazadas dentro de la narrativa */
+  .nar-link {
+    @apply text-primary underline decoration-dotted underline-offset-2 hover:decoration-solid;
+  }
   /* --- Estructura --- */
   .app-shell {
     @apply min-h-screen md:grid md:grid-cols-[232px_minmax(0,1fr)];
@@ -147,16 +185,31 @@
   .sidebar-col {
     @apply border-b border-sidebar-line bg-sidebar md:border-r md:border-b-0;
   }
-  /* Móvil: barra horizontal compacta. Escritorio: columna fija a la izquierda. */
+  /* Móvil: cabecera con marca y botón «Menú» que despliega las secciones.
+     Escritorio: columna fija a la izquierda. */
   .sidebar {
-    @apply flex flex-wrap items-center gap-1 px-3 py-2.5 text-primary
-      md:sticky md:top-0 md:h-screen md:flex-col md:flex-nowrap md:items-stretch md:py-4;
+    @apply flex flex-col gap-1 px-3 py-2.5 text-primary
+      md:sticky md:top-0 md:h-screen md:flex-nowrap md:items-stretch md:py-4;
+  }
+  .sidebar-head {
+    @apply flex items-center justify-between;
+  }
+  .nav-toggle {
+    @apply inline-flex min-h-10 min-w-10 cursor-pointer items-center justify-center rounded
+      text-lg text-primary hover:bg-primary-soft md:!hidden;
+  }
+  /* Sin JS el menú siempre se ve; con JS, atalaya.js lo pliega en pantallas angostas. */
+  .sidebar-menu {
+    @apply flex flex-col gap-1 md:flex md:min-h-0 md:flex-1;
+  }
+  .sidebar-menu[hidden] {
+    @apply hidden md:flex;
   }
   .sidebar-group {
-    @apply flex flex-wrap gap-0.5 md:flex-col;
+    @apply flex flex-col gap-0.5;
   }
   .brand {
-    @apply mr-2 flex items-center gap-2.5 px-2 text-brand-ink hover:no-underline md:mr-0 md:pb-4;
+    @apply flex items-center gap-2.5 px-2 text-brand-ink hover:no-underline md:pb-4;
   }
   .brand-name {
     @apply text-[17px] font-semibold tracking-tight;
@@ -165,8 +218,8 @@
     @apply hidden px-2.5 pt-4 pb-1 md:block font-mono text-[10px] font-medium tracking-wider text-muted uppercase;
   }
   .nav-link {
-    @apply block cursor-pointer md:w-full rounded px-2.5 py-1.5 text-left text-[13px] text-primary
-      hover:bg-primary-soft hover:no-underline;
+    @apply block w-full cursor-pointer rounded px-2.5 py-2 text-left text-[13px] text-primary
+      hover:bg-primary-soft hover:no-underline md:py-1.5;
   }
   .nav-link-active {
     @apply bg-primary font-semibold text-white hover:bg-primary;
@@ -224,6 +277,13 @@
   .data-table th {
     @apply border-b border-line px-3 py-2 text-[11px] font-medium whitespace-nowrap text-muted;
   }
+  /* Columnas secundarias: se ocultan en pantallas angostas (añadir la clase a th y td). */
+  .data-table .col-lg {
+    @apply hidden lg:table-cell;
+  }
+  .data-table .col-md {
+    @apply hidden md:table-cell;
+  }
   .data-table td {
     @apply border-b border-line-soft px-3 py-2 align-middle;
   }
@@ -266,8 +326,14 @@
   .btn-danger {
     @apply btn bg-critical text-white hover:bg-critical-strong focus:ring-critical/40;
   }
+  /* Mínimo 32 px de alto para que sea un objetivo táctil razonable. */
   .btn-sm {
-    @apply px-2.5 py-1 text-xs;
+    @apply min-h-8 px-2.5 py-1 text-xs;
+  }
+  /* Botón de peligro discreto para tablas: borde rojo, fondo blanco. */
+  .btn-danger-soft {
+    @apply btn border border-critical/40 bg-white text-critical hover:bg-critical-soft
+      focus-visible:ring-critical/40;
   }
 
   /* --- Etiquetas de severidad y estado --- */
@@ -318,7 +384,7 @@
 
   /* --- Pestañas (subnavegación de una sección) --- */
   .tabs {
-    @apply flex flex-wrap gap-1 border-b border-line;
+    @apply flex gap-1 overflow-x-auto border-b border-line max-md:flex-nowrap md:flex-wrap;
   }
   .tab {
     @apply -mb-px border-b-2 border-transparent px-3 py-2 text-[13px] text-ink-soft
@@ -346,7 +412,7 @@
   }
   /* Subpestañas dentro de una vista (p. ej. detalle de activo). */
   .subtabs {
-    @apply flex flex-wrap gap-1;
+    @apply flex gap-1 overflow-x-auto max-md:flex-nowrap md:flex-wrap;
   }
   .subtab {
     @apply rounded px-2.5 py-1 text-[13px] text-ink-soft hover:bg-primary-soft hover:text-primary
@@ -364,5 +430,66 @@
   }
   .checkbox {
     @apply h-4 w-4 rounded border-line-strong text-primary accent-primary;
+  }
+  /* Leyenda de estados: un punto de color con texto al lado, nunca solo color. */
+  .legend {
+    @apply flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted;
+  }
+  .legend-dot {
+    @apply inline-block h-2 w-2 rounded-full;
+  }
+  /* Bloque «qué hago hoy» de la vista ejecutiva y de Riesgos. */
+  .today {
+    @apply rounded border border-primary/30 bg-primary-soft/40 p-4;
+  }
+  .today-item {
+    @apply flex items-start justify-between gap-3 border-t border-line py-2 first:border-t-0;
+  }
+  details.fold > summary {
+    @apply cursor-pointer list-none text-xs text-primary select-none;
+  }
+  details.fold > summary::-webkit-details-marker {
+    display: none;
+  }
+  details.fold > summary::before {
+    content: "▸ ";
+  }
+  details.fold[open] > summary::before {
+    content: "▾ ";
+  }
+  /* Menú desplegable de acciones secundarias (detalle del activo). */
+  details.menu {
+    @apply relative;
+  }
+  details.menu > summary {
+    @apply cursor-pointer list-none select-none;
+  }
+  details.menu > summary::-webkit-details-marker {
+    display: none;
+  }
+  .menu-panel {
+    @apply absolute right-0 z-20 mt-1 flex w-72 flex-col rounded border border-line bg-surface p-1
+      shadow-lg;
+  }
+  .menu-item {
+    @apply flex w-full flex-col items-start gap-0.5 rounded px-3 py-2 text-left text-sm
+      hover:bg-primary-soft;
+  }
+  .menu-item-danger {
+    @apply hover:bg-critical-soft;
+  }
+  .menu-item-danger > .font-medium {
+    @apply text-critical;
+  }
+  /* Barra de acciones en lote plegada hasta que se marca algo (atalaya.js). */
+  [data-bulk].bulk-idle > :not([data-bulk-hint]) {
+    display: none;
+  }
+  /* Cabeceras ordenables. */
+  .th-sort {
+    @apply text-inherit no-underline hover:text-primary;
+  }
+  .th-sort-active {
+    @apply text-primary;
   }
 }

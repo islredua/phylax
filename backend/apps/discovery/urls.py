@@ -6,6 +6,7 @@ app_name = "discovery"
 
 urlpatterns = [
     path("runs/", views.RunListView.as_view(), name="runs"),
+    path("runs/launch/", views.LaunchFromListView.as_view(), name="launch_from_list"),
     path("runs/<uuid:pk>/", views.RunDetailView.as_view(), name="run_detail"),
     path("runs/<uuid:pk>/cancel/", views.CancelView.as_view(), name="run_cancel"),
     path("runs/<uuid:pk>/xml/", views.RunXmlView.as_view(), name="run_xml"),

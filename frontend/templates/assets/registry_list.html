@@ -1,17 +1,17 @@
 {% extends "base.html" %}
 {% load inventory %}
-{% block title %}Registries{% endblock %}
+{% block title %}Registros de imágenes{% endblock %}
 {% block toolbar %}
 <div class="toolbar">
-  <h2>Registries de contenedores</h2>
-  <a href="{% url 'assets:registry_create' %}" class="btn-primary">Nuevo registry</a>
+  <h2>Registros de imágenes de contenedor</h2>
+  <a href="{% url 'assets:registry_create' %}" class="btn-primary">Nuevo registro</a>
 </div>
 {% endblock %}
 {% block content %}
-<p class="muted">Atalaya solo guarda tokens <strong class="text-ink">de solo lectura</strong>, cifrados. Nunca se muestran: para cambiarlo, escribe uno nuevo.</p>
+<p class="muted">Un registro de imágenes (Docker Hub, GHCR, Harbor…) es de donde Atalaya lee las imágenes de contenedor. Solo guarda tokens <strong class="text-ink">de solo lectura</strong>, cifrados. Nunca se muestran: para cambiarlo, escribe uno nuevo.</p>
 <div class="table-wrap">
   <table class="data-table">
-    <thead><tr><th>Nombre</th><th>URL</th><th>Entorno</th><th>Usuario</th><th>Token</th><th>Última prueba</th><th></th></tr></thead>
+    <thead><tr><th scope="col">Nombre</th><th scope="col">URL</th><th scope="col" class="col-md">Entorno</th><th scope="col" class="col-lg">Usuario</th><th scope="col" class="col-md">Token</th><th scope="col">Última prueba</th><th scope="col"></th></tr></thead>
     <tbody>
       {% for r in registries %}
       <tr>
@@ -20,16 +20,16 @@
         <td class="text-ink-soft">{{ r.environment|catalog:"ENVIRONMENT" }}</td>
         <td class="font-mono text-xs">{{ r.username|default:"—" }}</td>
         <td>{% if r.token %}<span class="badge-neutral">configurado</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
-        <td>{% if r.last_check_at %}{% if r.last_check_ok %}<span class="badge-low">{{ r.last_check_detail }}</span>{% else %}<span class="badge-critical">{{ r.last_check_detail }}</span>{% endif %}<div class="font-mono text-[11px] text-muted">{{ r.last_check_at|date:"Y-m-d H:i" }}</div>{% else %}<span class="text-muted">sin probar</span>{% endif %}</td>
+        <td>{% if r.last_check_at %}{% if r.last_check_ok %}<span class="badge-low">{{ r.last_check_detail }}</span>{% else %}<span class="badge-critical">{{ r.last_check_detail }}</span>{% endif %}<div class="font-mono text-[11px] text-muted">{{ r.last_check_at|fecha }}</div>{% else %}<span class="text-muted">sin probar</span>{% endif %}</td>
         <td class="text-right">
           <div class="flex justify-end gap-1">
             <form method="post" action="{% url 'assets:registry_test' r.pk %}">{% csrf_token %}<button class="btn-secondary btn-sm" type="submit">Probar conexión</button></form>
             <a href="{% url 'assets:registry_edit' r.pk %}" class="btn-secondary btn-sm">Editar</a>
-            <form method="post" action="{% url 'assets:registry_delete' r.pk %}">{% csrf_token %}<button class="btn-secondary btn-sm" type="submit">Eliminar</button></form>
+            <form method="post" action="{% url 'assets:registry_delete' r.pk %}" data-confirm="¿Eliminar el registro de imágenes «{{ r.name }}»? Se borran sus credenciales cifradas; las imágenes ya inventariadas se conservan.">{% csrf_token %}<button class="btn-danger-soft btn-sm" type="submit">Eliminar</button></form>
           </div>
         </td>
       </tr>
-      {% empty %}<tr><td colspan="7" class="table-empty">Sin registries.</td></tr>{% endfor %}
+      {% empty %}<tr><td colspan="7" class="table-empty">Sin registros de imágenes. Sin uno, las imágenes solo se analizan subiendo su SBOM a mano. <a href="{% url 'assets:registry_create' %}">Registrar el primero</a>.</td></tr>{% endfor %}
     </tbody>
   </table>
 </div>

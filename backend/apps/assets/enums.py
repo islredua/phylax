@@ -92,7 +92,7 @@ class AssetOrigin(models.TextChoices):
     MANUAL = "MANUAL", "Alta manual"
     IMPORT = "IMPORT", "Importación CSV"
     DISCOVERY = "DISCOVERY", "Descubrimiento"
-    REGISTRY = "REGISTRY", "Registry"
+    REGISTRY = "REGISTRY", "Registro de imágenes"
     SBOM = "SBOM", "SBOM"
 
 
@@ -159,7 +159,7 @@ class ServiceState(models.TextChoices):
 class ConflictSource(models.TextChoices):
     DISCOVERY = "discovery", "Descubrimiento"
     IMPORT = "import", "Importación"
-    REGISTRY = "registry", "Registry"
+    REGISTRY = "registry", "Registro de imágenes"
     SBOM = "sbom", "SBOM"
     MANUAL = "manual", "Alta manual"
 

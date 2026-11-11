@@ -2,9 +2,10 @@
 
 import csv
 import io
+import ipaddress
 import logging
 
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 
 from . import catalogs, services
@@ -253,10 +254,101 @@ def _apply_row(data, identifiers, *, user):
     return action, asset
 
 
-def execute_import(rows, *, user):
-    """Aplica la importación fila por fila (cada fila en su propia transacción)."""
+def _probe_after_import(asset, user):
+    """Verifica el alcance de los activos nuevos con IP autorizada (informativo, en segundo plano)."""
+    if user is None or not user.has_perm("discovery.run_discovery"):
+        return
+    if not services.get_asset_ips_in_scope(asset.pk):
+        return
+    from apps.discovery.tasks import probe_asset
+
+    probe_asset.delay(str(asset.pk))
+
+
+def authorize_reference(upload):
+    """Referencia con la que se autorizan los equipos de una importación, o ``None``.
+
+    Si la persona escribió una (oficio, ticket) se usa esa; si no, se anota el archivo, quién lo
+    importó y cuándo.
+    """
+    meta = upload.meta or {}
+    if not meta.get("authorize_hosts"):
+        return None
+    if (meta.get("authorization_reference") or "").strip():
+        return meta["authorization_reference"].strip()[:255]
+    who = upload.user.get_username() if upload.user_id else "sistema"
+    return f"Importación CSV «{upload.original_filename}» por {who} el {upload.created_at:%Y-%m-%d}"
+
+
+COLUMN_LABELS = {
+    "name": "Nombre del activo (obligatorio)",
+    "asset_type": "Tipo (obligatorio)",
+    "ipv4": "Dirección IPv4",
+    "ipv6": "Dirección IPv6",
+    "fqdn": "Nombre DNS completo",
+    "mac": "Dirección MAC",
+    "image_ref": "Referencia de imagen de contenedor",
+    "description": "Descripción (recomendada para la IA)",
+    "business_role": "Función de negocio",
+    "environment": "Entorno",
+    "criticality": "Criticidad (queda como «Importación»)",
+    "exposure": "Exposición (se fija a mano, no se hereda del rango)",
+    "data_classification": "Clasificación de datos",
+    "data_categories": "Categorías de datos",
+    "tags": "Etiquetas",
+    "business_owner": "Responsable de negocio",
+}
+
+
+def column_help():
+    """(columna, qué es, valores aceptados) para la pantalla de importación (A8)."""
+    from .enums import DataCategory
+
+    rows = []
+    for column in COLUMNS:
+        if column in CATALOG_COLUMNS:
+            values = ", ".join(
+                f"{code} ({label})" for code, label in catalogs.choices(CATALOG_COLUMNS[column])
+            )
+        elif column in ENUM_COLUMNS:
+            values = ", ".join(f"{v} ({lbl})" for v, lbl in ENUM_COLUMNS[column].choices)
+        elif column == "data_categories":
+            values = "separadas con |: " + ", ".join(
+                f"{v} ({lbl})" for v, lbl in DataCategory.choices
+            )
+        elif column == "tags":
+            values = "texto libre, separadas con |"
+        elif column in IDENTIFIER_COLUMNS:
+            values = "al menos un identificador por fila"
+        else:
+            values = "texto libre"
+        rows.append((column, COLUMN_LABELS.get(column, column), values))
+    return rows
+
+
+def _authorize_after_import(asset, user, reference):
+    """Autoriza (rango /32) las IP privadas del activo nuevo que aún no están en alcance."""
+    created = 0
+    for ident in asset.identifiers.filter(kind__in=("IPV4", "IPV6")):
+        if ipaddress.ip_address(ident.value).is_global:
+            continue
+        try:
+            if services.authorize_host(ident.value, user=user, reference=reference, asset=asset):
+                created += 1
+        except (ValidationError, PermissionDenied):
+            continue  # rango caducado que la cubre, o sin permiso: queda fuera del alcance
+    return created
+
+
+def execute_import(rows, *, user, authorize_reference=None):
+    """Aplica la importación fila por fila (cada fila en su propia transacción).
+
+    ``authorize_reference``: si viene, los activos nuevos con IP privada fuera de alcance quedan
+    autorizados para escaneo con esa referencia (rango de un solo equipo por IP).
+    """
     counts = {CREATE: 0, UPDATE: 0, CONFLICT: 0, ERROR: 0}
     errors, needs_suggestion = [], []
+    authorized = 0
     for number, row in enumerate(rows, start=2):
         try:
             data, identifiers = parse_row(row)
@@ -269,10 +361,19 @@ def execute_import(rows, *, user):
         counts[action] += 1
         if asset is not None and asset.criticality is None:
             needs_suggestion.append(asset.pk)
+        if action == CREATE and asset is not None:
+            if authorize_reference:
+                authorized += _authorize_after_import(asset, user, authorize_reference)
+            _probe_after_import(asset, user)
     # Sugerencia automática para los activos sin criticidad (con espera y huella).
     for asset_id in dict.fromkeys(needs_suggestion):
         services.schedule_suggestion(asset_id, trigger=SuggestionTrigger.IMPORT, requested_by=user)
-    return {"counts": counts, "errors": errors[:200], "llm_scheduled": len(set(needs_suggestion))}
+    return {
+        "counts": counts,
+        "errors": errors[:200],
+        "llm_scheduled": len(set(needs_suggestion)),
+        "authorized": authorized,
+    }
 
 
 # --- Exportación -------------------------------------------------------------------

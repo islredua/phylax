@@ -5,9 +5,11 @@
 <div class="toolbar">
   <div class="flex flex-wrap items-center gap-2">
     <h2>Activos <span class="ml-1 font-mono text-xs font-normal text-muted">{{ paginator.count }}</span></h2>
+    {# Los chips conservan los demás filtros: solo cambian el estado. #}
     {% for status, label, count in status_counts %}
-    <a href="?status={{ status }}" class="badge-neutral hover:no-underline" title="{{ label }}">{{ label }} · {{ count }}</a>
+    <a href="{% querystring status=status page=None %}" class="badge-neutral hover:no-underline{% if request.GET.status == status %} ring-1 ring-primary{% endif %}" title="Solo {{ label|lower }}">{{ label }} · {{ count }}</a>
     {% endfor %}
+    {% if review_count %}<a href="{% querystring criticality='llm_auto' page=None %}" class="badge-medium hover:no-underline" title="Criticidad calculada por la IA que nadie ha revisado">Revisar IA · {{ review_count }}</a>{% endif %}
   </div>
   <div class="page-actions">
     <a href="{% url 'assets:export' %}?{{ request.GET.urlencode }}" class="btn-secondary">Exportar CSV</a>
@@ -18,6 +20,7 @@
 {% endblock %}
 {% block content %}
 <form method="get" class="card grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5 lg:items-end">
+  {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
   {% for field in filter_form %}
   <div class="{% if field.name == 'q' %}lg:col-span-2{% endif %}">
     <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
@@ -34,8 +37,8 @@
   {% csrf_token %}
   <input type="hidden" name="next" value="{{ request.get_full_path }}">
   {% if perms.assets.change_asset %}
-  {# atalaya.js muestra solo el parámetro de la acción elegida; sin JS se ven todos y el servidor valida. #}
-  <div class="card flex flex-wrap items-end gap-3 py-3" data-bulk>
+  {# La barra se pliega a una línea hasta que se marca algún activo; atalaya.js muestra solo el parámetro de la acción elegida. Sin JS se ven todos y el servidor valida. #}
+  <div class="card flex flex-wrap items-end gap-3 py-3" data-bulk data-bulk-hint-empty="Marca activos en la tabla para actuar sobre varios a la vez." data-bulk-hint-action="Elige la acción a aplicar.">
     <div>
       <label class="form-label" for="bulk-action">Acción sobre los seleccionados</label>
       <select id="bulk-action" name="action" class="form-input w-auto" data-bulk-action required>
@@ -60,30 +63,34 @@
       </select>
     </div>
     <button type="submit" class="btn-secondary" data-bulk-submit>Aplicar a <span data-bulk-count>los</span> seleccionados</button>
-    <p class="w-full text-xs text-muted" data-bulk-hint>Selecciona activos y una acción.</p>
+    <p class="w-full text-xs text-muted" data-bulk-hint>Marca activos en la tabla para actuar sobre varios a la vez.</p>
   </div>
   {% endif %}
   <div class="table-wrap">
     <table class="data-table">
       <thead><tr>
-        {% if perms.assets.change_asset %}<th class="w-6"><input type="checkbox" class="checkbox" data-bulk-all aria-label="Seleccionar todos los de esta página"></th>{% endif %}
-        <th>Nombre</th><th>Tipo</th><th>Identificador</th><th>Criticidad</th><th>Exposición</th><th>Entorno</th><th>Estado</th><th>Visto</th>
+        {% if perms.assets.change_asset %}<th scope="col" class="w-6"><input type="checkbox" class="checkbox" data-bulk-all aria-label="Seleccionar todos los de esta página"></th>{% endif %}
+        {% for key, label, cls in columns %}
+        <th scope="col" class="{{ cls }}"{% if key and sort_key == key %} aria-sort="{% if sort_desc %}descending{% else %}ascending{% endif %}"{% endif %}>
+          {% if key %}<a href="{% if sort_key == key and not sort_desc %}{% querystring sort='-'|add:key page=None %}{% else %}{% querystring sort=key page=None %}{% endif %}" class="th-sort{% if sort_key == key %} th-sort-active{% endif %}" title="Ordenar por {{ label|lower }}">{{ label }}{% if sort_key == key %} <span aria-hidden="true">{% if sort_desc %}↓{% else %}↑{% endif %}</span>{% endif %}</a>{% else %}{{ label }}{% endif %}
+        </th>
+        {% endfor %}
       </tr></thead>
       <tbody>
         {% for a in assets %}
         <tr>
           {% if perms.assets.change_asset %}<td><input type="checkbox" name="ids" value="{{ a.pk }}" class="checkbox" aria-label="Seleccionar {{ a.name }}"></td>{% endif %}
-          <td><a href="{% url 'assets:detail' a.pk %}" class="font-medium">{{ a.name }}</a>{% if a.review_suggested %} <span class="badge-medium">revisión sugerida</span>{% endif %}{% for t in a.tags.all %} <span class="badge-neutral">{{ t.name }}</span>{% endfor %}</td>
-          <td class="text-ink-soft">{{ a.asset_type|catalog:"ASSET_TYPE" }}</td>
-          <td class="font-mono text-xs">{{ a.display_identifier|truncatechars:40|default:"—" }}</td>
+          <td><a href="{% url 'assets:detail' a.pk %}" class="font-medium">{{ a.name }}</a>{% if a.review_suggested %} <span class="badge-medium">revisión sugerida</span>{% endif %}{% if a.reachable is False %} <span class="badge-medium" title="No respondió desde Atalaya el {{ a.reachability_checked_at|fecha }}">no responde</span>{% endif %}{% for t in a.tags.all %} <span class="badge-neutral">{{ t.name }}</span>{% endfor %}</td>
+          <td class="col-md text-ink-soft">{{ a.asset_type|catalog:"ASSET_TYPE" }}</td>
+          <td class="col-lg font-mono text-xs">{{ a.display_identifier|truncatechars:40|default:"—" }}</td>
           {% include "assets/_criticality_cell.html" %}
-          <td>{% exposure_badge a.exposure a.exposure_source %}</td>
-          <td class="text-ink-soft">{{ a.environment|catalog:"ENVIRONMENT" }}</td>
+          <td class="col-md">{% exposure_badge a.exposure a.exposure_source %}</td>
+          <td class="col-lg text-ink-soft">{{ a.environment|catalog:"ENVIRONMENT" }}</td>
           <td>{% status_badge a.status %}</td>
-          <td class="font-mono text-xs whitespace-nowrap text-ink-soft">{{ a.last_seen|date:"Y-m-d"|default:"—" }}</td>
+          <td class="col-md font-mono text-xs whitespace-nowrap text-ink-soft">{{ a.last_seen|fecha_corta }}</td>
         </tr>
         {% empty %}
-        <tr><td colspan="9" class="table-empty">Sin activos para estos filtros.</td></tr>
+        <tr><td colspan="9" class="table-empty">{% if filters_active %}Sin activos para estos filtros. <a href="{% url 'assets:list' %}">Limpiar filtros</a>{% else %}Todavía no hay activos. Se llenan con un <a href="{% url 'discovery:runs' %}">descubrimiento</a> de un rango autorizado, una <a href="{% url 'assets:import' %}">importación CSV</a> o dando de alta uno a mano.{% endif %}</td></tr>
         {% endfor %}
       </tbody>
     </table>

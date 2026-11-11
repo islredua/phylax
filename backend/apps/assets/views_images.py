@@ -13,6 +13,8 @@ from django.utils import timezone
 from django.views import View
 from django.views.generic import ListView
 
+from apps.core.views import PaginationMixin
+
 from . import services
 from .enums import AssetOrigin, AssetType, IdentifierKind
 from .forms import ImageForm, RegistryForm, SbomConfirmForm, SbomUploadForm
@@ -31,7 +33,7 @@ from .views import Perm, _messages_from
 PENDING_TTL = timedelta(hours=1)
 
 
-class ImageListView(Perm, ListView):
+class ImageListView(Perm, PaginationMixin, ListView):
     permission_required = "assets.view_containerimage"
     template_name = "assets/image_list.html"
     context_object_name = "images"
@@ -121,7 +123,7 @@ class RegistryFormView(Perm, View):
             except ValidationError as error:
                 form.add_error(None, error)
             else:
-                messages.success(request, "Registry guardado.")
+                messages.success(request, "Registro de imágenes guardado.")
                 return redirect("assets:registries")
         return render(request, self.template_name, {"form": form, "registry": registry})
 
@@ -145,7 +147,7 @@ class RegistryDeleteView(Perm, View):
     def post(self, request, pk):
         registry = get_object_or_404(ContainerRegistry, pk=pk)
         registry.delete()
-        messages.success(request, f"Registry «{registry.name}» eliminado.")
+        messages.success(request, f"Registro de imágenes «{registry.name}» eliminado.")
         return redirect("assets:registries")
 
 

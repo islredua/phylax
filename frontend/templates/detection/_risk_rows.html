@@ -1,0 +1,24 @@
+{% load detection_tags inventory %}
+{% comment %}
+Registro de riesgos. Título corto («Consecuencia en activo») con la causa técnica debajo; nivel y
+P×I en una sola columna; un riesgo cerrado muestra el motivo del cierre en lugar de «sin decidir».
+{% endcomment %}
+<div class="table-wrap">
+  <table class="data-table">
+    <thead><tr><th scope="col">Riesgo</th><th scope="col">Activo</th><th scope="col" title="Qué dice la inteligencia de amenazas (KEV, EPSS)">Inteligencia</th><th scope="col" title="Nivel = probabilidad × impacto">Nivel</th><th scope="col">Estado</th><th scope="col">Tratamiento</th><th scope="col" class="col-lg">Vulnerabilidades</th><th scope="col" class="col-lg">Valorado</th></tr></thead>
+    <tbody>
+      {% for r in risks %}
+      <tr>
+        <td><a href="{% url 'detection:risk' r.pk %}" class="font-medium">{{ r.headline|truncatechars:70 }}</a>{% if r.cause %}<p class="text-xs text-muted">por {{ r.cause|truncatechars:110 }}</p>{% endif %}<p class="text-xs text-muted">{{ r.get_threat_source_display }}</p></td>
+        <td><a href="{% url 'assets:detail' r.asset_id %}">{{ r.asset.name }}</a></td>
+        <td class="text-xs">{% intel_badges r as badges %}{% if badges %}{{ badges }}{% else %}<span class="text-muted" title="Ninguna vulnerabilidad en KEV y EPSS bajo el umbral">sin explotación conocida</span>{% endif %}</td>
+        <td class="whitespace-nowrap">{% risk_level_badge r.level %} <span class="font-mono text-xs text-muted" title="Probabilidad × impacto">{{ r.likelihood }}×{{ r.impact }}={{ r.score }}</span>{% if r.residual_level %}<p class="text-xs text-muted">residual: {{ r.get_residual_level_display|lower }}</p>{% endif %}</td>
+        <td>{% risk_status_badge r.status %} {% status_source_badge r.assessment_source %}</td>
+        <td class="text-xs">{% if r.status == 'CLOSED' %}<span class="text-muted" title="{{ r.closed_reason|default:'Cerrado' }}">— cerrado: {{ r.closed_reason|closure_label }}</span>{% elif r.treatment %}{{ r.get_treatment_display }}{% if r.owner %} · <a href="{% url 'detection:risks' %}?owner={{ r.owner|urlencode }}">{{ r.owner }}</a>{% endif %}{% if r.target_date %}<p class="{% if r.target_overdue %}text-critical{% else %}text-muted{% endif %}">compromiso {{ r.target_date|fecha_corta }}{% if r.target_overdue %} · vencida{% endif %}</p>{% elif r.review_at %}<p class="{% if r.review_overdue %}text-high{% else %}text-muted{% endif %}">revisar el {{ r.review_at|fecha_corta }}{% if r.review_overdue %} · vencida{% endif %}</p>{% endif %}{% else %}<a href="{% url 'detection:risk' r.pk %}#tratamiento" class="text-high">sin decidir →</a>{% endif %}</td>
+        <td class="col-lg font-mono text-xs">{{ r.vulnerabilities.count }}</td>
+        <td class="col-lg font-mono text-xs whitespace-nowrap text-ink-soft">{{ r.assessed_at|fecha }}</td>
+      </tr>
+      {% empty %}<tr><td colspan="8" class="table-empty">{% if filters_active %}Sin coincidencias para estos filtros. <a href="{% url 'detection:risks' %}{% if asset_id %}?asset={{ asset_id }}{% endif %}">Limpiar filtros</a>{% else %}Sin riesgos{% if asset_id %} en este activo{% endif %}. Los riesgos se derivan solos de las vulnerabilidades consolidadas de cada activo{% if asset_id %}; si el activo aún no tiene vulnerabilidades consolidadas, primero verás sus observaciones{% endif %}.{% endif %}</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>

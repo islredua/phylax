@@ -11,20 +11,26 @@
 <p class="muted">Cada rango define la exposición heredada de sus activos y el <strong class="text-ink">alcance autorizado</strong>: nada se escanea fuera de un rango con autorización vigente.</p>
 <div class="table-wrap">
   <table class="data-table">
-    <thead><tr><th>Nombre</th><th>CIDR</th><th>Zona</th><th>Entorno</th><th>Alcance</th><th>Programación</th><th>Último descubrimiento</th><th>Activos</th></tr></thead>
+    <thead><tr><th scope="col">Nombre</th><th scope="col">CIDR</th><th scope="col">Zona</th><th scope="col" class="col-md">Entorno</th><th scope="col">Autorización</th><th scope="col" class="col-lg">Programación</th><th scope="col" class="col-md">Último descubrimiento</th><th scope="col">Activos</th><th scope="col"></th></tr></thead>
     <tbody>
       {% for r in ranges %}
       <tr>
         <td><a href="{% url 'assets:range_detail' r.pk %}" class="font-medium">{{ r.name }}</a></td>
         <td class="font-mono text-xs">{{ r.cidr }}</td>
         <td><span class="badge-primary">{{ r.get_zone_display }}</span></td>
-        <td class="text-ink-soft">{{ r.environment|catalog:"ENVIRONMENT" }}</td>
-        <td>{% if r.is_authorized %}<span class="badge-low">autorizado</span>{% elif r.in_scope %}<span class="badge-critical">autorización expirada</span>{% else %}<span class="badge-neutral">fuera</span>{% endif %}</td>
-        <td class="text-ink-soft">{{ r.get_discovery_schedule_display }}</td>
-        <td class="font-mono text-xs">{{ r.last_discovery_at|date:"Y-m-d H:i"|default:"—" }}</td>
-        <td class="font-mono">{{ r.asset_count }}</td>
+        <td class="col-md text-ink-soft">{{ r.environment|catalog:"ENVIRONMENT" }}</td>
+        <td>{% if r.is_authorized %}<span class="badge-low" title="Vigente{% if r.authorization_expires_at %} hasta {{ r.authorization_expires_at|fecha }}{% endif %}">vigente</span>{% elif r.in_scope %}<span class="badge-critical" title="Caducó el {{ r.authorization_expires_at|fecha }}">caducada</span>{% else %}<span class="badge-neutral">fuera del alcance</span>{% endif %}</td>
+        <td class="col-lg text-ink-soft">{{ r.get_discovery_schedule_display }}</td>
+        <td class="col-md font-mono text-xs">{{ r.last_discovery_at|fecha }}</td>
+        <td class="font-mono"><a href="{% url 'assets:list' %}?network_range={{ r.pk }}&amp;status=all">{{ r.asset_count }}</a></td>
+        <td class="text-right">
+          <div class="flex justify-end gap-1">
+            {% if r.expired and perms.assets.manage_scope %}<a href="{% url 'assets:range_edit' r.pk %}?renovar=1" class="btn-primary btn-sm">Renovar autorización</a>
+            {% elif r.is_authorized and perms.discovery.run_discovery %}<form method="post" action="{% url 'discovery:launch' r.pk %}">{% csrf_token %}<input type="hidden" name="profile" value="HOST_SWEEP"><input type="hidden" name="next" value="ranges"><button class="btn-secondary btn-sm" type="submit" title="Barrido rápido de hosts del rango">Descubrir</button></form>{% endif %}
+          </div>
+        </td>
       </tr>
-      {% empty %}<tr><td colspan="8" class="table-empty">Sin rangos de red.</td></tr>{% endfor %}
+      {% empty %}<tr><td colspan="9" class="table-empty">Sin rangos de red. Un rango dice qué redes son de la organización y hasta cuándo está autorizado escanearlas; sin uno no hay descubrimiento.{% if perms.assets.manage_scope %} <a href="{% url 'assets:range_create' %}">Registrar el primero</a>.{% else %} Pide a un administrador que registre el primero.{% endif %}</td></tr>{% endfor %}
     </tbody>
   </table>
 </div>

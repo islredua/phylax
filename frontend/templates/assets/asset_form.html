@@ -11,27 +11,27 @@
 <form method="post" class="flex flex-col gap-4" novalidate>
   {% csrf_token %}
   {% if form.non_field_errors %}<div class="alert-error" role="alert">{% for e in form.non_field_errors %}{{ e }} {% endfor %}</div>{% endif %}
+
+  {# Lo imprescindible primero: qué es y dónde vive. #}
   <section class="card grid grid-cols-1 gap-4 md:grid-cols-2">
-    {% for field in form %}
-    <div class="{% if field.name == 'description' or field.name == 'data_categories' %}md:col-span-2{% endif %}">
+    <h3 class="card-title mb-0 md:col-span-2">Identidad</h3>
+    {% for field in form %}{% if field.name in identity_fields %}
+    <div>
       {% if field.name == 'in_scope' %}
         <label class="flex items-center gap-2 text-sm">{{ field }} {{ field.label }}</label>
-      {% elif field.name == 'data_categories' %}
-        <p class="form-label">{{ field.label }}</p>
-        <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm">{% for choice in field %}<label class="flex items-center gap-1.5">{{ choice.tag }} {{ choice.choice_label }}</label>{% endfor %}</div>
       {% else %}
         <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
         {{ field }}
       {% endif %}
-      {% if field.help_text %}<p class="form-help">{{ field.help_text }}</p>{% endif %}
+      {% if field.help_text %}<p class="form-help" id="{{ field.auto_id }}_helptext">{{ field.help_text }}</p>{% endif %}
       {% for e in field.errors %}<p class="form-error">{{ e }}</p>{% endfor %}
     </div>
-    {% endfor %}
+    {% endif %}{% endfor %}
   </section>
 
   <section class="card flex flex-col gap-3">
     <h3 class="card-title mb-0">Identificadores</h3>
-    <p class="text-xs text-muted">IP, MAC, FQDN, referencia o digest de imagen, URL.</p>
+    <p class="text-xs text-muted">IP, MAC, FQDN, referencia o digest de imagen, URL. Al menos uno, según el tipo.</p>
     {% if identifiers %}
     <ul class="flex flex-col gap-1">
       {% for i in identifiers %}<li class="flex items-center gap-2 text-sm"><label class="flex items-center gap-2"><input type="checkbox" name="remove_identifier" value="{{ i.pk }}" class="checkbox"> Quitar</label><span class="badge-neutral">{{ i.get_kind_display }}</span><span class="font-mono text-xs">{{ i.value }}</span></li>{% endfor %}
@@ -39,10 +39,56 @@
     {% endif %}
     {{ formset.management_form }}
     {% for f in formset %}
-    <div class="grid grid-cols-1 gap-2 sm:grid-cols-[12rem_1fr]">{{ f.kind }}{{ f.value }}</div>
+    <div class="grid grid-cols-1 gap-2 sm:grid-cols-[12rem_1fr]">
+      <label class="sr-only" for="{{ f.kind.id_for_label }}">Tipo del identificador {{ forloop.counter }}</label>{{ f.kind }}
+      <label class="sr-only" for="{{ f.value.id_for_label }}">Valor del identificador {{ forloop.counter }}</label>{{ f.value }}
+    </div>
     {% for e in f.non_field_errors %}<p class="form-error">{{ e }}</p>{% endfor %}
     {% endfor %}
+    {% if not asset and perms.discovery.run_discovery %}
+    <div class="flex flex-wrap items-center gap-2 border-t border-line pt-3">
+      <button type="button" class="btn-secondary btn-sm" hx-post="{% url 'assets:probe' %}" hx-include="closest form" hx-target="#probe-result" hx-swap="innerHTML">Comprobar conectividad</button>
+      <span class="text-xs text-muted">Comprueba desde Atalaya si la IP responde y si ya está inventariada. No bloquea el alta.</span>
+    </div>
+    <div id="probe-result"></div>
+    {% endif %}
   </section>
+
+  {# Contexto para la IA: plegable, abierto por defecto; sin descripción la IA no sugiere criticidad. #}
+  <details class="card fold" open>
+    <summary class="card-title mb-0">Contexto para la IA <span class="badge-neutral ml-1 align-middle text-[11px] font-normal">recomendado</span></summary>
+    <p class="mt-1 text-xs text-muted">Con esto la IA sugiere la criticidad, puntúa las vulnerabilidades y explica los riesgos en términos del negocio. Puede completarse después.</p>
+    <div class="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2">
+    {% for field in form %}{% if field.name in context_fields %}
+    <div class="{% if field.name == 'description' or field.name == 'data_categories' %}md:col-span-2{% endif %}">
+      {% if field.name == 'data_categories' %}
+        <p class="form-label">{{ field.label }}</p>
+        <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm">{% for choice in field %}<label class="flex items-center gap-1.5">{{ choice.tag }} {{ choice.choice_label }}</label>{% endfor %}</div>
+      {% else %}
+        <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+      {% endif %}
+      {% if field.help_text %}<p class="form-help" id="{{ field.auto_id }}_helptext">{{ field.help_text }}</p>{% endif %}
+      {% for e in field.errors %}<p class="form-error">{{ e }}</p>{% endfor %}
+    </div>
+    {% endif %}{% endfor %}
+    </div>
+  </details>
+
+  {% if not asset and perms.discovery.run_discovery and form.scope_fields %}
+  <section class="card flex flex-col gap-3">
+    <h3 class="card-title mb-0">Autorización de escaneo</h3>
+    <p class="text-xs text-muted">Dar de alta un equipo ya dice que la organización lo tiene y quiere vigilarlo. Si su IP no cae en un rango registrado, aquí queda la autorización con tu nombre, fecha y referencia; registrar la red completa es un paso aparte.</p>
+    {% for field in form.scope_fields %}
+      {% if field.name == 'register_network' and not perms.assets.manage_scope %}
+      {% elif field.name == 'authorize_scan' or field.name == 'register_network' %}
+      <div><label class="flex items-center gap-2 text-sm">{{ field }} {{ field.label }}</label>{% if field.help_text %}<p class="form-help" id="{{ field.auto_id }}_helptext">{{ field.help_text }}</p>{% endif %}{% for e in field.errors %}<p class="form-error">{{ e }}</p>{% endfor %}</div>
+      {% else %}
+      <div><label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<p class="form-help" id="{{ field.auto_id }}_helptext">{{ field.help_text }}</p>{% endif %}{% for e in field.errors %}<p class="form-error">{{ e }}</p>{% endfor %}</div>
+      {% endif %}
+    {% endfor %}
+  </section>
+  {% endif %}
   <div class="flex gap-2">
     <button type="submit" class="btn-primary">Guardar</button>
     <a href="{% if asset %}{% url 'assets:detail' asset.pk %}{% else %}{% url 'assets:list' %}{% endif %}" class="btn-secondary">Cancelar</a>

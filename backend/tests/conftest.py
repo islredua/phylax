@@ -24,6 +24,8 @@ def _isolated_infrastructure(settings, tmp_path):
     settings.MEDIA_ROOT = str(tmp_path / "media")
     settings.CELERY_TASK_ALWAYS_EAGER = True
     settings.CELERY_TASK_EAGER_PROPAGATES = True
+    # Ninguna prueba sale a internet: las fuentes CTI solo se usan con un cliente simulado.
+    settings.CTI_ONLINE = False
     from django.core.cache import cache
 
     cache.clear()

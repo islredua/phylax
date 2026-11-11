@@ -22,7 +22,7 @@
   <section class="card">
     <h3 class="card-title">Servidor</h3>
     <dl class="kv-grid">
-      <div><dt class="kv-label">Estado</dt><dd class="kv-value">{% if state.available %}<span class="badge-low">disponible</span>{% elif state.available is False %}<span class="badge-critical">no disponible</span>{% else %}<span class="badge-neutral">sin consultar</span>{% endif %}</dd></div>
+      <div><dt class="kv-label">Estado</dt><dd class="kv-value">{% if state.available %}<span class="badge-low">disponible</span>{% elif state.available is False %}<span class="badge-critical">no responde</span> <span class="text-xs text-muted">las sugerencias y consolidaciones fallarán hasta que vuelva</span>{% else %}<span class="badge-neutral">sin consultar</span>{% endif %}{% if state.checked_at %} <span class="font-mono text-xs text-muted">{{ state.checked_at|fecha:True }}</span>{% endif %}</dd></div>
       <div><dt class="kv-label">Acelerador</dt><dd class="kv-value font-mono">{{ state.accelerator|upper|default:"—" }}</dd></div>
       <div><dt class="kv-label">Versión de Ollama</dt><dd class="kv-value font-mono text-xs">{{ state.version|default:"—" }}</dd></div>
       <div><dt class="kv-label">Timeout por inferencia</dt><dd class="kv-value font-mono text-xs">GPU {{ timeout_gpu }} s · CPU {{ timeout_cpu }} s</dd></div>
@@ -34,7 +34,7 @@
   <h3 class="eyebrow">Modelos descargados</h3>
   <div class="table-wrap">
     <table class="data-table">
-      <thead><tr><th>Modelo</th><th>Parámetros</th><th>Cuantización</th><th>Tamaño</th><th></th></tr></thead>
+      <thead><tr><th scope="col">Modelo</th><th scope="col">Parámetros</th><th scope="col" class="col-md">Cuantización</th><th scope="col">Tamaño</th><th scope="col"></th></tr></thead>
       <tbody>
         {% for m in models %}
         <tr>
@@ -49,9 +49,12 @@
     </table>
   </div>
   {% if missing %}
-  <p class="text-xs text-muted">Modelos de evaluación aún no descargados:</p>
-  <pre class="code-block">{% for m in missing %}docker compose exec ollama ollama pull {{ m }}
+  <details class="fold">
+    <summary class="text-xs">Modelos de evaluación aún no descargados ({{ missing|length }}): cómo descargarlos</summary>
+    <p class="mt-2 text-xs text-muted">Desde la consola del servidor donde corre Atalaya:</p>
+    <pre class="code-block">{% for m in missing %}docker compose exec ollama ollama pull {{ m }}
 {% endfor %}</pre>
+  </details>
   {% endif %}
 </section>
 
@@ -59,14 +62,14 @@
   <h3 class="eyebrow">Inferencias recientes</h3>
   <div class="table-wrap">
     <table class="data-table">
-      <thead><tr><th>Fecha</th><th>Tarea</th><th>Modelo</th><th>Resultado</th><th>Duración</th><th>tok/s</th><th>Acelerador</th></tr></thead>
+      <thead><tr><th scope="col">Fecha</th><th scope="col">Tarea</th><th scope="col" class="col-lg">Modelo</th><th scope="col">Resultado</th><th scope="col" class="col-md">Duración</th><th scope="col" class="col-lg">tok/s</th><th scope="col" class="col-lg">Acelerador</th></tr></thead>
       <tbody>
         {% for log in recent %}
         <tr>
-          <td class="font-mono text-xs whitespace-nowrap">{{ log.created_at|date:"Y-m-d H:i:s" }}</td>
+          <td class="font-mono text-xs whitespace-nowrap">{{ log.created_at|fecha:True }}</td>
           <td class="text-xs">{{ log.get_task_display }}</td>
           <td class="font-mono text-xs">{{ log.model }}</td>
-          <td>{% if log.parsed_ok %}<span class="badge-low">válida</span>{% else %}<span class="badge-critical" title="{{ log.error }}">error</span>{% endif %}</td>
+          <td>{% if log.parsed_ok %}<span class="badge-low">válida</span>{% else %}<span class="badge-critical">error</span> <span class="text-xs text-critical" title="{{ log.error }}">{{ log.error|truncatechars:90 }}</span>{% endif %}</td>
           <td class="font-mono text-xs">{% if log.total_duration_ms %}{{ log.total_duration_ms|floatformat:0 }} ms{% else %}—{% endif %}</td>
           <td class="font-mono text-xs">{{ log.tokens_per_second|floatformat:1|default:"—" }}</td>
           <td class="font-mono text-xs">{{ log.accelerator|upper|default:"—" }}</td>

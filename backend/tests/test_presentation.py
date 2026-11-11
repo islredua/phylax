@@ -34,18 +34,45 @@ def test_sidebar_shows_sections_not_subsections(client, admin_user):
     client.force_login(admin_user)
     response = client.get("/users/")
     nav = response.context["nav"]
-    assert [i.key for i in nav.main] == ["home", "inventory", "discovery", "administration"]
+    assert [i.key for i in nav.main] == [
+        "home",
+        "inventory",
+        "detection",
+        "administration",
+    ]
     assert [i.key for i in nav.footer] == ["account"]
     # Las subsecciones viven en las pestañas superiores, no en la barra lateral.
     assert [t.key for t in nav.tabs] == [
         "overview",
+        "organization",
         "users",
         "audit",
         "llm",
+        "home_settings",
         "catalogs",
         "registries",
+        "alerts",
     ]
     assert nav.main[3].url_name == "administration"
+
+
+def test_discovery_lives_inside_inventory(client, admin_user):
+    client.force_login(admin_user)
+    nav = client.get("/discovery/runs/").context["nav"]
+    assert nav.section.key == "inventory"
+    assert [t.key for t in nav.tabs] == [
+        "assets",
+        "unconfirmed",
+        "classification",
+        "conflicts",
+        "images",
+        "ranges",
+        "discovery",
+        "import",
+    ]
+    assert [t.key for t in nav.tabs if t.active] == ["discovery"]
+    nav = client.get("/inventory/ranges/").context["nav"]
+    assert nav.section.key == "inventory" and [t.key for t in nav.tabs if t.active] == ["ranges"]
 
 
 def test_mfa_subpages_keep_security_tab_active(client, user):
@@ -72,7 +99,8 @@ def test_administration_hidden_for_operator(client, make_user):
 def test_auditor_sees_administration_tabs(client, auditor_user):
     client.force_login(auditor_user)
     nav = client.get("/administration/").context["nav"]
-    assert [t.key for t in nav.tabs] == ["overview", "users", "audit"]
+    # El Lector consulta también los avisos configurados (solo lectura).
+    assert [t.key for t in nav.tabs] == ["overview", "organization", "users", "audit", "alerts"]
 
 
 def test_tabs_are_filtered_by_permission(make_user):
@@ -85,7 +113,7 @@ def test_tabs_are_filtered_by_permission(make_user):
     user = type(user).objects.get(pk=user.pk)  # limpia la caché de permisos
     nav = build_navigation(user, "accounts:audit_log")
     assert nav.section.key == "administration"
-    assert [t.key for t in nav.tabs] == ["overview", "audit"]
+    assert [t.key for t in nav.tabs] == ["overview", "organization", "audit", "alerts"]
 
 
 def test_anonymous_navigation_is_empty():
@@ -162,13 +190,15 @@ def test_brand_assets_and_local_fonts(client):
     assert "cdn." not in body
 
 
-def test_home_shows_modules_and_security_summary(client, make_user):
+def test_home_shows_security_summary_and_indicators_by_permission(client, make_user):
     user = make_user(OPERATOR, mfa=True)
     client.force_login(user)
     response = client.get("/")
     assert response.context["has_mfa"] is True
     assert response.context["session_count"] == 1
-    assert len(response.context["modules"]) == 5
+    # La persona operadora lee riesgos: ve la vista ejecutiva completa.
+    assert response.context["blocks"]["detection"] is True
+    assert "Estado de salud" in response.content.decode()
 
 
 @pytest.mark.parametrize(
@@ -200,7 +230,7 @@ def test_audit_log_renders_severity_badges(client, auditor_user):
         ("/users/", ["Inicio", "Administración", "Usuarios"]),
         ("/accounts/me/security/", ["Inicio", "Mi cuenta", "Seguridad"]),
         ("/inventory/", ["Inicio", "Inventario", "Activos"]),
-        ("/inventory/ranges/", ["Inicio", "Descubrimiento", "Rangos de red"]),
+        ("/inventory/ranges/", ["Inicio", "Inventario", "Rangos de red"]),
     ],
 )
 def test_breadcrumbs_follow_navigation(client, admin_user, path, crumbs):

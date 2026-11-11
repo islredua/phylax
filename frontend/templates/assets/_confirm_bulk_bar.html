@@ -1,0 +1,12 @@
+{# Confirmación en lote de hosts descubiertos (F6). Requiere confirm_bulk_form y un formulario padre con checkboxes name="ids". #}
+<div class="card flex flex-wrap items-end gap-3 py-3" data-bulk data-bulk-hint-empty="Marca hosts por confirmar para agregarlos al inventario de una vez." data-bulk-hint-action="Elige el entorno y la función que heredarán.">
+  <input type="hidden" name="action" value="confirm" data-bulk-action>
+  <div>
+    <label class="form-label" for="{{ confirm_bulk_form.environment.id_for_label }}">{{ confirm_bulk_form.environment.label }}</label>{{ confirm_bulk_form.environment }}
+  </div>
+  <div>
+    <label class="form-label" for="{{ confirm_bulk_form.business_role.id_for_label }}">{{ confirm_bulk_form.business_role.label }}</label>{{ confirm_bulk_form.business_role }}
+  </div>
+  <button type="submit" class="btn-primary" data-bulk-submit>Agregar <span data-bulk-count>los</span> al inventario</button>
+  <p class="w-full text-xs text-muted" data-bulk-hint>Marca hosts por confirmar para agregarlos al inventario de una vez. Conservan su nombre y tipo; la descripción (recomendada para la IA) se completa después en cada activo.</p>
+</div>

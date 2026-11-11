@@ -23,7 +23,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from . import catalogs
-from .contracts import AssetContext, DiscoveredHost, ScanTarget, UpsertResult
+from .contracts import AssetContext, DiscoveredHost, ScanTarget, SoftwareItem, UpsertResult
 from .enums import (
     IDENTITY_PRECEDENCE,
     AssetOrigin,
@@ -34,6 +34,7 @@ from .enums import (
     ContextCompleteness,
     Criticality,
     CriticalitySource,
+    Exposure,
     ExposureSource,
     IdentifierKind,
     ServiceState,
@@ -50,6 +51,7 @@ from .models import (
     Service,
 )
 from .normalization import ip_kind, normalize_identifier
+from .signals_domain import asset_confirmed, services_changed
 
 logger = logging.getLogger(__name__)
 
@@ -90,8 +92,13 @@ _PRECEDENCE_INDEX = {kind: i for i, kind in enumerate(IDENTITY_PRECEDENCE)}
 
 
 # --------------------------------------------------------------------------
-# Permisos
+# Permisos y señales de dominio
 # --------------------------------------------------------------------------
+
+
+def _emit_after_commit(signal, **kwargs):
+    """Emite una señal de dominio al confirmar la transacción (nunca dentro de ella)."""
+    transaction.on_commit(lambda: signal.send(sender=Asset, **kwargs))
 
 
 def _require(user, *perms):
@@ -500,12 +507,12 @@ def _upsert_locked(host, identifiers, payload, run):
     _add_identifiers(asset, identifiers, host.observed_at)
     services_before = None if created else _service_signature(asset)
     _upsert_services(asset, host)
-    if (
-        not created
-        and asset.status in SUGGESTIBLE_STATUSES
-        and _service_signature(asset) != services_before
-    ):
+    services_after = _service_signature(asset)
+    if not created and asset.status in SUGGESTIBLE_STATUSES and services_after != services_before:
         schedule_suggestion(asset.pk, trigger=SuggestionTrigger.CONTEXT_CHANGE)
+    if host.services and (created or services_after != services_before):
+        # Módulo 3: el software observado cambió; la detección reindexa y reconcilia.
+        _emit_after_commit(services_changed, asset_id=asset.pk, created=created)
     if not created:
         asset.first_seen = asset.first_seen or host.observed_at
         asset.last_seen = max(filter(None, (asset.last_seen, host.observed_at)))
@@ -513,6 +520,10 @@ def _upsert_locked(host, identifiers, payload, run):
             asset.os_guess = host.os_guess[:200]
         if asset.status == AssetStatus.STALE:
             asset.status = AssetStatus.ACTIVE
+    # Verlo en un descubrimiento es la prueba de alcance más fuerte que hay.
+    asset.reachable = True
+    asset.reachability_checked_at = host.observed_at
+    asset.reachability_error = ""
     assign_network_range(asset)
     asset.save()
     return UpsertResult(asset=asset, created=created, updated=not created, conflict=None)
@@ -692,6 +703,7 @@ def confirm_asset(asset, *, user, fields=None, criticality=None, suggest=True):
     asset.save()
     if suggest:
         schedule_suggestion(asset.pk, trigger=SuggestionTrigger.CONFIRM, requested_by=user)
+    _emit_after_commit(asset_confirmed, asset_id=asset.pk)
     return asset
 
 
@@ -888,15 +900,39 @@ def resolve_conflict(conflict, *, user, resolution, target=None):
     return conflict
 
 
+def record_reachability(asset_id, *, up, at=None, error=""):
+    """Resultado de una sonda o de un escaneo dirigido al activo: responde o no desde Atalaya.
+
+    Informativo: no cambia el estado. ``mark_stale_assets`` lo usa como primera señal para los
+    activos dados de alta a mano que nunca llegaron a verse.
+    """
+    Asset.objects.filter(pk=asset_id).update(
+        reachable=bool(up),
+        reachability_checked_at=at or timezone.now(),
+        reachability_error=(error or "")[:255],
+        updated_at=timezone.now(),
+    )
+
+
+def get_asset_ips_in_scope(asset_id):
+    """IPs del activo dentro del alcance autorizado (para sondas y escaneos dirigidos)."""
+    values = AssetIdentifier.objects.filter(
+        asset_id=asset_id, kind__in=(IdentifierKind.IPV4, IdentifierKind.IPV6)
+    ).values_list("value", flat=True)
+    return [v for v in values if is_in_scope(v)]
+
+
 def mark_stale_assets(now=None):
     """``ACTIVE`` no observados en ``ATALAYA_ASSET_STALE_DAYS`` → ``STALE``.
 
-    Solo aplica a activos observados alguna vez por descubrimiento.
+    Aplica a activos observados alguna vez por descubrimiento y a los dados de alta a mano cuya
+    última verificación de alcance (sonda o escaneo) falló hace más de ese plazo.
     """
     now = now or timezone.now()
     cutoff = now - timedelta(days=settings.ATALAYA_ASSET_STALE_DAYS)
-    stale = Asset.objects.filter(
-        status=AssetStatus.ACTIVE, last_seen__isnull=False, last_seen__lt=cutoff
+    stale = Asset.objects.filter(status=AssetStatus.ACTIVE).filter(
+        Q(last_seen__isnull=False, last_seen__lt=cutoff)
+        | Q(last_seen__isnull=True, reachable=False, reachability_checked_at__lt=cutoff)
     )
     count = 0
     for asset in stale:
@@ -981,6 +1017,105 @@ def get_scan_targets() -> list[ScanTarget]:
         if current is not None:
             targets.append(ScanTarget(asset_id=asset.pk, kind="sbom", value=current.file.name))
     return targets
+
+
+def get_asset_status(asset_id):
+    """``(status, in_scope)`` del activo, o ``None`` si no existe (lectura barata para el lazo)."""
+    row = Asset.objects.filter(pk=asset_id).values_list("status", "in_scope").first()
+    return row if row is not None else None
+
+
+def list_actionable_assets():
+    """``[(id, created_at)]`` de activos confirmados, vigentes y en alcance (ACTIVE/STALE)."""
+    return list(
+        Asset.objects.filter(status__in=SCANNABLE_STATUSES, in_scope=True).values_list(
+            "pk", "created_at"
+        )
+    )
+
+
+def get_asset_summary(asset_id) -> dict:
+    """Resumen descriptivo (sin lógica) para el planificador: nombre, tipo, estado, imagen/SBOM."""
+    asset = (
+        Asset.objects.select_related("container_image").prefetch_related("sboms").get(pk=asset_id)
+    )
+    return {
+        "name": asset.name,
+        "asset_type": asset.asset_type,
+        "status": asset.status,
+        "has_image": hasattr(asset, "container_image"),
+        "has_sbom": any(s.is_current for s in asset.sboms.all()),
+        "reachable": asset.reachable,
+        "reachability_checked_at": asset.reachability_checked_at,
+        "in_scope": asset.in_scope,
+        "criticality": asset.criticality,
+        "criticality_label": asset.get_criticality_display() if asset.criticality else "",
+        "criticality_source": asset.criticality_source,
+        "criticality_source_label": (
+            asset.get_criticality_source_display() if asset.criticality_source else ""
+        ),
+        "has_minimum_context": asset.has_minimum_context,
+        "suggestion_in_flight": processing_suggestion(asset) is not None
+        or suggestion_queued(asset.pk),
+    }
+
+
+def inventory_overview() -> dict:
+    """Agregados del inventario vigente en alcance (sin identificadores de red)."""
+    from collections import Counter
+
+    from . import catalogs
+
+    assets = list(
+        Asset.objects.filter(status__in=SCANNABLE_STATUSES, in_scope=True).only(
+            "asset_type", "environment", "business_role", "data_categories", "description"
+        )
+    )
+    by_type = Counter(a.asset_type for a in assets)
+    by_env = Counter(a.environment for a in assets if a.environment)
+    by_role = Counter(a.business_role for a in assets if a.business_role)
+    categories = Counter(c for a in assets for c in (a.data_categories or []))
+    descriptions = [a.description[:160] for a in assets if a.description.strip()][:8]
+    return {
+        "assets": len(assets),
+        "asset_ids": [a.pk for a in assets],
+        "by_type": {catalogs.label(catalogs.ASSET_TYPE, k): v for k, v in by_type.most_common(6)},
+        "by_environment": {
+            catalogs.label(catalogs.ENVIRONMENT, k): v for k, v in by_env.most_common(6)
+        },
+        "by_business_role": {
+            catalogs.label(catalogs.BUSINESS_ROLE, k): v for k, v in by_role.most_common(8)
+        },
+        "data_categories": dict(categories.most_common(6)),
+        "sample_descriptions": descriptions,
+    }
+
+
+def get_asset_software(asset_id) -> list[SoftwareItem]:
+    """Software conocido del activo: servicios abiertos (nmap) y componentes del SBOM vigente.
+
+    Lo consume el módulo de detección para reconciliar la CTI sin reescanear.
+    """
+    from .sbom import components_of
+
+    asset = Asset.objects.get(pk=asset_id)
+    items = [
+        SoftwareItem(
+            source="SERVICE",
+            name=svc.product or svc.service_name,
+            version=svc.version,
+            cpe=svc.cpe,
+            service_id=svc.pk,
+            port=svc.port,
+            protocol=svc.protocol,
+        )
+        for svc in asset.services.filter(state=ServiceState.OPEN).order_by("port")
+        if svc.product or svc.cpe
+    ]
+    current = asset.sboms.filter(is_current=True).first()
+    if current is not None:
+        items.extend(components_of(current))
+    return items
 
 
 def assets_matching(identifiers: Iterable[tuple[str, str]]):
@@ -1466,6 +1601,154 @@ def save_network_range(*, user, fields, network_range=None):
     network_range.save()
     refresh_range_membership(user=user)
     return network_range
+
+
+def _unique_range_name(base):
+    name, n = base[:100], 2
+    while NetworkRange.objects.filter(name=name).exists():
+        suffix = f" ({n})"
+        name, n = base[: 100 - len(suffix)] + suffix, n + 1
+    return name
+
+
+def _create_authorized_range(
+    *, cidr, name, user, reference, expires_at, zone, environment, description
+):
+    rng = NetworkRange(
+        name=_unique_range_name(name),
+        cidr=cidr,
+        zone=zone or Exposure.INTERNAL,
+        environment=environment or "PROD",
+        description=description,
+        in_scope=True,
+        authorization_reference=reference[:255],
+        authorized_by=user,
+        authorized_at=timezone.now(),
+        authorization_expires_at=expires_at,
+    )
+    rng.full_clean()
+    _attribute(rng, user)
+    rng.save()
+    refresh_range_membership(user=user)
+    return rng
+
+
+def _covering_range_problem(ip):
+    """Mensaje si la IP ya cae en un rango registrado que no autoriza escanear (o ``""``)."""
+    rng = find_range_for_ip(ip)
+    if rng is None or rng.is_authorized():
+        return ""
+    if not rng.in_scope:
+        return f"{ip} pertenece al rango {rng.cidr} ({rng.name}), que está fuera del alcance."
+    return (
+        f"{ip} pertenece al rango {rng.cidr} ({rng.name}), cuya autorización caducó el "
+        f"{timezone.localdate(rng.authorization_expires_at):%Y-%m-%d}. Renuévala en Rangos de red."
+    )
+
+
+def default_host_reference(user, asset_name=""):
+    who = user.get_username() if user is not None else "sistema"
+    what = f" de «{asset_name}»" if asset_name else ""
+    return f"Alta manual{what} por {who} el {timezone.localdate():%Y-%m-%d}"
+
+
+def validate_host_authorization(ips, *, user, reference="", register_network=False):
+    """Comprueba, antes de crear nada, que la autorización por host es posible.
+
+    - Quien autoriza un host debe poder lanzar escaneos; una red completa exige gestionar el
+      alcance.
+    - Una IP pública exige referencia escrita: ahí un error de captura apunta a un tercero.
+    - Una IP dentro de un rango registrado pero no vigente no se «salta» con un /32: el rango se
+      renueva en su sitio.
+    Devuelve las IP que efectivamente quedarán autorizadas (las que hoy están fuera de alcance).
+    """
+    _require(user, "discovery.run_discovery")
+    if register_network:
+        _require(user, "assets.manage_scope")
+    pending = []
+    for ip in ips:
+        if is_in_scope(ip):
+            continue
+        problem = _covering_range_problem(ip)
+        if problem:
+            raise ValidationError(problem)
+        if ipaddress.ip_address(ip).is_global and not (reference or "").strip():
+            raise ValidationError(
+                f"{ip} es una dirección pública: indica la referencia de la autorización "
+                "(oficio, ticket o carta) para poder escanearla."
+            )
+        pending.append(ip)
+    return pending
+
+
+@transaction.atomic
+def authorize_host(ip, *, user, reference="", expires_at=None, asset=None):
+    """Autoriza el escaneo de **un solo equipo** creando un rango /32 (o /128) a nombre del usuario.
+
+    Devuelve el rango creado, o ``None`` si la IP ya estaba en alcance. Conserva la trazabilidad
+    de los rangos (quién, cuándo, referencia, caducidad) sin obligar a registrar la red entera.
+    """
+    ip = normalize_identifier(ip_kind(ip), ip)
+    if not validate_host_authorization([ip], user=user, reference=reference):
+        return None
+    name = asset.name if asset is not None else ""
+    address = ipaddress.ip_address(ip)
+    return _create_authorized_range(
+        cidr=f"{ip}/{address.max_prefixlen}",
+        name=f"Host {name or ip}",
+        user=user,
+        reference=(reference or "").strip() or default_host_reference(user, name),
+        expires_at=expires_at,
+        zone=asset.exposure if asset is not None and asset.exposure else None,
+        environment=asset.environment if asset is not None else None,
+        description=f"Autorización de un solo equipo creada al dar de alta «{name}»."
+        if name
+        else "Autorización de un solo equipo.",
+    )
+
+
+HOST_NETWORK_PREFIX = {4: 24, 6: 64}
+
+
+def network_for_host(ip):
+    address = ipaddress.ip_address(ip)
+    return ipaddress.ip_network(f"{ip}/{HOST_NETWORK_PREFIX[address.version]}", strict=False)
+
+
+@transaction.atomic
+def register_network_for_host(ip, *, user, reference, expires_at=None, asset=None):
+    """Paso opcional al dar de alta: registrar y autorizar la red del equipo (/24 o /64).
+
+    Si la red ya existe y está vigente, se devuelve tal cual. Exige ``assets.manage_scope``.
+    """
+    _require(user, "assets.manage_scope")
+    if not (reference or "").strip():
+        raise ValidationError(
+            "Registrar una red completa requiere la referencia de su autorización."
+        )
+    network = network_for_host(ip)
+    existing = NetworkRange.objects.filter(cidr=network.compressed).first()
+    if existing is not None:
+        if existing.is_authorized():
+            return existing
+        raise ValidationError(
+            f"La red {existing.cidr} ({existing.name}) ya está registrada pero no vigente: "
+            "renuévala en Rangos de red."
+        )
+    if network.is_global:
+        raise ValidationError("Solo se registra automáticamente una red completa si es privada.")
+    return _create_authorized_range(
+        cidr=network.compressed,
+        name=f"Red {network.compressed}",
+        user=user,
+        reference=reference.strip(),
+        expires_at=expires_at,
+        zone=asset.exposure if asset is not None and asset.exposure else None,
+        environment=asset.environment if asset is not None else None,
+        description=f"Registrada al dar de alta «{asset.name}» para descubrir otros equipos."
+        if asset is not None
+        else "",
+    )
 
 
 @transaction.atomic

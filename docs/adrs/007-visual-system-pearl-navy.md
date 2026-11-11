@@ -66,7 +66,11 @@ Patrón **obligatorio para todo el proyecto**:
 
 - La **barra lateral** muestra solo **secciones** de primer nivel: Inicio,
   Administración y (abajo) Mi cuenta. Los módulos M1–M5 se agregarán como nuevas
-  secciones (p. ej. Activos, Hallazgos, Inteligencia, Reportes).
+  secciones (p. ej. Activos, Hallazgos, Inteligencia, Reportes). Una sección
+  corresponde a un módulo, no a un mecanismo: el descubrimiento con nmap llena el
+  inventario, así que sus pantallas (Rangos de red · Descubrimiento) son pestañas de
+  **Inventario** y no una sección propia (cambio del 2026-11-05; antes existía la
+  sección «Descubrimiento»).
 - Al abrir una sección se muestra su **primera pestaña** y sus subsecciones como
   **pestañas superiores** (p. ej. Administración → Resumen · Usuarios · Bitácora;
   Mi cuenta → Resumen · Perfil · Contraseña · Seguridad · Actividad). Una

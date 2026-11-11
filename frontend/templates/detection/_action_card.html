@@ -1,0 +1,31 @@
+{% load detection_tags %}
+<article class="card flex flex-col gap-2" data-queue-card tabindex="0">
+  <div class="flex flex-wrap items-center justify-between gap-2">
+    <div class="flex flex-wrap items-center gap-2">
+      {% if selectable %}<input type="checkbox" name="ids" value="{{ a.pk }}" class="checkbox" aria-label="Seleccionar">{% endif %}
+      <a href="{% url 'detection:action' a.pk %}" class="font-medium">{{ a.get_action_display }}</a>
+      {% urgency_badge a.urgency %}{% action_status_badge a.status %}
+      {% if a.asset %}<span class="text-sm">sobre <a href="{% url 'assets:detail' a.asset_id %}">{{ a.asset.name }}</a></span>{% endif %}
+      {% if a.decision.fallback %}<span class="badge-medium" title="{{ a.decision.fallback_reason }}">por regla, sin LLM</span>{% endif %}
+      {% model_warning a.decision.model_mismatch a.decision.model_requested a.decision.model_responded %}
+    </div>
+    <p class="font-mono text-[11px] text-muted">{{ a.event.get_kind_display|lower }} · prioridad {{ a.priority }} · {{ a.created_at|fecha }}</p>
+  </div>
+  <p class="text-ink-soft">{{ a.decision.rationale }}</p>
+  {% if a.decision.evidence %}<ul class="flex flex-wrap gap-1">{% for e in a.decision.evidence %}<li class="badge-neutral">{{ e }}</li>{% endfor %}</ul>{% endif %}
+  {% review_facts a as facts %}{% if facts %}{% include "detection/_review_facts.html" with caps=facts.caps asset_id=facts.asset_id top_findings=facts.top_findings in_form=selectable %}{% endif %}
+  {% if perms.detection.approve_actions %}
+  <div class="flex flex-wrap items-end gap-2 border-t border-line-soft pt-2">
+    {% if selectable %}
+    <button type="submit" formaction="{% url 'detection:action_approve' a.pk %}" formmethod="post" formnovalidate class="btn-primary btn-sm">{% if a.status == 'NEEDS_REVIEW' %}Marcar revisada{% else %}Aprobar{% endif %}</button>
+    <div class="flex grow flex-wrap items-end gap-2" data-reject>
+      <div class="grow"><label class="form-label" for="note_{{ a.pk }}">Motivo del rechazo</label><input id="note_{{ a.pk }}" name="note_{{ a.pk }}" class="form-input py-1 text-xs" maxlength="500" placeholder="Obligatorio para rechazar" data-reject-note></div>
+      <button type="submit" formaction="{% url 'detection:action_reject' a.pk %}" formmethod="post" formnovalidate class="btn-secondary btn-sm" data-reject-button>Rechazar</button>
+    </div>
+    {% else %}
+    <form method="post" action="{% url 'detection:action_approve' a.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button type="submit" class="btn-primary btn-sm">{% if a.status == 'NEEDS_REVIEW' %}Marcar revisada{% else %}Aprobar{% endif %}</button></form>
+    <form method="post" action="{% url 'detection:action_reject' a.pk %}" class="flex grow flex-wrap items-end gap-2">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><div class="grow"><label class="form-label" for="note_{{ a.pk }}">Motivo del rechazo</label><input id="note_{{ a.pk }}" name="note" class="form-input py-1 text-xs" maxlength="500" required placeholder="Obligatorio para rechazar"></div><button type="submit" class="btn-secondary btn-sm">Rechazar</button></form>
+    {% endif %}
+  </div>
+  {% endif %}
+</article>

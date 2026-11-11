@@ -7,28 +7,37 @@
   <div class="flex flex-wrap items-center gap-2">
     <h2>{{ asset.name }}</h2>
     {% status_badge asset.status %}
+    {# Una sola marca de criticidad en la cabecera; el detalle (origen, revisión) vive en «Contexto de negocio». #}
     {% criticality_badge asset.criticality asset.criticality_source %}
-    {% exposure_badge asset.exposure asset.exposure_source %}
   </div>
   <div class="page-actions">
     <a href="{% url 'assets:list' %}" class="btn-secondary btn-sm">← Activos</a>
     {% if perms.assets.change_asset and asset.status != 'RETIRED' %}
       {% if asset.status == 'UNCONFIRMED' %}<a href="{% url 'assets:confirm' asset.pk %}" class="btn-primary btn-sm">Confirmar</a>{% endif %}
       <a href="{% url 'assets:edit' asset.pk %}" class="btn-secondary btn-sm">Editar</a>
-      <form method="post" action="{% url 'assets:retire' asset.pk %}">{% csrf_token %}<button class="btn-secondary btn-sm" type="submit">Retirar</button></form>
+      <details class="menu">
+        <summary class="btn-secondary btn-sm">Más acciones</summary>
+        <div class="menu-panel">
+          {% if asset.status == 'IGNORED' %}
+          <form method="post" action="{% url 'assets:restore' asset.pk %}">{% csrf_token %}<button class="menu-item" type="submit"><span class="font-medium">Restaurar</span><span class="text-xs text-muted">Vuelve al inventario y a escanearse.</span></button></form>
+          {% else %}
+          <form method="post" action="{% url 'assets:ignore' asset.pk %}" data-confirm="Ignorar «{{ asset.name }}»: deja de escanearse y de generar riesgos, pero se conserva y se puede restaurar. ¿Ignorarlo?">{% csrf_token %}<button class="menu-item" type="submit"><span class="font-medium">Ignorar</span><span class="text-xs text-muted">Deja de escanearse y de generar riesgos; se puede restaurar.</span></button></form>
+          {% endif %}
+          <form method="post" action="{% url 'assets:retire' asset.pk %}" data-confirm="Retirar el activo «{{ asset.name }}» es definitivo: sale del inventario, deja de escanearse y no se puede reactivar. ¿Retirarlo?">{% csrf_token %}<button class="menu-item menu-item-danger" type="submit"><span class="font-medium">Retirar</span><span class="text-xs text-muted">Definitivo: sale del inventario y no se puede reactivar.</span></button></form>
+        </div>
+      </details>
     {% endif %}
   </div>
 </div>
 {% endblock %}
 {% block content %}
 {% if asset.merged_into %}<div class="alert-info">Este activo se fusionó en <a href="{% url 'assets:detail' asset.merged_into_id %}">{{ asset.merged_into.name }}</a>.</div>{% endif %}
+{% if asset.status == 'IGNORED' %}<div class="alert-info text-sm">Activo ignorado: no se escanea ni genera riesgos. Se puede restaurar desde «Más acciones».</div>{% endif %}
 
 <nav class="subtabs" aria-label="Secciones del activo">
-  {% for key, label in tabs %}
-  <a href="?tab={{ key }}" class="subtab {% if tab == key %}subtab-active{% endif %}"{% if tab == key %} aria-current="page"{% endif %}>{{ label }}</a>
+  {% for key, label, count in tabs %}
+  <a href="?tab={{ key }}" class="subtab {% if tab == key %}subtab-active{% endif %}"{% if tab == key %} aria-current="page"{% endif %}>{{ label }}{% if count %} <span class="font-mono text-xs">{{ count }}</span>{% endif %}</a>
   {% endfor %}
-  <span class="subtab-disabled" title="Disponible con el módulo de vulnerabilidades">Hallazgos</span>
-  <span class="subtab-disabled" title="Disponible con el motor de scoring">Riesgo</span>
 </nav>
 
 {% if tab == "resumen" %}
@@ -39,51 +48,89 @@
       <div><dt class="kv-label">Tipo</dt><dd class="kv-value">{{ asset.asset_type|catalog:"ASSET_TYPE" }}</dd></div>
       <div><dt class="kv-label">Función de negocio</dt><dd class="kv-value">{{ asset.business_role|catalog:"BUSINESS_ROLE" }}</dd></div>
       <div><dt class="kv-label">Entorno</dt><dd class="kv-value">{{ asset.environment|catalog:"ENVIRONMENT" }}</dd></div>
-      <div><dt class="kv-label">Criticidad</dt><dd class="kv-value">{% criticality_badge asset.criticality asset.criticality_source %}{% if asset.criticality_source %} <span class="text-xs text-muted">{{ asset.get_criticality_source_display }}</span>{% endif %}{% if asset.review_suggested %} <a href="?tab=sugerencias" class="badge-medium">revisión sugerida</a>{% endif %}{% if not asset.has_minimum_context %} <span class="badge-neutral" title="Falta descripción o función de negocio">contexto insuficiente</span>{% endif %}</dd></div>
-      <div><dt class="kv-label">Exposición</dt><dd class="kv-value">{% exposure_badge asset.exposure asset.exposure_source %} <span class="text-xs text-muted">{{ asset.get_exposure_source_display }}</span></dd></div>
+      <div><dt class="kv-label">Criticidad</dt><dd class="kv-value">
+        {% if asset.criticality %}{{ asset.get_criticality_display }}{% if asset.criticality_source == 'LLM_AUTO' %} · <a href="?tab=sugerencias" class="badge-medium hover:no-underline" title="La IA la calculó sin que nadie la revisara: confírmala o cámbiala">por IA, sin revisar</a>{% elif asset.criticality_source %} · <span class="text-xs text-muted">{{ asset.get_criticality_source_display|lower }}</span>{% endif %}{% else %}<span class="text-muted">sin clasificar</span>{% endif %}
+        {% if asset.review_suggested and asset.criticality_source != 'LLM_AUTO' %} <a href="?tab=sugerencias" class="badge-medium hover:no-underline">revisión sugerida</a>{% endif %}
+        {% if not asset.has_minimum_context %} <span class="badge-neutral" title="Falta descripción o función de negocio: la IA no puede sugerir">contexto insuficiente</span>{% endif %}
+      </dd></div>
+      <div><dt class="kv-label">Exposición</dt><dd class="kv-value">{% exposure_badge asset.exposure asset.exposure_source %} <span class="text-xs text-muted">{{ asset.get_exposure_source_display|lower }}</span></dd></div>
       <div><dt class="kv-label">Rango de red</dt><dd class="kv-value">{% if asset.network_range %}<a href="{% url 'assets:range_detail' asset.network_range_id %}">{{ asset.network_range.name }}</a> <span class="font-mono text-xs text-muted">{{ asset.network_range.cidr }}</span>{% else %}—{% endif %}</dd></div>
       <div><dt class="kv-label">Clasificación de datos</dt><dd class="kv-value">{{ asset.data_classification|choice_label:"DataClassification" }}</dd></div>
       <div><dt class="kv-label">Categorías de datos</dt><dd class="kv-value">{% for c in asset.data_categories %}<span class="badge-neutral">{{ c|choice_label:"DataCategory" }}</span> {% empty %}—{% endfor %}</dd></div>
       <div><dt class="kv-label">Responsable técnico</dt><dd class="kv-value">{{ asset.technical_owner.get_username|default:"—" }}</dd></div>
       <div><dt class="kv-label">Responsable de negocio</dt><dd class="kv-value">{{ asset.business_owner|default:"—" }}</dd></div>
-      <div><dt class="kv-label">Alcance de escaneo</dt><dd class="kv-value">{% if asset.in_scope %}<span class="badge-low">dentro</span>{% else %}<span class="badge-neutral">excluido</span>{% endif %}</dd></div>
+      <div><dt class="kv-label">Autorizado para escaneo</dt><dd class="kv-value">{% if asset.in_scope %}<span class="badge-low" title="Atalaya puede sondearlo y escanearlo si su IP cae en un rango con autorización vigente">sí</span>{% else %}<span class="badge-neutral" title="Excluido a mano: nunca se sondea ni se escanea">no, excluido</span>{% endif %}</dd></div>
+      <div><dt class="kv-label">Conectividad desde Atalaya</dt><dd class="kv-value">{% if asset.reachable is None %}<span class="badge-neutral">sin comprobar</span>{% elif asset.reachable %}<span class="badge-low">responde</span>{% else %}<span class="badge-medium">no responde</span>{% endif %}{% if asset.reachability_checked_at %} <span class="font-mono text-xs text-muted">{{ asset.reachability_checked_at|fecha }}</span>{% endif %}{% if asset.reachability_error %} <span class="text-xs text-muted">{{ asset.reachability_error }}</span>{% endif %}</dd></div>
       <div><dt class="kv-label">Origen</dt><dd class="kv-value">{{ asset.get_origin_display }}</dd></div>
-      <div><dt class="kv-label">Primera / última vez visto</dt><dd class="kv-value font-mono text-xs">{{ asset.first_seen|date:"Y-m-d H:i"|default:"—" }} · {{ asset.last_seen|date:"Y-m-d H:i"|default:"—" }}</dd></div>
+      <div><dt class="kv-label">Primera / última vez visto</dt><dd class="kv-value font-mono text-xs">{{ asset.first_seen|fecha }} · {{ asset.last_seen|fecha }}</dd></div>
       <div><dt class="kv-label">SO estimado</dt><dd class="kv-value">{{ asset.os_guess|default:"—" }}</dd></div>
     </dl>
-    {% if asset.description %}<div class="mt-4"><p class="kv-label">Descripción</p><p class="mt-1 text-ink-soft">{{ asset.description|linebreaksbr }}</p></div>{% endif %}
+    {% if asset.description %}<div class="mt-4"><p class="kv-label">Descripción</p><p class="mt-1 text-ink-soft">{{ asset.description|linebreaksbr }}</p></div>
+    {% elif perms.assets.change_asset %}<p class="mt-4 text-sm text-muted">Sin descripción. <a href="{% url 'assets:edit' asset.pk %}">Agrégala</a>: es lo que la IA lee para sugerir la criticidad y explicar los riesgos.</p>{% endif %}
   </section>
   <section class="card flex flex-col gap-3">
-    <h3 class="card-title mb-0">Acciones</h3>
+    <h3 class="card-title mb-0">Proceso del activo</h3>
+    {% if asset.status != 'RETIRED' and asset.status != 'UNCONFIRMED' and perms.detection.view_detectionevent %}
+    {# Un solo hilo: escaneo de servicios → criticidad con IA → evaluación de detección. Se refresca solo mientras algo corre. #}
+    <div id="asset-pipeline" hx-get="{% url 'detection:asset_pipeline' asset.pk %}" hx-trigger="load" hx-swap="outerHTML"><p class="text-xs text-muted">Cargando el proceso del activo…</p></div>
+    {% else %}
     {% if asset.status != 'RETIRED' %}{% include "assets/_suggest_action.html" %}{% endif %}
     {% include "assets/_scan_action.html" with extra_class="w-full" %}
-    {% if perms.assets.change_asset and asset.status != 'IGNORED' and asset.status != 'RETIRED' %}
-    <form method="post" action="{% url 'assets:ignore' asset.pk %}">{% csrf_token %}<button class="btn-secondary w-full" type="submit">Ignorar</button></form>
-    {% endif %}
-    {% if asset.status == 'IGNORED' %}
-    <div class="alert-info text-sm">Activo ignorado.</div>
-    {% if perms.assets.change_asset %}
-    <form method="post" action="{% url 'assets:restore' asset.pk %}">{% csrf_token %}<button class="btn-primary w-full" type="submit">Restaurar</button></form>
-    {% endif %}
     {% endif %}
   </section>
 </div>
 
+{% elif tab == "riesgos" %}
+<div class="flex flex-wrap items-center justify-between gap-3">
+  <p class="text-sm text-ink-soft">Escenarios de amenaza de este activo según ISO/IEC 27005, derivados por la IA de sus vulnerabilidades sostenidas. Aquí se decide el tratamiento.{% if consolidation_pending %} <span class="badge-primary">la IA está reevaluando</span>{% endif %}</p>
+  <div class="flex flex-wrap gap-2">
+    {% if perms.detection.request_evaluation %}<form method="post" action="{% url 'detection:asset_consolidate' asset.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn-secondary btn-sm" type="submit" title="Vuelve a consolidar las observaciones y a derivar riesgos con la IA">Reevaluar con IA</button></form>{% endif %}
+    <a href="{% url 'detection:risks' %}?asset={{ asset.pk }}" class="btn-secondary btn-sm" title="La misma lista en Detección, con filtros y comparada con el resto de activos">Abrir en Detección</a>
+  </div>
+</div>
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_auto]">
+  {% include "detection/_risk_rows.html" %}
+  <section class="card flex flex-col gap-2">
+    <h3 class="card-title mb-0">Matriz del activo</h3>
+    {% include "detection/_risk_matrix.html" with matrix=matrix compact=True %}
+    <p class="text-xs text-muted">Nivel = probabilidad × impacto.</p>
+  </section>
+</div>
+{% elif tab == "vulnerabilidades" %}
+<div class="flex flex-wrap items-center justify-between gap-3">
+  <p class="text-sm text-ink-soft">Vulnerabilidades reales del activo, consolidadas por la IA a partir de sus observaciones y ordenadas por puntaje contextual.{% if consolidation_pending %} <span class="badge-primary">consolidación en curso</span>{% endif %}</p>
+  <div class="flex flex-wrap gap-2">
+    {% if perms.detection.request_evaluation %}<form method="post" action="{% url 'detection:asset_consolidate' asset.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn-secondary btn-sm" type="submit" title="Vuelve a pasar las observaciones por la IA">Reevaluar con IA</button></form>{% endif %}
+    <a href="{% url 'detection:panel' %}?asset={{ asset.pk }}" class="btn-secondary btn-sm" title="La misma lista en Detección, con filtros">Abrir en Detección</a>
+  </div>
+</div>
+{% include "detection/_vulnerability_rows.html" %}
+{% if tab_total > tab_limit %}<p class="text-sm text-muted">Se muestran las {{ tab_limit }} de mayor puntaje de {{ tab_total }}. <a href="{% url 'detection:panel' %}?asset={{ asset.pk }}">Ver todas en Detección</a>, con filtros y triaje en lote.</p>{% endif %}
+{% elif tab == "observaciones" %}
+<div class="flex flex-wrap items-center justify-between gap-3">
+  <p class="text-sm text-ink-soft">Lo que reportó cada herramienta, la inteligencia o una persona sobre este activo. Nunca se borran: la IA las consolida en vulnerabilidades.</p>
+  <div class="flex flex-wrap gap-2">
+    {% if perms.detection.work_findings %}<a href="{% url 'detection:observation_new' %}?asset={{ asset.pk }}" class="btn-primary btn-sm">Registrar observación</a>{% endif %}
+    <a href="{% url 'detection:observations' %}?asset={{ asset.pk }}" class="btn-secondary btn-sm" title="La misma lista en Detección, con filtros">Abrir en Detección</a>
+  </div>
+</div>
+{% include "detection/_observation_rows.html" %}
+{% if tab_total > tab_limit %}<p class="text-sm text-muted">Se muestran las {{ tab_limit }} más recientes de {{ tab_total }}. <a href="{% url 'detection:observations' %}?asset={{ asset.pk }}">Ver todas en Detección</a>.</p>{% endif %}
 {% elif tab == "identificadores" %}
 <div class="table-wrap">
   <table class="data-table">
-    <thead><tr><th>Tipo</th><th>Valor</th><th>Principal</th><th>Primera vez</th><th>Última vez</th><th></th></tr></thead>
+    <thead><tr><th scope="col">Tipo</th><th scope="col">Valor</th><th scope="col">Principal</th><th scope="col" class="col-md">Primera vez</th><th scope="col" class="col-md">Última vez</th><th scope="col"></th></tr></thead>
     <tbody>
       {% for i in identifiers %}
       <tr>
         <td>{{ i.get_kind_display }}</td>
         <td class="font-mono text-xs">{{ i.value }}</td>
         <td>{% if i.is_primary %}<span class="badge-primary">principal</span>{% endif %}</td>
-        <td class="font-mono text-xs">{{ i.first_seen|date:"Y-m-d H:i" }}</td>
-        <td class="font-mono text-xs">{{ i.last_seen|date:"Y-m-d H:i" }}</td>
-        <td class="text-right">{% if perms.assets.change_asset %}<form method="post" action="{% url 'assets:identifier_remove' asset.pk i.pk %}">{% csrf_token %}<button class="btn-secondary btn-sm" type="submit">Quitar</button></form>{% endif %}</td>
+        <td class="col-md font-mono text-xs">{{ i.first_seen|fecha }}</td>
+        <td class="col-md font-mono text-xs">{{ i.last_seen|fecha }}</td>
+        <td class="text-right">{% if perms.assets.change_asset %}<form method="post" action="{% url 'assets:identifier_remove' asset.pk i.pk %}" data-confirm="¿Quitar el identificador {{ i.value }}? Si el descubrimiento lo vuelve a ver, podría crear un activo nuevo.">{% csrf_token %}<button class="btn-danger-soft btn-sm" type="submit">Quitar</button></form>{% endif %}</td>
       </tr>
-      {% empty %}<tr><td colspan="6" class="table-empty">Sin identificadores.</td></tr>{% endfor %}
+      {% empty %}<tr><td colspan="6" class="table-empty">Sin identificadores. Agrega al menos una IP, MAC o nombre para que el descubrimiento lo reconozca.</td></tr>{% endfor %}
     </tbody>
   </table>
 </div>
@@ -91,15 +138,19 @@
 <form method="post" action="{% url 'assets:identifier_add' asset.pk %}" class="card flex flex-col gap-3">
   {% csrf_token %}{{ identifier_formset.management_form }}
   <h3 class="card-title mb-0">Agregar identificadores</h3>
-  {% for f in identifier_formset %}<div class="grid grid-cols-1 gap-2 sm:grid-cols-[12rem_1fr]">{{ f.kind }}{{ f.value }}</div>{% endfor %}
+  {% for f in identifier_formset %}<div class="grid grid-cols-1 gap-2 sm:grid-cols-[12rem_1fr]"><label class="sr-only" for="{{ f.kind.id_for_label }}">Tipo de identificador {{ forloop.counter }}</label>{{ f.kind }}<label class="sr-only" for="{{ f.value.id_for_label }}">Valor del identificador {{ forloop.counter }}</label>{{ f.value }}</div>{% endfor %}
   <div><button class="btn-primary" type="submit">Agregar</button></div>
 </form>
 {% endif %}
 
 {% elif tab == "servicios" %}
+<div class="flex flex-wrap items-center justify-between gap-3">
+  <p class="text-sm text-ink-soft">Puertos y software que nmap vio en el activo. Los banners los escribe el equipo remoto: son pistas, no verdades.</p>
+  <div class="flex flex-wrap items-center gap-2">{% include "assets/_scan_action.html" %}</div>
+</div>
 <div class="table-wrap">
   <table class="data-table">
-    <thead><tr><th>Puerto</th><th>Estado</th><th>Servicio</th><th>Producto</th><th>Versión</th><th>CPE</th><th>Banner (no confiable)</th><th>Visto</th></tr></thead>
+    <thead><tr><th scope="col">Puerto</th><th scope="col">Estado</th><th scope="col">Servicio</th><th scope="col">Producto</th><th scope="col">Versión</th><th scope="col" class="col-lg">CPE</th><th scope="col" class="col-lg">Banner (no confiable)</th><th scope="col" class="col-md">Visto</th></tr></thead>
     <tbody>
       {% for s in services %}
       <tr>
@@ -108,15 +159,35 @@
         <td>{{ s.service_name|default:"—" }}</td>
         <td>{{ s.product|default:"—" }}</td>
         <td class="font-mono text-xs">{{ s.version|default:"—" }}</td>
-        <td class="font-mono text-[11px] text-muted">{{ s.cpe|default:"—" }}</td>
-        <td class="max-w-xs truncate font-mono text-[11px] text-muted" title="{{ s.banner }}">{{ s.banner|default:"—" }}</td>
-        <td class="font-mono text-xs">{{ s.last_seen|date:"Y-m-d" }}</td>
+        <td class="col-lg font-mono text-[11px] text-muted">{{ s.cpe|default:"—" }}</td>
+        <td class="col-lg max-w-xs truncate font-mono text-[11px] text-muted" title="{{ s.banner }}">{{ s.banner|default:"—" }}</td>
+        <td class="col-md font-mono text-xs">{{ s.last_seen|fecha_corta }}</td>
       </tr>
-      {% empty %}<tr><td colspan="8" class="table-empty">{% if scan_active %}Hay un escaneo en curso; los servicios aparecerán al terminar.{% elif has_scan %}El último escaneo no encontró servicios abiertos.{% else %}Aún no se ha escaneado este activo.{% endif %}</td></tr>{% endfor %}
+      {% empty %}<tr><td colspan="8" class="table-empty">{% if scan_active %}Hay un escaneo en curso; los servicios aparecerán al terminar.{% elif has_scan %}El último escaneo no encontró servicios abiertos.{% else %}Aún no se ha escaneado este activo.{% if not can_scan %} Para escanearlo necesita una IP dentro de un rango autorizado.{% endif %}{% endif %}</td></tr>{% endfor %}
     </tbody>
   </table>
 </div>
-<div class="flex flex-wrap items-center gap-3">{% include "assets/_scan_action.html" %}</div>
+<section class="flex flex-col gap-2">
+  <h3 class="eyebrow">Escaneos y descubrimientos que lo tocaron</h3>
+  {# Mientras hay un escaneo en cola o en curso, la tabla se refresca sola cada 3 s. #}
+  <div id="asset-runs" class="table-wrap"{% if scan_active %} hx-get="{% url 'assets:detail' asset.pk %}?tab=servicios" hx-select="#asset-runs" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+    <table class="data-table">
+      <thead><tr><th scope="col">Fecha</th><th scope="col">Perfil</th><th scope="col">Alcance</th><th scope="col">Estado</th><th scope="col" class="col-md">Hosts / servicios</th><th scope="col"></th></tr></thead>
+      <tbody>
+        {% for r in runs %}
+        <tr>
+          <td class="font-mono text-xs">{{ r.created_at|fecha }}</td>
+          <td>{{ r.get_profile_display }}</td>
+          <td>{% if r.network_range %}{{ r.network_range.name }}{% else %}este activo{% endif %}</td>
+          <td>{% run_status_badge r %}{% if r.is_active %} <span class="text-xs text-muted">se actualiza sola…</span>{% endif %}</td>
+          <td class="col-md font-mono text-xs">{{ r.hosts_up }} / {{ r.services_seen }}</td>
+          <td><a href="{% url 'discovery:run_detail' r.pk %}" class="btn-secondary btn-sm">Ver detalle</a></td>
+        </tr>
+        {% empty %}<tr><td colspan="6" class="table-empty">Ningún descubrimiento ha escaneado ni observado este activo.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
 
 {% elif tab == "sbom" %}
 {% if perms.assets.change_asset %}
@@ -128,25 +199,26 @@
 {% endif %}
 <div class="table-wrap">
   <table class="data-table">
-    <thead><tr><th>Archivo</th><th>Formato</th><th>Generador</th><th>Componentes</th><th>Sujeto</th><th>Subido</th><th>Vigente</th><th></th></tr></thead>
+    <thead><tr><th scope="col">Archivo</th><th scope="col">Formato</th><th scope="col" class="col-md">Generador</th><th scope="col">Componentes</th><th scope="col" class="col-lg">Sujeto</th><th scope="col">Subido</th><th scope="col">Vigente</th><th scope="col"></th></tr></thead>
     <tbody>
       {% for d in sboms %}
       <tr>
         <td>{{ d.original_filename }}<div class="font-mono text-[11px] text-muted">{{ d.sha256|truncatechars:20 }}</div></td>
         <td>{{ d.get_format_display }} <span class="font-mono text-xs text-muted">{{ d.spec_version }}</span></td>
-        <td class="text-ink-soft">{{ d.generator|default:"—" }}</td>
+        <td class="col-md text-ink-soft">{{ d.generator|default:"—" }}</td>
         <td class="font-mono">{{ d.component_count }}</td>
-        <td class="font-mono text-xs">{{ d.subject_name|default:"—" }}</td>
-        <td class="font-mono text-xs">{{ d.uploaded_at|date:"Y-m-d H:i" }}<div class="text-muted">{{ d.uploaded_by.get_username|default:"" }}</div></td>
+        <td class="col-lg font-mono text-xs">{{ d.subject_name|default:"—" }}</td>
+        <td class="font-mono text-xs">{{ d.uploaded_at|fecha }}<div class="text-muted">{{ d.uploaded_by.get_username|default:"" }}</div></td>
         <td>{% if d.is_current %}<span class="badge-low">vigente</span>{% else %}<span class="badge-neutral">anterior</span>{% endif %}</td>
         <td><a href="{% url 'assets:sbom_download' d.pk %}" class="btn-secondary btn-sm">Descargar</a></td>
       </tr>
-      {% empty %}<tr><td colspan="8" class="table-empty">Sin SBOM.</td></tr>{% endfor %}
+      {% empty %}<tr><td colspan="8" class="table-empty">Sin SBOM. Un inventario de software (CycloneDX o SPDX) permite a Grype encontrar vulnerabilidades en librerías que nmap no ve.</td></tr>{% endfor %}
     </tbody>
   </table>
 </div>
 
 {% elif tab == "sugerencias" %}
+<p class="text-sm text-ink-soft">Cómo se decidió la criticidad del activo: cada sugerencia de la IA, con su explicación, y quién la aceptó, cambió o rechazó. Una criticidad «por IA, sin revisar» se aplicó sola porque el activo no tenía ninguna.</p>
 {% if asset.status != 'RETIRED' %}{% include "assets/_suggest_action.html" with htmx_target="#suggestions" %}{% endif %}
 <div id="suggestions" class="flex flex-col gap-3">
   {% for s in suggestions %}{% include "assets/_suggestion_card.html" with show_asset=False %}{% empty %}<p class="muted">Aún no hay sugerencias para este activo.</p>{% endfor %}
@@ -155,37 +227,16 @@
 {% elif tab == "historial" %}
 <div class="table-wrap">
   <table class="data-table">
-    <thead><tr><th>Fecha</th><th>Autor</th><th>Tipo</th><th>Cambios</th></tr></thead>
+    <thead><tr><th scope="col">Fecha</th><th scope="col">Autor</th><th scope="col">Tipo</th><th scope="col">Cambios</th></tr></thead>
     <tbody>
       {% for e in history %}
       <tr>
-        <td class="font-mono text-xs whitespace-nowrap">{{ e.record.history_date|date:"Y-m-d H:i:s" }}</td>
+        <td class="font-mono text-xs whitespace-nowrap">{{ e.record.history_date|fecha:True }}</td>
         <td class="font-mono text-xs">{{ e.record.history_user.get_username|default:"sistema" }}</td>
         <td>{% if e.record.history_type == '+' %}<span class="badge-low">alta</span>{% elif e.record.history_type == '-' %}<span class="badge-critical">baja</span>{% else %}<span class="badge-neutral">cambio</span>{% endif %}</td>
         <td class="text-xs">{% for c in e.changes %}<div><span class="font-medium">{{ c.field }}</span>: <span class="text-muted line-through">{{ c.old|default:"—" }}</span> → {{ c.new|default:"—" }}</div>{% empty %}<span class="text-muted">—</span>{% endfor %}</td>
       </tr>
       {% endfor %}
-    </tbody>
-  </table>
-</div>
-
-{% elif tab == "descubrimientos" %}
-<div class="flex flex-wrap items-center gap-3">{% include "assets/_scan_action.html" %}</div>
-{# Mientras hay un escaneo en cola o en curso, la tabla se refresca sola cada 3 s. #}
-<div id="asset-runs" class="table-wrap"{% if scan_active %} hx-get="{% url 'assets:detail' asset.pk %}?tab=descubrimientos" hx-select="#asset-runs" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
-  <table class="data-table">
-    <thead><tr><th>Fecha</th><th>Perfil</th><th>Alcance</th><th>Estado</th><th>Hosts / servicios</th><th></th></tr></thead>
-    <tbody>
-      {% for r in runs %}
-      <tr>
-        <td class="font-mono text-xs">{{ r.created_at|date:"Y-m-d H:i" }}</td>
-        <td>{{ r.get_profile_display }}</td>
-        <td>{% if r.network_range %}{{ r.network_range.name }}{% else %}este activo{% endif %}</td>
-        <td>{% run_status_badge r %}{% if r.is_active %} <span class="text-xs text-muted">se actualiza sola…</span>{% endif %}</td>
-        <td class="font-mono text-xs">{{ r.hosts_up }} / {{ r.services_seen }}</td>
-        <td><a href="{% url 'discovery:run_detail' r.pk %}" class="btn-secondary btn-sm">Ver detalle</a></td>
-      </tr>
-      {% empty %}<tr><td colspan="6" class="table-empty">Ningún descubrimiento ha escaneado ni observado este activo.</td></tr>{% endfor %}
     </tbody>
   </table>
 </div>
