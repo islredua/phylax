@@ -266,7 +266,9 @@ sección. Migas de pan en todas las pantallas (ADR-007). Las correcciones de la 
 - **Confirmación en lote (F6).** `POST /inventory/confirm/bulk/` con `ids[]`, `environment` y
   `business_role` (heredados por todos; el nombre y tipo observados se conservan). Disponible en
   «Por confirmar» y en el detalle de una ejecución, con el entorno del rango preseleccionado.
-  Cada activo confirmado dispara el escaneo de servicios (si su IP está autorizada) y, si no
+  Cada activo confirmado dispara el escaneo de servicios (si su IP está autorizada; la petición
+  es idempotente: si el planificador ya lo encoló por el evento de confirmación, se reutiliza
+  ese escaneo en lugar de lanzar un segundo nmap) y, si no
   hubo escaneo, la sugerencia de criticidad.
 - **Descubrimiento.** La lista permite **lanzar** sobre cualquier rango con autorización vigente
   (`POST /discovery/runs/launch/`) y filtrar por estado (`active`, `SUCCEEDED`, `FAILED`,

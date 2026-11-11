@@ -66,6 +66,18 @@ def request_discovery(*, user, profile, network_range=None, asset=None):
         if not _asset_ips(asset):
             raise ValidationError("El activo no tiene IPs dentro del alcance autorizado.")
         profile = DiscoveryProfile.SERVICE_SCAN
+        # Idempotente: si ya hay un escaneo de servicios en cola o en curso para el activo (lo pidió
+        # la persona al confirmarlo y, a la vez, el planificador por el evento de confirmación), se
+        # reutiliza en lugar de lanzar un segundo nmap contra el mismo equipo.
+        active = (
+            DiscoveryRun.objects.filter(
+                target_asset=asset, profile=profile, status__in=ACTIVE_STATUSES
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        if active is not None:
+            return active
     try:
         with transaction.atomic():
             run = DiscoveryRun.objects.create(
