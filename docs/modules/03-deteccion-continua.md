@@ -294,7 +294,9 @@ a palabras en detalles, lectura de inteligencia y razonamiento. Al redactor no s
 luego se le prohíbe escribir: `lay_text` quita siglas y porcentajes de la lectura de inteligencia
 y los detalles viajan sin el «Sustento:». Si en tres intentos no lo logra, va la descripción por
 regla y queda anotado en el razonamiento. Los riesgos por regla se agrupan por software (dos
-fallas de spring-web son un riesgo, no dos filas con el mismo título). Ningún texto tiene límite editorial: los topes del esquema
+fallas de spring-web son un riesgo, no dos filas con el mismo título) y las debilidades de
+configuración sin software propio (cabeceras ausentes, SRI, enumeración de usuarios) van juntas
+por consecuencia en un solo riesgo por activo. Ningún texto tiene límite editorial: los topes del esquema
 (4000/6000 caracteres) solo frenan una salida desbocada. La **Inteligencia de amenazas** se
 presenta primero en claro («1 de las 2 vulnerabilidades figura en el catálogo de explotación
 activa de CISA: hay constancia de que atacantes reales ya la han usado…», `intelligence()["plain"]`)

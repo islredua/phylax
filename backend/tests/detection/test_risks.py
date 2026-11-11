@@ -1066,6 +1066,46 @@ def test_polish_paragraph_drops_cut_and_repeated_sentences():
     assert risks.polish_paragraph("  Doble   espacio.  ") == "Doble espacio."
 
 
+def test_rule_risks_group_configuration_weaknesses_together():
+    ctx = SimpleNamespace(
+        business_role="CRM",
+        environment="PROD",
+        exposure="INTERNET",
+        data_classification="CONFIDENCIAL",
+        criticality="ALTO",
+    )
+    base = {
+        "in_kev": False,
+        "epss_score": None,
+        "cvss_score": None,
+        "status": "CONFIRMED",
+        "plausibility": 1.0,
+        "actions": [],
+        "factors": {},
+        "cve_id": None,
+        "cve": None,
+        "kev_due_at": None,
+        "component_id": None,
+        "contextual_score": 3,
+    }
+    weak = [
+        SimpleNamespace(pk=str(i), key=f"WEAKNESS:{i}", title=t, **base)
+        for i, t in enumerate(
+            (
+                "Missing Subresource Integrity",
+                "Cabeceras de seguridad HTTP ausentes",
+                "Mixed Passive Content",
+            )
+        )
+    ]
+    cve = SimpleNamespace(pk="c", key="CVE-2024-1", title="Vulnerabilidad en wordpress 6.0", **base)
+    items = risks.rule_items(weak + [cve], ctx, {"0": 1, "1": 2, "2": 3, "c": 4}, "crm-legacy")
+    assert len(items) == 2
+    grouped = next(i for i in items if len(i["vulnerabilities"]) == 3)
+    assert grouped["vulnerabilities"] == [1, 2, 3]
+    assert grouped["title"].endswith("por 3 debilidades de configuración del servicio")
+
+
 def test_rule_risks_group_vulnerabilities_by_software():
     spring = SimpleNamespace(label="spring-web 6.1.13")
     ctx = SimpleNamespace(

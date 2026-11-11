@@ -556,7 +556,7 @@ def rule_items(vulns, context, index, asset_name="el activo"):
     el mismo título); si aun así son más de MAX_RISKS, uno agregado."""
     groups = {}
     for vuln in vulns:
-        groups.setdefault(software_key(vuln) or vuln.key, []).append(vuln)
+        groups.setdefault(_rule_group_key(vuln, context), []).append(vuln)
     items = [
         _rule_item(group, context, index, asset_name)
         for group in sorted(groups.values(), key=lambda g: -max(v.contextual_score or 0 for v in g))
@@ -566,13 +566,31 @@ def rule_items(vulns, context, index, asset_name="el activo"):
     return _merge_rule_items(items, vulns, index, context, asset_name)
 
 
+def _is_weakness(vuln):
+    """Debilidad de configuración (cabeceras, SRI, enumeración…): sin CVE ni software propio."""
+    return not software_key(vuln) and not str(vuln.key).upper().startswith("CVE-")
+
+
+def _rule_group_key(vuln, context):
+    """Por software; las debilidades de configuración, juntas por consecuencia: cinco cabeceras
+    ausentes en el mismo servicio son un riesgo, no cinco filas casi iguales."""
+    if _is_weakness(vuln):
+        return ("weakness", rule_consequence(vuln, context))
+    return software_key(vuln) or vuln.key
+
+
 def _rule_item(group, context, index, asset_name):
     lead = max(group, key=lambda v: (v.in_kev, v.contextual_score or 0))
     consequence = rule_consequence(lead, context)
     description, impact, details, recommendations = _rule_texts(
         group, context, asset_name, consequence
     )
-    cause = _clean(lead.title, 100) if len(group) == 1 else lead_cause(group, 80)
+    if len(group) == 1:
+        cause = _clean(lead.title, 100)
+    elif all(_is_weakness(v) for v in group):
+        cause = f"{len(group)} debilidades de configuración del servicio"
+    else:
+        cause = lead_cause(group, 80)
     return {
         "vulnerabilities": [index[v.pk] for v in group],
         "title": rule_title(consequence, asset_name, cause),
