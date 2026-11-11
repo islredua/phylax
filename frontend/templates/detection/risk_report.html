@@ -72,19 +72,22 @@
 </dl>
 
 <h2>Descripción</h2>
-<p>{{ risk.description|default:risk.scenario }}</p>
-{% if risk.description %}<p class="muted"><strong>Escenario:</strong> {{ risk.scenario }}</p>{% endif %}
+{% risk_text risk.description|default:risk.scenario risk "" %}
+<h3>Qué perdería la organización</h3>
+{% if risk.impact_description %}{% risk_text risk.impact_description risk "" %}{% else %}<p class="muted">No descrito; la valoración estima el impacto en {{ risk.impact }} / 5.</p>{% endif %}
 
-<h2>Posible impacto</h2>
-<p>{% if risk.impact_description %}{{ risk.impact_description }}{% else %}<span class="muted">No descrito; la valoración estima el impacto en {{ risk.impact }} / 5.</span>{% endif %}</p>
+<h2>Detalles</h2>
+<p class="muted">Para el equipo técnico: software y versiones afectadas, cadena de ataque y sustento.</p>
+{% risk_text risk.details|default:risk.scenario risk "" %}
 
 <h2>Inteligencia de amenazas</h2>
-<p>{{ intel.text }}</p>
+<p>{{ intel.plain }}</p>
+<p class="muted">{{ intel.text }}</p>
 {% if risk.intelligence_summary and risk.assessment_source == 'AI' and risk.intelligence_summary != intel.text %}<p class="muted"><strong>Lectura de la IA:</strong> {{ risk.intelligence_summary }}</p>{% endif %}
 <dl class="grid">
-  <div><dt>En KEV (CISA)</dt><dd>{{ intel.kev_count }} de {{ intel.total }}{% if intel.kev_since %} · desde el {{ intel.kev_since|fecha }}{% endif %}{% if intel.ransomware_count %} · {{ intel.ransomware_count }} en ransomware{% endif %}</dd></div>
-  <div><dt>Plazo de remediación CISA</dt><dd>{% if intel.kev_due %}{{ intel.kev_due|fecha }}{% if intel.kev_overdue %} (vencido){% endif %}{% else %}—{% endif %}</dd></div>
-  <div><dt>EPSS máximo</dt><dd>{% if intel.epss_max is not None %}{{ intel.epss_max|epss_pct }}{% if intel.epss_percentile is not None %} (percentil {{ intel.epss_percentile|percentil }}){% endif %} · {{ intel.epss_key }}{% else %}—{% endif %}</dd></div>
+  <div><dt>En el catálogo de explotación activa (KEV, CISA)</dt><dd>{{ intel.kev_count }} de {{ intel.total }}{% if intel.kev_since %} · desde el {{ intel.kev_since|fecha }}{% endif %}{% if intel.ransomware_count %} · {{ intel.ransomware_count }} en ransomware{% endif %}</dd></div>
+  <div><dt>Plazo de remediación que fijó CISA</dt><dd>{% if intel.kev_due %}{{ intel.kev_due|fecha }}{% if intel.kev_overdue %} (vencido){% endif %}{% else %}—{% endif %}</dd></div>
+  <div><dt>Probabilidad de intento de explotación en 30 días (EPSS)</dt><dd>{% if intel.epss_max is not None %}{{ intel.epss_max|epss_pct }}{% if intel.epss_percentile is not None %} (percentil {{ intel.epss_percentile|percentil }}){% endif %} · {{ intel.epss_key }}{% else %}—{% endif %}</dd></div>
   <div><dt>Confirmadas por más de una fuente</dt><dd>{{ intel.multi_source_count }} de {{ intel.total }}{% if intel.cti_only_count %} · {{ intel.cti_only_count }} solo por inteligencia{% endif %}</dd></div>
 </dl>
 <p class="muted">Fuentes: espejo local de NVD, catálogo KEV de CISA y EPSS (FIRST).</p>

@@ -1,5 +1,6 @@
 """Esquemas de salida estructurada (JSON Schema para Ollama + Pydantic para validar)."""
 
+import re
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
@@ -257,34 +258,31 @@ RISK_CONSEQUENCES = (
     "OPERATIONS",
 )
 
+# Los textos no llevan un límite editorial: el tope del esquema solo frena una salida desbocada.
 _RISK_ITEM_SCHEMA = {
     "type": "object",
     "properties": {
         "vulnerabilities": {"type": "array", "items": {"type": "integer"}, "minItems": 1},
         "title": {"type": "string", "maxLength": 160},
         "consequence": {"type": "string", "enum": list(RISK_CONSEQUENCES)},
-        "scenario": {"type": "string", "maxLength": 700},
-        "description": {"type": "string", "maxLength": 900},
-        "impact_description": {"type": "string", "maxLength": 600},
-        "intelligence_summary": {"type": "string", "maxLength": 500},
+        "details": {"type": "string", "maxLength": 6000},
+        "intelligence_summary": {"type": "string", "maxLength": 2000},
         "recommendations": {
             "type": "array",
-            "items": {"type": "string", "maxLength": 220},
+            "items": {"type": "string", "maxLength": 400},
             "minItems": 1,
-            "maxItems": 5,
+            "maxItems": 6,
         },
         "threat_source": {"type": "string", "enum": list(THREAT_SOURCES)},
         "likelihood": {"type": "integer", "minimum": 1, "maximum": 5},
         "impact": {"type": "integer", "minimum": 1, "maximum": 5},
-        "rationale": {"type": "string", "maxLength": 500},
+        "rationale": {"type": "string", "maxLength": 800},
     },
     "required": [
         "vulnerabilities",
         "title",
         "consequence",
-        "scenario",
-        "description",
-        "impact_description",
+        "details",
         "intelligence_summary",
         "recommendations",
         "threat_source",
@@ -297,6 +295,30 @@ RISK_ASSESSMENT_SCHEMA = {
     "properties": {"risks": {"type": "array", "items": _RISK_ITEM_SCHEMA}},
     "required": ["risks"],
 }
+
+
+_CVE_ID = re.compile(r"\bCVE-\d{4}-\d{4,}\b", re.IGNORECASE)
+# Siglas que no caben en un texto para la dirección (la validación de riesgos técnica no la usa).
+_TECH_ACRONYMS = re.compile(r"\b(CVSS|EPSS|KEV|CISA|NVD|CTI|CWE|PII|RCE|DoS|JNDI|SBOM|XSS|SQLi)\b")
+
+
+def technical_tokens(text):
+    """Identificadores que no caben en un texto para quien no es técnico (CVE, CVSS, EPSS)."""
+    if not isinstance(text, str):
+        return []
+    return _CVE_ID.findall(text) + _TECH_ACRONYMS.findall(text)
+
+
+def _must_be_plain_language(value):
+    """La descripción la lee quien no es técnico: los identificadores van en ``details``."""
+    tokens = technical_tokens(value)
+    if tokens:
+        found = ", ".join(f"«{t}»" for t in dict.fromkeys(tokens))
+        raise ValueError(
+            f"este campo es para quien no es técnico: quita {found} y di qué hace el software o "
+            "en qué consiste la falla con palabras comunes; los identificadores van en `details`"
+        )
+    return value
 
 
 class RiskItem(BaseModel):
@@ -313,21 +335,25 @@ class RiskItem(BaseModel):
         "FINANCIAL",
         "OPERATIONS",
     ]
-    scenario: str = Field(max_length=700)
-    description: str = Field(max_length=900)
-    impact_description: str = Field(max_length=600, default="")
-    intelligence_summary: str = Field(max_length=500, default="")
-    recommendations: list[Annotated[str, StringConstraints(max_length=220)]] = Field(
-        min_length=1, max_length=5
+    # La descripción para la dirección se redacta aparte (RISK_NARRATIVE); si el modelo la trae
+    # aquí se conserva solo como respaldo.
+    description: str = Field(max_length=4000, default="")
+    impact_description: str = Field(max_length=2000, default="")
+    details: str = Field(min_length=40, max_length=6000)
+    # El relato corto se conserva por compatibilidad; ya no se pide al modelo.
+    scenario: str = Field(max_length=1500, default="")
+    intelligence_summary: str = Field(max_length=2000, default="")
+    recommendations: list[Annotated[str, StringConstraints(max_length=400)]] = Field(
+        min_length=1, max_length=6
     )
     threat_source: Literal["EXTERNAL", "INSIDER", "MALWARE", "SUPPLY_CHAIN", "ERROR", "OTHER"]
     likelihood: int = Field(ge=1, le=5)
     impact: int = Field(ge=1, le=5)
-    rationale: str = Field(max_length=500, default="")
+    rationale: str = Field(max_length=800, default="")
 
     # El texto llega a quien dirige: en español, y el título nombra consecuencia y causa.
     _spanish = field_validator(
-        "title", "scenario", "description", "impact_description", "intelligence_summary"
+        "title", "scenario", "description", "impact_description", "details", "intelligence_summary"
     )(_must_look_spanish)
 
     @field_validator("recommendations")
@@ -348,6 +374,72 @@ class RiskAssessmentOutput(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     risks: list[RiskItem] = Field(default_factory=list)
+
+
+# --- Etapa 2 de riesgos: redacción para quien no es técnico ------------------------------------
+
+# Cuatro párrafos con campo propio: con un solo campo largo el modelo de 7B metía todo en el
+# impacto, se repetía («En resumen…» dos veces) y chocaba con el tope a media frase.
+NARRATIVE_FIELDS = (
+    "asset_paragraph",
+    "scenario_paragraph",
+    "likelihood_paragraph",
+    "impact_paragraph",
+)
+RISK_NARRATIVE_SCHEMA = {
+    "type": "object",
+    "properties": {name: {"type": "string", "maxLength": 1500} for name in NARRATIVE_FIELDS},
+    "required": list(NARRATIVE_FIELDS),
+}
+
+_PERCENT = re.compile(r"\d\s*%|\bpor ciento\b", re.IGNORECASE)
+_VERSION_TOKEN = re.compile(r"\b\d+\.\d+(?:\.\d+)*\b")
+
+
+class RiskNarrativeOutput(BaseModel):
+    """Descripción e impacto de UN riesgo, para la dirección, en cuatro párrafos: qué es el activo,
+    qué podría pasar, por qué es más o menos probable y qué perdería la organización."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    asset_paragraph: str = Field(min_length=100, max_length=1500)
+    scenario_paragraph: str = Field(min_length=120, max_length=1500)
+    likelihood_paragraph: str = Field(min_length=80, max_length=1500)
+    impact_paragraph: str = Field(min_length=80, max_length=1500)
+
+    _spanish = field_validator(*NARRATIVE_FIELDS)(_must_look_spanish)
+    _plain = field_validator(*NARRATIVE_FIELDS)(_must_be_plain_language)
+
+    @field_validator(*NARRATIVE_FIELDS)
+    @classmethod
+    def _no_percentages(cls, value):
+        # El modelo copiaba mal las cifras («12 %» por 1.2 %); para la dirección basta alta/baja.
+        if _PERCENT.search(value):
+            raise ValueError(
+                "no escribas porcentajes ni cifras de probabilidad: di si es alta, moderada o baja"
+            )
+        return value
+
+
+def narrative_validator(forbidden_words):
+    """``RiskNarrativeOutput`` que además rechaza los nombres de software y versiones del riesgo:
+    el modelo debe nombrar cada pieza por lo que hace, no por cómo se llama."""
+    words = [w for w in dict.fromkeys(forbidden_words) if w and len(w) > 2]
+
+    class _Narrative(RiskNarrativeOutput):
+        @field_validator(*NARRATIVE_FIELDS)
+        @classmethod
+        def _no_software_names(cls, value):
+            low = value.lower()
+            hits = [w for w in words if w.lower() in low] + _VERSION_TOKEN.findall(value)
+            if hits:
+                found = ", ".join(f"«{h}»" for h in dict.fromkeys(hits))
+                raise ValueError(
+                    f"quita {found}: nombra el software por lo que hace, sin nombres ni versiones"
+                )
+            return value
+
+    return _Narrative
 
 
 # --- Módulo 5: narrativa ejecutiva de Inicio ---------------------------------------------------

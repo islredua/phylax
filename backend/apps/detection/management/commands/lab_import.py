@@ -109,6 +109,11 @@ class Command(BaseCommand):
             help="Fijar la criticidad esperada en vez de dejar que la IA la calcule.",
         )
         parser.add_argument("--reset", action="store_true", help="Borra el laboratorio anterior.")
+        parser.add_argument(
+            "--only",
+            default="",
+            help="Solo estos hosts del CSV, separados por coma (p. ej. api-pagos,crm-legacy).",
+        )
 
     def handle(self, *args, **options):
         user = self._user(options["user"])
@@ -132,8 +137,11 @@ class Command(BaseCommand):
                     "authorized_by": user,
                 },
             )
+        only = {n.strip() for n in options["only"].split(",") if n.strip()}
         created, scans, sboms = 0, 0, 0
         for row in parse_lab_rows(path):
+            if only and row["name"] not in only:
+                continue
             identifiers = [(IdentifierKind.IPV4, row["ip"])]
             asset = Asset.objects.filter(name=row["name"], tags=tag).first()
             if asset is None:

@@ -45,6 +45,7 @@ from .models import (
     Finding,
     FindingSeverity,
     FindingSource,
+    SoftwareComponent,
     StatusSource,
     Vulnerability,
     VulnerabilityEvent,
@@ -594,6 +595,29 @@ def _key_for(item, groups_by_pk):
     return f"WEAKNESS:{_slug(item['title'])}"
 
 
+def component_from_findings(asset_id, findings):
+    """El componente del SBOM que Grype señaló: por ``purl`` o por nombre y versión del artefacto.
+
+    Los hallazgos de Grype llegan sin componente (el cruce CTI sí lo trae); sin él, la
+    vulnerabilidad no se agrupa por software en los riesgos ni se liga al escenario de sus pares.
+    """
+    for finding in findings:
+        for ev in finding.evidence.all():
+            artifact = (ev.data or {}).get("artifact") or {}
+            if not isinstance(artifact, dict):
+                continue
+            qs = SoftwareComponent.objects.filter(asset_id=asset_id, is_current=True)
+            purl = artifact.get("purl")
+            match = qs.filter(purl=purl).first() if purl else None
+            if match is None and artifact.get("name"):
+                match = qs.filter(
+                    name__iexact=artifact["name"], version=artifact.get("version") or ""
+                ).first()
+            if match is not None:
+                return match
+    return None
+
+
 def _apply_item(asset_id, item, group, context, *, by_rule, log_obj, now):
     findings = list(Finding.objects.filter(pk__in=item["finding_pks"]).select_related("cve"))
     if not findings:
@@ -676,7 +700,7 @@ def _apply_item(asset_id, item, group, context, *, by_rule, log_obj, now):
     )
     previous_status = vuln.status
     vuln.cve = cve
-    vuln.component = lead.component
+    vuln.component = lead.component or component_from_findings(asset_id, findings)
     keep_text = vuln.summary and vuln.description_source in (StatusSource.AI, StatusSource.HUMAN)
     if described:
         vuln.title = title[:200]

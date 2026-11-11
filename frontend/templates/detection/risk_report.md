@@ -23,22 +23,24 @@
 ## Descripción
 
 {{ risk.description|default:risk.scenario }}
-{% if risk.description %}
-*Escenario:* {{ risk.scenario }}
-{% endif %}
-## Posible impacto
 
-{% if risk.impact_description %}{{ risk.impact_description }}{% else %}No descrito; la valoración estima el impacto en {{ risk.impact }} / 5.{% endif %}
+**Qué perdería la organización.** {% if risk.impact_description %}{{ risk.impact_description }}{% else %}No descrito; la valoración estima el impacto en {{ risk.impact }} / 5.{% endif %}
+
+## Detalles
+
+{{ risk.details|default:risk.scenario }}
 
 ## Inteligencia de amenazas
 
-{{ intel.text }}
+{{ intel.plain }}
+
+*Detalle técnico:* {{ intel.text }}
 {% if risk.intelligence_summary and risk.assessment_source == 'AI' and risk.intelligence_summary != intel.text %}
 *Lectura de la IA:* {{ risk.intelligence_summary }}
 {% endif %}
-- **En KEV (CISA):** {{ intel.kev_count }} de {{ intel.total }}{% if intel.kev_since %} · desde el {{ intel.kev_since|fecha }}{% endif %}{% if intel.ransomware_count %} · {{ intel.ransomware_count }} en ransomware{% endif %}
-- **Plazo de remediación CISA:** {% if intel.kev_due %}{{ intel.kev_due|fecha }}{% if intel.kev_overdue %} (vencido){% endif %}{% else %}—{% endif %}
-- **EPSS máximo:** {% if intel.epss_max is not None %}{{ intel.epss_max|epss_pct }}{% if intel.epss_percentile is not None %} (percentil {{ intel.epss_percentile|percentil }}){% endif %} · {{ intel.epss_key }}{% else %}—{% endif %}
+- **En el catálogo de explotación activa (KEV, CISA):** {{ intel.kev_count }} de {{ intel.total }}{% if intel.kev_since %} · desde el {{ intel.kev_since|fecha }}{% endif %}{% if intel.ransomware_count %} · {{ intel.ransomware_count }} en ransomware{% endif %}
+- **Plazo de remediación que fijó CISA:** {% if intel.kev_due %}{{ intel.kev_due|fecha }}{% if intel.kev_overdue %} (vencido){% endif %}{% else %}—{% endif %}
+- **Probabilidad de intento de explotación en 30 días (EPSS):** {% if intel.epss_max is not None %}{{ intel.epss_max|epss_pct }}{% if intel.epss_percentile is not None %} (percentil {{ intel.epss_percentile|percentil }}){% endif %} · {{ intel.epss_key }}{% else %}—{% endif %}
 - **Confirmadas por más de una fuente:** {{ intel.multi_source_count }} de {{ intel.total }}{% if intel.cti_only_count %} · {{ intel.cti_only_count }} solo por inteligencia{% endif %}
 
 Fuentes: espejo local de NVD, catálogo KEV de CISA y EPSS (FIRST).

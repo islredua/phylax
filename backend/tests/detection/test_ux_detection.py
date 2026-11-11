@@ -460,16 +460,26 @@ def test_rule_texts_use_catalog_labels_real_plurals_and_dedupe(as_role):
         criticality="ALTO",
     )
     v1 = SimpleNamespace(
+        pk="a",
+        key="WEAKNESS:A",
         title="Fallo A",
         actions=["Actualizar nginx.", "actualizar nginx"],
         in_kev=False,
+        cve=None,
+        cve_id=None,
         contextual_score=5,
+        cvss_score=None,
+        epss_score=None,
+        status="CONFIRMED",
+        plausibility=0.9,
     )
-    description, _impact, recommendations = risks._rule_texts(
+    description, _impact, details, recommendations = risks._rule_texts(
         [v1], context, "mail-01", "AVAILABILITY"
     )
     assert "CORREO" not in description and "PROD" not in description
-    assert "(es)" not in description and "una vulnerabilidad sostenida" in description
+    assert "(es)" not in description and "una falla de seguridad conocida" in description
+    assert "mail-01" in description and "regla" not in description.lower()
+    assert details.startswith("Software afectado:") and "WEAKNESS:A — Fallo A" in details
     assert recommendations.count("Actualizar nginx.") == 1 and len(recommendations) == 2
     assert risks.percentile_100(0.998) == "100" and risks.percentile_100(0.5) == "50"
 

@@ -714,6 +714,7 @@ def filter_risks(params):
             qs = qs.filter(
                 Q(title__icontains=data["q"])
                 | Q(scenario__icontains=data["q"])
+                | Q(details__icontains=data["q"])
                 | Q(asset__name__icontains=data["q"])
             )
         if data["level"]:

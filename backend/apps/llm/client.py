@@ -166,8 +166,14 @@ def run_structured(
     options=None,
     client=None,
     keep_alive=None,
+    max_attempts=None,
 ):
-    """Ejecuta una inferencia con salida estructurada y devuelve el ``InferenceLog`` guardado."""
+    """Ejecuta una inferencia con salida estructurada y devuelve el ``InferenceLog`` guardado.
+
+    ``max_attempts`` permite a una tarea con reglas de redacción exigentes (riesgos) un reintento
+    más que el estándar.
+    """
+    max_attempts = max_attempts or MAX_ATTEMPTS
     options = options or default_options()
     log = InferenceLog(
         task=task,
@@ -199,7 +205,7 @@ def run_structured(
             return log
         log.model_digest = installed[model]
         conversation = list(messages)
-        for attempt in range(1, MAX_ATTEMPTS + 1):
+        for attempt in range(1, max_attempts + 1):
             log.attempts = attempt
             extra = {"keep_alive": keep_alive} if keep_alive is not None else {}
             data = client.chat(model, conversation, schema, options, **extra)

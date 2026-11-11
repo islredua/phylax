@@ -23,7 +23,13 @@ from apps.assets import services as assets_services
 from apps.llm.client import register_mock, run_structured
 from apps.llm.language import fix_spanish, looks_spanish
 from apps.llm.prompts import load_prompt
-from apps.llm.schemas import RISK_ASSESSMENT_SCHEMA, RiskAssessmentOutput
+from apps.llm.schemas import (
+    NARRATIVE_FIELDS,
+    RISK_ASSESSMENT_SCHEMA,
+    RISK_NARRATIVE_SCHEMA,
+    RiskAssessmentOutput,
+    narrative_validator,
+)
 from apps.llm.status import active_model
 
 from .models import (
@@ -44,10 +50,19 @@ from .models import (
 )
 
 log = logging.getLogger(__name__)
-PROMPT_VERSION = "v3"
+PROMPT_VERSION = "v4"
 TASK = "RISK_ASSESSMENT"
+# Etapa 2: la descripción para la dirección se redacta riesgo por riesgo, con un prompt corto y
+# validación estricta (sin CVE, sin nombres de software): el modelo de 7B lo hace bien así y mal
+# dentro del JSON grande de la valoración.
+NARRATIVE_TASK = "RISK_NARRATIVE"
+NARRATIVE_PROMPT_VERSION = "v1"
 MAX_RISKS = 5
+# Vulnerabilidades que van una a una al modelo; el resto viaja agrupado por software para que el
+# prompt quepa en el contexto (con 4096 tokens el modelo no veía la lista completa).
+RISK_PAYLOAD_DETAIL = 6
 CONSEQUENCE_LABEL = dict(RiskConsequence.choices)
+VULN_STATUS_LABEL = dict(VulnerabilityStatus.choices)
 # Funciones de negocio cuyo valor principal es estar disponibles.
 AVAILABILITY_ROLES = {"PAGOS", "WEB_PUBLICA", "API", "CORE_NEGOCIO", "COMUNICACIONES", "RED"}
 
@@ -111,8 +126,19 @@ def rule_consequence(vuln, context):
     return RiskConsequence.OPERATIONS
 
 
+def decapitalize(cause):
+    """Primera letra en minúscula tras « por », salvo siglas y nombres mixtos («DoS», «CVE-…»,
+    «Log4Shell» se quedan)."""
+    cause = (cause or "").strip()
+    first = cause.split(" ", 1)[0]
+    if len(first) > 1 and first[1:].islower():
+        return cause[0].lower() + cause[1:]
+    return cause
+
+
 def rule_title(consequence, asset_name, cause):
     """«Consecuencia en activo por causa»: la misma fórmula que se le pide a la IA."""
+    cause = decapitalize(_clean(cause, 120))
     return _clean(f"{CONSEQUENCE_LABEL[consequence]} en {asset_name} por {cause}", 160)
 
 
@@ -127,52 +153,219 @@ def environment_label(context):
     return catalogs.label(catalogs.ENVIRONMENT, code) if code else "entorno sin definir"
 
 
-def _rule_texts(vulns, context, asset_name, consequence):
+CONSEQUENCE_PLAIN = {
+    RiskConsequence.CONFIDENTIALITY: "que información que la organización debe proteger acabe en manos ajenas",
+    RiskConsequence.INTEGRITY: "que alguien altere datos o configuraciones sin que nadie lo note",
+    RiskConsequence.AVAILABILITY: "que el servicio deje de funcionar, o funcione mal, mientras se contiene y se recupera",
+    RiskConsequence.COMPLIANCE: "incumplir obligaciones legales o contractuales sobre la protección de la información",
+    RiskConsequence.REPUTATION: "un daño a la confianza que clientes, agentes y autoridades tienen en la organización",
+    RiskConsequence.FINANCIAL: "pérdidas de dinero directas: fraude, multas o el costo de recuperarse",
+    RiskConsequence.OPERATIONS: "que las áreas que dependen de este equipo no puedan trabajar con normalidad",
+}
+ATTACK_BY_CONSEQUENCE = {
+    RiskConsequence.CONFIDENTIALITY: "leer o extraer la información que el equipo guarda o procesa",
+    RiskConsequence.INTEGRITY: "modificar datos, configuraciones o el propio software",
+    RiskConsequence.AVAILABILITY: "tirar el servicio o degradarlo hasta dejarlo inutilizable",
+    RiskConsequence.COMPLIANCE: "acceder a información regulada sin autorización",
+    RiskConsequence.REPUTATION: "alterar lo que ven clientes y usuarios o filtrar su información",
+    RiskConsequence.FINANCIAL: "desviar operaciones o datos de pago",
+    RiskConsequence.OPERATIONS: "interferir con los procesos que dependen del equipo",
+}
+DATA_WORDS = {
+    "RESTRINGIDA": "datos restringidos (los más sensibles que maneja la organización)",
+    "CONFIDENCIAL": "datos confidenciales",
+    "INTERNA": "información de uso interno",
+    "PUBLICA": "información pública",
+}
+
+
+def _plural(count, singular, plural):
+    return singular if count == 1 else plural
+
+
+def _exposure_words(context):
+    return {
+        "INTERNET": "alcanzable directamente desde internet",
+        "DMZ": "en la zona perimetral (DMZ), alcanzable desde fuera de la organización",
+    }.get(context.exposure, "alcanzable solo desde la red interna")
+
+
+def _rule_description(vulns, context, asset_name, consequence):
+    """Descripción para quien no es técnico: qué es el riesgo y cómo afectaría a la organización."""
     role = role_label(context)
     env = environment_label(context)
-    exposure = {"INTERNET": "expuesto a internet", "DMZ": "en la DMZ"}.get(
-        context.exposure, "en la red interna"
-    )
-    names = "; ".join(_clean(v.title, 90) for v in vulns[:3])
-    if len(vulns) > 3:
-        names += f" y {len(vulns) - 3} más"
     count = len(vulns)
-    sustained = (
-        "una vulnerabilidad sostenida" if count == 1 else f"{count} vulnerabilidades sostenidas"
+    fallas = (
+        "una falla de seguridad conocida"
+        if count == 1
+        else f"{count} fallas de seguridad conocidas"
     )
-    them = "la explota" if count == 1 else "las explota"
-    description = (
-        f"El activo ({role}, {env}, {exposure}) presenta {sustained}: {names}. Si alguien "
-        f"{them}, la consecuencia más probable es {CONSEQUENCE_LABEL[consequence].lower()}. "
-        "Valoración por regla: la IA no evaluó este escenario, así que la descripción se limita "
-        "a lo que dicen las vulnerabilidades."
+    sentences = [
+        f"{asset_name} ({role}, {env}) es un equipo de la organización {_exposure_words(context)}.",
+        f"Su software tiene {fallas} que alguien ajeno podría aprovechar; si eso ocurre, lo más "
+        f"probable es {CONSEQUENCE_PLAIN[consequence]}.",
+    ]
+    if any(v.in_kev for v in vulns):
+        sentences.append(
+            "Al menos una de esas fallas ya se usa en ataques reales contra otras organizaciones, "
+            "así que la probabilidad no es teórica."
+        )
+    elif context.exposure in ("INTERNET", "DMZ"):
+        sentences.append(
+            "No hay constancia de que estas fallas se estén explotando hoy, pero el equipo es "
+            "alcanzable desde fuera, lo que facilita que alguien lo intente."
+        )
+    else:
+        sentences.append(
+            "No hay constancia de que estas fallas se estén explotando hoy y el equipo solo es "
+            "alcanzable desde dentro, lo que reduce la probabilidad sin eliminarla: bastaría un "
+            "equipo interno comprometido o una persona con acceso."
+        )
+    data = DATA_WORDS.get(context.data_classification or "")
+    if data and context.data_classification in ("RESTRINGIDA", "CONFIDENCIAL"):
+        sentences.append(
+            f"El equipo maneja {data}, por lo que lo que se pierda o se exponga tiene "
+            "consecuencias legales, económicas y de confianza para la organización."
+        )
+    return " ".join(sentences)
+
+
+def _rule_impact(context, consequence):
+    role = role_label(context).lower()
+    data = DATA_WORDS.get(
+        context.data_classification or "", "los datos de quienes usan el servicio"
     )
-    data_words = {
-        "RESTRINGIDA": "datos restringidos",
-        "CONFIDENCIAL": "datos confidenciales",
-        "INTERNA": "datos internos",
-    }.get(context.data_classification or "", "datos de las personas que usan el servicio")
-    impact = {
-        RiskConsequence.CONFIDENTIALITY: f"Podrían exponerse {data_words}, con el costo legal y "
-        "reputacional que implica.",
-        RiskConsequence.AVAILABILITY: f"El servicio de {role.lower()} podría quedar fuera o degradado mientras se contiene y recupera.",
+    return {
+        RiskConsequence.CONFIDENTIALITY: f"Podrían exponerse {data}: notificar a los afectados, "
+        "responder ante la autoridad y recuperar la confianza cuesta tiempo y dinero.",
+        RiskConsequence.AVAILABILITY: f"El servicio de {role} quedaría fuera o degradado mientras "
+        "se contiene y recupera; quienes dependen de él no podrían trabajar o ser atendidos.",
+        RiskConsequence.INTEGRITY: f"Los datos o la configuración de {role} podrían alterarse sin "
+        "aviso, y la organización tomaría decisiones sobre información que ya no es fiable.",
+        RiskConsequence.FINANCIAL: "Habría pérdidas directas: fraude, multas o el costo de "
+        "investigar y recuperarse del incidente.",
     }.get(
         consequence,
-        f"La operación que depende de {role.lower()} se vería afectada hasta contener el incidente.",
+        f"La operación que depende de {role} se vería afectada hasta contener el incidente, con "
+        "el costo de investigación y recuperación que eso implica.",
     )
+
+
+def _vuln_tech_line(v):
+    bits = [f"{v.key} — {_clean(v.title, 110)}"]
+    facts = []
+    if v.cvss_score is not None:
+        facts.append(f"CVSS {v.cvss_score:g}")
+    if v.epss_score is not None:
+        facts.append(f"EPSS {v.epss_score * 100:.1f} %")
+    if v.in_kev:
+        facts.append("en KEV")
+    facts.append(
+        f"{VULN_STATUS_LABEL.get(v.status, v.status).lower()}, plausibilidad {v.plausibility:.0%}"
+    )
+    bits.append(f"({'; '.join(facts)})")
+    return " ".join(bits)
+
+
+def _rule_details(vulns, context, consequence):
+    """Detalle técnico determinista: software, versiones, cadena de ataque y sustento."""
+    groups = {}
+    for v in vulns:
+        component = getattr(v, "component", None) if getattr(v, "component_id", None) else None
+        groups.setdefault(component.label if component else "software sin identificar", []).append(
+            v
+        )
+    software = "; ".join(
+        f"{label} ({len(vs)} {_plural(len(vs), 'vulnerabilidad', 'vulnerabilidades')}"
+        + (f", {k} en KEV" if (k := sum(1 for v in vs if v.in_kev)) else "")
+        + ")"
+        for label, vs in sorted(groups.items(), key=lambda kv: -len(kv[1]))
+    )
+    ordered = sorted(vulns, key=lambda v: (not v.in_kev, -(v.contextual_score or 0), v.key))
+    shown = ordered[:8]
+    listing = "; ".join(_vuln_tech_line(v) for v in shown)
+    if len(ordered) > len(shown):
+        rest = len(ordered) - len(shown)
+        listing += f"; y {rest} {_plural(rest, 'vulnerabilidad más', 'vulnerabilidades más')} en la evidencia técnica"
+    reach = {
+        "INTERNET": "desde internet",
+        "DMZ": "desde la DMZ o desde internet a través de ella",
+    }.get(context.exposure, "desde la red interna")
+    attack = (
+        f"Cadena de ataque: un atacante con acceso de red al servicio {reach} envía una petición, "
+        f"un archivo o una entrada preparada que dispara la falla; según la vulnerabilidad obtiene "
+        f"ejecución de código, lectura de archivos o la caída del servicio, y desde ahí puede "
+        f"{ATTACK_BY_CONSEQUENCE[consequence]}."
+    )
+    support = support_paragraph(vulns)
+    return "\n\n".join(
+        [f"Software afectado: {software}.", f"Vulnerabilidades: {listing}.", attack, support]
+    )
+
+
+_SOURCE_LABELS = {
+    "CTI_MATCH": "cruce del software inventariado con el espejo de NVD",
+    "GRYPE": "Grype sobre el SBOM",
+    "NUCLEI": "nuclei",
+    "MANUAL": "registro manual",
+}
+
+
+def support_paragraph(vulns):
+    """«Sustento:» determinista: la lectura de inteligencia (KEV/EPSS) de ESTAS vulnerabilidades y
+    cuántas observaciones de qué herramientas las respaldan. El modelo copiaba aquí los datos de
+    KEV y EPSS de otro riesgo del mismo activo, así que este párrafo siempre lo escribe el código."""
+    sources = set()
+    observations = 0
+    for v in vulns:
+        obs = getattr(v, "observations", None)
+        obs = list(obs.all()) if obs is not None else []
+        observations += len(obs)
+        for f in obs:
+            sources.update(f.sources or [])
+    evidence = (
+        f"{observations} {_plural(observations, 'observación', 'observaciones')} de "
+        + ", ".join(_SOURCE_LABELS.get(x, x.lower()) for x in sorted(sources))
+        + "."
+        if sources
+        else "sin observaciones ligadas."
+    )
+    return f"Sustento: {intelligence(vulns)['text']} {evidence}"
+
+
+_SUPPORT_BLOCK = re.compile(r"Sustento:.*?(?=\n\s*(?:Condiciones|Recomendaciones):|\Z)", re.S)
+
+
+def replace_support(details, vulns):
+    """Sustituye el «Sustento:» que escribió el modelo por el determinista (o lo añade)."""
+    details = (details or "").rstrip()
+    support = support_paragraph(vulns)
+    if _SUPPORT_BLOCK.search(details):
+        return _SUPPORT_BLOCK.sub(lambda _m: support, details, count=1)
+    return f"{details}\n{support}" if details else support
+
+
+def _rule_recommendations(vulns):
     recommendations, seen = [], set()
     for v in vulns:
         for action in v.actions or []:
-            text = _clean(action, 220)
+            text = _clean(action, 300)
             # Misma recomendación con distinta puntuación o mayúsculas: una sola vez.
             norm = re.sub(r"[^a-z0-9áéíóúñ ]+", "", text.lower()).strip()
             if norm and norm not in seen and looks_spanish(text):
                 seen.add(norm)
                 recommendations.append(text)
-    recommendations = recommendations[:4] + [
-        "Verificar la corrección con un nuevo escaneo del activo."
-    ]
-    return description, impact, recommendations[:5]
+    return recommendations[:5] + ["Verificar la corrección con un nuevo escaneo del activo."]
+
+
+def _rule_texts(vulns, context, asset_name, consequence):
+    """Textos deterministas del riesgo por regla: (descripción, impacto, detalles, recomendaciones)."""
+    return (
+        _rule_description(vulns, context, asset_name, consequence),
+        _rule_impact(context, consequence),
+        _rule_details(vulns, context, consequence),
+        _rule_recommendations(vulns),
+    )
 
 
 def intelligence(vulns, *, today=None):
@@ -220,6 +413,7 @@ def intelligence(vulns, *, today=None):
         "active": bool(kev) or any((v.epss_score or 0) >= high for v in vulns),
     }
     summary["text"] = _intelligence_text(summary)
+    summary["plain"] = _intelligence_plain(summary)
     return summary
 
 
@@ -270,7 +464,8 @@ def _intelligence_text(s):
             f"en {s['epss_key']}: {level}."
         )
     if s["multi_source_count"]:
-        parts.append(f"{s['multi_source_count']} la(s) confirmó más de una fuente.")
+        n = s["multi_source_count"]
+        parts.append(f"{n} {'la confirmó' if n == 1 else 'las confirmó'} más de una fuente.")
     if s["cti_only_count"] == s["total"]:
         parts.append(
             "Todas provienen del cruce del software inventariado con el espejo de NVD; ninguna "
@@ -284,40 +479,126 @@ def _intelligence_text(s):
     return " ".join(parts)
 
 
-def rule_items(vulns, context, index, asset_name="el activo"):
-    items = []
-    for vuln in vulns:
-        consequence = rule_consequence(vuln, context)
-        description, impact, recommendations = _rule_texts([vuln], context, asset_name, consequence)
-        items.append(
-            {
-                "vulnerabilities": [index[vuln.pk]],
-                "title": rule_title(consequence, asset_name, _clean(vuln.title, 100)),
-                "consequence": consequence,
-                "scenario": (
-                    f"Un atacante aprovecha «{_clean(vuln.title, 120)}» en {role_label(context)} "
-                    f"({environment_label(context)}) para comprometerlo. "
-                    "Valoración por regla: la IA no evaluó este escenario."
-                ),
-                "description": description,
-                "impact_description": impact,
-                "intelligence_summary": intelligence([vuln])["text"],
-                "recommendations": recommendations,
-                "threat_source": "MALWARE" if vuln.in_kev else "EXTERNAL",
-                "likelihood": rule_likelihood(vuln, context),
-                "impact": rule_impact(vuln, context),
-                "rationale": "Regla: explotabilidad, KEV y exposición dan la probabilidad; criticidad, datos e impacto de negocio dan el impacto.",
-            }
+def _intelligence_plain(s):
+    """La misma lectura, explicada para quien no sabe qué son KEV o EPSS."""
+    if not s["total"]:
+        return ""
+    n = s["total"]
+    parts = []
+    if s["kev_count"]:
+        k = s["kev_count"]
+        if n == 1:
+            head = "La vulnerabilidad de este riesgo figura"
+        elif k == n:
+            head = f"Las {n} vulnerabilidades de este riesgo figuran"
+        else:
+            head = f"{k} de las {n} vulnerabilidades de este riesgo {'figura' if k == 1 else 'figuran'}"
+        sentence = (
+            f"{head} en el catálogo de explotación activa de CISA (la agencia de ciberseguridad "
+            "de Estados Unidos). Eso significa que hay constancia de que atacantes reales ya "
+            f"{'la han usado' if k == 1 else 'las han usado'} contra otras organizaciones: no es "
+            "una posibilidad teórica, sino una falla que se explota hoy"
         )
+        if s["kev_due"]:
+            if s["kev_overdue"]:
+                sentence += (
+                    f", y la fecha que CISA fijó para corregirla ({s['kev_due']:%d/%m/%Y}) ya pasó"
+                )
+            else:
+                sentence += f"; CISA pide corregirla antes del {s['kev_due']:%d/%m/%Y}"
+        parts.append(sentence + ".")
+        if s["ransomware_count"]:
+            r = s["ransomware_count"]
+            parts.append(
+                f"Además, {'una de ellas se usa' if r == 1 else f'{r} de ellas se usan'} en "
+                "ataques de ransomware, los que secuestran la información y detienen la "
+                "operación hasta que se paga o se recupera."
+            )
+    else:
+        parts.append(
+            (
+                "La vulnerabilidad de este riesgo no figura"
+                if n == 1
+                else f"Ninguna de las {n} vulnerabilidades de este riesgo figura"
+            )
+            + " en el catálogo de explotación activa de CISA: no hay constancia de que se esté "
+            "usando en ataques reales. Eso no la hace inofensiva, pero sí menos urgente que una "
+            "que ya se explota."
+        )
+    if s["epss_max"] is not None:
+        value = s["epss_max"] * 100
+        pct = f"{value:.1f} %" if value < 10 else f"{value:.0f} %"
+        if s["epss_max"] >= s["epss_high"]:
+            tail = "alta: está entre las fallas que más se intentan explotar en el mundo"
+        else:
+            tail = "baja: hoy casi nadie la está intentando"
+        parts.append(
+            f"La probabilidad estimada de que alguien intente explotar la peor de ellas en los "
+            f"próximos 30 días es de {pct}, {tail}."
+        )
+    if s["cti_only_count"] == n:
+        parts.append(
+            "Todas se detectaron comparando las versiones del software con la base pública de "
+            "vulnerabilidades, sin que una herramienta las comprobara en el equipo: conviene "
+            "confirmarlas, porque podría haber falsos positivos."
+        )
+    elif s["multi_source_count"]:
+        m = s["multi_source_count"]
+        parts.append(
+            f"{m} {'fue confirmada' if m == 1 else 'fueron confirmadas'} por más de una "
+            "herramienta, lo que da certeza de que existen."
+        )
+    return " ".join(parts)
+
+
+def rule_items(vulns, context, index, asset_name="el activo"):
+    """Un escenario por software (dos fallas de spring-web son el mismo riesgo, no dos filas con
+    el mismo título); si aun así son más de MAX_RISKS, uno agregado."""
+    groups = {}
+    for vuln in vulns:
+        groups.setdefault(software_key(vuln) or vuln.key, []).append(vuln)
+    items = [
+        _rule_item(group, context, index, asset_name)
+        for group in sorted(groups.values(), key=lambda g: -max(v.contextual_score or 0 for v in g))
+    ]
     if len(items) <= MAX_RISKS:
         return items
     return _merge_rule_items(items, vulns, index, context, asset_name)
 
 
+def _rule_item(group, context, index, asset_name):
+    lead = max(group, key=lambda v: (v.in_kev, v.contextual_score or 0))
+    consequence = rule_consequence(lead, context)
+    description, impact, details, recommendations = _rule_texts(
+        group, context, asset_name, consequence
+    )
+    cause = _clean(lead.title, 100) if len(group) == 1 else lead_cause(group, 80)
+    return {
+        "vulnerabilities": [index[v.pk] for v in group],
+        "title": rule_title(consequence, asset_name, cause),
+        "consequence": consequence,
+        "scenario": (
+            f"Un atacante aprovecha «{_clean(lead.title, 120)}» en {role_label(context)} "
+            f"({environment_label(context)}) para {ATTACK_BY_CONSEQUENCE[consequence]}."
+        ),
+        "description": description,
+        "impact_description": impact,
+        "details": details,
+        "intelligence_summary": intelligence(group)["text"],
+        "recommendations": recommendations,
+        "threat_source": "MALWARE" if any(v.in_kev for v in group) else "EXTERNAL",
+        "likelihood": max(rule_likelihood(v, context) for v in group),
+        "impact": max(rule_impact(v, context) for v in group),
+        "rationale": "Regla: explotabilidad, KEV y exposición dan la probabilidad; criticidad, datos e impacto de negocio dan el impacto.",
+    }
+
+
 def _merge_rule_items(items, vulns, index, context, asset_name):
     """Más de MAX_RISKS vulnerabilidades: un escenario agregado con la peor valoración."""
     consequence = rule_consequence(max(vulns, key=lambda v: v.contextual_score or 0), context)
-    description, impact, recommendations = _rule_texts(vulns, context, asset_name, consequence)
+    description, impact, details, recommendations = _rule_texts(
+        vulns, context, asset_name, consequence
+    )
     return [
         {
             "vulnerabilities": [index[v.pk] for v in vulns],
@@ -326,11 +607,12 @@ def _merge_rule_items(items, vulns, index, context, asset_name):
             "title": rule_title(consequence, asset_name, lead_cause(vulns, 80)),
             "consequence": consequence,
             "scenario": (
-                f"El activo acumula {len(vulns)} vulnerabilidades abiertas; un atacante encadena varias "
-                "para tomar control o extraer datos. Valoración por regla: la IA no evaluó este escenario."
+                f"El activo acumula {len(vulns)} vulnerabilidades abiertas; un atacante encadena "
+                f"varias para {ATTACK_BY_CONSEQUENCE[consequence]}."
             ),
             "description": description,
             "impact_description": impact,
+            "details": details,
             "intelligence_summary": intelligence(vulns)["text"],
             "recommendations": recommendations,
             "threat_source": "EXTERNAL",
@@ -352,9 +634,7 @@ def mock_risks(request_payload):
                 "vulnerabilities": [v["id"]],
                 "title": f"Interrupción del servicio en {request_payload['asset']['name'][:60]} por {v['title'][:80]}",
                 "consequence": "AVAILABILITY",
-                "scenario": f"Respuesta simulada (LLM_MOCK_MODE=1) para «{v['title'][:80]}».",
-                "description": "Descripción simulada del riesgo, en español, para la persona que dirige la organización.",
-                "impact_description": "Impacto simulado: el servicio quedaría fuera unas horas.",
+                "details": f"Detalle técnico simulado (LLM_MOCK_MODE=1) para {v['key']}: «{v['title'][:80]}» en {v['software'] or 'software no identificado'}.",
                 "intelligence_summary": "Inteligencia simulada: sin explotación activa conocida.",
                 "recommendations": [
                     "Aplicar el parche del fabricante.",
@@ -376,13 +656,73 @@ def mock_risks(request_payload):
 # --------------------------------------------------------------------------
 
 
+def _payload_order(vulns):
+    """Las que más pesan van primero y una a una: KEV, luego puntaje contextual."""
+    return sorted(vulns, key=lambda v: (not v.in_kev, -(v.contextual_score or 0), v.key))
+
+
+def _vuln_entry(v, index):
+    return {
+        "id": index[v.pk],
+        "key": v.key,
+        "software": software_label(v) if software_key(v) else "",
+        "title": _clean(v.title, 140),
+        "summary": _clean(v.summary, 180),
+        "status": v.status,
+        "actions": [_clean(a, 120) for a in (v.actions or [])[:2]],
+        "plausibility": v.plausibility,
+        "contextual_score": v.contextual_score,
+        "technical_score": v.technical_score,
+        "in_kev": v.in_kev,
+        "kev": _kev_facts(v),
+        "cvss": v.cvss_score,
+        "epss": v.epss_score,
+        "epss_percentile": v.cve.epss_percentile if v.cve_id and v.cve else None,
+        "sources": _vuln_sources(v),
+        "factors": {
+            k: (v.factors or {}).get(k)
+            for k in ("exploitability", "compensating_controls")
+            if (v.factors or {}).get(k)
+        },
+    }
+
+
+def _grouped_entries(vulns, index):
+    """El resto, agrupado por software: ids, cuántas, cuántas en KEV y las dos más graves."""
+    groups = {}
+    for v in vulns:
+        groups.setdefault(software_label(v), []).append(v)
+    out = []
+    for label, vs in sorted(groups.items(), key=lambda kv: -len(kv[1])):
+        vs = _payload_order(vs)
+        out.append(
+            {
+                "software": label,
+                "ids": [index[v.pk] for v in vs],
+                "count": len(vs),
+                "kev_count": sum(1 for v in vs if v.in_kev),
+                "max_cvss": max(
+                    (v.cvss_score for v in vs if v.cvss_score is not None), default=None
+                ),
+                "max_epss": max(
+                    (v.epss_score for v in vs if v.epss_score is not None), default=None
+                ),
+                "examples": [f"{v.key}: {_clean(v.title, 90)}" for v in vs[:2]],
+                "sources": sorted({src for v in vs for src in _vuln_sources(v)}),
+            }
+        )
+    return out
+
+
 def build_payload(asset_id, vulns, context):
     from .profile import get_profile
 
     asset = assets_services.get_asset_summary(asset_id)
     profile = get_profile()
     index = {v.pk: i + 1 for i, v in enumerate(vulns)}
-    return {
+    ordered = _payload_order(vulns)
+    detailed, grouped = ordered[:RISK_PAYLOAD_DETAIL], ordered[RISK_PAYLOAD_DETAIL:]
+    data = {
         "organization": {
             "sector": _clean(profile.sector, 120),
             "description": _clean(profile.description, 400),
@@ -399,30 +739,11 @@ def build_payload(asset_id, vulns, context):
             "data_classification": context.data_classification,
             "data_categories": list(context.data_categories),
         },
-        "intelligence_facts": intelligence(vulns)["text"],
-        "vulnerabilities": [
-            {
-                "id": index[v.pk],
-                "key": v.key,
-                "software": v.component.label if v.component else "",
-                "title": _clean(v.title, 160),
-                "summary": _clean(v.summary, 300),
-                "status": v.status,
-                "actions": [_clean(a, 160) for a in (v.actions or [])[:4]],
-                "plausibility": v.plausibility,
-                "contextual_score": v.contextual_score,
-                "technical_score": v.technical_score,
-                "in_kev": v.in_kev,
-                "kev": _kev_facts(v),
-                "cvss": v.cvss_score,
-                "epss": v.epss_score,
-                "epss_percentile": v.cve.epss_percentile if v.cve_id and v.cve else None,
-                "sources": _vuln_sources(v),
-                "factors": v.factors,
-            }
-            for v in vulns
-        ],
-    }, index
+        "vulnerabilities": [_vuln_entry(v, index) for v in detailed],
+    }
+    if grouped:
+        data["more_vulnerabilities"] = _grouped_entries(grouped, index)
+    return data, index
 
 
 def _kev_facts(vuln):
@@ -439,7 +760,8 @@ def _kev_facts(vuln):
 
 def _vuln_sources(vuln):
     sources = set()
-    for f in vuln.observations.all():
+    observations = getattr(vuln, "observations", None)
+    for f in observations.all() if observations is not None else ():
         sources.update(f.sources or [])
     return sorted(sources)
 
@@ -497,6 +819,9 @@ def coherent_intelligence(text, vulns):
 
 
 _GENERIC_HEADS = ("compromiso del activo", "múltiples vulnerabilidades", "vulnerabilidades")
+_CVE_ONLY_CAUSE = re.compile(
+    r"^(?:la\s+vulnerabilidad\s+|el\s+)?(CVE-\d{4}-\d{4,})\.?$", re.IGNORECASE
+)
 _GENERIC_CAUSE = re.compile(
     r"^(\d+\s+)?(múltiples|varias|diversas|numerosas)?\s*(vulnerabilidades|fallas|fallos|problemas)"
     r"(\s+(de seguridad|conocidas|conocidos|acumuladas|detectadas|identificadas|múltiples|varias))*"
@@ -511,9 +836,7 @@ def lead_cause(vulns, limit=90):
     vulns = sorted(vulns, key=lambda v: v.contextual_score or 0, reverse=True)
     if not vulns:
         return ""
-    cause = _clean(vulns[0].title, limit)
-    if len(cause) > 1 and cause[1].islower():
-        cause = cause[0].lower() + cause[1:]
+    cause = decapitalize(_clean(vulns[0].title, limit))
     rest = len(vulns) - 1
     return cause if not rest else f"{cause} y {rest} vulnerabilidad{'es' if rest > 1 else ''} más"
 
@@ -536,6 +859,11 @@ def fix_title(title, asset_name, consequence="", vulns=()):
     if cause and vulns and _GENERIC_CAUSE.match(cause.strip()):
         cause = lead_cause(vulns)
         title = f"{head} por {cause}"
+    # «por CVE-2026-54513» no dice nada a quien dirige: la vulnerabilidad citada da su título.
+    elif cause and vulns and (m := _CVE_ONLY_CAUSE.match(cause.strip())):
+        named = [v for v in vulns if v.key.lower() == m.group(1).lower()] or list(vulns)
+        cause = lead_cause(named[:1]) if len(named) < len(vulns) else lead_cause(vulns)
+        title = f"{head} por {cause}"
     # Una cabeza de una sola palabra («Integridad en X por…») no es una consecuencia legible.
     if cause and label and len(head.split(" en ", 1)[0].split()) < 2:
         head = f"{label} en {asset_name}"
@@ -546,9 +874,7 @@ def fix_title(title, asset_name, consequence="", vulns=()):
         cause = re.sub(rf"\s+en\s+{re.escape(asset_name)}\b", "", cause, flags=re.IGNORECASE)
         if not label:
             return title
-        if len(cause) > 1 and cause[1].islower():
-            cause = cause[0].lower() + cause[1:]
-        return _clean(f"{label} en {asset_name} por {cause}", 160)
+        return _clean(f"{label} en {asset_name} por {decapitalize(cause)}", 160)
     if asset_name.lower() in head.lower():
         return title
     head_consequence = head.split(" en ", 1)[0] if " en " in head else head
@@ -593,7 +919,71 @@ def _validate(parsed, vulns, index, asset_name=""):
             twin["impact"] = max(twin["impact"], item["impact"])
             continue
         items.append({**item, "vulnerabilities": refs, "vuln_pks": [by_index[r] for r in refs]})
+    _adopt_by_component(items, vulns, index, covered)
+    by_pk = {v.pk: v for v in vulns}
+    for item in items:
+        linked = [by_pk[pk] for pk in item.get("vuln_pks", []) if pk in by_pk]
+        if linked:
+            item["details"] = replace_support(item.get("details", ""), linked)
     return items, covered, rejected
+
+
+_TITLE_SOFTWARE = re.compile(r"\ben\s+([A-Za-z0-9][\w.+-]*(?:\s+\d[\w.+-]*)?)\s*(?:·|$)")
+
+
+def software_key(v):
+    """Con qué software se agrupa una vulnerabilidad: su componente o, si no lo tiene, el que
+    nombra su título («… en jackson-databind 2.17.2»)."""
+    component = getattr(v, "component", None) if getattr(v, "component_id", None) else None
+    if component is not None:
+        return component.label.lower()
+    m = _TITLE_SOFTWARE.search(getattr(v, "title", "") or "")
+    return m.group(1).lower() if m else ""
+
+
+def software_label(v):
+    """Etiqueta legible del software de la vulnerabilidad (componente o el del título)."""
+    component = getattr(v, "component", None) if getattr(v, "component_id", None) else None
+    if component is not None:
+        return component.label
+    m = _TITLE_SOFTWARE.search(getattr(v, "title", "") or "")
+    return m.group(1) if m else "software sin identificar"
+
+
+def _adopt_by_component(items, vulns, index, covered):
+    """Una vulnerabilidad que el modelo no referenció pero vive en el mismo software que una
+    referenciada es el mismo escenario: se liga a ese riesgo en vez de abrir uno por regla."""
+    by_pk = {v.pk: v for v in vulns}
+    for v in vulns:
+        i = index[v.pk]
+        software = software_key(v)
+        if i in covered or not software:
+            continue
+        for item in items:
+            if software in {software_key(by_pk[pk]) for pk in item["vuln_pks"]}:
+                item["vulnerabilities"].append(i)
+                item["vuln_pks"].append(v.pk)
+                item["adopted"] = item.get("adopted", 0) + 1
+                covered.add(i)
+                break
+
+
+def with_references(details, vulns, context, consequence):
+    """Garantiza el detalle técnico: si el modelo no lo dio se arma por regla; si lo dio sin citar
+    ninguna vulnerabilidad ligada, se le añade la lista para que la plataforma pueda enlazarlas."""
+    consequence = consequence or RiskConsequence.OPERATIONS
+    if not details.strip():
+        return _rule_details(vulns, context, consequence)
+    if not any(v.key.lower() in details.lower() for v in vulns):
+        shown = _payload_order(vulns)[:8]
+        listing = ", ".join(
+            f"{v.key} ({v.component.label})" if v.component_id and v.component else v.key
+            for v in shown
+        )
+        if len(vulns) > len(shown):
+            listing += f" y {len(vulns) - len(shown)} más"
+        details = f"{details.rstrip()}\n\nVulnerabilidades ligadas: {listing}."
+    return details
 
 
 def _key_for(item, vulns):
@@ -611,6 +1001,9 @@ def _key_for(item, vulns):
 # Anclas deterministas sobre la valoración del modelo (como en el scoring de vulnerabilidades).
 KEV_LIKELIHOOD_FLOOR = {"INTERNET": 4, "DMZ": 4}
 CRITICALITY_IMPACT_FLOOR = {"CRITICO": 4, "ALTO": 3}
+# «Casi seguro» (5) se reserva a lo que ya se explota: sin KEV ni EPSS alto, la probabilidad no
+# pasa de 4 aunque el modelo diga lo contrario.
+LIKELIHOOD_CEILING_WITHOUT_INTEL = 4
 
 
 def anchors(item, vulns, context):
@@ -622,6 +1015,18 @@ def anchors(item, vulns, context):
             likelihood, _ = (
                 floor,
                 notes.append(f"probabilidad mínima {floor} por explotación activa (KEV)"),
+            )
+    else:
+        from django.conf import settings
+
+        high = float(getattr(settings, "DETECTION_EPSS_HIGH", 0.1))
+        if likelihood > LIKELIHOOD_CEILING_WITHOUT_INTEL and not any(
+            (getattr(v, "epss_score", None) or 0) >= high for v in vulns
+        ):
+            likelihood = LIKELIHOOD_CEILING_WITHOUT_INTEL
+            notes.append(
+                f"probabilidad máxima {LIKELIHOOD_CEILING_WITHOUT_INTEL}: sin explotación activa "
+                "conocida ni EPSS alto"
             )
     floor = CRITICALITY_IMPACT_FLOOR.get(context.criticality or "", 1)
     if impact < floor:
@@ -658,19 +1063,34 @@ def _apply(asset_id, item, context, *, by_rule, log_obj, now):
     previous = (risk.likelihood, risk.impact, risk.level)
     risk.title = fix_spanish(item["title"])[:200]
     risk.consequence = item.get("consequence", "")
-    risk.scenario = fix_spanish(item["scenario"])
     risk.description = fix_spanish(item.get("description", ""))
+    risk.details = with_references(
+        humanize_sources(strip_recommendations(fix_spanish(item.get("details", "")))),
+        vulns,
+        context,
+        risk.consequence,
+    )
+    risk.scenario = fix_spanish(item.get("scenario") or _clean(risk.details.split("\n")[0], 700))
     risk.impact_description = fix_spanish(item.get("impact_description", ""))
-    risk.intelligence_summary = fix_spanish(
-        item.get("intelligence_summary") or intelligence(vulns)["text"]
+    risk.intelligence_summary = humanize_sources(
+        fix_spanish(item.get("intelligence_summary") or intelligence(vulns)["text"])
     )
     risk.recommendations = _dedupe([fix_spanish(r) for r in (item.get("recommendations") or [])])
     risk.threat_source = item["threat_source"]
     risk.likelihood, risk.impact, risk.level = likelihood, impact, level
-    risk.rationale = item.get("rationale", "")
+    risk.rationale = humanize_sources(item.get("rationale", ""))
     if item.get("intel_replaced"):
         notes.append(
             "lectura de inteligencia por regla porque la del modelo no coincidía con los datos"
+        )
+    if item.get("narrative_by_rule"):
+        notes.append(
+            "descripción por regla: el modelo no logró una redacción llana en tres intentos"
+        )
+    if item.get("adopted"):
+        n = item["adopted"]
+        notes.append(
+            f"{n} {_plural(n, 'vulnerabilidad del mismo software ligada', 'vulnerabilidades del mismo software ligadas')} por regla"
         )
     if notes:
         risk.rationale = _clean(f"{risk.rationale} Anclas: {'; '.join(notes)}.", 1000)
@@ -741,6 +1161,190 @@ def _close_orphans(asset_id, touched, now, *, sustained_pks=frozenset()):
     return closed
 
 
+_TRAILING_RECOMMENDATIONS = re.compile(
+    r"\n\s*(?:recommendations?|recomendaciones)\s*:.*\Z", re.IGNORECASE | re.DOTALL
+)
+
+
+_RAW_SOURCES = {
+    "CTI_MATCH": "el cruce de versiones con NVD",
+    "GRYPE": "Grype (análisis del SBOM)",
+    "NUCLEI": "nuclei (comprobación activa)",
+    "MANUAL": "registro manual",
+}
+_RAW_SOURCE_RE = re.compile(r"\b(CTI_MATCH|GRYPE|NUCLEI|MANUAL)\b")
+
+
+def humanize_sources(details):
+    """Los códigos de fuente del payload («CTI_MATCH», «GRYPE») no son para leerse: se traducen."""
+    return _RAW_SOURCE_RE.sub(lambda m: _RAW_SOURCES[m.group(1)], details or "")
+
+
+def strip_recommendations(details):
+    """Las recomendaciones tienen su campo: si el modelo las repitió al final de los detalles
+    (a veces hasta en inglés), se quitan de ahí."""
+    return _TRAILING_RECOMMENDATIONS.sub("", details or "").rstrip()
+
+
+def _forbidden_words(vulns):
+    """Nombres y versiones del software del riesgo, que la redacción para la dirección no puede
+    usar («log4j-core», «log4j», «2.14.1»)."""
+    words = set()
+    for v in vulns:
+        label = software_label(v)
+        if not label or label == "software sin identificar":
+            continue
+        base = label.split(" · ")[0].strip()
+        parts = base.split()
+        words.add(parts[0])
+        if len(parts) > 1 and any(ch.isdigit() for ch in parts[-1]):
+            words.add(parts[-1])
+        words.update(x for x in re.split(r"[-_.]", parts[0]) if len(x) > 3)
+    return sorted(words, key=str.lower)
+
+
+HOW_DETECTED = {
+    "GRYPE": "análisis del inventario de software del equipo",
+    "NUCLEI": "comprobación activa contra el servicio",
+    "CTI_MATCH": "cruce de las versiones del software con la base pública de vulnerabilidades",
+    "MANUAL": "registro manual",
+}
+
+
+_LAY_REPLACEMENTS = (
+    (
+        re.compile(r"CISA \(la agencia de ciberseguridad de Estados Unidos\)"),
+        "la agencia de ciberseguridad de Estados Unidos",
+    ),
+    (re.compile(r"\bCISA\b"), "esa agencia"),
+    (re.compile(r"\s*\(KEV\)"), ""),
+    (re.compile(r"\s*\(SBOM\)"), ""),
+    (re.compile(r" es de \d+(?:\.\d+)? %, "), " es "),
+)
+
+
+def lay_text(text):
+    """Quita del texto que se le da al modelo redactor justo lo que luego se le prohíbe escribir
+    (siglas y porcentajes): si viajan en el payload, los copia y el validador lo rechaza."""
+    for pattern, replacement in _LAY_REPLACEMENTS:
+        text = pattern.sub(replacement, text or "")
+    return re.sub(r"\s{2,}", " ", text).strip()
+
+
+def narrative_payload(data, item, vulns, context):
+    sources = sorted({src for v in vulns for src in _vuln_sources(v)})
+    likelihood, impact = item["likelihood"], item["impact"]
+    return {
+        "organization": data["organization"],
+        "asset": {**data["asset"], "exposure": _exposure_words(context)},
+        "risk": {
+            "title": item["title"],
+            "consequence": CONSEQUENCE_LABEL.get(item.get("consequence", ""), ""),
+            "threat_source": THREAT_LABELS.get(item["threat_source"], item["threat_source"]),
+            "likelihood": likelihood,
+            "impact": impact,
+            "level": dict(RiskLevel.choices)[risk_level_for(likelihood, impact)],
+        },
+        # Sin el «Sustento:» (KEV/EPSS): la probabilidad se redacta desde `intelligence`.
+        "what_the_flaws_allow": _clean(_SUPPORT_BLOCK.sub("", item.get("details", "")), 1500),
+        "flaws": [_clean(v.summary or v.title, 220) for v in _payload_order(vulns)[:5]],
+        "flaw_count": len(vulns),
+        "how_detected": [HOW_DETECTED.get(x, x.lower()) for x in sources],
+        "intelligence": lay_text(intelligence(vulns)["plain"]),
+        "forbidden_words": _forbidden_words(vulns),
+    }
+
+
+def write_narrative(data, item, vulns, context, *, asset_id, requested_by=None):
+    """Descripción e impacto para la dirección, redactados por el modelo y validados por código.
+
+    Devuelve ``(description, impact_description)`` o ``None`` si el modelo no logró un texto llano
+    en tres intentos; entonces manda la descripción por regla.
+    """
+    payload = narrative_payload(data, item, vulns, context)
+    log_obj = run_structured(
+        task=NARRATIVE_TASK,
+        messages=[
+            {"role": "system", "content": load_prompt("risk_narrative", NARRATIVE_PROMPT_VERSION)},
+            {"role": "user", "content": render_user_message(payload)},
+        ],
+        schema=RISK_NARRATIVE_SCHEMA,
+        validator=narrative_validator(payload["forbidden_words"]),
+        model=active_model(),
+        prompt_version=NARRATIVE_PROMPT_VERSION,
+        request_payload=payload,
+        object_ref=f"assets.Asset:{asset_id}",
+        requested_by=requested_by,
+        max_attempts=3,
+    )
+    if log_obj.parsed_ok:
+        parts = [polish_paragraph(log_obj.parsed[name]) for name in NARRATIVE_FIELDS]
+        return "\n\n".join(parts[:3]), parts[3]
+    return None
+
+
+_SENTENCE_END = re.compile(r"(?<=[.!?»])\s+")
+
+
+def polish_paragraph(text):
+    """Pulido mínimo y acotado de un párrafo del modelo: quita una frase cortada al final (tope
+    del esquema a media frase), las frases repetidas y los espacios dobles."""
+    text = re.sub(r"\s+", " ", (text or "")).strip()
+    if not text:
+        return ""
+    sentences = _SENTENCE_END.split(text)
+    if sentences and sentences[-1] and sentences[-1][-1] not in ".!?»":
+        sentences = sentences[:-1] or sentences
+    seen, kept = set(), []
+    for sentence in sentences:
+        norm = re.sub(r"[^a-záéíóúñ0-9 ]", "", sentence.lower()).strip()
+        if norm and norm not in seen:
+            seen.add(norm)
+            kept.append(sentence.strip())
+    return " ".join(kept)
+
+
+@register_mock(NARRATIVE_TASK)
+def mock_narrative(request_payload):
+    """``LLM_MOCK_MODE=1``: redacción simulada, llana y con la extensión mínima del esquema."""
+    asset = request_payload["asset"]["name"]
+    return {
+        "asset_paragraph": (
+            f"Descripción simulada del riesgo para la dirección (LLM_MOCK_MODE=1). {asset} es un "
+            "equipo de la organización que atiende a quienes usan el servicio y guarda su información."
+        ),
+        "scenario_paragraph": (
+            "Alguien ajeno podría aprovechar una falla conocida para llegar al servidor, ejecutar "
+            "sus propias instrucciones y leer o alterar la información que guarda, con lo que el "
+            "servicio se detendría y la información quedaría expuesta."
+        ),
+        "likelihood_paragraph": (
+            "La probabilidad depende de que el equipo sea alcanzable desde fuera y de que la falla "
+            "ya se use en ataques reales; la detección se considera segura."
+        ),
+        "impact_paragraph": (
+            "Impacto simulado: el servicio quedaría fuera unas horas y habría que notificar a las "
+            "personas afectadas, con el costo y la pérdida de confianza que eso implica."
+        ),
+    }
+
+
+def _narrate(items, data, vulns, context, asset_id, asset_name, requested_by):
+    """Etapa 2 para cada riesgo del modelo: redacción llana o, si no se logra, la de la regla."""
+    for item in items:
+        linked = [v for v in vulns if v.pk in set(item["vuln_pks"])]
+        consequence = item.get("consequence") or RiskConsequence.OPERATIONS
+        narrative = write_narrative(
+            data, item, linked, context, asset_id=asset_id, requested_by=requested_by
+        )
+        if narrative:
+            item["description"], item["impact_description"] = narrative
+        else:
+            item["description"] = _rule_description(linked, context, asset_name, consequence)
+            item["impact_description"] = _rule_impact(context, consequence)
+            item["narrative_by_rule"] = True
+
+
 def derive_risks(asset_id, *, requested_by=None, use_llm=True):
     """Deriva o actualiza los riesgos del activo desde sus vulnerabilidades abiertas."""
     from django.conf import settings
@@ -769,6 +1373,7 @@ def derive_risks(asset_id, *, requested_by=None, use_llm=True):
         log_obj = None
         if use_llm:
             log_obj = run_structured(
+                max_attempts=3,
                 task=TASK,
                 messages=[
                     {"role": "system", "content": load_prompt("risk_assessment", PROMPT_VERSION)},
@@ -785,6 +1390,7 @@ def derive_risks(asset_id, *, requested_by=None, use_llm=True):
         if log_obj is not None and log_obj.parsed_ok:
             items, covered, rejected = _validate(log_obj.parsed, vulns, index, asset_name)
             llm_ok = True
+            _narrate(items, data, vulns, context, asset_id, asset_name, requested_by)
             missing = [v for v in vulns if index[v.pk] not in covered]
             rule_extra = rule_items(missing, context, index, asset_name) if missing else []
         else:

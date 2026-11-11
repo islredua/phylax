@@ -15,6 +15,7 @@ class InferenceTask(models.TextChoices):
     ORG_PROFILE_DRAFT = "ORG_PROFILE_DRAFT", "Borrador del perfil de la organización"
     VULN_ASSESSMENT = "VULN_ASSESSMENT", "Consolidación de vulnerabilidades"
     RISK_ASSESSMENT = "RISK_ASSESSMENT", "Valoración de riesgos"
+    RISK_NARRATIVE = "RISK_NARRATIVE", "Redacción del riesgo para la dirección"
     VULN_DESCRIBE = "VULN_DESCRIBE", "Redacción de vulnerabilidad"
 
 

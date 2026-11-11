@@ -1,6 +1,8 @@
 """Fase 5: riesgos ISO/IEC 27005 derivados de las vulnerabilidades consolidadas."""
 
+import datetime
 import json
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -8,6 +10,7 @@ import pytest
 from django.utils import timezone
 
 from apps.accounts.roles import ADMIN, AUDITOR, OPERATOR
+from apps.assets import services as assets_services
 from apps.cti import services as cti
 from apps.detection import components, consolidation, findings, matching, risks
 from apps.detection.models import (
@@ -105,7 +108,11 @@ def test_rule_fallback_when_llm_is_down(settings, monkeypatch):
     monkeypatch.setattr("apps.llm.status.active_model_ready", lambda: False)
     asset = _asset_with_vulns()
     risk = Risk.objects.get(asset=asset)
-    assert risk.assessment_source == StatusSource.RULE and "regla" in risk.scenario.lower()
+    assert risk.assessment_source == StatusSource.RULE and risk.rationale.startswith("Regla")
+    # El texto ya no se disculpa («la IA no evaluó…»): la descripción es para quien no es técnico
+    # y el detalle técnico va aparte.
+    assert "regla" not in risk.description.lower() and "regla" not in risk.scenario.lower()
+    assert risk.details.startswith("Software afectado:") and "Cadena de ataque:" in risk.details
     assert 1 <= risk.likelihood <= 5 and risk.impact >= 4  # criticidad CRITICO manda
 
 
@@ -121,8 +128,8 @@ def test_invalid_references_fall_back_to_rule(monkeypatch):
                     "vulnerabilities": [42],
                     "title": "Fuga de información en api-pagos por un invento",
                     "consequence": "CONFIDENTIALITY",
-                    "scenario": "Escenario inventado que referencia una vulnerabilidad inexistente.",
-                    "description": "Descripción inventada en español para que el esquema la acepte.",
+                    "description": "Descripción inventada en español, larga como para que el esquema la acepte sin reparos.",
+                    "details": "Detalle técnico inventado que referencia una vulnerabilidad inexistente del activo.",
                     "recommendations": ["Nada que hacer."],
                     "threat_source": "OTHER",
                     "likelihood": 5,
@@ -196,7 +203,7 @@ def test_register_and_detail_pages(client, as_role):
     assert client.get("/detection/?treatment=none").context["paginator"].count == 1
     body = client.get(f"/detection/risks/{risk.pk}/").content.decode()
     for text in (
-        "Escenario",
+        "Detalles",
         "Posición en la matriz",
         "Evidencia técnica",
         "Tratamiento",
@@ -260,7 +267,7 @@ def test_risk_item_schema_requires_spanish_and_title_formula():
     base = {
         "vulnerabilities": [1],
         "consequence": "CONFIDENTIALITY",
-        "scenario": "Un atacante externo explota Log4Shell y extrae los datos de pagos.",
+        "details": "Un atacante externo explota CVE-2021-44228 en log4j-core 2.14.1 y extrae los datos de pagos.",
         "description": "El servicio de pagos usa una biblioteca con una falla conocida y explotada; desde la DMZ un atacante podría ejecutar código y leer los datos.",
         "impact_description": "Se expondrían datos de tarjetas y la operación de cobro se detendría.",
         "recommendations": ["Actualizar log4j-core.", "Verificar con un nuevo escaneo."],
@@ -304,6 +311,44 @@ def test_risk_item_schema_requires_spanish_and_title_formula():
                 "description": "An attacker could execute arbitrary code on the payment API and exfiltrate data.",
             }
         )
+    # La descripción para la dirección se redacta aparte: ahí sí se rechazan CVE, siglas, nombres
+    # de software y versiones, con el mensaje de qué quitar.
+    from apps.llm.schemas import narrative_validator
+
+    narrative = narrative_validator(["log4j-core", "log4j", "2.14.1"])
+    good = {
+        "asset_paragraph": "api-pagos es el sistema que cobra las primas con tarjeta a los clientes de la aseguradora y es alcanzable desde fuera de la organización.",
+        "scenario_paragraph": "Una pieza que registra la actividad del servidor tiene una falla que permitiría a un atacante ejecutar sus propias instrucciones, leer los datos de pago y detener el cobro de primas.",
+        "likelihood_paragraph": "La falla ya se usa en ataques reales y el equipo está expuesto, así que la probabilidad es alta y la detección es segura.",
+        "impact_paragraph": "Se expondrían datos de tarjetas de los clientes, con notificación a los afectados, sanciones y pérdida de confianza.",
+    }
+    narrative.model_validate(good)
+    for bad, hint in (
+        (good["scenario_paragraph"].replace("Una pieza", "La biblioteca log4j-core"), "log4j"),
+        (
+            good["scenario_paragraph"].replace("una falla", "la falla CVE-2021-44228"),
+            "CVE-2021-44228",
+        ),
+        (
+            good["scenario_paragraph"].replace("una falla", "una falla en la versión 2.14.1"),
+            "2.14.1",
+        ),
+    ):
+        with pytest.raises(ValidationError, match=re.escape(hint)):
+            narrative.model_validate({**good, "scenario_paragraph": bad})
+    with pytest.raises(ValidationError):
+        narrative.model_validate({**good, "asset_paragraph": "Texto corto."})
+    with pytest.raises(ValidationError, match="porcentajes"):
+        narrative.model_validate(
+            {
+                **good,
+                "likelihood_paragraph": good["likelihood_paragraph"] + " Es un 12 % en 30 días.",
+            }
+        )
+    with pytest.raises(ValidationError, match="PII"):
+        narrative.model_validate(
+            {**good, "asset_paragraph": good["asset_paragraph"] + " Guarda datos personales (PII)."}
+        )
 
 
 def test_rule_risks_follow_the_formula_and_carry_description_and_recommendations():
@@ -314,7 +359,9 @@ def test_rule_risks_follow_the_formula_and_carry_description_and_recommendations
     assert risk.assessment_source == StatusSource.RULE
     assert risk.title.startswith("Fuga de información en api-pagos por ")
     assert risk.consequence == "CONFIDENTIALITY"
-    assert "Valoración por regla" in risk.description and risk.impact_description
+    assert "regla" not in risk.description.lower() and risk.impact_description
+    assert "CVE-" not in risk.description and "api-pagos" in risk.description
+    assert "CVE-" in risk.details and "Cadena de ataque:" in risk.details
     assert risk.recommendations and risk.recommendations[-1].startswith("Verificar la corrección")
     assert "Compromiso del activo" not in risk.title and "Explotación de «" not in risk.title
 
@@ -340,9 +387,11 @@ def test_ai_risk_stores_description_impact_and_recommendations():
     risk = Risk.objects.filter(asset=asset, assessment_source=StatusSource.AI).first()
     assert risk is not None and risk.title.startswith("Interrupción del servicio en api-pagos por ")
     assert risk.consequence == "AVAILABILITY" and risk.description.startswith(
-        "Descripción simulada"
+        "Descripción simulada del riesgo para la dirección"
     )
+    assert "\n\n" in risk.description and risk.impact_description.startswith("Impacto simulado")
     assert risk.impact_description and len(risk.recommendations) == 2
+    assert risk.details.startswith("Detalle técnico simulado")
 
 
 def test_risk_detail_and_report_expose_description_evidence_and_downloads(client, as_role):
@@ -353,7 +402,10 @@ def test_risk_detail_and_report_expose_description_evidence_and_downloads(client
     body = client.get(f"/detection/risks/{risk.pk}/").content.decode()
     for text in (
         "Descripción",
-        "Posible impacto",
+        "Qué perdería la organización",
+        "Detalles",
+        "Vulnerabilidades ligadas",
+        'target="_blank"',
         "Recomendaciones",
         "Valoración (ISO/IEC 27005)",
         "Evidencia técnica",
@@ -567,7 +619,7 @@ def test_intelligence_summary_counts_kev_epss_and_sources(client, as_role):
         "Inteligencia de amenazas",
         "Explotación activa",
         "EPSS 42 %",
-        "En KEV (CISA)",
+        "En el catálogo de explotación activa (KEV, CISA)",
         "Inteligencia (NVD)",
         "vencido",
     ):
@@ -634,7 +686,15 @@ def test_model_intelligence_reading_must_match_the_data():
             }
         ]
     }
-    v = SimpleNamespace(pk="pk1", in_kev=True, epss_score=0.5)
+    v = SimpleNamespace(
+        pk="pk1",
+        key="CVE-2021-44228",
+        in_kev=True,
+        epss_score=0.5,
+        cve=None,
+        cve_id=None,
+        kev_due_at=None,
+    )
     items, _, _ = risks._validate(parsed, [v], {"pk1": 1}, "a")
     assert items[0]["intelligence_summary"] == "" and items[0]["intel_replaced"]
 
@@ -680,3 +740,377 @@ def test_merged_rule_risk_names_its_lead_vulnerability(as_role):
     [item] = risks._merge_rule_items(items, vulns, index, context, "api-pagos")
     assert " por " in item["title"] and "acumuladas" not in item["title"]
     assert item["title"].endswith("y 1 vulnerabilidad más") or len(vulns) == 1
+
+
+# --------------------------------------------------------------------------
+# Dos lectores por riesgo: descripción para dirección, detalles para el equipo técnico
+# --------------------------------------------------------------------------
+
+
+def test_payload_budget_details_the_worst_and_groups_the_rest_by_software():
+    """Con 4096 tokens de contexto el modelo no veía la lista completa: ahora van una a una las
+    peores y el resto agrupado por software con sus ids, para que ninguna quede sin referenciar."""
+    asset = _asset_with_vulns()
+    consolidation.consolidate_asset(asset.pk, use_llm=False)
+    vulns = list(Vulnerability.objects.filter(asset=asset).select_related("cve", "component"))
+    monkey_total = risks.RISK_PAYLOAD_DETAIL
+    try:
+        risks.RISK_PAYLOAD_DETAIL = 1
+        data, index = risks.build_payload(
+            asset.pk, vulns, assets_services.get_asset_context(asset.pk)
+        )
+    finally:
+        risks.RISK_PAYLOAD_DETAIL = monkey_total
+    assert len(data["vulnerabilities"]) == 1 and set(index.values()) == set(
+        range(1, len(vulns) + 1)
+    )
+    grouped_ids = {i for g in data["more_vulnerabilities"] for i in g["ids"]}
+    assert grouped_ids | {data["vulnerabilities"][0]["id"]} == set(index.values())
+    group = data["more_vulnerabilities"][0]
+    assert {"software", "ids", "count", "kev_count", "examples", "sources"} <= set(group)
+    # Lo que no pesa en la decisión no viaja: resumen corto, tres acciones, dos factores.
+    first = data["vulnerabilities"][0]
+    assert len(first["actions"]) <= 3 and set(first["factors"]) <= {
+        "exploitability",
+        "compensating_controls",
+    }
+
+
+def test_unreferenced_vulnerabilities_in_the_same_software_join_that_risk():
+    jackson = SimpleNamespace(label="jackson-databind 2.17.2")
+    spring = SimpleNamespace(label="spring-web 6.1.13")
+    base = {"in_kev": False, "epss_score": None, "title": "", "cve": None, "cve_id": None}
+    v_a = SimpleNamespace(pk="a", component_id=7, component=jackson, key="CVE-2021-1", **base)
+    # Sin componente (hallazgo de Grype): el software sale del título.
+    v_b = SimpleNamespace(
+        pk="b",
+        component_id=None,
+        key="CVE-2021-2",
+        in_kev=False,
+        epss_score=None,
+        cve=None,
+        cve_id=None,
+        title="Bypass de @JsonIgnore en jackson-databind 2.17.2",
+    )
+    v_c = SimpleNamespace(pk="c", component_id=9, component=spring, key="CVE-2021-3", **base)
+    v_d = SimpleNamespace(pk="d", component_id=None, key="CVE-2021-4", **base)
+    index = {"a": 1, "b": 2, "c": 3, "d": 4}
+    parsed = {
+        "risks": [
+            {
+                "vulnerabilities": [1],
+                "title": "Fuga de datos en x por A",
+                "consequence": "CONFIDENTIALITY",
+                "intelligence_summary": "Ninguna está en KEV y no hay dato de EPSS.",
+                "likelihood": 3,
+                "impact": 3,
+            }
+        ]
+    }
+    items, covered, _ = risks._validate(parsed, [v_a, v_b, v_c, v_d], index, "x")
+    # b comparte software con a → se liga al mismo riesgo; c (otro software) y d (sin software)
+    # quedan para la regla.
+    assert items[0]["vulnerabilities"] == [1, 2] and items[0]["adopted"] == 1
+    assert covered == {1, 2}
+
+
+def test_rule_texts_speak_to_two_readers():
+    asset = _asset_with_vulns(data_classification="RESTRINGIDA")
+    consolidation.consolidate_asset(asset.pk, use_llm=False)
+    risks.derive_risks(asset.pk, use_llm=False)
+    risk = Risk.objects.filter(asset=asset).order_by("-impact", "-likelihood").first()
+    # Descripción: sin CVE, sin «regla», nombra al activo y explica la consecuencia en palabras.
+    assert "CVE-" not in risk.description and "regla" not in risk.description.lower()
+    assert "api-pagos" in risk.description and "manos ajenas" in risk.description
+    assert "datos restringidos" in risk.description
+    # Detalles: software, CVE citados, cadena de ataque y sustento.
+    for text in ("Software afectado:", "Vulnerabilidades:", "Cadena de ataque:", "Sustento:"):
+        assert text in risk.details, text
+    assert any(v.key in risk.details for v in risk.vulnerabilities.all())
+
+
+def test_details_always_cite_a_linked_vulnerability():
+    v = SimpleNamespace(
+        pk="a",
+        key="CVE-2021-44228",
+        component_id=None,
+        component=None,
+        in_kev=True,
+        contextual_score=9,
+        title="Log4Shell en log4j-core 2.14.1",
+        cvss_score=10.0,
+        epss_score=0.94,
+        status="CONFIRMED",
+        plausibility=0.95,
+        cve=None,
+        cve_id=None,
+        kev_due_at=None,
+    )
+    ctx = SimpleNamespace(exposure="DMZ", data_classification="RESTRINGIDA")
+    text = "El modelo describió el ataque sin nombrar la vulnerabilidad."
+    out = risks.with_references(text, [v], ctx, "CONFIDENTIALITY")
+    assert out.startswith(text) and "Vulnerabilidades ligadas: CVE-2021-44228." in out
+    assert risks.with_references("Explota CVE-2021-44228 en log4j.", [v], ctx, "") == (
+        "Explota CVE-2021-44228 en log4j."
+    )
+    assert risks.with_references("", [v], ctx, "CONFIDENTIALITY").startswith("Software afectado:")
+
+
+def test_intelligence_plain_reading_explains_kev_and_epss():
+    today = datetime.date(2026, 11, 10)
+    cve = SimpleNamespace(
+        kev_added_at=datetime.date(2021, 12, 10),
+        kev_ransomware="Known",
+        epss_percentile=0.99,
+    )
+    kev = SimpleNamespace(
+        pk=1,
+        key="CVE-2021-44228",
+        in_kev=True,
+        cve=cve,
+        cve_id=1,
+        kev_due_at=datetime.date(2021, 12, 24),
+        epss_score=0.94,
+        observations=_Obs(["GRYPE", "CTI_MATCH"]),
+    )
+    quiet = SimpleNamespace(
+        pk=2,
+        key="CVE-2024-1",
+        in_kev=False,
+        cve=None,
+        cve_id=None,
+        kev_due_at=None,
+        epss_score=0.01,
+        observations=_Obs(["CTI_MATCH"]),
+    )
+    plain = risks.intelligence([kev, quiet], today=today)["plain"]
+    assert plain.startswith("1 de las 2 vulnerabilidades de este riesgo figura en el catálogo")
+    assert "atacantes reales ya la han usado" in plain and "ya pasó" in plain
+    assert "ransomware" in plain and "94 %" in plain and "más se intentan explotar" in plain
+    assert "fue confirmada por más de una herramienta" in plain
+    quiet_only = risks.intelligence([quiet], today=today)["plain"]
+    assert quiet_only.startswith("La vulnerabilidad de este riesgo no figura")
+    assert "falsos positivos" in quiet_only and "casi nadie" in quiet_only
+    # La lectura técnica dejó de decir «la(s)».
+    assert "la(s)" not in risks.intelligence([kev, quiet], today=today)["text"]
+
+
+class _Obs:
+    def __init__(self, sources):
+        self._items = [SimpleNamespace(sources=sources)]
+
+    def all(self):
+        return self._items
+
+
+def test_risk_text_links_cited_vulnerabilities_in_a_new_tab(client, as_role):
+    as_role(OPERATOR)
+    asset = _asset_with_vulns()
+    consolidation.consolidate_asset(asset.pk)
+    risk = Risk.objects.filter(asset=asset).first()
+    vuln = risk.vulnerabilities.first()
+    risk.details = f"Primer párrafo cita {vuln.key} y <b>no</b> es HTML.\n\nSegundo párrafo."
+    risk.save(update_fields=["details"])
+    body = client.get(f"/detection/risks/{risk.pk}/").content.decode()
+    link = f'<a href="/detection/vulnerabilities/{vuln.pk}/" target="_blank" rel="noopener"'
+    assert link in body and "&lt;b&gt;no&lt;/b&gt;" in body
+    assert body.count("Segundo párrafo.") == 1
+    report = client.get(f"/detection/risks/{risk.pk}/report/").content.decode()
+    assert "<h2>Detalles</h2>" in report and link in report
+    md = client.get(f"/detection/risks/{risk.pk}/report/?format=md").content.decode()
+    assert "## Detalles" in md and vuln.key in md and "Qué perdería la organización" in md
+
+
+def test_title_whose_cause_is_only_a_cve_names_the_vulnerability():
+    jackson = SimpleNamespace(
+        key="CVE-2026-54513",
+        title="Inyección de código en jackson-databind 2.17.2",
+        contextual_score=7,
+    )
+    log4j = SimpleNamespace(
+        key="CVE-2021-44228", title="Log4Shell en log4j-core", contextual_score=9
+    )
+    assert (
+        risks.fix_title(
+            "Fuga de datos financieros en api-pagos por CVE-2026-54513",
+            "api-pagos",
+            "CONFIDENTIALITY",
+            [jackson, log4j],
+        )
+        == "Fuga de datos financieros en api-pagos por inyección de código en jackson-databind 2.17.2"
+    )
+
+
+def test_narrative_payload_names_what_matters_and_forbids_software_names():
+    asset = _asset_with_vulns()
+    consolidation.consolidate_asset(asset.pk, use_llm=False)
+    vulns = list(Vulnerability.objects.filter(asset=asset).select_related("cve", "component"))
+    context = assets_services.get_asset_context(asset.pk)
+    data, index = risks.build_payload(asset.pk, vulns, context)
+    item = {
+        "title": "Interrupción del servicio en api-pagos por nginx",
+        "consequence": "AVAILABILITY",
+        "threat_source": "EXTERNAL",
+        "likelihood": 3,
+        "impact": 4,
+        "details": "nginx 1.27.3 expuesto en 443/tcp.\nSustento: está en KEV (EPSS 94 %).",
+        "vuln_pks": [v.pk for v in vulns],
+    }
+    payload = risks.narrative_payload(data, item, vulns, context)
+    assert payload["risk"]["consequence"] == "Interrupción del servicio"
+    # Lo que se le prohíbe escribir no viaja en el payload.
+    assert (
+        "Sustento" not in payload["what_the_flaws_allow"]
+        and "KEV" not in payload["what_the_flaws_allow"]
+    )
+    assert "CISA" not in payload["intelligence"] and "%" not in payload["intelligence"]
+    assert all("SBOM" not in h for h in payload["how_detected"])
+    assert payload["risk"]["level"] and payload["flaw_count"] == len(vulns)
+    assert payload["intelligence"] and payload["how_detected"]
+    assert "nginx" in payload["forbidden_words"]
+    assert all(w.lower() not in ("en", "de") for w in payload["forbidden_words"])
+
+
+def test_details_drop_repeated_recommendations_and_rule_titles_lowercase_the_cause():
+    text = "Software afectado: log4j-core 2.14.1\nFallas: CVE-2021-44228\nRecommendations:\nActualizar."
+    assert (
+        risks.strip_recommendations(text)
+        == "Software afectado: log4j-core 2.14.1\nFallas: CVE-2021-44228"
+    )
+    assert risks.strip_recommendations("Sin cola.") == "Sin cola."
+    assert risks.humanize_sources("Sustento: está en CTI_MATCH y GRYPE.") == (
+        "Sustento: está en el cruce de versiones con NVD y Grype (análisis del SBOM)."
+    )
+    assert risks.rule_title(
+        "CONFIDENTIALITY", "api-pagos", "Vulnerabilidad en spring-web 6.1.13"
+    ) == ("Fuga de información en api-pagos por vulnerabilidad en spring-web 6.1.13")
+    assert risks.rule_title("CONFIDENTIALITY", "api-pagos", "CVE-2026-1 en nginx").endswith(
+        "por CVE-2026-1 en nginx"
+    )
+    # Siglas y nombres mixtos conservan su mayúscula.
+    assert risks.decapitalize("DoS en jackson-databind 2.17.2") == "DoS en jackson-databind 2.17.2"
+    assert risks.decapitalize("Log4Shell en log4j-core") == "Log4Shell en log4j-core"
+    assert risks.decapitalize("Inyección de código") == "inyección de código"
+
+
+def test_replace_support_is_deterministic():
+    obs = SimpleNamespace(sources=["GRYPE", "CTI_MATCH"])
+    vuln = SimpleNamespace(
+        pk="x",
+        key="CVE-2021-45105",
+        cve=None,
+        cve_id=None,
+        in_kev=False,
+        epss_score=None,
+        epss_percentile=None,
+        kev_added_at=None,
+        kev_due_at=None,
+        kev_ransomware=False,
+        observations=SimpleNamespace(all=lambda: [obs]),
+        status="CONFIRMED",
+    )
+    details = (
+        "Software afectado: log4j-core 2.14.1\nFallas: CVE-2021-45105\nCadena de ataque: X.\n"
+        "Sustento: La vulnerabilidad está en KEV desde 2021-12-10 (EPSS = 0.99999).\n"
+        "Condiciones: expuesto en la DMZ."
+    )
+    out = risks.replace_support(details, [vuln])
+    assert "0.99999" not in out and "desde 2021-12-10" not in out
+    assert "Sustento: Ninguna de sus vulnerabilidades aparece en el catálogo" in out
+    assert (
+        "1 observación de cruce del software inventariado con el espejo de NVD, Grype sobre el SBOM."
+        in out
+    )
+    assert out.endswith("Condiciones: expuesto en la DMZ.")
+    # Sin «Sustento:» del modelo, se añade al final.
+    assert risks.replace_support("Software afectado: x", [vuln]).count("Sustento:") == 1
+
+
+def test_lay_text_removes_what_the_narrative_validator_forbids():
+    text = (
+        "2 de las 8 vulnerabilidades de este riesgo figuran en el catálogo de explotación activa "
+        "de CISA (la agencia de ciberseguridad de Estados Unidos). CISA pide corregirla antes del "
+        "24/12/2021. La probabilidad estimada de que alguien intente explotar la peor de ellas en "
+        "los próximos 30 días es de 100 %, alta: está entre las fallas que más se intentan explotar."
+    )
+    from apps.llm.schemas import technical_tokens
+
+    out = risks.lay_text(text)
+    assert "CISA" not in out and "%" not in out and "(KEV)" not in out
+    assert "la agencia de ciberseguridad de Estados Unidos" in out
+    assert "esa agencia pide corregirla" in out
+    assert "en los próximos 30 días es alta" in out
+    assert not technical_tokens(out)
+
+
+def test_polish_paragraph_drops_cut_and_repeated_sentences():
+    text = (
+        "El servicio cobra las primas. En resumen, el riesgo es crítico. Otra idea útil. "
+        "En resumen, el riesgo es crítico. La probabilidad de explotación es de"
+    )
+    assert risks.polish_paragraph(text) == (
+        "El servicio cobra las primas. En resumen, el riesgo es crítico. Otra idea útil."
+    )
+    assert (
+        risks.polish_paragraph("Una sola frase cortada sin punto")
+        == "Una sola frase cortada sin punto"
+    )
+    assert risks.polish_paragraph("  Doble   espacio.  ") == "Doble espacio."
+
+
+def test_rule_risks_group_vulnerabilities_by_software():
+    spring = SimpleNamespace(label="spring-web 6.1.13")
+    ctx = SimpleNamespace(
+        business_role="PAGOS",
+        environment="PROD",
+        exposure="DMZ",
+        data_classification="RESTRINGIDA",
+        criticality="CRITICO",
+    )
+    base = {
+        "in_kev": False,
+        "epss_score": None,
+        "cvss_score": None,
+        "status": "CONFIRMED",
+        "plausibility": 1.0,
+        "actions": [],
+        "factors": {},
+        "cve_id": None,
+        "cve": None,
+        "kev_due_at": None,
+    }
+    v1 = SimpleNamespace(
+        pk="a",
+        key="CVE-2024-38820",
+        title="Vulnerabilidad en spring-web 6.1.13",
+        contextual_score=6,
+        component_id=3,
+        component=spring,
+        **base,
+    )
+    v2 = SimpleNamespace(
+        pk="b",
+        key="CVE-2025-41234",
+        title="Vulnerabilidad en spring-web 6.1.13",
+        contextual_score=5,
+        component_id=3,
+        component=spring,
+        **base,
+    )
+    v3 = SimpleNamespace(
+        pk="c",
+        key="CVE-2026-49844",
+        title="Inyección de datos en log4j-api 2.14.1",
+        contextual_score=7,
+        component_id=None,
+        **base,
+    )
+    items = risks.rule_items([v1, v2, v3], ctx, {"a": 1, "b": 2, "c": 3}, "api-pagos")
+    assert len(items) == 2
+    by_title = {i["title"]: i for i in items}
+    assert "Fuga de información en api-pagos por inyección de datos en log4j-api 2.14.1" in by_title
+    merged = next(i for i in items if len(i["vulnerabilities"]) == 2)
+    assert merged["vulnerabilities"] == [1, 2]
+    assert merged["title"].endswith(
+        "por vulnerabilidad en spring-web 6.1.13 y 1 vulnerabilidad más"
+    )

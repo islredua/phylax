@@ -1,7 +1,11 @@
 """Badges del módulo de detección con el sistema visual (ADR-007). Todo pasa por format_html."""
 
+import re
+
 from django import template
-from django.utils.html import format_html
+from django.urls import reverse
+from django.utils.html import escape, format_html
+from django.utils.safestring import mark_safe
 
 from apps.detection.models import (
     ActionStatus,
@@ -450,3 +454,37 @@ def human_value(value):
     if isinstance(value, dict):
         return "; ".join(f"{k}: {human_value(v)}" for k, v in value.items())
     return str(value)
+
+
+# --- Textos de riesgo con las vulnerabilidades enlazadas ---------------------------------------
+
+_PARAGRAPH_BREAK = re.compile(r"\n\s*\n")
+
+
+@register.simple_tag
+def risk_text(text, risk, css="text-ink-soft"):
+    """Párrafos de un texto del riesgo con cada vulnerabilidad ligada citada (por su clave, p. ej.
+    CVE-2021-44228) convertida en enlace a su ficha, que abre en otra pestaña."""
+    if not text:
+        return ""
+    keys = {v.key: v.pk for v in risk.vulnerabilities.all()}
+    pattern = None
+    if keys:
+        pattern = re.compile(
+            "|".join(re.escape(k) for k in sorted(keys, key=len, reverse=True)), re.IGNORECASE
+        )
+    lookup = {k.lower(): pk for k, pk in keys.items()}
+    paragraphs = []
+    for para in _PARAGRAPH_BREAK.split(str(text).strip()):
+        safe = escape(para.strip())
+        if pattern is not None:
+            safe = pattern.sub(
+                lambda m: format_html(
+                    '<a href="{}" target="_blank" rel="noopener" class="font-mono text-xs" title="Abre la vulnerabilidad en otra pestaña">{}</a>',
+                    reverse("detection:vulnerability", args=[lookup[m.group(0).lower()]]),
+                    m.group(0),
+                ),
+                safe,
+            )
+        paragraphs.append(f'<p class="{escape(css)}">{safe.replace(chr(10), "<br>")}</p>')
+    return mark_safe("".join(paragraphs))  # noqa: S308 - todo pasó por escape()

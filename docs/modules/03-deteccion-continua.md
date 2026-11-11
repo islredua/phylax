@@ -264,16 +264,59 @@ nombra su **consecuencia** (fuga de información, alteración, interrupción del
 incumplimiento, daño reputacional, pérdida financiera, afectación operativa) y su título sigue la
 fórmula **«Consecuencia en activo por causa»** («Fuga de datos de pagos en api-pagos por
 Log4Shell»); el esquema rechaza títulos genéricos y cualquier texto que no parezca español, y el
-reintento le dice al modelo qué corregir. Además del escenario trae **descripción** a alto nivel
-(para quien dirige), **posible impacto** en esta organización y **recomendaciones** ordenadas. El
-LLM local (`apps/llm/prompts/risk_assessment/v3.md`, tarea `RISK_ASSESSMENT`) propone entre 1 y 5
+reintento le dice al modelo qué corregir.
+
+**Dos lectores por riesgo (revisión del 2026-11-10).** Cada riesgo trae textos para dos públicos,
+redactados en **dos etapas** porque el modelo de 7B no logra, dentro del JSON grande de la
+valoración, una descripción larga y sin tecnicismos (en el laboratorio citaba el CVE en la
+descripción en tres intentos de tres y mezclaba datos de otro riesgo). La etapa 1
+(`RISK_ASSESSMENT`, `risk_assessment/v4.md`) agrupa, valora y escribe los **Detalles** para el
+equipo técnico: software y versión afectados, qué falla es cada vulnerabilidad (citada por su
+clave), cadena de ataque paso a paso, quién la observó y las recomendaciones; la plantilla
+convierte cada clave citada en un enlace a la ficha de la vulnerabilidad que abre en otra pestaña
+(`risk_text`), si el modelo no citó ninguna el código añade la lista de vulnerabilidades ligadas
+(`risks.with_references`) y si repitió las recomendaciones al final se quitan de ahí
+(`strip_recommendations`). La etapa 2 (`RISK_NARRATIVE`, `risk_narrative/v1.md`, una llamada
+corta por riesgo) escribe la **Descripción** para quien no es técnico en cuatro campos acotados que el código
+ensambla (qué es el activo para la organización, en qué consiste el riesgo y qué pasaría, por qué
+es más o menos probable, y «Qué perdería la organización»; con un solo campo largo el modelo
+metía todo en el impacto, se repetía y chocaba con el tope a media frase); recibe los detalles
+técnicos para traducirlos, la lectura clara de la inteligencia y la lista de palabras prohibidas,
+y el esquema **rechaza** CVE, siglas CVSS/EPSS, nombres de software y versiones del riesgo
+(`narrative_validator`), con el mensaje de qué quitar; el esquema también rechaza siglas de oficio
+(PII, RCE, DoS, JNDI, SBOM) y porcentajes (el modelo copiaba «12 %» donde los datos decían
+1.2 %: para la dirección basta alta, moderada o baja), y `polish_paragraph` quita por código una
+frase cortada al final y las repetidas. En `details`, el párrafo «Sustento:» lo escribe siempre el
+código (`replace_support`: lectura KEV/EPSS de esas vulnerabilidades y observaciones por
+herramienta), porque el modelo copiaba ahí los datos de KEV y EPSS de otro riesgo del mismo
+activo; y `humanize_sources` traduce los códigos de fuente del payload («CTI_MATCH», «GRYPE»)
+a palabras en detalles, lectura de inteligencia y razonamiento. Al redactor no se le da lo que
+luego se le prohíbe escribir: `lay_text` quita siglas y porcentajes de la lectura de inteligencia
+y los detalles viajan sin el «Sustento:». Si en tres intentos no lo logra, va la descripción por
+regla y queda anotado en el razonamiento. Los riesgos por regla se agrupan por software (dos
+fallas de spring-web son un riesgo, no dos filas con el mismo título). Ningún texto tiene límite editorial: los topes del esquema
+(4000/6000 caracteres) solo frenan una salida desbocada. La **Inteligencia de amenazas** se
+presenta primero en claro («1 de las 2 vulnerabilidades figura en el catálogo de explotación
+activa de CISA: hay constancia de que atacantes reales ya la han usado…», `intelligence()["plain"]`)
+y debajo el detalle técnico con KEV, plazo, EPSS y fuentes. Los textos **por regla** siguen la
+misma división y ya no se disculpan en la descripción («la IA no evaluó…»): esa nota va solo al
+pie. Dos anclas más sobre la valoración del modelo: sin KEV ni EPSS alto la probabilidad no pasa
+de 4 («casi seguro» se reserva a lo que ya se explota) y un título cuya causa es solo un CVE se
+repone con el título de esa vulnerabilidad. Las vulnerabilidades que Grype saca del SBOM ahora se
+ligan a su componente (`consolidation.component_from_findings`, por `purl` o nombre y versión),
+y donde no hay componente el software se toma del título (`risks.software_key`), para que la
+agrupación por software funcione en el payload, en la adopción y en los detalles por regla.
+El LLM local (`apps/llm/prompts/risk_assessment/v4.md`, tarea
+`RISK_ASSESSMENT`) propone entre 1 y 5
 escenarios agrupando vulnerabilidades que llevan a la misma consecuencia; las referencias
 inválidas se descartan, dos escenarios con el mismo título se funden y el título se **garantiza
 en código**, no con reintentos (`risks.fix_title`): si no nombra al activo real se repone el
 nombre; si no trae consecuencia ni « por » («Inyección de código en lodash en agente-portal») se
 reconstruye con la etiqueta de la consecuencia que el modelo sí entrega en su campo; si la causa
 es genérica («por múltiples vulnerabilidades») se sustituye por la vulnerabilidad principal del
-riesgo «y N vulnerabilidades más». Lo no cubierto se valora por regla (explotabilidad, KEV y
+riesgo «y N vulnerabilidades más». Una vulnerabilidad que el modelo no referenció pero vive en el mismo software que una
+sí referenciada se liga a ese riesgo (`_adopt_by_component`: mismo software, mismo escenario) y
+queda anotado en el razonamiento. Lo no cubierto se valora por regla (explotabilidad, KEV y
 exposición → probabilidad; criticidad, datos e impacto de negocio → impacto; consecuencia por
 datos y función del activo; textos deterministas en español), y el riesgo agregado de la regla
 también nombra a su vulnerabilidad principal en vez de «N vulnerabilidades acumuladas».
@@ -483,6 +526,15 @@ vencidos de cada quien, con enlace a «sus riesgos»); el nombre del responsable
 el detalle lleva a esa vista. «Hoy» del registro y de Inicio añaden «N riesgos con fecha
 compromiso o revisión vencida → Dar seguimiento», y el evento de Avisos correspondiente lo notifica.
 
+**Presupuesto del prompt de riesgos.** Con `LLM_NUM_CTX=4096` el prompt de un activo con decenas
+de vulnerabilidades llegaba al tope del contexto (4096 fichas de prompt en los registros): el
+modelo no veía la lista completa, cubría una o dos y el resto caía a la regla. Ahora
+`build_payload` manda una a una las `RISK_PAYLOAD_DETAIL` (10) que más pesan (KEV primero, luego
+puntaje contextual) con resumen corto, tres acciones y dos factores, y el resto agrupado por
+software en `more_vulnerabilities` (ids, cuántas, cuántas en KEV, CVSS/EPSS máximos, dos ejemplos,
+fuentes) para que el modelo las referencie por grupo; el contexto sube a `LLM_NUM_CTX=12288` (con 8192 el prompt de 6700 fichas más una salida de
+1800 seguía desbordando), que cabe en 8 GiB con un hilo.
+
 **Ollama con GPU de 8 GiB** (`docker-compose.gpu.yml`): `OLLAMA_NUM_PARALLEL=1` y
 `OLLAMA_FLASH_ATTENTION=1`. Con los 4 hilos por defecto la caché KV del modelo de 7B (contexto
 4096 × 4) desbordaba la VRAM a RAM compartida (WDDM/WSL2) y Ollama seguía reportando «100% GPU»:
@@ -494,7 +546,9 @@ registros de Ollama frente a `memory.available`.
 
 `python manage.py lab_import --user <admin>` da de alta el laboratorio «Aseguradora Norte» (20 hosts
 en `datasets/lab-inventario-hosts.csv`, tres rangos autorizados, SBOM de `datasets/lab-sboms/`) y pide
-el escaneo de servicios de cada equipo; el hilo del activo hace el resto. `python manage.py
+el escaneo de servicios de cada equipo; el hilo del activo hace el resto. `--only api-pagos,crm-legacy`
+da de alta solo esos hosts (para probar el flujo completo con un activo representativo antes de
+cargar los veinte) y `--reset` borra el laboratorio anterior. `python manage.py
 evaluate_lab` compara lo consolidado con `datasets/lab-expected-results.csv` y guarda las métricas en
 `experiments/`. Ver `03-plan-pruebas-consolidacion.md`, fase 6.
 
