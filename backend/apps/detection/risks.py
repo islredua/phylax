@@ -1180,10 +1180,19 @@ def humanize_sources(details):
     return _RAW_SOURCE_RE.sub(lambda m: _RAW_SOURCES[m.group(1)], details or "")
 
 
+_EMPTY_LABEL = re.compile(r"^[^\n:]{3,40}:[ \t]*$", re.M)
+
+
+def strip_empty_labels(text):
+    """Quita las etiquetas que el modelo dejó sin contenido («Condiciones:» a secas)."""
+    text = _EMPTY_LABEL.sub("", text or "")
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
 def strip_recommendations(details):
     """Las recomendaciones tienen su campo: si el modelo las repitió al final de los detalles
     (a veces hasta en inglés), se quitan de ahí."""
-    return _TRAILING_RECOMMENDATIONS.sub("", details or "").rstrip()
+    return strip_empty_labels(_TRAILING_RECOMMENDATIONS.sub("", details or "").rstrip())
 
 
 def _forbidden_words(vulns):

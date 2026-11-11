@@ -459,6 +459,7 @@ def human_value(value):
 # --- Textos de riesgo con las vulnerabilidades enlazadas ---------------------------------------
 
 _PARAGRAPH_BREAK = re.compile(r"\n\s*\n")
+_EMPTY_LABEL = re.compile(r"^[^\n:]{3,40}:[ \t]*$")
 
 
 @register.simple_tag
@@ -476,6 +477,10 @@ def risk_text(text, risk, css="text-ink-soft"):
     lookup = {k.lower(): pk for k, pk in keys.items()}
     paragraphs = []
     for para in _PARAGRAPH_BREAK.split(str(text).strip()):
+        # Una etiqueta sin contenido («Condiciones:») no es un párrafo; también dentro de uno.
+        para = "\n".join(line for line in para.splitlines() if not _EMPTY_LABEL.match(line))
+        if not para.strip():
+            continue
         safe = escape(para.strip())
         if pattern is not None:
             safe = pattern.sub(

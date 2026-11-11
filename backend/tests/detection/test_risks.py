@@ -909,12 +909,13 @@ def test_risk_text_links_cited_vulnerabilities_in_a_new_tab(client, as_role):
     consolidation.consolidate_asset(asset.pk)
     risk = Risk.objects.filter(asset=asset).first()
     vuln = risk.vulnerabilities.first()
-    risk.details = f"Primer párrafo cita {vuln.key} y <b>no</b> es HTML.\n\nSegundo párrafo."
+    risk.details = f"Primer párrafo cita {vuln.key} y <b>no</b> es HTML.\nCondiciones: \n\nSegundo párrafo.\n\nSustento:"
     risk.save(update_fields=["details"])
     body = client.get(f"/detection/risks/{risk.pk}/").content.decode()
     link = f'<a href="/detection/vulnerabilities/{vuln.pk}/" target="_blank" rel="noopener"'
     assert link in body and "&lt;b&gt;no&lt;/b&gt;" in body
     assert body.count("Segundo párrafo.") == 1
+    assert "Condiciones:" not in body and "Sustento:" not in body
     report = client.get(f"/detection/risks/{risk.pk}/report/").content.decode()
     assert "<h2>Detalles</h2>" in report and link in report
     md = client.get(f"/detection/risks/{risk.pk}/report/?format=md").content.decode()
@@ -978,6 +979,13 @@ def test_details_drop_repeated_recommendations_and_rule_titles_lowercase_the_cau
         == "Software afectado: log4j-core 2.14.1\nFallas: CVE-2021-44228"
     )
     assert risks.strip_recommendations("Sin cola.") == "Sin cola."
+    assert (
+        risks.strip_recommendations("Cadena de ataque: X.\nCondiciones: \n")
+        == "Cadena de ataque: X."
+    )
+    assert risks.strip_empty_labels("Software afectado: nginx\nFallas:\nCondiciones:") == (
+        "Software afectado: nginx"
+    )
     assert risks.humanize_sources("Sustento: está en CTI_MATCH y GRYPE.") == (
         "Sustento: está en el cruce de versiones con NVD y Grype (análisis del SBOM)."
     )
