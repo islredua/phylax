@@ -484,15 +484,18 @@
     @apply flex flex-wrap items-center justify-between gap-2 rounded border border-primary/30 bg-primary-soft/60 px-3 py-2 text-sm;
   }
 
-  /* --- Gráfica maestra de Inicio --- */
+  /* --- Gráfica maestra de Inicio: estado + recorrido «del ruido a la decisión» --- */
   .hero {
-    @apply grid grid-cols-1 gap-x-8 gap-y-5 rounded border border-line bg-surface p-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)];
+    @apply flex flex-col gap-5 rounded border border-line bg-surface p-5;
+  }
+  .hero-top {
+    @apply grid grid-cols-1 gap-x-8 gap-y-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:items-end;
   }
   .hero-status {
     @apply flex flex-col gap-3;
   }
-  .hero-funnel {
-    @apply flex flex-col gap-3 lg:border-l lg:border-line-soft lg:pl-8;
+  .hero-levels {
+    @apply flex flex-col gap-2;
   }
   .hero-headline {
     @apply text-lg leading-snug font-semibold text-ink;
@@ -524,47 +527,321 @@
     display: none;
   }
   .segbar-legend {
-    @apply mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted;
+    @apply flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted;
   }
-  /* Embudo: etiqueta, barra (un solo tono; la última etapa en el color de «crítico») y cifra. */
-  .funnel {
+
+  /* Recorrido: siete estaciones (lo que entra, quién actúa, qué queda) y el motor de IA local.
+     No llevan barras comparables entre sí: cada una cuenta algo distinto. */
+  .hero-flow {
+    @apply flex flex-col gap-3 border-t border-line-soft pt-4;
+  }
+  .flow-head {
+    @apply flex flex-wrap items-start justify-between gap-3;
+  }
+  .flow-wrap {
+    @apply flex flex-col gap-2;
+  }
+  .flow {
+    @apply grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7;
+  }
+  .flow-step {
+    @apply relative;
+    animation: flow-in 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+  .flow-step:nth-child(2) {
+    animation-delay: 0.07s;
+  }
+  .flow-step:nth-child(3) {
+    animation-delay: 0.14s;
+  }
+  .flow-step:nth-child(4) {
+    animation-delay: 0.21s;
+  }
+  .flow-step:nth-child(5) {
+    animation-delay: 0.28s;
+  }
+  .flow-step:nth-child(6) {
+    animation-delay: 0.35s;
+  }
+  .flow-step:nth-child(7) {
+    animation-delay: 0.42s;
+  }
+  .is-static .flow-step {
+    animation: none;
+  }
+  /* La flecha entre estaciones solo cuando van en una fila. */
+  .flow-step:not(:last-child)::after {
+    @apply absolute top-1/2 -right-2 z-10 hidden h-3 w-2 -translate-y-1/2 text-line-strong xl:block;
+    content: "";
+    background: currentColor;
+    clip-path: polygon(0 0, 100% 50%, 0 100%);
+  }
+  .flow-card {
+    @apply flex h-full flex-col gap-0.5 rounded border border-line bg-canvas/60 px-3 py-2.5 text-ink
+      transition-colors hover:border-primary/50 hover:bg-primary-soft/50 hover:no-underline
+      focus-visible:ring-2 focus-visible:ring-primary/40 focus:outline-none;
+  }
+  .flow-step.is-open .flow-card {
+    @apply border-primary bg-primary-soft;
+  }
+  .flow-actor {
+    @apply mb-1 inline-flex items-center gap-1.5 self-start font-mono text-[10px] font-medium tracking-wide text-muted uppercase;
+  }
+  .flow-actor-ai {
+    @apply text-primary;
+  }
+  .flow-busy {
+    @apply hidden h-1.5 w-1.5 rounded-full bg-low;
+  }
+  .is-busy .flow-busy {
+    @apply inline-block;
+    animation: hero-pulse 1.2s ease-in-out infinite;
+  }
+  .flow-value {
+    @apply font-mono text-[26px] leading-none font-semibold tracking-tight text-ink;
+  }
+  .flow-label {
+    @apply mt-1 text-[13px] leading-tight font-medium text-ink;
+  }
+  .flow-sub {
+    @apply text-[11px] leading-snug text-ink-soft;
+  }
+  .flow-scope {
+    @apply mt-auto pt-1 text-[10px] text-muted;
+  }
+  /* El motor: una franja bajo las estaciones, porque la IA trabaja en varias de ellas. */
+  .flow-engine {
+    @apply flex flex-wrap items-center gap-x-4 gap-y-1 rounded border border-primary/30 bg-primary-soft/40 px-3 py-2
+      text-xs text-ink-soft transition-colors hover:border-primary hover:bg-primary-soft hover:no-underline
+      focus-visible:ring-2 focus-visible:ring-primary/40 focus:outline-none;
+  }
+  .flow-engine.is-open {
+    @apply border-primary bg-primary-soft;
+  }
+  .flow-engine.is-down {
+    @apply border-critical/40 bg-critical-soft/50;
+  }
+  .flow-engine-name {
+    @apply inline-flex flex-wrap items-center gap-1.5 text-[13px] font-semibold text-primary;
+  }
+  .flow-engine.is-down .flow-engine-name {
+    @apply text-critical;
+  }
+  .flow-engine-dot {
+    @apply inline-block h-2 w-2 rounded-full bg-low;
+  }
+  .flow-engine.is-busy .flow-engine-dot {
+    animation: hero-pulse 1.2s ease-in-out infinite;
+  }
+  .flow-engine.is-down .flow-engine-dot {
+    @apply bg-critical;
+  }
+  .flow-engine-stats {
+    @apply grow;
+  }
+  .flow-engine-more {
+    @apply font-medium text-primary;
+  }
+  .flow-engine-more::after {
+    content: " ▾";
+  }
+  .flow-engine.is-open .flow-engine-more::after {
+    content: " ▴";
+  }
+  .flow-now {
+    @apply text-xs text-muted;
+  }
+  .flow-now-label {
+    @apply mr-1 font-mono text-[10px] font-medium tracking-wider text-primary uppercase;
+  }
+  .flow-now.is-working [data-hero-now="text"] {
+    @apply font-medium text-ink;
+  }
+
+  /* Panel de la etapa abierta (detalle a demanda dentro de Inicio). */
+  .stage {
+    @apply flex flex-col gap-3 border-t border-line-soft pt-4;
+    animation: stage-in 0.35s ease-out both;
+  }
+  .stage-empty {
+    display: none;
+  }
+  .stage-head {
+    @apply flex flex-wrap items-center justify-between gap-2;
+  }
+  .stage-title {
+    @apply text-[15px] font-semibold text-ink;
+  }
+  .stage-lead {
+    @apply max-w-4xl text-sm text-ink-soft;
+  }
+  .stage-grid {
+    @apply grid grid-cols-1 gap-x-8 gap-y-4 lg:grid-cols-2;
+  }
+  .stage-sub {
+    @apply mb-2 text-[13px] font-semibold text-ink;
+  }
+  .stage-note {
+    @apply rounded bg-canvas px-3 py-2.5 text-sm text-ink-soft;
+  }
+  .stage-list {
+    @apply mt-3 flex flex-col gap-1.5 text-sm text-ink-soft;
+  }
+  .stage-links {
+    @apply flex flex-wrap gap-x-5 gap-y-1 border-t border-line-soft pt-3 text-sm;
+  }
+  .tiles {
+    @apply grid grid-cols-1 gap-2 sm:grid-cols-3;
+  }
+  .tiles-1 {
+    @apply sm:grid-cols-1;
+  }
+  .tiles-4 {
+    @apply sm:grid-cols-2 xl:grid-cols-4;
+  }
+  .tile {
+    @apply rounded border border-line bg-surface px-3 py-2.5;
+  }
+  .tile-accent {
+    @apply border-primary/40 bg-primary-soft/50;
+  }
+  .tile-value {
+    @apply font-mono text-[22px] leading-tight font-semibold text-ink;
+  }
+  .tile-value-text {
+    @apply text-[13px] leading-snug break-all;
+  }
+  .tile-of {
+    @apply text-sm font-normal text-muted;
+  }
+  .tile-label {
+    @apply mt-0.5 text-xs leading-snug text-ink-soft;
+  }
+  /* Barras horizontales: etiqueta, barra de un solo tono y cifra exacta. */
+  .bars {
     @apply flex flex-col gap-1.5;
   }
-  .funnel-row {
-    @apply grid grid-cols-[minmax(0,11rem)_minmax(0,1fr)_4.5rem] items-center gap-3 rounded px-1 py-1 text-sm text-ink hover:bg-canvas hover:no-underline;
+  .bar-row {
+    @apply grid grid-cols-[minmax(0,9rem)_minmax(0,1fr)_auto] items-center gap-3 text-sm;
   }
-  .funnel-label {
+  .bar-row-wide {
+    @apply grid-cols-[minmax(0,1fr)_auto] gap-y-1 sm:grid-cols-[minmax(0,15rem)_minmax(0,1fr)_auto];
+  }
+  .bar-row-wide .bar-track {
+    @apply order-3 col-span-2 sm:order-none sm:col-span-1;
+  }
+  /* En pantallas angostas la barra baja a su propia línea: nombre y cifra arriba, barra debajo. */
+  .bar-row-tool {
+    @apply grid-cols-[minmax(0,1fr)_auto] items-start gap-y-1 sm:grid-cols-[minmax(0,13rem)_minmax(0,1fr)_minmax(5rem,auto)];
+  }
+  .bar-row-tool .bar-track {
+    @apply order-3 col-span-2 sm:order-none sm:col-span-1 sm:mt-1;
+  }
+  .bar-row-pair {
+    @apply grid-cols-[minmax(0,5rem)_minmax(0,1fr)_3rem] text-xs;
+  }
+  .bar-label {
     @apply text-ink-soft;
   }
-  .funnel-track {
-    @apply block h-7 rounded bg-line-soft;
+  .bar-hint {
+    @apply block text-[11px] leading-snug font-normal text-muted;
   }
-  .funnel-bar {
-    @apply block h-7 rounded bg-primary transition-[width] duration-700 ease-out;
+  .bar-track {
+    @apply flex h-4 gap-0.5 overflow-hidden rounded bg-line-soft;
+  }
+  .bar-fill {
+    @apply block h-full min-w-0.5 rounded bg-primary;
     transform-origin: left center;
-    animation: funnel-grow 0.9s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+    animation: bar-grow 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both;
   }
-  .funnel li:nth-child(2) .funnel-bar {
-    @apply bg-primary/85;
-    animation-delay: 0.12s;
-  }
-  .funnel li:nth-child(3) .funnel-bar {
-    @apply bg-primary/70;
-    animation-delay: 0.24s;
-  }
-  .funnel li:nth-child(4) .funnel-bar {
-    @apply bg-primary/55;
-    animation-delay: 0.36s;
-  }
-  .funnel-critical .funnel-bar {
+  .bar-fill-bad {
     @apply bg-critical;
-    animation-delay: 0.48s;
   }
-  .funnel-value {
-    @apply text-right font-mono text-lg font-semibold;
+  .bar-fill-muted {
+    @apply bg-line-strong;
   }
-  .funnel-critical .funnel-value {
-    @apply text-critical;
+  .bar-fill-warn {
+    @apply bg-medium;
+  }
+  .bar-value {
+    @apply text-right font-mono font-semibold text-ink;
+  }
+  .bar-bad {
+    @apply font-sans text-xs font-normal text-critical;
+  }
+  .pair {
+    @apply grid grid-cols-[minmax(0,4.5rem)_minmax(0,1fr)] items-center gap-3 py-1 text-sm;
+  }
+  .pair-label {
+    @apply font-medium text-ink;
+  }
+  .pair-bars {
+    @apply flex flex-col gap-1;
+  }
+  /* Cruce de fuentes: una fila por combinación exacta, con un punto por fuente que la vio. */
+  .combo {
+    @apply w-full border-collapse text-sm;
+  }
+  .combo th {
+    @apply border-b border-line px-2 py-1.5 text-left text-[11px] font-medium text-muted;
+  }
+  .combo td {
+    @apply border-b border-line-soft px-2 py-1.5;
+  }
+  .combo .combo-src {
+    @apply w-28 text-center;
+  }
+  .combo .combo-n {
+    @apply w-40 text-right font-mono font-semibold whitespace-nowrap text-ink;
+  }
+  .combo-bar {
+    @apply min-w-32;
+  }
+  .combo-dot {
+    @apply inline-block h-3 w-3 rounded-full border border-line-strong bg-surface align-middle;
+  }
+  .combo-dot.is-on {
+    @apply border-primary bg-primary;
+  }
+  .combo-multi td {
+    @apply bg-primary-soft/40;
+  }
+  .decisions {
+    @apply flex flex-col gap-2;
+  }
+  .decision {
+    @apply rounded border border-line border-l-4 border-l-primary bg-surface px-3 py-2;
+  }
+  .decision-head {
+    @apply flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-soft;
+  }
+  .decision-why {
+    @apply mt-1 text-sm text-ink;
+  }
+  .decision-meta {
+    @apply mt-1 text-xs text-muted;
+  }
+  /* En pantallas angostas la barra se encoge y el desglose baja de línea: el porcentaje, que es
+     el dato, nunca queda fuera de la vista. */
+  .ai-meter {
+    @apply grid grid-cols-[3rem_2.75rem] items-center gap-x-2 text-xs sm:grid-cols-[minmax(4rem,10rem)_3rem_auto];
+  }
+  .ai-meter > :nth-child(3) {
+    @apply col-span-2 sm:col-span-1;
+  }
+  /* Enlace que sale de Inicio: abre otra pestaña y lo dice con una flecha. */
+  a.out::after {
+    content: "\00a0↗";
+    @apply text-[0.85em] text-muted;
+  }
+  /* Modo presentación: la gráfica maestra a pantalla completa, recorriendo las etapas. */
+  .hero:fullscreen {
+    @apply overflow-auto rounded-none border-0 px-[4vw] py-[3vh];
+    zoom: 1.25;
+  }
+  .hero:fullscreen .flow-step.is-open .flow-card,
+  .hero:fullscreen .flow-engine.is-open {
+    @apply ring-2 ring-primary/40;
   }
   details.fold > summary {
     @apply cursor-pointer list-none text-xs text-primary select-none;
@@ -615,12 +892,32 @@
   }
 }
 
-@keyframes funnel-grow {
+@keyframes bar-grow {
   from {
     transform: scaleX(0);
   }
   to {
     transform: scaleX(1);
+  }
+}
+@keyframes flow-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes stage-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 @keyframes hero-pulse {
@@ -633,12 +930,17 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .funnel-bar,
-  .hero-live-dot {
+  .bar-fill,
+  .flow-step,
+  .stage,
+  .hero-live-dot,
+  .is-busy .flow-busy,
+  .flow-engine.is-busy .flow-engine-dot {
     animation: none;
   }
-  .funnel-bar,
-  .segbar-part {
+  .segbar-part,
+  .flow-card,
+  .flow-engine {
     transition: none;
   }
 }

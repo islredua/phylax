@@ -1,0 +1,22 @@
+{% load inventory l10n %}
+<p class="stage-lead">Lo que el planificador decide comprobar se ejecuta con perfiles fijos: nadie pasa parámetros a mano y cada ejecución guarda su comando y su salida. Los escaneos confirman o descartan lo que la inteligencia sugirió.</p>
+<div class="stage-grid">
+  <div>
+    <p class="stage-sub">Ejecuciones en {{ window_days }} días</p>
+    <ul class="bars">
+      {% for tool in flow.scans.tools %}
+      <li class="bar-row bar-row-tool">
+        <span class="bar-label"><span class="font-mono text-ink">{{ tool.label }}</span><span class="bar-hint">{{ tool.what }}</span></span>
+        <span class="bar-track"><span class="bar-fill" style="width:{{ tool.ok_width|unlocalize }}%"></span>{% if tool.failed %}<span class="bar-fill bar-fill-bad" style="width:{{ tool.failed_width|unlocalize }}%"></span>{% endif %}</span>
+        <span class="bar-value">{{ tool.total|miles }}{% if tool.failed %}<span class="bar-bad"> · {{ tool.failed|pl:"fallido,fallidos" }}</span>{% endif %}{% if tool.avg_seconds is not None %}<span class="bar-hint">{{ tool.avg_seconds }} s de media</span>{% endif %}</span>
+      </li>
+      {% endfor %}
+    </ul>
+    <p class="legend mt-2"><span><span class="legend-dot bg-primary"></span> Completados</span><span><span class="legend-dot bg-critical"></span> Fallidos</span></p>
+  </div>
+  <div class="tiles tiles-1">
+    <div class="tile tile-accent"><p class="tile-value">{{ flow.scans.assets_covered|miles }} <span class="tile-of">de {{ flow.scans.assets_total|miles }}</span></p><p class="tile-label">activos escaneados en {{ window_days }} días</p></div>
+    <div class="tile"><p class="tile-value {% if flow.scans.failed %}text-critical{% endif %}">{{ flow.scans.failed|miles }}</p><p class="tile-label">{{ flow.scans.failed|pl:"-escaneo fallido,escaneos fallidos" }} de {{ flow.scans.total|miles }}</p></div>
+    <div class="tile"><p class="tile-value">{{ flow.scans.running|miles }}</p><p class="tile-label">en curso o en cola ahora mismo</p></div>
+  </div>
+</div>

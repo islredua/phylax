@@ -22,19 +22,17 @@ from apps.assets.models import Asset
 from apps.cti.models import CtiSource
 from apps.detection.descriptions import SUSTAINED
 from apps.detection.models import (
-    Finding,
     PlannedAction,
-    PlannerDecision,
     Risk,
     RiskLevel,
     Vulnerability,
     VulnerabilityStatus,
 )
 from apps.llm import status as llm_status
-from apps.llm.models import InferenceLog
 from apps.scanners.models import ToolExecution
 from apps.scoring.services import severity_for
 
+from . import pipeline
 from .models import HealthSnapshot, HealthStatus, PresentationSettings
 
 CACHE_KEY = "home:indicators:v1"
@@ -184,19 +182,6 @@ def compute(now=None) -> dict:
         "running": ToolExecution.objects.filter(status__in=("QUEUED", "RUNNING")).count(),
     }
 
-    findings = Finding.objects.filter(asset__merged_into__isnull=True)
-    source_counts = Counter()
-    for sources in findings.values_list("sources", flat=True):
-        for s in sources or ["MANUAL"]:
-            source_counts[s] += 1
-    observations_block = {
-        "total": findings.count(),
-        "by_source": dict(source_counts),
-        "multi_source": sum(
-            1 for s in findings.values_list("sources", flat=True) if len(s or []) > 1
-        ),
-    }
-
     sources = {s.kind: s for s in CtiSource.objects.all()}
     cti_block = {
         "sources_total": len(sources),
@@ -228,32 +213,44 @@ def compute(now=None) -> dict:
     except Exception:  # pragma: no cover - la pantalla no debe caer por la CTI
         pass
 
-    logs = InferenceLog.objects.filter(created_at__gte=since)
-    by_task = {}
-    for task in logs.values_list("task", flat=True).distinct():
-        t = logs.filter(task=task)
-        by_task[task] = {"calls": t.count(), "ok": t.filter(parsed_ok=True).count()}
-    seconds = sum((ms or 0) for ms in logs.values_list("total_duration_ms", flat=True)) / 1000
-    llm_block = {
-        "status": llm_status.get_status(),
-        "model": llm_status.active_model(),
-        "calls_window": logs.count(),
-        "ok_window": logs.filter(parsed_ok=True).count(),
-        "hours_window": round(seconds / 3600, 1),
-        "by_task": by_task,
+    data = {
+        "computed_at": now.isoformat(),
+        "window_days": days,
+        "assets": assets_block,
+        "vulnerabilities": vulns_block,
+        "risks": risks_block,
+        "actions": actions_block,
+        "tools": tools_block,
+        "cti": cti_block,
+        "llm": {"status": llm_status.get_status(), "model": llm_status.active_model()},
     }
-
-    decisions = PlannerDecision.objects.filter(created_at__gte=since)
-    automation_block = {
-        "decisions_window": decisions.count(),
+    # El recorrido «del ruido a la decisión» (señales → cruce → decisiones → escaneos →
+    # observaciones → vulnerabilidades → riesgos) con el mismo periodo para todo lo que es flujo.
+    flow = pipeline.compute(since=since, data=data)
+    data["pipeline"] = flow
+    data["observations"] = {
+        "total": flow["observations"]["total"],
+        "by_source": flow["observations"]["by_source"],
+        "multi_source": flow["observations"]["multi_source"],
+    }
+    data["llm"].update(
+        calls_window=flow["ai"]["calls"],
+        ok_window=flow["ai"]["ok"],
+        hours_window=flow["ai"]["hours"],
+        by_task={t["key"]: {"calls": t["calls"], "ok": t["ok"]} for t in flow["ai"]["tasks"]},
+    )
+    data["automation"] = {
+        "decisions_window": flow["decisions"]["total"],
         "actions_done_window": actions_block["done_window"],
         "auto_approved_window": actions_block["auto_approved_window"],
-        "scans_window": tools_block["succeeded"],
+        # Una sola definición de «escaneos» en toda la pantalla: la del recorrido (nmap, nuclei
+        # y Grype, completados o fallidos).
+        "scans_window": flow["scans"]["total"],
         "vulns_consolidated_window": vulns.filter(assessed_at__gte=since).count(),
         "vulns_described_window": vulns.filter(described_at__gte=since).count(),
         "risks_assessed_window": Risk.objects.filter(assessed_at__gte=since).count(),
         "cti_syncs_window": _cti_syncs(since),
-        "llm_hours_window": llm_block["hours_window"],
+        "llm_hours_window": flow["ai"]["hours"],
     }
 
     deltas_hours = [
@@ -263,23 +260,8 @@ def compute(now=None) -> dict:
         )
         if a and d and a >= d
     ]
-    timing_block = {
+    data["timing"] = {
         "detect_to_assess_hours": round(mean(deltas_hours), 1) if deltas_hours else None
-    }
-
-    data = {
-        "computed_at": now.isoformat(),
-        "window_days": days,
-        "assets": assets_block,
-        "vulnerabilities": vulns_block,
-        "risks": risks_block,
-        "actions": actions_block,
-        "tools": tools_block,
-        "observations": observations_block,
-        "cti": cti_block,
-        "llm": llm_block,
-        "automation": automation_block,
-        "timing": timing_block,
     }
     data["no_data"] = assets_block["total"] == 0
     data["health"] = health_status(data)

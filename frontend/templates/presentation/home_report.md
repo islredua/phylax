@@ -1,27 +1,26 @@
 {% autoescape off %}# Estado de la organización · {{ profile.name|default:"Organización" }} · {{ generated_at|fecha_larga }}
 
-**Estado:** {{ narrative.get_status_display }} · **Ventana:** {{ data.window_days }} días · Generado por Atalaya el {{ generated_at|fecha }} para {{ generated_by.get_full_name|default:generated_by.get_username }}
+**Estado:** {{ health_label }} · **Ventana:** {{ data.window_days }} días · Generado por Atalaya el {{ generated_at|fecha }} para {{ generated_by.get_full_name|default:generated_by.get_username }}
 
 ## Qué hay que decidir
 {% for item in today %}
-- **{{ item.count|miles }}** {{ item.text }} — {{ item.action|lower }}{% empty %}
+- **{{ item.count|miles }}** {{ item.text }} — {{ item.action|default:item.view|lower }}{% empty %}
 Nada espera una decisión humana: sin riesgos críticos, plazos vencidos ni aprobaciones pendientes.{% endfor %}
 
 ## Resumen
 
-**{{ narrative.headline|plain }}**
+**{{ headline|default:narrative.headline|plain }}**
 
 {{ narrative.summary|plain }}
 
 - **Qué cambió:** {{ narrative.changes|default:"—"|plain }}
 - **Qué urge:** {{ narrative.urgent|default:"—"|plain }}
-- **Qué hizo el sistema:** {{ narrative.achievements|default:"—"|plain }}
 {% if narrative.next_steps %}
 Siguientes pasos:
 {% for s in narrative.next_steps %}
 {{ forloop.counter }}. {{ s|plain }}{% endfor %}
 {% endif %}
-*{% if narrative.by_rule %}Resumen por regla (sin IA){% else %}Resumen por IA ({{ narrative.model }}){% endif %}, {{ narrative.created_at|fecha }}.*
+*{% if narrative.by_rule %}Resumen por regla (sin IA){% else %}Resumen por IA ({{ narrative.model }}){% endif %}, {{ narrative.created_at|fecha }}.*{% if narrative_changes %} Desde entonces cambió: {% for c in narrative_changes %}{{ c.label }} {{ c.before }} → {{ c.now }}{% if not forloop.last %}; {% endif %}{% endfor %}; el titular y los indicadores llevan las cifras de ahora.{% endif %}
 
 ## Indicadores
 
@@ -42,11 +41,18 @@ Frente al {{ deltas.since|fecha_corta }}: riesgos abiertos {{ deltas.risks_open|
 |---|---|---|---|---|---|
 {% for r in top_risks %}| {{ r.title }} | {{ r.asset.name }} | {{ r.likelihood }} × {{ r.impact }} | {{ r.get_level_display }} | {{ r.intelligence_summary|default:"—"|plain }} | {% if r.treatment %}{{ r.get_treatment_display }}{% else %}sin decidir{% endif %} |
 {% endfor %}
-## Lo que el sistema hizo por sí solo ({{ data.window_days }} días)
+## Del ruido a la decisión: lo que el sistema hizo por sí solo
 
-- {{ data.automation.decisions_window }} decisiones del planificador ({{ data.automation.auto_approved_window }} aprobadas automáticamente) y {{ data.automation.scans_window }} escaneos ejecutados.
-- {{ data.automation.vulns_consolidated_window }} vulnerabilidades consolidadas, {{ data.automation.vulns_described_window }} descripciones redactadas y {{ data.automation.risks_assessed_window }} riesgos valorados conforme a ISO/IEC 27005.
-- {{ data.automation.cti_syncs_window }} sincronizaciones de inteligencia; {{ data.llm.hours_window }} horas de modelo local con {{ data.llm.ok_window }} de {{ data.llm.calls_window }} respuestas válidas.
+Las cuatro primeras etapas cuentan los últimos {{ data.window_days }} días; las tres últimas, lo vigente hoy.
+
+| Etapa | Cifra | Quién actúa | Detalle | Periodo |
+|---|---:|---|---|---|
+{% for st in hero.flow %}| {{ st.label }} | {{ st.value }} | {{ st.actor }} | {{ st.sub }} | {{ st.scope }} |
+{% endfor %}
+- De {{ data.pipeline.signals.total }} señales, {{ data.pipeline.match.filtered }} ({{ data.pipeline.match.filtered_pct|floatformat:1 }} %) se descartaron por regla al no tocar el inventario; {{ data.pipeline.match.reconciled }} se resolvieron sin escanear.
+- {{ data.pipeline.observations.intel_only_pct|floatformat:0 }} % de las observaciones se encontró cruzando inteligencia con inventario, sin tocar el activo; {{ data.pipeline.observations.multi_source }} las confirmaron dos fuentes a la vez.
+- IA local ({{ data.pipeline.ai.model }}{% if data.pipeline.ai.local %}, en este equipo{% endif %}): {{ data.pipeline.ai.calls }} inferencias, {{ data.pipeline.ai.ok_pct|floatformat:0 }} % aceptadas por el validador, {{ data.pipeline.ai.hours }} h de cómputo.
+- {{ data.automation.vulns_consolidated_window }} vulnerabilidades valoradas, {{ data.automation.vulns_described_window }} descripciones redactadas y {{ data.automation.risks_assessed_window }} riesgos valorados conforme a ISO/IEC 27005; {{ data.automation.cti_syncs_window }} sincronizaciones de inteligencia.
 
 ## Avisos vigentes
 {% for a in alerts %}

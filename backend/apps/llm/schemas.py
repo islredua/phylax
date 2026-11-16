@@ -481,6 +481,17 @@ EXEC_NARRATIVE_SCHEMA = {
 }
 
 
+# Lo que se le pide al modelo desde el prompt v2: «qué hizo el sistema» lo arma el código con las
+# cifras del recorrido, así que el modelo no lo escribe (ni recibe esos números).
+EXEC_NARRATIVE_MODEL_SCHEMA = {
+    **EXEC_NARRATIVE_SCHEMA,
+    "properties": {
+        k: v for k, v in EXEC_NARRATIVE_SCHEMA["properties"].items() if k != "achievements"
+    },
+    "required": [k for k in EXEC_NARRATIVE_SCHEMA["required"] if k != "achievements"],
+}
+
+
 class ExecNarrativeOutput(BaseModel):
     model_config = ConfigDict(extra="ignore")
 

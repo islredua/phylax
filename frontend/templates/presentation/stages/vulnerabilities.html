@@ -1,0 +1,32 @@
+{% load inventory l10n %}
+<p class="stage-lead">El modelo local revisa las observaciones de cada activo y decide cuáles se sostienen como vulnerabilidades de verdad: versión, exposición y evidencias. Después las prioriza con explotación real y la criticidad del activo, no solo con la severidad teórica.</p>
+<div class="stage-grid">
+  <div>
+    <p class="stage-sub">Qué tan firme es cada una <span class="font-normal text-muted">(estado puesto por IA; una persona puede corregirlo)</span></p>
+    <ul class="bars">
+      {% for row in statuses %}
+      <li class="bar-row"><span class="bar-label">{% if can_open_panel %}<a href="{{ panel_url }}?status={{ row.url }}" target="_blank" rel="noopener" class="out">{{ row.label }}</a>{% else %}{{ row.label }}{% endif %}</span><span class="bar-track"><span class="bar-fill" style="width:{{ row.width|unlocalize }}%"></span></span><span class="bar-value">{{ row.value|miles }}</span></li>
+      {% endfor %}
+    </ul>
+    <div class="tiles tiles-3 mt-4">
+      <div class="tile"><p class="tile-value">{{ flow.vulnerabilities.by_ai|miles }}</p><p class="tile-label">valoradas por IA · {{ flow.vulnerabilities.by_rule|miles }} por regla</p></div>
+      <div class="tile"><p class="tile-value">{{ flow.vulnerabilities.status_by_human|miles }}</p><p class="tile-label">con el estado corregido por una persona</p></div>
+      <div class="tile"><p class="tile-value">{{ flow.vulnerabilities.described_ai|miles }}</p><p class="tile-label">con explicación y acciones redactadas por IA</p></div>
+    </div>
+  </div>
+  <div>
+    <p class="stage-sub">Severidad teórica frente a prioridad real</p>
+    <ul class="bars">
+      {% for row in priority %}
+      <li class="pair">
+        <span class="pair-label">{{ row.label }}</span>
+        <span class="pair-bars">
+          <span class="bar-row bar-row-pair"><span class="bar-label">Solo CVSS</span><span class="bar-track"><span class="bar-fill bar-fill-muted" style="width:{{ row.cvss_width|unlocalize }}%"></span></span><span class="bar-value">{{ row.cvss|miles }}</span></span>
+          <span class="bar-row bar-row-pair"><span class="bar-label">Atalaya</span><span class="bar-track"><span class="bar-fill" style="width:{{ row.contextual_width|unlocalize }}%"></span></span><span class="bar-value">{{ row.contextual|miles }}</span></span>
+        </span>
+      </li>
+      {% endfor %}
+    </ul>
+    <p class="stage-note mt-3">Por severidad teórica, {{ cvss_total|miles }} serían críticas o altas. Al ponderar explotación conocida, probabilidad de explotación, criticidad del activo y exposición, Atalaya deja {{ flow.vulnerabilities.prioritized|miles }}: la diferencia es trabajo que el equipo deja de perseguir. {{ flow.vulnerabilities.in_kev|miles }} tienen explotación activa conocida.</p>
+  </div>
+</div>

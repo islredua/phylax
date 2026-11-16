@@ -1,0 +1,38 @@
+{% load inventory detection_tags l10n %}
+<p class="stage-lead">Ante cada señal que toca al inventario, el modelo local elige una acción de una lista cerrada y explica por qué. No puede inventar órdenes: si su respuesta no cumple el esquema, decide la regla de respaldo.</p>
+<div class="tiles tiles-4">
+  <div class="tile tile-accent"><p class="tile-value">{{ flow.decisions.total|miles }}</p><p class="tile-label">{{ flow.decisions.total|pl:"-decisión,decisiones" }} en {{ window_days }} días</p></div>
+  <div class="tile"><p class="tile-value">{{ flow.decisions.by_model|miles }}</p><p class="tile-label">del modelo · {{ flow.decisions.fallback|miles }} por la regla de respaldo</p></div>
+  <div class="tile"><p class="tile-value">{{ flow.decisions.auto_approved|miles }}</p><p class="tile-label">aprobadas sin intervención · {{ flow.decisions.human_approved|miles }} por una persona · {{ flow.decisions.rejected|miles }} rechazadas</p></div>
+  <div class="tile"><p class="tile-value {% if flow.decisions.waiting_approval %}text-medium{% endif %}">{{ flow.decisions.waiting_approval|miles }}</p><p class="tile-label">esperan aprobación{% if flow.decisions.failed %} · {{ flow.decisions.failed|miles }} fallidas o bloqueadas{% endif %}</p></div>
+</div>
+<div class="stage-grid">
+  <div>
+    <p class="stage-sub">Qué decidió</p>
+    <ul class="bars">
+      {% for row in actions %}
+      <li class="bar-row bar-row-wide"><span class="bar-label">{{ row.label }}</span><span class="bar-track"><span class="bar-fill" style="width:{{ row.width|unlocalize }}%"></span></span><span class="bar-value">{{ row.value|miles }}</span></li>
+      {% empty %}<li class="text-sm text-muted">El planificador no ha tenido que decidir nada en este periodo.</li>
+      {% endfor %}
+    </ul>
+    <p class="stage-sub mt-4">Límites que acotan la automatización</p>
+    <ul class="stage-list">
+      <li>{% if flow.decisions.paused %}<span class="badge-critical">en pausa</span>{% else %}<span class="badge-low">activa</span>{% endif %} Modo {{ flow.decisions.mode_label|lower }}{% if flow.decisions.escalate_critical %}; lo crítico se ejecuta aunque el modo sea manual{% endif %}.</li>
+      <li>{% if flow.decisions.defer_heavy %}El trabajo pesado de urgencia baja o normal espera a la ventana de {{ flow.decisions.off_hours }}.{% else %}El trabajo pesado se ejecuta en cuanto se aprueba.{% endif %}</li>
+      <li>A lo sumo {{ flow.decisions.max_scans_per_hour }} escaneos por hora, {{ flow.decisions.max_concurrent }} a la vez y {{ flow.decisions.max_planner_calls_per_hour }} decisiones por hora.</li>
+    </ul>
+  </div>
+  <div>
+    <p class="stage-sub">Últimas decisiones y su motivo</p>
+    <ul class="decisions">
+      {% for d in latest %}
+      <li class="decision">
+        <p class="decision-head"><span class="font-medium text-ink">{{ d.action }}</span>{% if d.asset %} · {{ d.asset }}{% endif %} {% urgency_badge d.urgency_key %}{% if d.fallback %} <span class="badge-neutral">por regla</span>{% endif %}</p>
+        <p class="decision-why">{{ d.rationale|default:"Sin motivo registrado." }}</p>
+        <p class="decision-meta">{{ d.at|fecha_corta }} {{ d.at|hora }}{% if can_open_decisions %} · <a href="{{ d.url }}" target="_blank" rel="noopener" class="out">ver qué hizo</a>{% endif %}</p>
+      </li>
+      {% empty %}<li class="text-sm text-muted">Todavía no hay decisiones registradas.</li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>

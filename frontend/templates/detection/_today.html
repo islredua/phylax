@@ -3,6 +3,7 @@
 Franja «Hoy»: lo que espera a una persona, en tarjetas compactas (no una lista a todo lo ancho).
 Cada tarjeta separa VER de HACER: el texto abre la lista filtrada; el botón, si existe, empieza el
 trabajo (primer riesgo en su formulario de tratamiento y, al guardar, el siguiente).
+Con ``newtab`` (Inicio) todo se abre en otra pestaña para no perder el tablero.
 {% endcomment %}
 <section class="today" aria-labelledby="hoy-titulo"{% if anchor %} id="{{ anchor }}"{% endif %}>
   <div class="today-head">
@@ -15,10 +16,10 @@ trabajo (primer riesgo en su formulario de tratamiento y, al guardar, el siguien
     <li class="today-item today-{{ item.level }}">
       <span class="today-count">{{ item.count|miles }}</span>
       <span class="today-body">
-        <a href="{{ item.url }}" class="today-text" title="{{ item.view }}">{{ item.text }}</a>
+        <a href="{{ item.url }}"{% if newtab %} target="_blank" rel="noopener"{% endif %} class="today-text" title="{{ item.view }}{% if newtab %} (se abre en otra pestaña){% endif %}">{{ item.text }}</a>
         <span class="today-actions">
-          {% if item.work_url %}<a href="{{ item.work_url }}" class="btn-primary btn-sm">{{ item.action }} →</a>{% endif %}
-          <a href="{{ item.url }}" class="{% if item.work_url %}today-link{% else %}btn-secondary btn-sm{% endif %}">{{ item.view }}</a>
+          {% if item.work_url %}<a href="{{ item.work_url }}"{% if newtab %} target="_blank" rel="noopener"{% endif %} class="btn-primary btn-sm">{{ item.action }} →</a>{% endif %}
+          <a href="{{ item.url }}"{% if newtab %} target="_blank" rel="noopener"{% endif %} class="{% if item.work_url %}today-link{% if newtab %} out{% endif %}{% else %}btn-secondary btn-sm{% endif %}">{{ item.view }}</a>
         </span>
       </span>
     </li>

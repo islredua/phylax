@@ -184,7 +184,9 @@ def test_generate_uses_the_model_and_skips_when_nothing_changed(monkeypatch):
     _asset_with_risk()
     first = narrative.generate()
     assert first is not None and not first.by_rule and first.headline.startswith("Simulado")
-    assert first.model and first.prompt_version == "v1"
+    assert first.model and first.prompt_version == "v2"
+    # «Qué hizo el sistema» lo arma el código con las cifras del recorrido, no el modelo.
+    assert first.achievements == narrative.achievements_text(narrative.build_payload())
     # Mismos datos: no se genera otra fila ni se llama al modelo.
     assert narrative.generate() is None
     assert HealthNarrative.objects.count() == 1
@@ -259,9 +261,10 @@ def test_home_renders_executive_view_with_blocks_and_downloads(client, as_role):
     for text in (
         "Estado de salud",
         "Riesgos abiertos",
-        "Lo que el sistema hizo por sí solo",
-        "Tendencia de riesgos abiertos",
-        "Priorización contextual frente a CVSS",
+        "Del ruido a la decisión",
+        "Riesgos abiertos por nivel",
+        "Vulnerabilidades sostenidas y explotación activa",
+        "Riesgos que más pesan",
         "Matriz de riesgos",
         "Avisos",
         "Pulso del sistema",
@@ -368,23 +371,26 @@ def test_linker_turns_mentions_into_links_and_escapes_the_rest():
         risks=[(risk.title, risk.pk)] if risk else [],
         vulns=[("CVE-2025-29927", "00000000-0000-0000-0000-000000000001")],
     )
+    tab = ' target="_blank" rel="noopener"'
     html = str(
         linker.render(
             "Hay 13 riesgos abiertos, 1 crítico; api-pagos y crm-legacy con explotación activa (KEV) "
             "y plazo de CISA vencido; 2 acciones esperan aprobación <b>x</b> CVE-2025-29927."
         )
     )
-    assert '<a href="/detection/" class="nar-link">13 riesgos abiertos</a>' in html
-    assert '<a href="/detection/?level=CRITICAL" class="nar-link">1 crítico</a>' in html
-    assert f'<a href="/inventory/{asset.pk}/" class="nar-link">api-pagos</a>' in html
+    assert f'<a href="/detection/" class="nar-link"{tab}>13 riesgos abiertos</a>' in html
+    assert f'<a href="/detection/?level=CRITICAL" class="nar-link"{tab}>1 crítico</a>' in html
+    assert f'<a href="/inventory/{asset.pk}/" class="nar-link"{tab}>api-pagos</a>' in html
     assert "crm-legacy</a>" not in html  # no está en la lista del enlazador
     assert (
-        'href="/detection/vulnerabilities/?in_kev=1" class="nar-link">explotación activa (KEV)</a>'
+        f'href="/detection/vulnerabilities/?in_kev=1" class="nar-link"{tab}>explotación activa (KEV)</a>'
         in html
     )
-    assert 'href="/detection/queue/" class="nar-link">2 acciones esperan aprobación</a>' in html
+    assert (
+        f'href="/detection/queue/" class="nar-link"{tab}>2 acciones esperan aprobación</a>' in html
+    )
     assert "&lt;b&gt;x&lt;/b&gt;" in html
-    assert 'class="nar-link">CVE-2025-29927</a>' in html
+    assert f'class="nar-link"{tab}>CVE-2025-29927</a>' in html
     if risk:
         assert f'href="/detection/risks/{risk.pk}/"' in str(linker.render(f"Urge «{risk.title}»"))
 
@@ -394,26 +400,16 @@ def test_home_narrative_links_to_the_sections_and_charts_are_dynamic(client, as_
     _asset_with_risk()
     body = client.get("/").content.decode()
     assert 'class="nar-link"' in body and "vendor/chart-4.4.1.umd.js" in body
-    # Los niveles ya no son una quinta gráfica: van en la barra segmentada de la gráfica maestra.
-    assert body.count("<canvas") == 4 and 'data-home-charts="/home/charts.json"' in body
+    # Solo quedan las dos tendencias: niveles, fuentes y priorización ya los cuenta el recorrido
+    # (barra segmentada y paneles de etapa), sin repetir el dato en otra tarjeta.
+    assert body.count("<canvas") == 2 and 'data-home-charts="/home/charts.json"' in body
     assert "Ver datos" in body  # tabla de respaldo sin JS
     payload = client.get("/home/charts.json").json()
-    assert set(payload) == {
-        "computed_at",
-        "has_trend",
-        "hero",
-        "risk_trend",
-        "vuln_trend",
-        "levels",
-        "sources",
-        "priority",
-    }
-    levels = payload["levels"]["series"][0]
-    assert levels["urls"][0] == "/detection/?level=CRITICAL"
-    assert sum(levels["values"]) == Risk.objects.filter(status="OPEN").count()
+    assert set(payload) == {"computed_at", "has_trend", "hero", "risk_trend", "vuln_trend"}
+    levels = payload["hero"]["levels"]
+    assert levels[0]["url"] == "/detection/?level=CRITICAL"
+    assert sum(level["value"] for level in levels) == Risk.objects.filter(status="OPEN").count()
     assert len(payload["risk_trend"]["labels"]) == 30
-    assert payload["sources"]["labels"]
-    assert payload["priority"]["series"][1]["label"].startswith("Contextual")
     client.logout()
     assert client.get("/home/charts.json").status_code in (302, 403)
 
@@ -575,17 +571,25 @@ def test_home_opens_with_the_master_chart_then_today_then_text(client, as_role):
         body.index(mark) for mark in ("data-hero", 'id="hoy"', 'id="indicadores"', 'id="narrativa"')
     ]
     assert order == sorted(order)
-    assert "Del ruido a la decisión" in body and body.count('class="funnel-row') == 5
+    # El recorrido: siete estaciones en orden y el motor de IA local, cada una un enlace que
+    # abre su detalle dentro de Inicio (con y sin JavaScript).
+    assert "Del ruido a la decisión" in body and body.count('class="flow-step') == 7
     hero = client.get("/home/charts.json").json()["hero"]
-    assert [s["key"] for s in hero["funnel"]] == [
+    assert [s["key"] for s in hero["flow"]] == [
+        "signals",
+        "match",
+        "decisions",
+        "scans",
         "observations",
         "vulnerabilities",
-        "prioritized",
         "risks",
-        "critical",
     ]
-    assert hero["open"] == 1 and hero["funnel"][-1]["value"] == 1
-    assert all(3 <= s["width"] <= 100 for s in hero["funnel"])
+    assert all(
+        {"label", "value", "sub", "actor", "kind", "scope", "busy"} <= set(s) for s in hero["flow"]
+    )
+    assert hero["open"] == 1 and hero["flow"][-1]["value"] == 1
+    assert {"model", "state", "calls", "ok_pct", "hours", "local"} <= set(hero["engine"])
+    assert hero["now"]["text"] and "automatización" in hero["now"]["mode"]
     assert sum(level["value"] for level in hero["levels"]) == 1
     # «Qué hago hoy»: el botón hace lo que dice (abre el riesgo en su tratamiento, en cola) y
     # el enlace a la lista se llama como lo que es.
@@ -595,3 +599,391 @@ def test_home_opens_with_the_master_chart_then_today_then_text(client, as_role):
     assert item["work_url"].startswith(f"/detection/risks/{risk.pk}/?cola=")
     assert item["work_url"].endswith("#tratamiento") and item["url"] == "/detection/?level=CRITICAL"
     assert "Decidir tratamiento →" in body and "Ver lista" in body
+
+
+# --- Recorrido «del ruido a la decisión» (2026-11-16) -------------------------------------------
+
+
+def test_pipeline_counts_each_stage_once_and_agrees_with_the_indicators():
+    """Una sola ventana y conteos agregados: lo que dice el recorrido es lo que dicen los
+    indicadores, y cada observación cae en una sola combinación de fuentes."""
+    from apps.detection.models import DetectionEvent, Finding
+
+    _asset_with_risk()
+    data = indicators.compute()
+    flow = data["pipeline"]
+    assert flow["window_days"] == data["window_days"]
+    sig, match = flow["signals"], flow["match"]
+    assert sig["total"] == DetectionEvent.objects.count() == sum(k["value"] for k in sig["by_kind"])
+    assert sig["cti"] + sig["inventory"] == sig["total"]
+    assert match["passed"] + match["filtered"] + match["failed"] == sig["total"]
+    assert match["passed"] == match["reconciled"] + match["to_planner"] + match["pending"]
+    obs = flow["observations"]
+    assert obs["total"] == Finding.objects.count() == sum(c["value"] for c in obs["combos"])
+    assert obs["total"] == data["observations"]["total"]
+    assert obs["multi_source"] == sum(c["value"] for c in obs["combos"] if c["multi"])
+    assert all(len(c["marks"]) == len(obs["columns"]) for c in obs["combos"])
+    assert flow["vulnerabilities"]["sustained"] == data["vulnerabilities"]["sustained"]
+    assert (
+        flow["vulnerabilities"]["by_ai"] + flow["vulnerabilities"]["by_rule"]
+        == data["vulnerabilities"]["sustained"]
+    )
+    assert flow["risks"]["open"] == data["risks"]["open"] == 1
+    assert flow["risks"]["treated"] + flow["risks"]["untreated"] == flow["risks"]["open"]
+    ai = flow["ai"]
+    assert ai["calls"] == ai["ok"] + ai["rejected"] == sum(t["calls"] for t in ai["tasks"])
+    assert ai["local"] is True  # el modelo de las pruebas corre en la misma red de contenedores
+    # «Escaneos» significa lo mismo en el recorrido, en la automatización y en el texto.
+    assert data["automation"]["scans_window"] == flow["scans"]["total"]
+    assert data["automation"]["decisions_window"] == flow["decisions"]["total"]
+
+
+def test_local_model_detection_tells_this_machine_from_an_outside_service():
+    from apps.presentation import pipeline
+
+    for url in ("http://ollama:11434", "http://localhost:11434", "http://10.0.0.5:11434"):
+        assert pipeline._is_local(url), url
+    for url in ("https://api.proveedor.com/v1", "http://8.8.8.8:11434", ""):
+        assert not pipeline._is_local(url), url
+
+
+def test_each_stage_opens_inside_home_with_and_without_javascript(client, as_role):
+    from apps.presentation.views import STAGE_KEYS, STAGE_TITLES
+
+    as_role(OPERATOR)
+    _asset_with_risk()
+    for key in STAGE_KEYS:
+        # Sin JavaScript: la estación es un enlace ?etapa=… que recarga Inicio con el panel abierto.
+        page = client.get(f"/?etapa={key}")
+        body = page.content.decode()
+        assert page.status_code == 200 and f'data-stage="{key}"' in body, key
+        assert STAGE_TITLES[key] in body and f'href="?etapa={key}#recorrido"' not in body
+        # Con HTMX: el panel y, fuera de banda, las estaciones con la marca de «abierta».
+        frag = client.get(f"/home/block/stage/?etapa={key}", HTTP_HX_REQUEST="true")
+        html = frag.content.decode()
+        assert frag.status_code == 200 and html.count('id="etapa"') == 1, key
+        assert 'id="flow"' in html and 'hx-swap-oob="true"' in html
+        assert html.count('aria-expanded="true"') == 1
+        assert "<html" not in html
+    # Cerrar, o una etapa que no existe: panel vacío y ninguna estación marcada.
+    for query in ("", "?etapa=", "?etapa=otra"):
+        html = client.get(f"/home/block/stage/{query}").content.decode()
+        assert 'class="stage stage-empty"' in html and 'aria-expanded="true"' not in html
+    assert 'class="stage stage-empty"' in client.get("/?etapa=otra").content.decode()
+
+
+def test_stage_panels_explain_how_the_platform_works(client, as_role):
+    """Cada panel dice qué hace la etapa y con qué cifras: cruce de inteligencia con inventario,
+    decisiones del modelo y sus límites, combinación de fuentes y trabajo de la IA local."""
+    as_role(OPERATOR)
+    _asset_with_risk()
+    expected = {
+        "signals": ("Espejo local de inteligencia", "Qué llegó en"),
+        "match": ("Así se cruza la inteligencia con el inventario", "Por qué se descartaron"),
+        "decisions": ("Límites que acotan la automatización", "Qué decidió"),
+        "scans": ("Ejecuciones en", "activos escaneados"),
+        "observations": ("Qué combinación de fuentes vio cada observación", "combo-dot"),
+        "vulnerabilities": (
+            "Severidad teórica frente a prioridad real",
+            "Qué tan firme es cada una",
+        ),
+        "risks": ("ISO/IEC 27005", "Lo que sigue es tuyo"),
+        "ai": ("Qué hace el modelo y qué tan bien", "no salen a ningún servicio externo"),
+    }
+    for key, marks in expected.items():
+        html = client.get(f"/home/block/stage/?etapa={key}").content.decode()
+        for mark in marks:
+            assert mark in html, (key, mark)
+
+
+def test_everything_that_leaves_home_opens_in_a_new_tab(client, as_role):
+    """Inicio es un tablero vivo: lo que lleva a otra pantalla se abre en otra pestaña. Quedan en
+    la misma solo los paneles del propio Inicio, las descargas y su configuración."""
+    import re
+
+    as_role(ADMIN)
+    _asset_with_risk()
+    Risk.objects.update(level=RiskLevel.CRITICAL, likelihood=5, impact=5)
+    indicators.invalidate()
+    narrative.generate()
+    same_tab = set()
+    for path in (
+        "/",
+        "/?etapa=decisions",
+        "/?etapa=vulnerabilities",
+        "/?etapa=risks",
+        "/?etapa=ai",
+    ):
+        body = client.get(path).content.decode()
+        main = body[body.index("<main") :]
+        for tag in re.findall(r"<a\b[^>]*>", main):
+            href = re.search(r'href="([^"]*)"', tag)
+            if not href or href.group(1).startswith(("?", "#")):
+                continue
+            if 'target="_blank"' in tag:
+                assert 'rel="noopener"' in tag, tag
+            else:
+                same_tab.add(href.group(1))
+        assert "se abren en otra pestaña" in main
+    assert same_tab == {
+        "/home/report/?format=md",
+        "/home/export/risks.csv",
+        "/home/export/vulnerabilities.csv",
+        "/administration/home/",
+    }
+    # Los bloques que se refrescan solos conservan la pestaña nueva.
+    for block in ("indicators", "alerts", "pulse", "narrative"):
+        html = client.get(f"/home/block/{block}/").content.decode()
+        for tag in re.findall(r'<a\b[^>]*href="/[^>]*>', html):
+            assert 'target="_blank"' in tag, (block, tag)
+    # «Qué hago hoy» y la matriz se comparten con Riesgos: allí siguen en la misma pestaña.
+    risks_page = client.get("/detection/").content.decode()
+    assert 'class="today-text"' in risks_page
+    assert not re.search(r'<a[^>]*target="_blank"[^>]*class="today-text"', risks_page)
+
+
+def test_home_first_run_has_an_empty_state_and_every_panel_renders(client, as_role):
+    from apps.presentation.views import STAGE_KEYS
+
+    as_role(OPERATOR)
+    body = client.get("/").content.decode()
+    assert "Todavía no hay activos inventariados" in body and "Sin datos suficientes" in body
+    assert body.count('class="flow-step') == 7
+    for key in STAGE_KEYS:
+        assert client.get(f"/home/block/stage/?etapa={key}").status_code == 200, key
+    assert client.get("/home/charts.json").json()["hero"]["empty"] is True
+    assert client.get("/home/report/").status_code == 200
+    # Con activos pero sin señales en la ventana, el aviso cambia.
+    AssetFactory(name="solo")
+    indicators.invalidate()
+    from apps.detection.models import DetectionEvent
+
+    DetectionEvent.objects.all().delete()
+    indicators.invalidate()
+    body = client.get("/").content.decode()
+    assert "Todavía no hay activos inventariados" not in body
+    assert "todavía no llega ninguna señal" in body
+
+
+def test_stage_links_follow_the_permissions_of_the_role(client, make_user):
+    """Quien solo puede ver riesgos abre los paneles, pero no recibe enlaces a pantallas que su
+    rol no puede abrir."""
+    from django.contrib.auth.models import Permission
+
+    user = make_user(username="solo-riesgos")
+    user.groups.clear()
+    user.user_permissions.add(Permission.objects.get(codename="view_risk"))
+    client.force_login(user)
+    _asset_with_risk()
+    for key, hidden in (
+        ("signals", "Abrir las fuentes de inteligencia"),
+        ("decisions", "Controles de automatización"),
+        ("scans", "Ver las ejecuciones"),
+        ("observations", "Ver las observaciones"),
+        ("vulnerabilities", "Ver las vulnerabilidades"),
+        ("ai", "Abrir la configuración del modelo"),
+    ):
+        response = client.get(f"/home/block/stage/?etapa={key}")
+        assert response.status_code == 200 and hidden not in response.content.decode(), key
+    assert (
+        "Abrir el registro de riesgos"
+        in client.get("/home/block/stage/?etapa=risks").content.decode()
+    )
+    client.logout()
+    assert client.get("/home/block/stage/?etapa=ai").status_code in (302, 403)
+
+
+def test_report_carries_the_journey_with_the_same_figures(client, as_role):
+    as_role(AUDITOR)
+    _asset_with_risk()
+    flow = indicators.current()["pipeline"]
+    html = client.get("/home/report/").content.decode()
+    md = client.get("/home/report/?format=md").content.decode()
+    for body in (html, md):
+        assert "Del ruido a la decisión" in body
+        for label in ("Señales recibidas", "Tocan al inventario", "Decisiones", "Escaneos"):
+            assert label in body, label
+        assert "IA local (" in body and "aceptadas por el validador" in body
+    assert f"| Señales recibidas | {flow['signals']['total']} |" in md
+    assert f"| Riesgos abiertos | {flow['risks']['open']} |" in md
+
+
+# --- Lectura por IA: lo que el modelo ve, lo que arma el código y su vigencia --------------------
+
+
+def test_model_sees_one_figure_per_concept_and_code_writes_what_the_system_did():
+    _asset_with_risk()
+    payload = narrative.build_payload(indicators.compute())
+    view = narrative.model_view(payload)
+    assert "automation" not in view and "pipeline" not in view
+    assert not set(narrative.MODEL_HIDDEN_VULNERABILITY_KEYS) & set(
+        view["indicators"]["vulnerabilities"]
+    )
+    assert "sustained" in view["indicators"]["vulnerabilities"]
+    assert "Lo que el sistema hizo solo" in payload["facts"]
+    assert "Lo que el sistema hizo solo" not in view["facts"]
+    text = narrative.achievements_text(payload)
+    flow = payload["pipeline"]
+    assert f"recibió {flow['signals']} señal" in text and "(s)" not in text
+    assert f"{flow['decisions']} decisi" in text
+    # La huella solo cambia con lo que el modelo lee: más señales o más cómputo no piden otra lectura.
+    digest = narrative.payload_hash(payload)
+    payload["pipeline"]["signals"] += 5000
+    payload["automation"]["decisions_window"] += 3
+    assert narrative.payload_hash(payload) == digest
+    payload["indicators"]["risks"]["open"] += 1
+    assert narrative.payload_hash(payload) != digest
+
+
+def test_coherence_reads_each_figure_with_its_qualifier():
+    """«27 sostenidas con explotación activa» es la cifra de KEV, no la de sostenidas; y en «qué
+    cambió» vale la variación que calculó el sistema."""
+    _asset_with_risk()
+    payload = narrative.build_payload(indicators.compute())
+    v = payload["indicators"]["vulnerabilities"]
+    v.update(sustained=1053, in_kev=27, kev_overdue=27, confirmed=621, needs_verification=330)
+    payload["deltas"].update(
+        available=True,
+        since="2026-11-10",
+        risks_open=-3,
+        risks_critical=0,
+        vulns_sustained=4,
+        vulns_kev=0,
+    )
+    good = narrative.rule_narrative(payload)
+    for summary in (
+        "Hay 27 vulnerabilidades sostenidas con explotación activa (KEV).",
+        "De las 1053 vulnerabilidades sostenidas, 27 tienen explotación activa conocida.",
+        "Hay 27 sostenidas con el plazo de CISA vencido y 1053 sostenidas en total.",
+    ):
+        ok, note = narrative.coherent(dict(good, summary=summary), payload)
+        assert ok, (summary, note)
+    ok, note = narrative.coherent(
+        dict(good, summary="Hay 27 vulnerabilidades sostenidas."), payload
+    )
+    assert not ok and "sostenidas" in note
+    ok, note = narrative.coherent(
+        dict(good, summary="Hay 1053 vulnerabilidades con explotación activa (KEV)."), payload
+    )
+    assert not ok
+    # «3 riesgos abiertos menos» es una variación y vale donde se escriba; el conteo a secas con
+    # la cifra de la variación solo se tolera en «qué cambió».
+    change = "Hay 3 riesgos abiertos menos que en la instantánea anterior."
+    assert narrative.coherent(dict(good, changes=change), payload)[0]
+    assert narrative.coherent(dict(good, summary=change), payload)[0]
+    assert narrative.coherent(dict(good, changes="Bajaron 3 riesgos abiertos."), payload)[0]
+    ok, note = narrative.coherent(dict(good, summary="Hay 3 riesgos abiertos."), payload)
+    assert not ok and "riesgos abiertos" in note
+
+
+def test_what_changed_is_written_by_the_system_and_the_model_cannot_deny_it():
+    """«Qué cambió» sale de las variaciones que calculó el sistema, en palabras. Con una
+    instantánea anterior el modelo no puede decir que no hay con qué comparar (lo hizo con el
+    modelo real) y «N … más/menos» se lee como variación en cualquier campo."""
+    _asset_with_risk()
+    payload = narrative.build_payload(indicators.compute())
+    assert narrative.changes_text(payload) == narrative.NO_BASELINE_TEXT
+    payload["deltas"].update(
+        available=True,
+        since="2026-11-10",
+        risks_open=-3,
+        risks_critical=1,
+        vulns_sustained=0,
+        vulns_kev=0,
+    )
+    text = narrative.changes_text(payload)
+    assert text == (
+        "Desde el 2026-11-10 hay 3 riesgos abiertos menos y 1 riesgo crítico más; sin cambio en "
+        "vulnerabilidades sostenidas y vulnerabilidades con explotación activa (KEV)."
+    )
+    assert f"Cambios: {text}" in narrative.facts_text(payload, for_model=True)
+    rule = narrative.rule_narrative(payload)
+    assert rule["changes"] == text and narrative.coherent(rule, payload)[0]
+    payload["deltas"].update(risks_open=0, risks_critical=0)
+    assert narrative.changes_text(payload).startswith("Sin cambios desde el 2026-11-10 en ")
+    payload["deltas"].update(risks_open=-3, risks_critical=1)
+
+    for denial in (
+        "No hay datos anteriores disponibles para comparar los riesgos o vulnerabilidades.",
+        "Sin instantánea previa.",
+        "No se dispone de información histórica.",
+    ):
+        ok, note = narrative.coherent(dict(rule, changes=denial), payload)
+        assert not ok and "instantánea del 2026-11-10" in note, denial
+    for fine in (
+        "No hubo cambios en las vulnerabilidades frente a la instantánea anterior.",
+        "Hay 3 riesgos abiertos menos que el 10 de noviembre.",
+    ):
+        assert narrative.coherent(dict(rule, changes=fine), payload)[0], fine
+    # La variación vale también fuera de «qué cambió» si la frase dice «más» o «menos»…
+    ok, note = narrative.coherent(dict(rule, highlights=["3 riesgos abiertos menos"]), payload)
+    assert ok, note
+    # …pero con la cifra del sistema.
+    ok, note = narrative.coherent(dict(rule, highlights=["5 riesgos abiertos menos"]), payload)
+    assert not ok and "riesgos abiertos" in note
+    # Sin instantánea anterior, decirlo es lo correcto.
+    payload["deltas"] = {"available": False}
+    rule = narrative.rule_narrative(payload)
+    assert narrative.coherent(
+        dict(rule, changes="No hay datos anteriores para comparar."), payload
+    )[0]
+
+
+def test_headline_always_carries_the_current_figures(client, as_role):
+    """La lectura se redacta cada cierto tiempo; el titular de Inicio no puede decir «1 riesgo»
+    junto a la cifra viva «2». Los números los pone el código y la frase, el modelo."""
+    from apps.llm.models import InferenceLog
+
+    as_role(OPERATOR)
+    _asset_with_risk()
+    data = indicators.compute()
+    payload = narrative.build_payload(data)
+    log_obj = InferenceLog.objects.create(
+        task=narrative.TASK,
+        model="modelo-de-prueba",
+        prompt_version="v2",
+        request_payload=json.loads(json.dumps(payload, default=str)),
+        parsed_ok=True,
+    )
+    story = HealthNarrative.objects.create(
+        payload_hash=narrative.payload_hash(payload),
+        status=data["health"],
+        headline="1 riesgo abierto, ninguno crítico; fuga de información en api-pagos.",
+        summary="La organización tiene 1 riesgo abierto.",
+        by_rule=False,
+        inference=log_obj,
+        model="modelo-de-prueba",
+        prompt_version="v2",
+    )
+    assert narrative.reading(data)["narrative"] == story
+    assert narrative.reading(data)["narrative_changes"] == []
+    assert narrative.live_headline(story, data).startswith("1 riesgo abierto, ")
+
+    _asset_with_risk("segundo")
+    Risk.objects.update(level=RiskLevel.CRITICAL, likelihood=5, impact=5)
+    indicators.invalidate()
+    data = indicators.current()
+    reading = narrative.reading(data)
+    assert (
+        reading["headline"] == "2 riesgos abiertos, 2 críticos; fuga de información en api-pagos."
+    )
+    assert {"label": "riesgos abiertos", "before": 1, "now": 2} in reading["narrative_changes"]
+    body = client.get("/").content.decode()
+    assert "2 riesgos abiertos, 2 críticos; fuga de información en api-pagos." in body
+    assert "1 riesgo abierto, ninguno crítico" not in body
+    assert "Cambió desde esta lectura" in body and "riesgos abiertos 1 → 2" in body
+    assert client.get("/home/charts.json").json()["hero"]["headline"] == reading["headline"]
+    assert reading["headline"] in client.get("/home/report/").content.decode()
+
+    # Si lo que urgía ya no está entre los riesgos que más pesan, se nombra el que más pesa ahora.
+    story.headline = "1 riesgo abierto, ninguno crítico; fuga de datos en servidor-retirado."
+    top = indicators.top_risks()
+    fresh = narrative.live_headline(story, data, top)
+    assert fresh.startswith("2 riesgos abiertos, 2 críticos; ") and "servidor-retirado" not in fresh
+    assert top[0].asset.name in fresh
+    # Un titular que no sigue la forma pedida se deja como está; el de regla se recalcula entero.
+    story.headline = "Situación estable en la organización."
+    assert narrative.live_headline(story, data) == "Situación estable en la organización."
+    HealthNarrative.objects.update(by_rule=True, inference=None)
+    assert narrative.reading(data)["narrative"].pk is None
+    assert str(data["risks"]["critical"]) in narrative.reading(data)["headline"]

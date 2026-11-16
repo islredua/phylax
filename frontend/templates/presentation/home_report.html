@@ -20,6 +20,7 @@
   table { width: 100%; border-collapse: collapse; font-size: 9.5pt; margin-top: 6px; }
   th, td { text-align: left; vertical-align: top; padding: 5px 6px; border-bottom: 1px solid #e5e8ec; }
   th { font-weight: 600; color: #3c4653; background: #f7f8fa; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 8px; }
   .kpi { border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px 10px; } .kpi .l { font-size: 8.5pt; text-transform: uppercase; letter-spacing: .04em; color: #5b6472; } .kpi .v { font-size: 16pt; font-weight: 700; }
   .muted { color: #5b6472; } .two { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -44,20 +45,20 @@
 <header>
   <p class="eyebrow">Atalaya · Reporte ejecutivo de estado</p>
   <h1>{{ profile.name|default:"Organización" }} · {{ generated_at|fecha_larga }}</h1>
-  <div class="meta"><span>Estado: <span class="badge st-{{ narrative.status }}">{{ narrative.get_status_display }}</span></span><span>Ventana: {{ data.window_days }} días</span>{% if profile.sector %}<span>Giro: {{ profile.sector|plain|truncatechars:80 }}</span>{% endif %}<span>Generado por {{ generated_by.get_full_name|default:generated_by.get_username }}</span></div>
+  <div class="meta"><span>Estado: <span class="badge st-{{ data.health }}">{{ health_label }}</span></span><span>Ventana: {{ data.window_days }} días</span>{% if profile.sector %}<span>Giro: {{ profile.sector|plain|truncatechars:80 }}</span>{% endif %}<span>Generado por {{ generated_by.get_full_name|default:generated_by.get_username }}</span></div>
 </header>
 
 <h2>Qué hay que decidir</h2>
-{% if today %}<div class="today"><ul>{% for item in today %}<li><span class="lvl lvl-{{ item.level }}">{{ item.count|miles }}</span>{{ item.text }} — <em>{{ item.action|lower }}</em></li>{% endfor %}</ul></div>{% else %}<p class="muted">Nada espera una decisión humana: sin riesgos críticos, plazos vencidos ni aprobaciones pendientes.</p>{% endif %}
+{% if today %}<div class="today"><ul>{% for item in today %}<li><span class="lvl lvl-{{ item.level }}">{{ item.count|miles }}</span>{{ item.text }} — <em>{{ item.action|default:item.view|lower }}</em></li>{% endfor %}</ul></div>{% else %}<p class="muted">Nada espera una decisión humana: sin riesgos críticos, plazos vencidos ni aprobaciones pendientes.</p>{% endif %}
 
 <h2>Resumen</h2>
-<p><strong>{{ narrative.headline|plain }}</strong></p>
+<p><strong>{{ headline|default:narrative.headline|plain }}</strong></p>
 <p>{{ narrative.summary|plain }}</p>
 <div class="two">
   <div><h3>Qué cambió</h3><p>{{ narrative.changes|default:"—"|plain }}</p><h3>Qué urge</h3><p>{{ narrative.urgent|default:"—"|plain }}</p></div>
-  <div><h3>Qué hizo el sistema</h3><p>{{ narrative.achievements|default:"—"|plain }}</p>{% if narrative.next_steps %}<h3>Siguientes pasos</h3><ol>{% for s in narrative.next_steps %}<li>{{ s|plain }}</li>{% endfor %}</ol>{% endif %}</div>
+  <div>{% if narrative.next_steps %}<h3>Siguientes pasos</h3><ol>{% for s in narrative.next_steps %}<li>{{ s|plain }}</li>{% endfor %}</ol>{% endif %}</div>
 </div>
-<p class="muted" style="font-size:9pt">{% if narrative.by_rule %}Resumen redactado por regla (sin IA) el {{ narrative.created_at|fecha }}.{% else %}Resumen redactado por IA ({{ narrative.model }}) el {{ narrative.created_at|fecha }} a partir de los indicadores calculados por el sistema.{% endif %}</p>
+<p class="muted" style="font-size:9pt">{% if narrative.by_rule %}Resumen redactado por regla (sin IA) el {{ narrative.created_at|fecha }}.{% else %}Resumen redactado por IA ({{ narrative.model }}) el {{ narrative.created_at|fecha }} a partir de los indicadores calculados por el sistema.{% endif %}{% if narrative_changes %} Desde entonces cambió: {% for c in narrative_changes %}{{ c.label }} {{ c.before|miles }} → {{ c.now|miles }}{% if not forloop.last %}; {% endif %}{% endfor %}; el titular y los indicadores de este reporte llevan las cifras de ahora.{% endif %}</p>
 
 <h2>Indicadores</h2>
 <div class="kpis">
@@ -86,11 +87,17 @@
   <tbody>{% for r in top_risks %}<tr><td>{{ r.title }}</td><td>{{ r.asset.name }}</td><td>{{ r.likelihood }} × {{ r.impact }}</td><td><span class="badge lvl-{{ r.level }}">{{ r.get_level_display }}</span></td><td>{{ r.intelligence_summary|default:"—"|plain }}</td><td>{% if r.treatment %}{{ r.get_treatment_display }}{% else %}sin decidir{% endif %}</td></tr>{% empty %}<tr><td colspan="6" class="muted">No hay riesgos abiertos.</td></tr>{% endfor %}</tbody>
 </table>
 
-<h2>Lo que el sistema hizo por sí solo ({{ data.window_days }} días)</h2>
+<h2>Del ruido a la decisión: lo que el sistema hizo por sí solo</h2>
+<p class="muted" style="font-size:9.5pt">Cada fila es una etapa del recorrido: lo que entra, quién actúa y cuánto queda. Las cuatro primeras cuentan los últimos {{ data.window_days }} días; las tres últimas, lo vigente hoy.</p>
+<table class="flow">
+  <thead><tr><th>Etapa</th><th class="num">Cifra</th><th>Quién actúa</th><th>Detalle</th><th>Periodo</th></tr></thead>
+  <tbody>{% for st in hero.flow %}<tr><td>{{ st.label }}</td><td class="num"><strong>{{ st.value|miles }}</strong></td><td>{{ st.actor }}</td><td>{{ st.sub }}</td><td class="muted">{{ st.scope }}</td></tr>{% endfor %}</tbody>
+</table>
 <ul>
-  <li>{{ data.automation.decisions_window|miles }} decisiones del planificador ({{ data.automation.auto_approved_window|miles }} aprobadas automáticamente) y {{ data.automation.scans_window|miles }} escaneos ejecutados.</li>
-  <li>{{ data.automation.vulns_consolidated_window|miles }} vulnerabilidades consolidadas, {{ data.automation.vulns_described_window|miles }} descripciones redactadas y {{ data.automation.risks_assessed_window|miles }} riesgos valorados conforme a ISO/IEC 27005.</li>
-  <li>{{ data.automation.cti_syncs_window|miles }} sincronizaciones de inteligencia (NVD, KEV, EPSS); {{ data.llm.hours_window }} horas de modelo local con {{ data.llm.ok_window|miles }} de {{ data.llm.calls_window|miles }} respuestas válidas.</li>
+  <li>De {{ data.pipeline.signals.total|miles }} señales, {{ data.pipeline.match.filtered|miles }} ({{ data.pipeline.match.filtered_pct|floatformat:1 }} %) se descartaron por regla al no tocar el inventario, sin gastar una sola llamada al modelo; {{ data.pipeline.match.reconciled|miles }} se resolvieron sin escanear.</li>
+  <li>{{ data.pipeline.observations.intel_only_pct|floatformat:0 }} % de las observaciones se encontró cruzando inteligencia con inventario, sin tocar el activo; {{ data.pipeline.observations.multi_source|miles }} las confirmaron dos fuentes a la vez.</li>
+  <li>IA local ({{ data.pipeline.ai.model }}{% if data.pipeline.ai.local %}, en este equipo{% endif %}): {{ data.pipeline.ai.calls|miles }} inferencias, {{ data.pipeline.ai.ok_pct|floatformat:0 }} % aceptadas por el validador, {{ data.pipeline.ai.hours }} h de cómputo. Lo que el validador rechaza lo resuelve una regla y queda marcado.</li>
+  <li>{{ data.automation.vulns_consolidated_window|miles }} vulnerabilidades valoradas, {{ data.automation.vulns_described_window|miles }} descripciones redactadas y {{ data.automation.risks_assessed_window|miles }} riesgos valorados conforme a ISO/IEC 27005; {{ data.automation.cti_syncs_window|miles }} sincronizaciones de inteligencia (NVD, KEV, EPSS).</li>
 </ul>
 
 <h2>Avisos vigentes</h2>

@@ -1,0 +1,26 @@
+{% load inventory detection_tags l10n %}
+<p class="stage-lead">Las vulnerabilidades de un activo se agrupan en escenarios de negocio y cada uno se valora por probabilidad e impacto conforme a ISO/IEC 27005. Hasta aquí llega la automatización: el tratamiento de cada riesgo lo decide una persona.</p>
+<div class="tiles tiles-3">
+  <div class="tile"><p class="tile-value">{{ flow.risks.open|miles }}</p><p class="tile-label">{{ flow.risks.open|pl:"-riesgo abierto,riesgos abiertos" }} · {{ flow.risks.critical|miles }} de nivel crítico</p></div>
+  <div class="tile"><p class="tile-value">{{ flow.risks.by_ai|miles }}</p><p class="tile-label">valorados por IA · {{ flow.risks.by_rule|miles }} por regla</p></div>
+  <div class="tile tile-accent"><p class="tile-value">{{ flow.risks.treated|miles }} <span class="tile-of">de {{ flow.risks.open|miles }}</span></p><p class="tile-label">con tratamiento decidido por una persona</p></div>
+</div>
+<div class="stage-grid">
+  <div>
+    <p class="stage-sub">Los que más pesan</p>
+    <ul class="stage-list">
+      {% for r in top %}
+      <li>{% risk_level_badge r.level %} <a href="{% url 'detection:risk' r.pk %}" target="_blank" rel="noopener" class="out">{{ r.title|truncatechars:90 }}</a> <span class="text-muted">· {{ r.asset.name }}</span></li>
+      {% empty %}<li class="text-muted">No hay riesgos abiertos.</li>
+      {% endfor %}
+    </ul>
+  </div>
+  <div class="stage-note">
+    {% if work %}
+    <p><strong>Lo que sigue es tuyo.</strong> {{ work.count|miles }} {{ work.text }}.</p>
+    <p class="mt-2"><a href="{{ work.work_url }}" target="_blank" rel="noopener" class="btn-primary btn-sm">{{ work.action }} →</a></p>
+    {% else %}
+    <p>No hay riesgos esperando una decisión de tratamiento.</p>
+    {% endif %}
+  </div>
+</div>

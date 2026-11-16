@@ -1,0 +1,33 @@
+{% load inventory %}
+{% comment %}
+Estaciones del recorrido y franja del motor de IA local. Cada estación es un enlace que abre su
+panel dentro de Inicio (HTMX cambia #etapa; sin JS, ?etapa=… recarga con el panel abierto). La
+que está abierta se marca y su enlace pasa a cerrarla. ``oob`` es verdadero cuando el fragmento
+viaja junto al panel para actualizar esta marca sin repetir la animación de entrada.
+{% endcomment %}
+<div id="flow" class="flow-wrap{% if oob %} is-static{% endif %}"{% if oob %} hx-swap-oob="true"{% endif %}>
+  <ol class="flow">
+    {% for st in hero.flow %}
+    <li class="flow-step{% if st.key == stage %} is-open{% endif %}{% if st.busy %} is-busy{% endif %}" data-flow-step="{{ st.key }}">
+      <a class="flow-card" href="?{% if st.key != stage %}etapa={{ st.key }}{% endif %}#recorrido" hx-get="{% url 'home_block' 'stage' %}?etapa={% if st.key != stage %}{{ st.key }}{% endif %}" hx-target="#etapa" hx-swap="outerHTML" aria-expanded="{% if st.key == stage %}true{% else %}false{% endif %}" aria-controls="etapa" data-flow-link>
+        <span class="flow-actor flow-actor-{{ st.kind }}"><span class="flow-busy" aria-hidden="true"></span>{{ st.actor }}</span>
+        <span class="flow-value" data-hero-stage-value="{{ st.key }}">{{ st.value|miles }}</span>
+        <span class="flow-label">{{ st.label }}</span>
+        <span class="flow-sub" data-hero-stage-sub="{{ st.key }}">{{ st.sub }}</span>
+        <span class="flow-scope">{{ st.scope }}</span>
+      </a>
+    </li>
+    {% endfor %}
+  </ol>
+  <a class="flow-engine{% if stage == 'ai' %} is-open{% endif %}{% if hero.engine.busy %} is-busy{% endif %}{% if not hero.engine.ok %} is-down{% endif %}" href="?{% if stage != 'ai' %}etapa=ai{% endif %}#recorrido" hx-get="{% url 'home_block' 'stage' %}?etapa={% if stage != 'ai' %}ai{% endif %}" hx-target="#etapa" hx-swap="outerHTML" aria-expanded="{% if stage == 'ai' %}true{% else %}false{% endif %}" aria-controls="etapa" data-flow-step="ai" data-flow-link>
+    <span class="flow-engine-name"><span class="flow-engine-dot" aria-hidden="true"></span>IA local <span class="font-mono font-normal">{{ hero.engine.model }}</span> · <span data-hero-engine="state">{{ hero.engine.state }}</span></span>
+    <span class="flow-engine-stats"><span data-hero-engine="calls">{{ hero.engine.calls|miles }}</span> inferencias en {{ hero.window_days }} días · <span data-hero-engine="ok_pct">{{ hero.engine.ok_pct|floatformat:0 }}</span> % aceptadas por el validador · <span data-hero-engine="hours">{{ hero.engine.hours }}</span> h de cómputo{% if hero.engine.local %} · todo en este equipo{% endif %}</span>
+    <span class="flow-engine-more">Cómo trabaja</span>
+  </a>
+  {% if hero.empty %}
+  <p class="stage-note mt-2" role="note" data-flow-empty><strong class="font-medium text-ink">Todavía no hay activos inventariados.</strong> El recorrido empieza cuando Atalaya conoce un activo: desde ahí cruza cada señal de inteligencia con su software, decide qué comprobar y valora lo que encuentra.{% if perms.assets.view_asset %} <a href="{% url 'assets:list' %}" target="_blank" rel="noopener" class="out" title="Se abre en otra pestaña">Abrir el inventario</a>{% endif %}</p>
+  {% elif hero.quiet %}
+  <p class="stage-note mt-2" role="note" data-flow-empty>Hay activos, pero en esta ventana todavía no llega ninguna señal: la próxima sincronización de inteligencia o el próximo cambio del inventario pone el recorrido en marcha.</p>
+  {% endif %}
+  <p class="flow-now{% if hero.now.working %} is-working{% endif %}" role="status"><span class="flow-now-label">Ahora</span> <span data-hero-now="text">{{ hero.now.text }}</span> · <span data-hero-now="mode"{% if hero.now.paused %} class="text-critical"{% endif %}>{{ hero.now.mode }}</span></p>
+</div>

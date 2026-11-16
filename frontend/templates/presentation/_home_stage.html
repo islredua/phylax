@@ -1,0 +1,23 @@
+{% comment %}
+Panel de la etapa abierta del recorrido (detalle a demanda, dentro de Inicio). Vacío si no hay
+ninguna. Cuando llega por HTMX trae además, fuera de banda, las estaciones con su nueva marca.
+{% endcomment %}
+<div id="etapa" class="stage{% if not stage %} stage-empty{% endif %}" data-stage="{{ stage }}"{% if stage %} role="region" aria-labelledby="etapa-titulo"{% endif %}>
+  {% if stage %}
+  <div class="stage-head">
+    <h3 id="etapa-titulo" class="stage-title">{{ stage_title }}</h3>
+    <a href="?#recorrido" hx-get="{% url 'home_block' 'stage' %}?etapa=" hx-target="#etapa" hx-swap="outerHTML" class="btn-secondary btn-sm" data-stage-close>Cerrar</a>
+  </div>
+  {% if stage == "signals" %}{% include "presentation/stages/signals.html" %}
+  {% elif stage == "match" %}{% include "presentation/stages/match.html" %}
+  {% elif stage == "decisions" %}{% include "presentation/stages/decisions.html" %}
+  {% elif stage == "scans" %}{% include "presentation/stages/scans.html" %}
+  {% elif stage == "observations" %}{% include "presentation/stages/observations.html" %}
+  {% elif stage == "vulnerabilities" %}{% include "presentation/stages/vulnerabilities.html" %}
+  {% elif stage == "risks" %}{% include "presentation/stages/risks.html" %}
+  {% elif stage == "ai" %}{% include "presentation/stages/ai.html" %}
+  {% endif %}
+  {% if links %}<p class="stage-links">{% for label, url in links %}<a href="{{ url }}" target="_blank" rel="noopener" class="out">{{ label }}</a>{% endfor %}</p>{% endif %}
+  {% endif %}
+</div>
+{% if oob %}{% include "presentation/_home_flow.html" %}{% endif %}

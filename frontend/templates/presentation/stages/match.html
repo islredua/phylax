@@ -1,0 +1,22 @@
+{% load inventory l10n %}
+<p class="stage-lead">Cada señal se compara con el software que Atalaya conoce de cada activo: {{ flow.match.components|pl:"componente,componentes" }} de {{ flow.match.products|pl:"producto,productos" }} en {{ flow.match.assets_with_software|pl:"activo,activos" }}. Lo que no coincide se descarta por regla, sin gastar una sola llamada al modelo.</p>
+<div class="tiles tiles-3">
+  <div class="tile"><p class="tile-value">{{ flow.match.filtered|miles }}</p><p class="tile-label">descartadas por regla ({{ flow.match.filtered_pct }} % de las señales)</p></div>
+  <div class="tile"><p class="tile-value">{{ flow.match.reconciled|miles }}</p><p class="tile-label">resueltas sin escanear: el producto y la versión coinciden y la observación se registra sola</p></div>
+  <div class="tile tile-accent"><p class="tile-value">{{ flow.match.to_planner|miles }}</p><p class="tile-label">pasaron al planificador porque hace falta decidir qué comprobar</p></div>
+</div>
+<div class="stage-grid">
+  <div>
+    <p class="stage-sub">Por qué se descartaron</p>
+    <ul class="bars">
+      {% for row in reasons %}
+      <li class="bar-row bar-row-wide"><span class="bar-label">{{ row.label|capfirst }}</span><span class="bar-track"><span class="bar-fill" style="width:{{ row.width|unlocalize }}%"></span></span><span class="bar-value">{{ row.value|miles }}</span></li>
+      {% empty %}<li class="text-sm text-muted">No se ha descartado ninguna señal en este periodo.</li>
+      {% endfor %}
+    </ul>
+  </div>
+  <div class="stage-note">
+    <p><strong>Así se cruza la inteligencia con el inventario.</strong> Un CVE nombra productos y rangos de versiones. Si ningún activo tiene ese producto, o lo tiene en una versión que no está afectada, la señal termina aquí. Si coincide, nace una observación sin tocar el activo; los escaneos vienen después, solo donde hace falta confirmar.</p>
+    {% if flow.match.pending %}<p class="mt-2">{{ flow.match.pending|pl:"señal espera,señales esperan" }} su turno ahora mismo.</p>{% endif %}
+  </div>
+</div>

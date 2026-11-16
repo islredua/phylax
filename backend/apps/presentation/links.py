@@ -142,7 +142,11 @@ class Linker:
         out, pos = [], 0
         for start, end, url in self.spans(text):
             out.append(escape(text[pos:start]))
-            out.append(f'<a href="{escape(url)}" class="nar-link">{escape(text[start:end])}</a>')
+            # La narrativa vive en Inicio: lo que enlaza se abre en otra pestaña.
+            out.append(
+                f'<a href="{escape(url)}" class="nar-link" target="_blank" rel="noopener">'
+                f"{escape(text[start:end])}</a>"
+            )
             pos = end
         out.append(escape(text[pos:]))
         return mark_safe("".join(out))
