@@ -535,64 +535,90 @@ def health_target(data) -> str:
 
 
 def today(data=None) -> list[dict]:
-    """«Qué hago hoy»: lo que exige una decisión humana, con el conteo y el enlace que lo filtra."""
+    """«Qué hago hoy»: lo que exige una decisión humana.
+
+    Cada elemento separa **ver** (``url``: la lista filtrada, con la etiqueta ``view``) de
+    **hacer** (``work_url`` + ``action``): el botón de acción abre el primer riesgo en su
+    formulario de tratamiento y, al guardar, pasa al siguiente. Lo que no tiene una acción
+    directa solo ofrece el enlace, con un nombre que dice lo que hace.
+    """
+    from apps.detection.views import risk_queue
+
     data = data or current()
     r, v, a = data["risks"], data["vulnerabilities"], data["actions"]
     risks_url = reverse("detection:risks")
     panel_url = reverse("detection:panel")
     items = []
 
-    def add(level, count, singular, plural, action, url):
-        if count:
-            items.append(
-                {
-                    "level": level,
-                    "count": count,
-                    "text": singular if count == 1 else plural,
-                    "action": action,
-                    "url": url,
-                }
-            )
+    def add(
+        level,
+        count,
+        singular,
+        plural,
+        *,
+        url=None,
+        query=None,
+        work=None,
+        view="Ver lista",
+        list_query=None,
+    ):
+        if not count:
+            return
+        queue = risk_queue(query) if query and work else None
+        items.append(
+            {
+                "level": level,
+                "count": count,
+                "text": singular if count == 1 else plural,
+                "url": url or f"{risks_url}?{list_query or query}",
+                "view": view,
+                "action": work or "",
+                "work_url": queue["first_url"] if queue and queue["total"] else "",
+            }
+        )
 
     add(
         "critical",
         r["critical"],
         "riesgo crítico abierto",
         "riesgos críticos abiertos",
-        "Decidir el tratamiento",
-        f"{risks_url}?level=CRITICAL",
+        query="level=CRITICAL&treatment=none",
+        list_query="level=CRITICAL",
+        work="Decidir tratamiento",
     )
     add(
         "critical",
         v["kev_overdue"],
         "vulnerabilidad con el plazo de CISA vencido",
         "vulnerabilidades con el plazo de CISA vencido",
-        "Remediar o aceptar el riesgo",
-        f"{panel_url}?in_kev=1&overdue=1",
+        url=f"{panel_url}?in_kev=1&overdue=1",
+        query="kev_overdue=1",
+        work="Atender sus riesgos",
+        view="Ver vulnerabilidades",
     )
     add(
         "high",
         v.get("unverified_assets_without_risk", 0),
         "activo de criticidad alta con posibles vulnerabilidades explotables sin verificar",
         "activos de criticidad alta con posibles vulnerabilidades explotables sin verificar",
-        "Verificar con una herramienta",
-        f"{panel_url}?status=NEEDS_VERIFICATION&exploitable=1",
+        url=f"{panel_url}?status=NEEDS_VERIFICATION&exploitable=1",
+        view="Ver candidatas",
     )
     add(
         "high",
         r.get("followup_overdue", 0),
         "riesgo con fecha compromiso o revisión vencida",
         "riesgos con fecha compromiso o revisión vencida",
-        "Dar seguimiento",
-        f"{risks_url}?overdue=1",
+        query="overdue=1",
+        work="Actualizar seguimiento",
     )
     add(
         "medium",
         a["pending_approval"],
         "acción del planificador espera aprobación",
         "acciones del planificador esperan aprobación",
-        "Revisar la cola",
-        reverse("detection:queue"),
+        url=reverse("detection:queue"),
+        view="Aprobar o rechazar",
     )
     untreated = max(r["untreated"] - r["critical"], 0) if r["critical"] else r["untreated"]
     suffix = " (además de los críticos)" if r["critical"] else ""
@@ -601,8 +627,8 @@ def today(data=None) -> list[dict]:
         untreated,
         "riesgo abierto sin tratamiento decidido" + suffix,
         "riesgos abiertos sin tratamiento decidido" + suffix,
-        "Registrar tratamiento",
-        f"{risks_url}?treatment=none",
+        query="treatment=none",
+        work="Decidir tratamiento",
     )
     if data["llm"]["status"].get("available") is False:
         add(
@@ -610,8 +636,8 @@ def today(data=None) -> list[dict]:
             1,
             "el modelo local no responde; las evaluaciones corren por regla",
             "",
-            "Revisar el LLM",
-            reverse("llm:settings"),
+            url=reverse("llm:settings"),
+            view="Revisar el modelo",
         )
     stale = [k for k, s in data["cti"].get("sources", {}).items() if s["stale"]]
     add(
@@ -619,7 +645,7 @@ def today(data=None) -> list[dict]:
         len(stale),
         "fuente de inteligencia sin sincronizar",
         "fuentes de inteligencia sin sincronizar",
-        "Sincronizar",
-        reverse("detection:sources"),
+        url=reverse("detection:sources"),
+        view="Abrir fuentes",
     )
     return items

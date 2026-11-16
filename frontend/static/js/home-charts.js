@@ -119,14 +119,56 @@
     });
   }
 
+  // --- Gráfica maestra: cifras que cuentan hasta su valor y barras que se reajustan en sitio ---
+  var reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var fmt = new Intl.NumberFormat("es-MX");
+  function countTo(el, target) {
+    if (!el) return;
+    var from = parseInt(el.getAttribute("data-value") || "0", 10);
+    el.setAttribute("data-value", String(target));
+    if (reduced || from === target) { el.textContent = fmt.format(target); return; }
+    var start = null;
+    function step(ts) {
+      if (start === null) start = ts;
+      var t = Math.min((ts - start) / 700, 1);
+      var eased = 1 - Math.pow(1 - t, 3);
+      el.textContent = fmt.format(Math.round(from + (target - from) * eased));
+      if (t < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+  function hero(data) {
+    if (!data || !document.querySelector("[data-hero]")) return;
+    ["open", "assets", "untreated"].forEach(function (key) {
+      countTo(document.querySelector('[data-hero-count="' + key + '"]'), data[key]);
+    });
+    data.funnel.forEach(function (stage) {
+      var bar = document.querySelector('[data-hero-stage="' + stage.key + '"]');
+      if (bar) bar.style.width = stage.width + "%";
+      countTo(document.querySelector('[data-hero-stage-value="' + stage.key + '"]'), stage.value);
+    });
+    data.levels.forEach(function (level) {
+      var part = document.querySelector('[data-hero-level="' + level.key + '"]');
+      if (part) {
+        part.hidden = !level.value;
+        part.style.flexGrow = String(level.value);
+        part.title = level.label + ": " + level.value;
+      }
+      var value = document.querySelector('[data-hero-level-value="' + level.key + '"]');
+      if (value) value.textContent = fmt.format(level.value);
+    });
+  }
+
   function render(payload) {
+    hero(payload.hero);
     lineChart("risk_trend", payload.risk_trend, payload.has_trend);
     lineChart("vuln_trend", payload.vuln_trend, payload.has_trend);
     barChart("levels", payload.levels, true);
     barChart("sources", payload.sources, true);
     barChart("priority", payload.priority, false);
-    var stamp = document.querySelector("[data-charts-stamp]");
-    if (stamp) stamp.textContent = payload.computed_at;
+    document.querySelectorAll("[data-charts-stamp]").forEach(function (stamp) {
+      stamp.textContent = payload.computed_at;
+    });
     lastOk = payload.computed_at;
     offline(false);
   }

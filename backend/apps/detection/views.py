@@ -753,6 +753,53 @@ def filter_risks(params):
     return qs, form
 
 
+QUEUE_LIMIT = 500
+QUEUE_LABELS = (
+    ("kev_overdue", "riesgos con plazo de CISA vencido"),
+    ("overdue", "riesgos con seguimiento vencido"),
+    ("treatment", "riesgos sin tratamiento decidido"),
+)
+
+
+def risk_queue(query, current_pk=None):
+    """Cola de trabajo sobre el registro: los riesgos que cumplen ``query`` (los mismos filtros
+    de la lista), en orden de trabajo, para atenderlos uno tras otro sin volver a la lista.
+
+    Devuelve ``None`` si la consulta no es válida o no queda nada; si no, cuántos quedan, la
+    posición del riesgo actual (``None`` si ya salió de la cola, p. ej. porque se acaba de
+    decidir), el enlace al siguiente y a la lista.
+    """
+    from urllib.parse import quote
+
+    from django.http import QueryDict
+
+    query = (query or "").lstrip("?")[:500]
+    qs, form = filter_risks(QueryDict(query))
+    if not form.is_valid():
+        return None
+    pks = list(risks.triage_order(qs).values_list("pk", flat=True)[:QUEUE_LIMIT])
+    list_url = f"{reverse('detection:risks')}?{query}"
+    label = next((text for key, text in QUEUE_LABELS if f"{key}=" in query), "riesgos de la lista")
+
+    def url_for(pk):
+        return f"{reverse('detection:risk', args=[pk])}?cola={quote(query, safe='')}#tratamiento"
+
+    position = pks.index(current_pk) if current_pk in pks else None
+    if position is None:
+        following = pks[0] if pks else None
+    else:
+        following = pks[position + 1] if position + 1 < len(pks) else None
+    return {
+        "query": query,
+        "label": label,
+        "total": len(pks),
+        "position": position + 1 if position is not None else None,
+        "first_url": url_for(pks[0]) if pks else "",
+        "next_url": url_for(following) if following else "",
+        "list_url": list_url,
+    }
+
+
 class RiskRegisterView(Perm, PaginationMixin, ListView):
     """Registro de riesgos (ISO/IEC 27005) con la matriz 5×5 de los riesgos listados."""
 
@@ -806,6 +853,9 @@ class RiskDetailView(Perm, TemplateView):
             matrix=risks.matrix([risk]),
             closure=risks.closure(risk),
             consolidation_pending=consolidation.is_pending(risk.asset_id),
+            queue=risk_queue(self.request.GET["cola"], risk.pk)
+            if self.request.GET.get("cola")
+            else None,
             treatment_form=RiskTreatmentForm(
                 initial={
                     "treatment": risk.treatment,
@@ -900,6 +950,14 @@ class RiskTreatmentView(Perm, View):
             )
         except ValueError as error:
             messages.error(request, str(error))
+            return HttpResponseRedirect(back)
+        # En una cola de trabajo, tras decidir se pasa al siguiente riesgo (o a la lista al acabar).
+        queue = risk_queue(request.POST.get("cola"), pk) if request.POST.get("cola") else None
+        if queue:
+            if queue["next_url"]:
+                return HttpResponseRedirect(queue["next_url"])
+            messages.success(request, f"Cola terminada: no quedan {queue['label']}.")
+            return HttpResponseRedirect(queue["list_url"])
         return HttpResponseRedirect(back)
 
 

@@ -617,3 +617,11 @@ ventana no operativa y los guardarraíles.
   GHSA: el hallazgo se identifica por el CVE relacionado (para deduplicar con la CTI) y el GHSA queda
   como alias en la evidencia. Un SBOM de paquetes de distribución sin metadatos del sistema operativo
   (como `sample-cyclonedx.json`) no produce coincidencias en Grype.
+
+**Registro de riesgos, revisión del 2026-11-16.** El bloque «Hoy» pasó de una lista a todo lo
+ancho a una franja de tarjetas compactas (`detection/_today.html`) y sus botones dejaron de ser
+filtros disfrazados: «Decidir tratamiento» abre la cola de trabajo descrita en
+`docs/modules/05-inicio.md` (primer riesgo en su formulario; al guardar, el siguiente) y el enlace
+a la lista se llama «Ver lista». Las acciones recomendadas de una vulnerabilidad llevan viñetas y
+las recomendaciones del riesgo, numeración visible.
+

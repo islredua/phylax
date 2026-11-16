@@ -18,6 +18,16 @@
 </div>
 {% endblock %}
 {% block content %}
+{% if queue %}
+<div class="queue-bar" role="status">
+  <span><strong>Cola de trabajo:</strong> {{ queue.label }} · {% if queue.position %}{{ queue.position }} de {{ queue.total }}{% elif queue.total %}este ya está atendido; quedan {{ queue.total }}{% else %}no queda ninguno{% endif %}. Al registrar el tratamiento pasas al siguiente.</span>
+  <span class="flex flex-wrap gap-2">
+    <a href="#tratamiento" class="btn-primary btn-sm">Ir al tratamiento ↓</a>
+    {% if queue.next_url %}<a href="{{ queue.next_url }}" class="btn-secondary btn-sm">Saltar al siguiente →</a>{% endif %}
+    <a href="{{ queue.list_url }}" class="btn-secondary btn-sm">Salir a la lista</a>
+  </span>
+</div>
+{% endif %}
 {% if risk.cause %}<p class="-mt-2 text-sm text-ink-soft">por {{ risk.cause }}</p>{% endif %}
 {% if closure %}
 <div class="alert-info" role="status">
@@ -42,7 +52,7 @@
       <p class="mb-3 text-xs text-muted">Para el equipo técnico: software y versiones afectadas, cómo se encadenaría el ataque y qué lo sustenta. Las vulnerabilidades que cita el texto abren su ficha en otra pestaña; la lista completa está en la evidencia técnica.</p>
       <div class="flex flex-col gap-2 text-sm">{% risk_text risk.details|default:risk.scenario risk %}</div>
       <p class="kv-label mt-4">Recomendaciones</p>
-      {% if risk.recommendations %}<ol class="mt-1 flex flex-col gap-1 pl-5 text-sm text-ink-soft">{% for r in risk.recommendations %}<li>{{ r }}</li>{% endfor %}</ol>{% else %}<p class="mt-1 text-sm text-muted">Sin recomendaciones propias; ver las acciones de cada vulnerabilidad ligada.</p>{% endif %}
+      {% if risk.recommendations %}<ol class="mt-1 flex list-decimal flex-col gap-1 pl-5 text-sm text-ink-soft marker:text-muted">{% for r in risk.recommendations %}<li>{{ r }}</li>{% endfor %}</ol>{% else %}<p class="mt-1 text-sm text-muted">Sin recomendaciones propias; ver las acciones de cada vulnerabilidad ligada.</p>{% endif %}
     </section>
 
     <section class="card">
@@ -115,6 +125,7 @@
       {% if not closure %}
       <form method="post" action="{% url 'detection:risk_treatment' risk.pk %}" class="flex flex-col gap-2 border-t border-line-soft pt-3">
         {% csrf_token %}
+        {% if queue %}<input type="hidden" name="cola" value="{{ queue.query }}"><input type="hidden" name="next" value="{{ request.get_full_path }}">{% endif %}
         <label class="form-label" for="treatment">Opción (ISO/IEC 27005)</label>
         <select id="treatment" name="treatment" class="form-input">{% for value, label in treatment_form.fields.treatment.choices %}<option value="{{ value }}"{% if value == risk.treatment %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
         <label class="form-label" for="owner">Responsable</label>

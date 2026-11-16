@@ -111,3 +111,29 @@ Resultado final: 5 de 5 generaciones consecutivas coherentes al primer intento (
 titular «13 riesgos abiertos, 1 crítico; fuga de información en api-pagos», cifras todas presentes
 en la entrada, activos nombrados solo los de `top_risks`. La narrativa por regla aparece al instante
 en la primera visita y se sustituye por la de IA cuando el modelo queda libre.
+
+## Revisión del 2026-11-16: gráfica maestra primero, texto después
+
+Orden de lectura de Inicio (lo visual arriba, el texto abajo; divulgación progresiva):
+
+1. **Gráfica maestra** (`_home_hero.html`, `views.hero_payload`): estado de salud y titular, la
+   cifra principal (riesgos abiertos, con su variación), el reparto por nivel en una barra
+   segmentada y el embudo «Del ruido a la decisión» (observaciones → vulnerabilidades sostenidas →
+   prioridad crítica o alta → riesgos abiertos → riesgos críticos). Se dibuja en el servidor, entra
+   animada por CSS (respeta `prefers-reduced-motion`) y `home-charts.js` la refresca en sitio cada
+   minuto con el mismo JSON de las gráficas (`hero`). Cada etapa y cada tramo abre su lista. El
+   ancho de las barras va en escala de raíz cuadrada y la cifra exacta siempre va escrita. La
+   gráfica de barras «Riesgos abiertos por nivel» se retiró: duplicaba la barra segmentada.
+2. **Qué hago hoy** (`detection/_today.html`, compartido con Riesgos): tarjetas compactas en
+   rejilla. Cada una separa **ver** (el texto y el enlace abren la lista filtrada, con un nombre
+   que dice lo que hace) de **hacer** (el botón primario).
+3. Indicadores, tendencias y comparativas.
+4. La **lectura del estado** redactada por la IA, lo que el sistema hizo solo y la tabla de riesgos.
+
+**Los botones hacen lo que dicen.** «Decidir tratamiento», «Atender uno a uno» y «Actualizar
+seguimiento» abren una **cola de trabajo** (`detection.views.risk_queue`): el primer riesgo de esa
+lista, ya en su formulario de tratamiento (`?cola=<filtros>#tratamiento`), con una banda que dice
+la posición («3 de 9»), permite saltar al siguiente o salir a la lista y, al registrar el
+tratamiento, lleva al siguiente riesgo; al terminar vuelve a la lista con el aviso de cola
+terminada. Lo que no tiene una acción directa (aprobar acciones, verificar candidatas, fuentes sin
+sincronizar) ofrece solo el enlace, nombrado como lo que es.

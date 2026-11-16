@@ -394,12 +394,14 @@ def test_home_narrative_links_to_the_sections_and_charts_are_dynamic(client, as_
     _asset_with_risk()
     body = client.get("/").content.decode()
     assert 'class="nar-link"' in body and "vendor/chart-4.4.1.umd.js" in body
-    assert body.count("<canvas") == 5 and 'data-home-charts="/home/charts.json"' in body
+    # Los niveles ya no son una quinta gráfica: van en la barra segmentada de la gráfica maestra.
+    assert body.count("<canvas") == 4 and 'data-home-charts="/home/charts.json"' in body
     assert "Ver datos" in body  # tabla de respaldo sin JS
     payload = client.get("/home/charts.json").json()
     assert set(payload) == {
         "computed_at",
         "has_trend",
+        "hero",
         "risk_trend",
         "vuln_trend",
         "levels",
@@ -560,3 +562,36 @@ def test_activity_hides_filtered_events_unless_asked(client, as_role):
     assert "Descartado por el filtro" not in body
     body = client.get("/detection/activity/?kind=event&filtered=1").content.decode()
     assert "Descartado por el filtro" in body
+
+
+def test_home_opens_with_the_master_chart_then_today_then_text(client, as_role):
+    as_role(OPERATOR)
+    _asset_with_risk()
+    Risk.objects.update(level=RiskLevel.CRITICAL, likelihood=5, impact=5)
+    indicators.invalidate()
+    body = client.get("/").content.decode()
+    # Orden de lectura: gráfica maestra → qué hago hoy → indicadores → texto de la narrativa.
+    order = [
+        body.index(mark) for mark in ("data-hero", 'id="hoy"', 'id="indicadores"', 'id="narrativa"')
+    ]
+    assert order == sorted(order)
+    assert "Del ruido a la decisión" in body and body.count('class="funnel-row') == 5
+    hero = client.get("/home/charts.json").json()["hero"]
+    assert [s["key"] for s in hero["funnel"]] == [
+        "observations",
+        "vulnerabilities",
+        "prioritized",
+        "risks",
+        "critical",
+    ]
+    assert hero["open"] == 1 and hero["funnel"][-1]["value"] == 1
+    assert all(3 <= s["width"] <= 100 for s in hero["funnel"])
+    assert sum(level["value"] for level in hero["levels"]) == 1
+    # «Qué hago hoy»: el botón hace lo que dice (abre el riesgo en su tratamiento, en cola) y
+    # el enlace a la lista se llama como lo que es.
+    risk = Risk.objects.get()
+    item = next(i for i in indicators.today(indicators.current()) if "crítico" in i["text"])
+    assert item["action"] == "Decidir tratamiento" and item["view"] == "Ver lista"
+    assert item["work_url"].startswith(f"/detection/risks/{risk.pk}/?cola=")
+    assert item["work_url"].endswith("#tratamiento") and item["url"] == "/detection/?level=CRITICAL"
+    assert "Decidir tratamiento →" in body and "Ver lista" in body

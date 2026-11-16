@@ -1675,11 +1675,18 @@ def by_owner(asset_id=None):
 
 
 def today(asset_id=None):
-    """«Hoy» del registro: lo que una persona debe decidir primero, con enlace a cada lista."""
+    """«Hoy» del registro: lo que una persona debe decidir primero.
+
+    Cada elemento separa **ver** de **hacer**: ``url`` abre la lista filtrada y ``work_url``
+    (si existe) empieza el trabajo de verdad: abre el primer riesgo en su formulario de
+    tratamiento y, al guardar, pasa al siguiente (cola de trabajo, ``views.risk_queue``).
+    """
     from django.db.models import Q
     from django.urls import reverse
 
     from apps.assets.models import Asset
+
+    from .views import risk_queue
 
     suffix = f"&asset={asset_id}" if asset_id else ""
     base = reverse("detection:risks")
@@ -1690,84 +1697,74 @@ def today(asset_id=None):
         open_qs = open_qs.filter(asset_id=asset_id)
         vulns = vulns.filter(asset_id=asset_id)
     items = []
-    critical = open_qs.filter(level=RiskLevel.CRITICAL, treatment="").count()
-    if critical:
+
+    def add(level, count, singular, plural, *, query=None, url=None, work=None, view="Ver lista"):
+        if not count:
+            return
+        queue = risk_queue(query + suffix) if query and work else None
         items.append(
             {
-                "level": "critical",
-                "count": critical,
-                "text": "riesgo crítico sin tratamiento decidido"
-                if critical == 1
-                else "riesgos críticos sin tratamiento decidido",
-                "action": "Decidir",
-                "url": f"{base}?level=CRITICAL&treatment=none{suffix}",
+                "level": level,
+                "count": count,
+                "text": singular if count == 1 else plural,
+                "url": url or f"{base}?{query}{suffix}",
+                "view": view,
+                "action": work or "",
+                "work_url": queue["first_url"] if queue else "",
             }
         )
-    overdue = open_qs.filter(kev_overdue_filter()).distinct().count()
-    if overdue:
-        items.append(
-            {
-                "level": "critical",
-                "count": overdue,
-                "text": "riesgo con plazo de remediación de CISA vencido"
-                if overdue == 1
-                else "riesgos con plazo de remediación de CISA vencido",
-                "action": "Ver",
-                "url": f"{base}?kev_overdue=1{suffix}",
-            }
-        )
-    overdue_followup = open_qs.filter(followup_overdue_filter()).count()
-    if overdue_followup:
-        items.append(
-            {
-                "level": "high",
-                "count": overdue_followup,
-                "text": "riesgo con fecha compromiso o revisión vencida"
-                if overdue_followup == 1
-                else "riesgos con fecha compromiso o revisión vencida",
-                "action": "Dar seguimiento",
-                "url": f"{base}?overdue=1{suffix}",
-            }
-        )
+
+    add(
+        "critical",
+        open_qs.filter(level=RiskLevel.CRITICAL, treatment="").count(),
+        "riesgo crítico sin tratamiento decidido",
+        "riesgos críticos sin tratamiento decidido",
+        query="level=CRITICAL&treatment=none",
+        work="Decidir tratamiento",
+    )
+    add(
+        "critical",
+        open_qs.filter(kev_overdue_filter()).distinct().count(),
+        "riesgo con plazo de remediación de CISA vencido",
+        "riesgos con plazo de remediación de CISA vencido",
+        query="kev_overdue=1",
+        work="Atender uno a uno",
+    )
+    add(
+        "high",
+        open_qs.filter(followup_overdue_filter()).count(),
+        "riesgo con fecha compromiso o revisión vencida",
+        "riesgos con fecha compromiso o revisión vencida",
+        query="overdue=1",
+        work="Actualizar seguimiento",
+    )
     # Posibles vulnerabilidades explotables sin verificar en activos importantes y sin riesgo:
     # no aparecen en el registro porque la valoración no las sostiene todavía.
     unverified = vulns.filter(status=VulnerabilityStatus.NEEDS_VERIFICATION).filter(
         Q(in_kev=True) | Q(cvss_score__gte=9)
     )
-    exposed_assets = (
+    add(
+        "high",
         Asset.objects.filter(
             pk__in=unverified.values("asset_id"), criticality__in=("CRITICO", "ALTO")
         )
         .exclude(pk__in=open_qs.values("asset_id"))
-        .count()
+        .count(),
+        "activo de criticidad alta con posibles vulnerabilidades explotables sin verificar y "
+        "sin riesgo registrado",
+        "activos de criticidad alta con posibles vulnerabilidades explotables sin verificar y "
+        "sin riesgo registrado",
+        url=f"{panel}?status=NEEDS_VERIFICATION&exploitable=1{suffix}",
+        view="Ver candidatas",
     )
-    if exposed_assets:
-        items.append(
-            {
-                "level": "high",
-                "count": exposed_assets,
-                "text": "activo de criticidad alta con posibles vulnerabilidades explotables sin "
-                "verificar y sin riesgo registrado"
-                if exposed_assets == 1
-                else "activos de criticidad alta con posibles vulnerabilidades explotables sin "
-                "verificar y sin riesgo registrado",
-                "action": "Verificar",
-                "url": f"{panel}?status=NEEDS_VERIFICATION&exploitable=1{suffix}",
-            }
-        )
-    untreated = open_qs.filter(treatment="").exclude(level=RiskLevel.CRITICAL).count()
-    if untreated:
-        items.append(
-            {
-                "level": "medium",
-                "count": untreated,
-                "text": "riesgo más espera una decisión de tratamiento"
-                if untreated == 1
-                else "riesgos más esperan una decisión de tratamiento",
-                "action": "Revisar",
-                "url": f"{base}?treatment=none{suffix}",
-            }
-        )
+    add(
+        "medium",
+        open_qs.filter(treatment="").exclude(level=RiskLevel.CRITICAL).count(),
+        "riesgo más espera una decisión de tratamiento",
+        "riesgos más esperan una decisión de tratamiento",
+        query="treatment=none",
+        work="Decidir tratamiento",
+    )
     return items
 
 

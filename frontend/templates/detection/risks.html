@@ -18,19 +18,7 @@
 </div>
 {% endblock %}
 {% block content %}
-{% if today %}
-<section class="today" aria-labelledby="hoy-titulo">
-  <h3 id="hoy-titulo" class="card-title mb-2">Hoy</h3>
-  <ul class="flex flex-col">
-    {% for item in today %}
-    <li class="today-item">
-      <span class="flex items-start gap-2 text-sm"><span class="{% if item.level == 'critical' %}badge-critical{% elif item.level == 'high' %}badge-high{% else %}badge-medium{% endif %} shrink-0">{{ item.count|miles }}</span><span>{{ item.text }}</span></span>
-      <a href="{{ item.url }}" class="btn-secondary btn-sm shrink-0">{{ item.action }}</a>
-    </li>
-    {% endfor %}
-  </ul>
-</section>
-{% endif %}
+{% if today %}{% include "detection/_today.html" with title="Hoy" %}{% endif %}
 {# Números generales y matriz lado a lado: las tarjetas en dos filas de cuatro (nunca ocho apretadas), #}
 {# la matriz con su ancho natural; los filtros van debajo a todo lo ancho. #}
 <div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">

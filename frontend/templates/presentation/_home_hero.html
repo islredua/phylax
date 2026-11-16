@@ -1,0 +1,44 @@
+{% load presentation_tags inventory l10n %}
+{% comment %}
+Gráfica maestra de Inicio: lo primero que se ve. Izquierda, el estado en una cifra y el reparto de
+los riesgos por nivel; derecha, el embudo «del ruido a la decisión». Se dibuja en el servidor
+(funciona sin JS), entra animada por CSS y home-charts.js la refresca en sitio cada minuto.
+Cada barra y cada tramo es un enlace a la lista que lo sustenta.
+{% endcomment %}
+<section class="hero" data-hero aria-labelledby="hero-titulo">
+  <div class="hero-status">
+    <p class="eyebrow flex flex-wrap items-center gap-2">Estado de salud {% if narrative %}{% if data.no_data %}<span class="badge-neutral">Sin datos suficientes</span>{% else %}<a href="{{ health_url }}" class="hover:no-underline" title="Ver lo que sustenta el semáforo">{% health_badge narrative.status %}</a>{% endif %}{% endif %}<span class="hero-live" title="Los datos se actualizan solos cada minuto"><span class="hero-live-dot" aria-hidden="true"></span>en vivo · <span data-charts-stamp>{{ data.computed_at|hora }}</span></span></p>
+    <h2 id="hero-titulo" class="hero-headline">{% if narrative %}{{ narrative.headline|plain }}{% else %}Estado de la organización{% endif %}</h2>
+    <a href="{% url 'detection:risks' %}" class="hero-figure hover:no-underline" title="Abrir el registro de riesgos">
+      <span class="hero-number" data-hero-count="open">{{ hero.open|miles }}</span>
+      <span class="hero-number-label">{{ hero.open|pl:"-riesgo abierto,riesgos abiertos" }}{% if deltas.available %} <span class="text-sm">{{ deltas.risks_open|delta }}</span><span class="block text-xs text-muted">frente al {{ deltas.since|fecha_corta }}</span>{% endif %}</span>
+    </a>
+    <div>
+      <div class="segbar" role="img" aria-label="Riesgos abiertos por nivel: {% for l in hero.levels %}{{ l.value }} {{ l.label|lower }}{% if not forloop.last %}, {% endif %}{% endfor %}">
+        {% for l in hero.levels %}<a href="{{ l.url }}" class="segbar-part" data-hero-level="{{ l.key }}" style="flex-grow:{{ l.value }};background:{{ l.color }}" title="{{ l.label }}: {{ l.value }}"{% if not l.value %} hidden{% endif %}><span class="sr-only">{{ l.label }}: {{ l.value }}</span></a>{% endfor %}
+      </div>
+      <ul class="segbar-legend">
+        {% for l in hero.levels %}<li><a href="{{ l.url }}" class="hover:no-underline"><span class="legend-dot" style="background:{{ l.color }}"></span> {{ l.label }} <strong class="font-mono text-ink" data-hero-level-value="{{ l.key }}">{{ l.value }}</strong></a></li>{% endfor %}
+      </ul>
+    </div>
+    <p class="text-xs text-muted"><span data-hero-count="assets">{{ hero.assets|miles }}</span> {{ hero.assets|pl:"-activo vigilado,activos vigilados" }} · <a href="{% url 'detection:risks' %}?treatment=none"><span data-hero-count="untreated">{{ hero.untreated|miles }}</span> sin tratamiento decidido</a></p>
+  </div>
+  <div class="hero-funnel">
+    <div class="flex flex-wrap items-baseline justify-between gap-2">
+      <h3 class="card-title mb-0">Del ruido a la decisión</h3>
+      <span class="text-xs text-muted">lo que Atalaya filtra, prioriza y resume por ti · clic en una etapa abre su lista</span>
+    </div>
+    <ol class="funnel">
+      {% for st in hero.funnel %}
+      <li>
+        <a href="{{ st.url }}" class="funnel-row funnel-{{ st.key }}" title="{{ st.hint }}">
+          <span class="funnel-label">{{ st.label }}</span>
+          <span class="funnel-track"><span class="funnel-bar" data-hero-stage="{{ st.key }}" style="width:{{ st.width|unlocalize }}%"></span></span>
+          <span class="funnel-value" data-hero-stage-value="{{ st.key }}">{{ st.value|miles }}</span>
+        </a>
+      </li>
+      {% endfor %}
+    </ol>
+    <p class="text-xs text-muted">Barras en escala comprimida (raíz cuadrada) para que las etapas pequeñas se vean; la cifra exacta va a la derecha. La IA local consolida, prioriza con explotación real y criticidad del activo, y valora cada riesgo; las personas deciden el tratamiento.</p>
+  </div>
+</section>

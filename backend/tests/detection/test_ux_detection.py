@@ -384,6 +384,57 @@ def test_today_block_lists_what_to_decide(client, as_role):
     assert any("exploitable=1" in i["url"] for i in items)
 
 
+def test_today_button_starts_a_work_queue_that_moves_to_the_next_risk(client, as_role):
+    """«Decidir tratamiento» no es un filtro: abre el primer riesgo en su formulario y, al
+    guardar, pasa al siguiente; al terminar vuelve a la lista."""
+    as_role(OPERATOR)
+    first = _nginx_asset(criticality="CRITICO")
+    second = AssetFactory(name="web-poniente", criticality="CRITICO")
+    AssetIdentifierFactory(asset=second, value="10.9.0.11")
+    ServiceFactory(asset=second, port=443, service_name="https", product="nginx", version="1.27.3")
+    components.refresh_components(second.pk)
+    findings.apply_matches(matching.reconcile_assets([second.pk]))
+    for asset in (first, second):
+        consolidation.consolidate_asset(asset.pk, use_llm=False)
+    Risk.objects.update(level="CRITICAL")
+    item = next(i for i in risks.today() if "críticos sin tratamiento" in i["text"])
+    assert item["count"] == 2 and item["action"] == "Decidir tratamiento"
+    assert item["url"] == "/detection/?level=CRITICAL&treatment=none"
+    body = client.get("/detection/").content.decode()
+    assert "Decidir tratamiento →" in body and "today-grid" in body
+    page = client.get(item["work_url"])
+    body = page.content.decode()
+    assert page.context["queue"]["position"] == 1 and page.context["queue"]["total"] == 2
+    assert "Cola de trabajo:" in body and 'name="cola"' in body and "Salir a la lista" in body
+    current = page.context["risk"]
+    data = {
+        "treatment": "MITIGATE",
+        "owner": "Infraestructura",
+        "target_date": "2030-01-15",
+        "cola": page.context["queue"]["query"],
+    }
+    response = client.post(f"/detection/risks/{current.pk}/treatment/", data)
+    other = Risk.objects.exclude(pk=current.pk).get()
+    assert response.status_code == 302
+    assert response["Location"].startswith(f"/detection/risks/{other.pk}/?cola=")
+    # El último de la cola devuelve a la lista con el aviso de cola terminada.
+    response = client.post(f"/detection/risks/{other.pk}/treatment/", data, follow=True)
+    assert response.redirect_chain[-1][0] == "/detection/?level=CRITICAL&treatment=none"
+    assert "Cola terminada" in response.content.decode()
+    # Una cola inválida o ajena no rompe la ficha.
+    assert client.get(f"/detection/risks/{other.pk}/?cola=level%3DNOPE").status_code == 200
+
+
+def test_vulnerability_actions_are_a_bulleted_list(client, as_role):
+    as_role(OPERATOR)
+    asset = _nginx_asset()
+    consolidation.consolidate_asset(asset.pk, use_llm=False)
+    vuln = Vulnerability.objects.filter(asset=asset).first()
+    Vulnerability.objects.filter(pk=vuln.pk).update(actions=["Actualizar nginx.", "Reiniciar."])
+    body = client.get(f"/detection/vulnerabilities/{vuln.pk}/").content.decode()
+    assert '<ul class="mt-1 flex list-disc' in body and "<li>Actualizar nginx.</li>" in body
+
+
 # --- D5: rechazo con motivo, pausa con motivo ---------------------------------------------------
 
 

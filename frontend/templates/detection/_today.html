@@ -1,0 +1,30 @@
+{% load inventory %}
+{% comment %}
+Franja «Hoy»: lo que espera a una persona, en tarjetas compactas (no una lista a todo lo ancho).
+Cada tarjeta separa VER de HACER: el texto abre la lista filtrada; el botón, si existe, empieza el
+trabajo (primer riesgo en su formulario de tratamiento y, al guardar, el siguiente).
+{% endcomment %}
+<section class="today" aria-labelledby="hoy-titulo"{% if anchor %} id="{{ anchor }}"{% endif %}>
+  <div class="today-head">
+    <h2 id="hoy-titulo" class="today-title">{{ title|default:"Hoy" }}</h2>
+    <span class="text-xs text-muted">{% if today %}{{ today|length|pl:"pendiente espera,pendientes esperan" }} a una persona · el botón abre el primero y pasa al siguiente al guardar{% endif %}</span>
+  </div>
+  {% if today %}
+  <ul class="today-grid">
+    {% for item in today %}
+    <li class="today-item today-{{ item.level }}">
+      <span class="today-count">{{ item.count|miles }}</span>
+      <span class="today-body">
+        <a href="{{ item.url }}" class="today-text" title="{{ item.view }}">{{ item.text }}</a>
+        <span class="today-actions">
+          {% if item.work_url %}<a href="{{ item.work_url }}" class="btn-primary btn-sm">{{ item.action }} →</a>{% endif %}
+          <a href="{{ item.url }}" class="{% if item.work_url %}today-link{% else %}btn-secondary btn-sm{% endif %}">{{ item.view }}</a>
+        </span>
+      </span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="text-sm text-ink-soft">{{ empty|default:"Nada espera una decisión humana." }}</p>
+  {% endif %}
+</section>

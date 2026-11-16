@@ -86,6 +86,97 @@ def _charts(data, rows):
     }
 
 
+def hero_payload(data):
+    """Gráfica maestra de Inicio: el embudo «del ruido a la decisión» y el reparto de los riesgos
+    abiertos por nivel. Lo consumen la plantilla (primer dibujo, sin JS) y el JSON de refresco.
+
+    El ancho de cada etapa va en escala de raíz cuadrada (de 1 000 observaciones a 9 riesgos
+    críticos una escala lineal dejaría barras invisibles); la cifra exacta siempre va escrita.
+    """
+    import math
+
+    from apps.detection.models import RiskLevel
+
+    from .templatetags.presentation_tags import LEVEL_COLORS
+
+    risks_url = reverse("detection:risks")
+    panel_url = reverse("detection:panel")
+    v, r = data["vulnerabilities"], data["risks"]
+    prioritized = v["priority"]["contextual_critical"] + v["priority"]["contextual_high"]
+    stages = [
+        (
+            "observations",
+            "Observaciones",
+            data["observations"]["total"],
+            reverse("detection:observations"),
+            "Todo lo que reportaron la inteligencia y las herramientas, sin filtrar",
+        ),
+        (
+            "vulnerabilities",
+            "Vulnerabilidades sostenidas",
+            v["sustained"],
+            panel_url,
+            "Lo que queda tras consolidar duplicados y descartar lo que no aplica",
+        ),
+        (
+            "prioritized",
+            "Prioridad crítica o alta",
+            prioritized,
+            panel_url,
+            "Las que pesan de verdad al ponderar explotación, criticidad del activo y exposición",
+        ),
+        (
+            "risks",
+            "Riesgos abiertos",
+            r["open"],
+            risks_url,
+            "Escenarios de negocio (ISO/IEC 27005) en los que se resumen las vulnerabilidades",
+        ),
+        (
+            "critical",
+            "Riesgos críticos",
+            r["critical"],
+            f"{risks_url}?level=CRITICAL",
+            "Lo que una persona debe decidir primero",
+        ),
+    ]
+    top = max((value for _k, _l, value, _u, _h in stages), default=0) or 1
+
+    def width(value):
+        return max(round(100 * math.sqrt(value / top), 1), 3)
+
+    level_label = dict(RiskLevel.choices)
+    levels = ["CRITICAL", "VERY_HIGH", "HIGH", "MODERATE", "LOW"]
+    total = sum(r["by_level"].get(lvl, 0) for lvl in levels)
+    return {
+        "assets": data["assets"]["total"],
+        "open": r["open"],
+        "untreated": r["untreated"],
+        "funnel": [
+            {
+                "key": key,
+                "label": label,
+                "value": value,
+                "width": width(value),
+                "url": url,
+                "hint": hint,
+            }
+            for key, label, value, url, hint in stages
+        ],
+        "levels": [
+            {
+                "key": lvl,
+                "label": level_label[lvl],
+                "value": r["by_level"].get(lvl, 0),
+                "pct": round(100 * r["by_level"].get(lvl, 0) / total, 2) if total else 0,
+                "color": LEVEL_COLORS[lvl],
+                "url": f"{risks_url}?level={lvl}",
+            }
+            for lvl in levels
+        ],
+    }
+
+
 class HomeView(TemplateView):
     """Inicio (Módulo 5, vista ejecutiva): semáforo y narrativa por IA, indicadores, gráficas,
     lo que el sistema hizo solo, avisos, pulso en tiempo real y descargas. Cada bloque se muestra
@@ -127,6 +218,7 @@ class HomeView(TemplateView):
             data=data,
             deltas=indicators.deltas(data),
             charts=_charts(data, rows),
+            hero=hero_payload(data),
             matrix=risks.matrix(open_risks),
             top_risks=indicators.top_risks(),
             alerts=indicators.alerts(data),
@@ -159,6 +251,7 @@ def chart_payload(data, rows):
     return {
         "computed_at": timezone.localtime().strftime("%H:%M"),
         "has_trend": any(r["has_data"] for r in rows),
+        "hero": hero_payload(data),
         "risk_trend": {
             "labels": labels,
             "series": [
