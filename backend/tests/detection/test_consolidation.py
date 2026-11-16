@@ -886,6 +886,57 @@ def test_beat_drains_missing_descriptions_across_assets(lab_cti, monkeypatch):
     assert tasks.describe_pending_vulnerabilities() == {"queued": 0} and len(queued) == 2
 
 
+def test_failed_description_waits_before_the_drain_retries_it(lab_cti, settings, monkeypatch, user):
+    """Una redacción rechazada no se vuelve a pedir en cada pasada de ``beat``: la espera crece
+    (30 min, 1 h, 2 h… hasta un día). Quien la pide desde el detalle no espera, y al lograrse
+    la redacción la espera se borra."""
+    from django.core.cache import cache
+
+    from apps.detection import descriptions, tasks
+
+    asset = _nginx_asset()
+    findings.apply_matches(matching.reconcile_assets([asset.pk]))
+    consolidation.consolidate_asset(asset.pk, use_llm=False)
+    vuln = Vulnerability.objects.get(asset=asset, key="CVE-2025-23419")
+    queued = []
+    monkeypatch.setattr(descriptions, "active_model_ready", lambda: True)
+    monkeypatch.setattr(tasks.describe_vulnerability, "apply_async", lambda **kw: queued.append(kw))
+
+    # El modelo responde algo que el validador rechaza tras sus reintentos.
+    rejected = SimpleNamespace(
+        parsed_ok=False, error="Salida inválida (intento 2): las acciones deben estar en español"
+    )
+    real_run = descriptions.run_structured
+    monkeypatch.setattr(descriptions, "run_structured", lambda **kw: rejected)
+    log_obj = descriptions.describe_vulnerability(vuln.pk)
+    assert log_obj is not None and not log_obj.parsed_ok
+    vuln.refresh_from_db()
+    assert vuln.summary == "" and descriptions.cooling_down(vuln.pk)
+    assert "se reintenta en 30 min" in vuln.events.filter(kind="DESCRIBED").last().message
+
+    # El drenaje automático la salta mientras dura la espera…
+    assert tasks.describe_pending_vulnerabilities() == {"queued": 0} and not queued
+    # …pero una persona que la pide desde el detalle no espera.
+    assert descriptions.request_description(vuln, requested_by=user) and len(queued) == 1
+    cache.delete(descriptions._pending_key(vuln.pk))
+
+    # La espera crece con cada fallo y tiene techo.
+    assert descriptions.note_failure(vuln.pk) == 60 * 60
+    assert descriptions.note_failure(vuln.pk) == 2 * 60 * 60
+    for _ in range(10):
+        wait = descriptions.note_failure(vuln.pk)
+    assert wait == descriptions.RETRY_MAX_HOURS * 3600
+
+    # Pasada la espera se reintenta, y al lograrse se olvida el historial de fallos.
+    cache.delete(descriptions._retry_key(vuln.pk))
+    assert tasks.describe_pending_vulnerabilities() == {"queued": 1}
+    descriptions.note_failure(vuln.pk)
+    monkeypatch.setattr(descriptions, "run_structured", real_run)
+    assert descriptions.describe_vulnerability(vuln.pk).parsed_ok
+    assert not descriptions.cooling_down(vuln.pk)
+    assert cache.get(descriptions._retry_key(vuln.pk)) is None
+
+
 def test_exact_version_in_kev_cannot_stay_in_verification(lab_cti, monkeypatch):
     """Versión exacta en el rango afectado y CVE en KEV: aunque el modelo diga «por verificar» con
     plausibilidad 0.1, la regla la sube a «probable» (piso acotado, como las anclas de riesgo)."""

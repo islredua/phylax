@@ -39,6 +39,33 @@ def test_english_texts_are_rejected(text):
     assert not looks_spanish(text)
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        # Acciones reales del laboratorio que la heurística rechazaba: el comando entre acentos
+        # graves contaba como inglés («update») y la instrucción casi no lleva artículos.
+        "Comprobar si hay actualizaciones disponibles: `wp core update`",
+        "Verificar la versión actual de WordPress: `wp --version`",
+        "Revisar los permisos con `ls -la /var/www` y restringir el acceso de escritura",
+        "Aplicar el parche del fabricante",
+    ],
+)
+def test_commands_between_backticks_do_not_decide_the_language(text):
+    assert looks_spanish(text)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Check if updates are available: `apt list --upgradable`",
+        "Update to the latest version and restart the service",
+        "Apply the vendor patch",
+    ],
+)
+def test_english_instructions_are_still_rejected(text):
+    assert not looks_spanish(text)
+
+
 def test_non_spanish_lists_only_the_offending_texts():
     assert non_spanish("Texto en español para la persona", "The attacker can read files", "") == [
         "The attacker can read files"

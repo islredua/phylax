@@ -9,6 +9,7 @@ sostenidas, de mayor a menor puntaje) y bajo demanda al abrir el detalle.
 from __future__ import annotations
 
 import logging
+import time
 
 from django.conf import settings
 from django.core.cache import cache
@@ -51,6 +52,37 @@ def _pending_key(vuln_id):
 
 def is_pending(vuln_id) -> bool:
     return bool(cache.get(_pending_key(vuln_id)))
+
+
+# Reintentos acotados. Una redacción que el validador rechaza se vuelve a pedir, pero cada vez
+# más espaciada: sin esto el drenaje de ``beat`` pedía la misma vulnerabilidad cada dos minutos
+# sin fin (140 llamadas para una sola en el laboratorio) y gastaba GPU en un texto que el modelo
+# no lograba. Quien abre el detalle y la pide a mano no espera.
+RETRY_BASE_MINUTES = 30
+RETRY_MAX_HOURS = 24
+
+
+def _retry_key(vuln_id):
+    return f"detection:describe:retry:{vuln_id}"
+
+
+def cooling_down(vuln_id) -> bool:
+    """¿Falló hace poco y todavía no toca reintentar?"""
+    state = cache.get(_retry_key(vuln_id)) or {}
+    return state.get("until", 0) > time.time()
+
+
+def note_failure(vuln_id) -> int:
+    """Anota un intento fallido y fija la espera: 30 min, 1 h, 2 h… hasta un día. Devuelve la espera (s)."""
+    state = cache.get(_retry_key(vuln_id)) or {}
+    failures = int(state.get("failures", 0)) + 1
+    wait = min(RETRY_BASE_MINUTES * 60 * 2 ** (failures - 1), RETRY_MAX_HOURS * 3600)
+    cache.set(
+        _retry_key(vuln_id),
+        {"failures": failures, "until": time.time() + wait},
+        2 * RETRY_MAX_HOURS * 3600,
+    )
+    return wait
 
 
 def pending_ids(vuln_ids) -> set:
@@ -163,12 +195,15 @@ def describe_vulnerability(vuln_id, *, requested_by=None):
             requested_by=requested_by,
         )
         if not log_obj.parsed_ok:
+            wait = note_failure(vuln.pk)
             _event(
                 vuln,
                 VulnerabilityEventKind.DESCRIBED,
-                f"La IA no logró redactarla en español ({log_obj.error[:160]})",
+                f"La IA no logró redactarla en español ({log_obj.error[:160]}); "
+                f"se reintenta en {wait // 60} min",
             )
             return log_obj
+        cache.delete(_retry_key(vuln.pk))
         parsed = log_obj.parsed
         now = timezone.now()
         if not vuln.technical_description and vuln.cve and vuln.cve.description:
@@ -210,8 +245,14 @@ def describe_vulnerability(vuln_id, *, requested_by=None):
 
 
 def request_description(vuln, *, requested_by=None, countdown=0) -> bool:
-    """Encola la redacción si hace falta y no está ya en cola. ``True`` si se encoló."""
+    """Encola la redacción si hace falta y no está ya en cola. ``True`` si se encoló.
+
+    Tras un fallo, el drenaje automático espera (``cooling_down``); una persona que la pide desde
+    el detalle (``requested_by``) no.
+    """
     if not needs_description(vuln) or is_pending(vuln.pk):
+        return False
+    if requested_by is None and cooling_down(vuln.pk):
         return False
     if not (getattr(settings, "LLM_MOCK_MODE", False) or active_model_ready()):
         return False

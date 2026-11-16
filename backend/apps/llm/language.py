@@ -13,6 +13,9 @@ import re
 
 _WORD = re.compile(r"[a-záéíóúüñ]+", re.IGNORECASE)
 _ACCENTS = re.compile(r"[áéíóúñ¿¡]", re.IGNORECASE)
+# Lo que va entre acentos graves es un comando, una ruta o una opción (`wp core update`,
+# `--version`): no es prosa y no dice en qué idioma está escrita la frase.
+_CODE = re.compile(r"`[^`]*`")
 
 SPANISH = frozenset(
     """de la el que en y los las un una para con por se del es al como más pero sus le ya o este
@@ -33,6 +36,15 @@ ENGLISH = frozenset(
     fixed exposure disclosure missing headers configuration injection overflow leading lead
     attack access data exposed information sensitive unauthenticated authenticated arbitrary""".split()
 )
+# Verbos con que empieza una acción recomendada y partículas que no existen en inglés: una
+# instrucción corta («Comprobar si hay actualizaciones disponibles») casi no lleva artículos.
+SPANISH = SPANISH | frozenset(
+    """si su lo aplicar verificar comprobar revisar realizar instalar restringir deshabilitar
+    desactivar configurar limitar eliminar cambiar habilitar ejecutar monitorear supervisar
+    confirmar corregir mitigar reemplazar retirar actualice aplique verifique revise
+    disponible disponibles superior nueva nuevo parche parches actualización actualizaciones
+    escaneo corrección""".split()
+)
 
 
 def looks_spanish(text: str | None, *, min_words: int = 3) -> bool:
@@ -40,10 +52,11 @@ def looks_spanish(text: str | None, *, min_words: int = 3) -> bool:
 
     Textos de menos de ``min_words`` palabras (una clave, un nombre de producto) se aceptan.
     """
-    words = [w.lower() for w in _WORD.findall(text or "")]
+    text = _CODE.sub(" ", text or "")
+    words = [w.lower() for w in _WORD.findall(text)]
     if len(words) < min_words:
         return True
-    es = sum(1 for w in words if w in SPANISH) + 2 * len(_ACCENTS.findall(text or ""))
+    es = sum(1 for w in words if w in SPANISH) + 2 * len(_ACCENTS.findall(text))
     en = sum(1 for w in words if w in ENGLISH)
     if en == 0:
         return True
