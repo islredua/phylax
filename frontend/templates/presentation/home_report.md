@@ -51,7 +51,7 @@ Las cuatro primeras etapas cuentan los últimos {{ data.window_days }} días; la
 {% endfor %}
 - De {{ data.pipeline.signals.total }} señales, {{ data.pipeline.match.filtered }} ({{ data.pipeline.match.filtered_pct|floatformat:1 }} %) se descartaron por regla al no tocar el inventario; {{ data.pipeline.match.reconciled }} se resolvieron sin escanear.
 - {{ data.pipeline.observations.intel_only_pct|floatformat:0 }} % de las observaciones se encontró cruzando inteligencia con inventario, sin tocar el activo; {{ data.pipeline.observations.multi_source }} las confirmaron dos fuentes a la vez.
-- IA local ({{ data.pipeline.ai.model }}{% if data.pipeline.ai.local %}, en este equipo{% endif %}): {{ data.pipeline.ai.calls }} inferencias, {{ data.pipeline.ai.ok_pct|floatformat:0 }} % aceptadas por el validador, {{ data.pipeline.ai.hours }} h de cómputo.
+- IA local ({{ data.pipeline.ai.model }}{% if data.pipeline.ai.local %}, en este equipo{% endif %}): {{ data.pipeline.ai.calls }} inferencias con las instrucciones vigentes, {{ data.pipeline.ai.ok_pct|floatformat:0 }} % aceptadas por el validador, {{ data.pipeline.ai.hours }} h de cómputo.
 - {{ data.automation.vulns_consolidated_window }} vulnerabilidades valoradas, {{ data.automation.vulns_described_window }} descripciones redactadas y {{ data.automation.risks_assessed_window }} riesgos valorados conforme a ISO/IEC 27005; {{ data.automation.cti_syncs_window }} sincronizaciones de inteligencia.
 
 ## Avisos vigentes

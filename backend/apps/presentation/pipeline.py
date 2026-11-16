@@ -50,9 +50,13 @@ AI_TASKS = (
     ("VULN_DESCRIBE", "Explicar cada vulnerabilidad y cómo corregirla", "vulnerabilities"),
     ("RISK_ASSESSMENT", "Agrupar vulnerabilidades en riesgos y valorarlos", "risks"),
     ("RISK_NARRATIVE", "Redactar cada riesgo para la dirección", "risks"),
-    ("EXEC_NARRATIVE", "Redactar la lectura del estado de Inicio", ""),
     ("ORG_PROFILE_DRAFT", "Proponer el perfil de la organización", ""),
 )
+# La lectura del estado es trabajo de la propia pantalla de Inicio: a quien la mira le dice poco
+# cuántas veces se redactó, así que no entra en las cifras de la IA local.
+HIDDEN_AI_TASKS = ("EXEC_NARRATIVE",)
+# Corridas de evaluación (``eval_criticality``): quedan en el registro, no en los indicadores.
+EVALUATION_REF_PREFIX = "eval:"
 SOURCE_ORDER = ("CTI_MATCH", "NUCLEI", "GRYPE", "MANUAL")
 SOURCE_LABEL = {
     "CTI_MATCH": "Inteligencia × inventario",
@@ -65,6 +69,19 @@ EVENT_PENDING = ("NEW", "READY", "PLANNING")
 
 def _pct(part, whole, digits=1):
     return round(100 * part / whole, digits) if whole else 0
+
+
+def _share(part, whole) -> int:
+    """Porcentaje entero que no redondea a un extremo falso: con algo rechazado nunca dice 100 %
+    y con algo aceptado nunca dice 0 %."""
+    if not whole:
+        return 0
+    pct = round(100 * part / whole)
+    if part < whole:
+        pct = min(pct, 99)
+    if part > 0:
+        pct = max(pct, 1)
+    return pct
 
 
 def _hhmm(value) -> str:
@@ -314,8 +331,49 @@ def observations() -> dict:
     }
 
 
+def prompt_versions() -> dict:
+    """La versión de las instrucciones que cada tarea del modelo usa hoy (la del código)."""
+    from apps.assets import services as assets
+    from apps.detection import consolidation, descriptions, planner, profile, risks
+
+    return {
+        "DETECTION_PLANNER": planner.PROMPT_VERSION,
+        "ASSET_CRITICALITY": assets.PROMPT_VERSION,
+        "VULN_ASSESSMENT": consolidation.PROMPT_VERSION,
+        "VULN_DESCRIBE": descriptions.PROMPT_VERSION,
+        "RISK_ASSESSMENT": risks.PROMPT_VERSION,
+        "RISK_NARRATIVE": risks.NARRATIVE_PROMPT_VERSION,
+        "ORG_PROFILE_DRAFT": profile.PROMPT_VERSION,
+    }
+
+
+def counted_inferences(since):
+    """Las inferencias que cuentan para los indicadores: las hechas con las instrucciones vigentes.
+
+    Un porcentaje de aceptación que mezcla instrucciones ya corregidas con las de hoy no dice
+    cómo responde el modelo ahora (la lectura de Inicio marcaba 37 % por 104 llamadas con el
+    prompt anterior y 55 corridas de prueba). Quedan fuera, sin borrar nada del registro:
+
+    - las llamadas con una versión de instrucciones anterior a la que usa hoy cada tarea;
+    - las corridas de diagnóstico o evaluación, que llevan otra versión (``probe``) o una
+      referencia ``eval:…``;
+    - las tareas de ``HIDDEN_AI_TASKS``.
+
+    Una tarea que este módulo aún no conoce se cuenta entera: mejor verla que perderla.
+    """
+    versions = prompt_versions()
+    current = ~Q(task__in=[*versions, *HIDDEN_AI_TASKS])
+    for task, version in versions.items():
+        current |= Q(task=task, prompt_version=version)
+    return (
+        InferenceLog.objects.filter(created_at__gte=since)
+        .filter(current)
+        .exclude(object_ref__startswith=EVALUATION_REF_PREFIX)
+    )
+
+
 def ai(since, llm_status, model) -> dict:
-    logs = InferenceLog.objects.filter(created_at__gte=since)
+    logs = counted_inferences(since)
     per_task = {
         row["task"]: row
         for row in logs.values("task").annotate(
@@ -351,7 +409,7 @@ def ai(since, llm_status, model) -> dict:
                 "calls": row["calls"],
                 "ok": row["ok"],
                 "rejected": row["calls"] - row["ok"],
-                "ok_pct": _pct(row["ok"], row["calls"], 0),
+                "ok_pct": _share(row["ok"], row["calls"]),
                 "avg_seconds": round((row["avg_ms"] or 0) / 1000, 1),
                 "minutes": round((row["total_ms"] or 0) / 60000),
             }
@@ -365,7 +423,7 @@ def ai(since, llm_status, model) -> dict:
         "calls": calls,
         "ok": totals["ok"] or 0,
         "rejected": calls - (totals["ok"] or 0),
-        "ok_pct": _pct(totals["ok"] or 0, calls, 0),
+        "ok_pct": _share(totals["ok"] or 0, calls),
         "gpu_pct": _pct(totals["gpu"] or 0, calls, 0),
         "hours": round((totals["total_ms"] or 0) / 3_600_000, 1),
         "tokens_in": totals["tokens_in"] or 0,

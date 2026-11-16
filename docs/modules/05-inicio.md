@@ -92,7 +92,7 @@ texto se escapa siempre; solo se insertan `<a>` con URLs del sistema.
 
 ## Pruebas
 
-`tests/presentation/test_home.py` (47 pruebas, sin red ni modelo): conteos de indicadores,
+`tests/presentation/test_home.py` (49 pruebas, sin red ni modelo): conteos de indicadores,
 semáforo por reglas acotadas, caché e invalidación, instantánea/tendencia/deltas, avisos, ventana
 configurable, narrativa por regla coherente, rechazo de semáforo incorrecto y cifras inventadas,
 generación con mock y omisión si nada cambió, caída a regla por incoherencia o modelo apagado,
@@ -191,6 +191,22 @@ con el panel abierto. Los paneles explican **cómo** trabaja cada etapa:
 - *Riesgos*: valorados por IA o regla, cuántos tienen tratamiento y lo que sigue para la persona.
 - *IA local*: qué tareas hace el modelo, cuántas llamadas, porcentaje aceptado por el validador y
   tiempo medio por tarea; dice que los datos no salen del equipo cuando `OLLAMA_BASE_URL` es local.
+
+**Qué inferencias cuentan** (`pipeline.counted_inferences`). Las cifras de la IA local (franja del
+motor, panel, reporte y `data["llm"]`) dicen cómo responde el modelo hoy, así que solo cuentan las
+llamadas hechas con las instrucciones vigentes de cada tarea (`pipeline.prompt_versions()`, que lee
+el `PROMPT_VERSION` de cada módulo). Quedan fuera, sin borrar nada del registro `InferenceLog`:
+
+- las llamadas con una versión de instrucciones anterior (ya corregida);
+- las corridas de diagnóstico o evaluación: llevan otra versión (por convención `probe`) o una
+  referencia `eval:…` (`eval_criticality`);
+- la redacción de la lectura del estado (`EXEC_NARRATIVE`): es trabajo de la propia pantalla y a
+  quien la mira no le dice nada cuántas lecturas se aceptaron. La tarjeta de la lectura sigue
+  diciendo quién la redactó.
+
+Una tarea que el módulo aún no conoce se cuenta entera. El porcentaje nunca redondea a 100 % si
+hubo algún rechazo. Para validar un prompt con el modelo real sin ensuciar los indicadores, basta
+registrar las corridas con `prompt_version="probe"`.
 
 Los enlaces de cada panel respetan los permisos del rol (`stage_context`): quien no puede abrir la
 pantalla de destino no recibe el enlace.

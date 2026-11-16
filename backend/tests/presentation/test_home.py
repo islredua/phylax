@@ -638,6 +638,65 @@ def test_pipeline_counts_each_stage_once_and_agrees_with_the_indicators():
     assert data["automation"]["decisions_window"] == flow["decisions"]["total"]
 
 
+def test_ai_figures_count_only_calls_made_with_the_instructions_in_force():
+    """Los indicadores de la IA local dicen cómo responde el modelo hoy: no cuentan las llamadas
+    con instrucciones ya corregidas, las corridas de prueba o evaluación ni la lectura de Inicio
+    (trabajo de la propia pantalla). Nada se borra del registro."""
+    from apps.llm.models import InferenceLog
+    from apps.presentation import pipeline
+
+    versions = pipeline.prompt_versions()
+    assert set(versions) == {key for key, _what, _stage in pipeline.AI_TASKS}
+    assert "EXEC_NARRATIVE" not in versions
+
+    def log(task, version, ok=True, ref="assets.Asset:1", ms=60_000):
+        return InferenceLog.objects.create(
+            task=task,
+            model="m",
+            prompt_version=version,
+            parsed_ok=ok,
+            object_ref=ref,
+            total_duration_ms=ms,
+            accelerator="gpu",
+        )
+
+    current = versions["VULN_ASSESSMENT"]
+    for ok in (True, True, True, False):
+        log("VULN_ASSESSMENT", current, ok)
+    log("VULN_ASSESSMENT", "v0", ok=False)  # instrucciones anteriores
+    log("VULN_ASSESSMENT", "probe", ok=False, ref="probe")  # corrida de diagnóstico
+    log("ASSET_CRITICALITY", versions["ASSET_CRITICALITY"], ref="eval:caso-7")  # evaluación
+    log("EXEC_NARRATIVE", "v2", ok=False, ref="presentation.HealthNarrative")
+    log("CTI_EXTRACTION", "v9")  # tarea que el módulo aún no conoce: se cuenta entera
+    assert InferenceLog.objects.count() == 9
+
+    ai = indicators.compute()["pipeline"]["ai"]
+    rows = {t["key"]: t for t in ai["tasks"]}
+    assert set(rows) == {"VULN_ASSESSMENT", "CTI_EXTRACTION"}
+    assert rows["VULN_ASSESSMENT"]["calls"] == 4 and rows["VULN_ASSESSMENT"]["rejected"] == 1
+    assert rows["VULN_ASSESSMENT"]["ok_pct"] == 75
+    assert ai["calls"] == 5 == sum(t["calls"] for t in ai["tasks"])
+    assert ai["ok"] == 4 and ai["rejected"] == 1 and ai["ok_pct"] == 80
+    assert ai["hours"] == round(5 * 60_000 / 3_600_000, 1)
+    # El resto de la pantalla usa las mismas cifras.
+    data = indicators.compute()
+    assert data["llm"]["calls_window"] == 5 and data["llm"]["ok_window"] == 4
+    # Con algo rechazado el porcentaje nunca redondea a 100 (ni a 0 con algo aceptado).
+    assert pipeline._share(454, 455) == 99 and pipeline._share(455, 455) == 100
+    assert pipeline._share(1, 900) == 1 and pipeline._share(0, 900) == 0 == pipeline._share(0, 0)
+
+
+def test_home_does_not_show_how_many_readings_were_accepted(client, as_role):
+    as_role(OPERATOR)
+    _asset_with_risk()
+    narrative.generate()
+    html = client.get("/home/block/stage/?etapa=ai").content.decode()
+    assert "lectura del estado" not in html.lower()
+    assert "instrucciones vigentes" in html
+    # La lectura sigue en su tarjeta, con quién la redactó.
+    assert "Redactado por IA" in client.get("/").content.decode()
+
+
 def test_local_model_detection_tells_this_machine_from_an_outside_service():
     from apps.presentation import pipeline
 
