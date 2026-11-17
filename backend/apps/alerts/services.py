@@ -5,8 +5,10 @@ from collections import defaultdict
 
 import httpx
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
 from django.db import transaction
+from django.urls import reverse
 from django.utils import timezone
 
 from . import events
@@ -16,6 +18,8 @@ logger = logging.getLogger(__name__)
 
 WEBHOOK_TIMEOUT_S = 10
 MAX_ITEMS_PER_MESSAGE = 20
+# Hechos que un canal recién creado no recibe en diferido: solo los posteriores a su alta.
+ONLY_NEW_FOR_CHANNEL = (AlertEvent.RISK_CRITICAL, AlertEvent.RISK_ASSIGNED)
 
 
 def recipients(channel):
@@ -95,22 +99,103 @@ def _record(channel, event, items, subject, body, *, error=""):
     return rows
 
 
+def _record_personal(user, event, items, subject, body, *, error=""):
+    now = timezone.now()
+    status = NotificationStatus.FAILED if error else NotificationStatus.SENT
+    rows = []
+    for item in items:
+        row, _ = Notification.objects.update_or_create(
+            channel=None,
+            recipient=user,
+            dedupe_key=item.key,
+            defaults={
+                "event": event,
+                "subject": subject,
+                "body": body,
+                "status": status,
+                "error": error[:2000],
+                "sent_at": None if error else now,
+            },
+        )
+        rows.append(row)
+    return rows
+
+
+def dispatch_personal(items):
+    """Un correo por persona con los riesgos que tiene a su nombre y aún no se le avisaron.
+
+    Sin correo en la cuenta no hay a dónde escribirle: los ve igual en «a mi nombre». Un fallo de
+    SMTP queda registrado y se reintenta en la siguiente vuelta.
+    """
+    personal = defaultdict(list)
+    for item in items:
+        if item.recipient_id:
+            personal[item.recipient_id].append(item)
+    if not personal:
+        return []
+    users = get_user_model().objects.filter(pk__in=list(personal), is_active=True)
+    sent = []
+    for user in users:
+        if not user.email:
+            continue
+        group = personal[user.pk]
+        done = set(
+            Notification.objects.filter(
+                channel__isnull=True,
+                recipient=user,
+                status=NotificationStatus.SENT,
+                dedupe_key__in=[i.key for i in group],
+            ).values_list("dedupe_key", flat=True)
+        )
+        fresh = [i for i in group if i.key not in done]
+        if not fresh:
+            continue
+        n = len(fresh)
+        subject = (
+            "Atalaya · Riesgo a tu nombre" if n == 1 else f"Atalaya · Riesgos a tu nombre: {n}"
+        )
+        _, lines = compose(AlertEvent.RISK_ASSIGNED, fresh)
+        mine = events.absolute(reverse("detection:risks")) + "?mine=1"
+        body = (
+            f"Tienes {'un riesgo' if n == 1 else f'{n} riesgos'} a tu nombre en Atalaya "
+            "(asignado a ti, o de un activo del que eres responsable técnico):\n\n"
+            f"{lines}\n\nTodos los que llevas: {mine}"
+        )
+        try:
+            send_mail(subject, body, settings.DEFAULT_FROM_EMAIL, [user.email], fail_silently=False)
+        except Exception as error:  # SMTP: queda registrado, se reintenta luego
+            logger.warning("Aviso personal a %s falló: %s", user.get_username(), error)
+            with transaction.atomic():
+                sent.extend(
+                    _record_personal(
+                        user, AlertEvent.RISK_ASSIGNED, fresh, subject, body, error=str(error)
+                    )
+                )
+        else:
+            with transaction.atomic():
+                sent.extend(_record_personal(user, AlertEvent.RISK_ASSIGNED, fresh, subject, body))
+    return sent
+
+
 def dispatch(now=None):
     """Para cada canal habilitado, avisa los hechos pendientes que aún no se le han avisado.
 
     Un hecho anterior a la creación del canal no se considera «nuevo» para los riesgos críticos
-    (si no, dar de alta un canal dispararía todo el histórico); los vencimientos y las esperas sí
-    se avisan aunque sean previos, porque siguen pidiendo acción.
+    ni para las asignaciones (si no, dar de alta un canal dispararía todo el histórico); los
+    vencimientos y las esperas sí se avisan aunque sean previos, porque siguen pidiendo acción.
+
+    Además, a cada persona con riesgos a su nombre se le avisa a su correo, haya o no canales
+    (``dispatch_personal``).
     """
     now = now or timezone.now()
     items = events.pending_items(now)
-    sent = []
+    sent = dispatch_personal(items)
     for channel in NotificationChannel.objects.filter(enabled=True):
         wanted = [
             i
             for i in items
             if i.event in (channel.events or [])
-            and not (i.event == AlertEvent.RISK_CRITICAL and i.at and i.at < channel.created_at)
+            and not (i.event in ONLY_NEW_FOR_CHANNEL and i.at and i.at < channel.created_at)
         ]
         if not wanted:
             continue

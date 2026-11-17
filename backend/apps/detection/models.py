@@ -168,6 +168,10 @@ class Finding(UUIDModel):
     )
     status_changed_at = models.DateTimeField(null=True, blank=True)
     note = models.TextField(blank=True, help_text="Última nota de quien lo trabajó.")
+    # Pasadas seguidas en las que cada fuente pudo verla y no la reportó: ``{"NUCLEI": 1}``.
+    # Cuando todas sus fuentes dejan de verla (``findings.UNSEEN_TO_CLOSE``) queda mitigada; la
+    # fuente que la vuelve a reportar borra su cuenta.
+    unseen = models.JSONField(default=dict, blank=True)
     # Capa consolidada (fase 4): a qué vulnerabilidad real pertenece esta observación.
     # (Se llama ``consolidated`` porque ``vulnerability_id`` ya es el CVE/clave del hallazgo.)
     consolidated = models.ForeignKey(
@@ -591,7 +595,20 @@ class Risk(UUIDModel):
         max_length=10, choices=RiskStatus.choices, default=RiskStatus.OPEN, db_index=True
     )
     treatment = models.CharField(max_length=10, choices=RiskTreatment.choices, blank=True)
-    owner = models.CharField(max_length=120, blank=True, help_text="Responsable del tratamiento.")
+    owner = models.CharField(
+        max_length=120,
+        blank=True,
+        help_text="Responsable sin cuenta en la plataforma (equipo o persona externa).",
+    )
+    # Responsable con cuenta: lo ve en «a mi nombre» y recibe el aviso. Sin ninguno de los dos, el
+    # riesgo hereda el responsable del activo (``responsibles.of``).
+    assignee = models.ForeignKey(
+        USER, null=True, blank=True, on_delete=models.SET_NULL, related_name="assigned_risks"
+    )
+    assigned_by = models.ForeignKey(
+        USER, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    assigned_at = models.DateTimeField(null=True, blank=True)
     target_date = models.DateField(
         null=True, blank=True, help_text="Fecha compromiso para completar el tratamiento."
     )
@@ -718,6 +735,8 @@ class RiskEventKind(models.TextChoices):
     CLOSED = "CLOSED", "Cerrado"
     REOPENED = "REOPENED", "Reabierto"
     NOTE = "NOTE", "Nota"
+    ASSIGNED = "ASSIGNED", "Responsable asignado"
+    VERIFICATION = "VERIFY", "Comprobación de la corrección"
 
 
 class RiskEvent(models.Model):
@@ -1249,3 +1268,52 @@ class OrganizationProfile(models.Model):
     @property
     def is_empty(self):
         return not any((self.name, self.sector, self.location, self.description.strip()))
+
+
+# --------------------------------------------------------------------------
+# Comprobación de la corrección de un riesgo
+# --------------------------------------------------------------------------
+
+
+class VerificationStatus(models.TextChoices):
+    PENDING = "PENDING", "En curso"
+    DONE = "DONE", "Comprobada"
+    FAILED = "FAILED", "No se pudo comprobar"
+
+
+class RiskVerification(UUIDModel):
+    """«Ya lo corregí: comprobar». Una persona dice que corrigió el riesgo y la plataforma lo
+    comprueba con las mismas fuentes que lo observaron: reescaneo de servicios (versiones),
+    nuclei o Grype. Lo que deje de observarse se cierra por las reglas de siempre
+    (``findings``, ``consolidation``, ``risks``); aquí queda qué se pidió y qué resultó.
+    """
+
+    risk = models.ForeignKey(Risk, on_delete=models.CASCADE, related_name="verifications")
+    requested_by = models.ForeignKey(
+        USER, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    status = models.CharField(
+        max_length=8,
+        choices=VerificationStatus.choices,
+        default=VerificationStatus.PENDING,
+        db_index=True,
+    )
+    actions = models.ManyToManyField(PlannedAction, related_name="verifications", blank=True)
+    # Vulnerabilidades abiertas al pedirla: ``[{"pk": …, "key": …, "title": …}]``.
+    baseline = models.JSONField(default=list, blank=True)
+    # ``{"fixed": […], "still": […], "risk_closed": bool, "unchecked": […]}`` con las mismas claves.
+    result = models.JSONField(default=dict, blank=True)
+    summary = models.CharField(max_length=500, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "comprobación de un riesgo"
+        verbose_name_plural = "comprobaciones de riesgos"
+
+    def __str__(self):
+        return f"{self.get_status_display()} · {self.risk}"
+
+    @property
+    def is_pending(self):
+        return self.status == VerificationStatus.PENDING

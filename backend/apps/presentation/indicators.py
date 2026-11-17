@@ -519,8 +519,11 @@ def health_target(data) -> str:
     return risks_url
 
 
-def today(data=None) -> list[dict]:
+def today(data=None, user=None) -> list[dict]:
     """«Qué hago hoy»: lo que exige una decisión humana.
+
+    Con ``user``, lo primero es lo que esa persona tiene a su nombre (W4): riesgos asignados a
+    ella o heredados de los activos que lleva.
 
     Cada elemento separa **ver** (``url``: la lista filtrada, con la etiqueta ``view``) de
     **hacer** (``work_url`` + ``action``): el botón de acción abre el primer riesgo en su
@@ -549,7 +552,7 @@ def today(data=None) -> list[dict]:
     ):
         if not count:
             return
-        queue = risk_queue(query) if query and work else None
+        queue = risk_queue(query, user=user) if query and work else None
         items.append(
             {
                 "level": level,
@@ -562,6 +565,19 @@ def today(data=None) -> list[dict]:
             }
         )
 
+    if user is not None:
+        from apps.detection import responsibles
+
+        mine = responsibles.today_item(user)
+        if mine:
+            add(
+                mine["level"],
+                mine["count"],
+                mine["singular"],
+                mine["plural"],
+                query=mine["query"],
+                work=mine["work"],
+            )
     add(
         "critical",
         r["critical"],

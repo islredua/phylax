@@ -25,7 +25,7 @@ class SettingsView(AdminView):
             {
                 "channels": NotificationChannel.objects.all(),
                 "preview": services.preview(),
-                "recent": Notification.objects.select_related("channel")[:30],
+                "recent": Notification.objects.select_related("channel", "recipient")[:30],
                 "can_manage": request.user.has_perm("alerts.manage_alerts"),
             },
         )

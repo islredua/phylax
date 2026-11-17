@@ -111,10 +111,35 @@
       {% include "detection/_risk_matrix.html" with matrix=matrix compact=True asset_id=risk.asset_id %}
     </section>
 
+    <section class="card flex flex-col gap-2" id="responsable">
+      <h3 class="card-title mb-0">Responsable</h3>
+      {% if responsible %}
+      <p class="text-sm"><strong class="font-medium"><a href="{% url 'detection:risks' %}?owner={{ responsible.label|urlencode }}" title="Todos los riesgos de este responsable">{{ responsible.label }}</a></strong>{% if responsible.note %} <span class="badge-neutral">{{ responsible.note }}</span>{% endif %}</p>
+      <p class="text-xs text-muted">{% if responsible.inherited %}Nadie lo asignó en el riesgo: responde quien lleva el activo{% if responsible.has_account %} y lo ve en «a mi nombre»{% endif %}.{% elif responsible.has_account %}Asignado{% if risk.assigned_by %} por <span class="font-mono">{{ risk.assigned_by.get_username }}</span>{% endif %}{% if risk.assigned_at %} el {{ risk.assigned_at|fecha }}{% endif %}. Lo ve en «a mi nombre» y recibe el aviso.{% else %}Sin cuenta en la plataforma: no recibe avisos ni lo ve en «a mi nombre».{% endif %}</p>
+      {% else %}
+      <p class="text-sm {% if closure %}text-muted{% else %}text-high{% endif %}">Sin responsable: ni el riesgo ni el activo tienen uno.</p>
+      {% endif %}
+      {% if perms.detection.work_findings and not closure %}
+      <form method="post" action="{% url 'detection:risk_assign' risk.pk %}" class="flex flex-col gap-2 border-t border-line-soft pt-2">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <label class="form-label" for="assign-responsible">Cambiar responsable</label>
+        <div class="flex flex-wrap gap-2">
+          <select id="assign-responsible" name="responsible" class="form-input min-w-0 grow basis-40">{% for value, label in responsible_choices %}<option value="{{ value }}"{% if value == responsible_choice %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+          <button class="btn-secondary btn-sm" type="submit">Asignar</button>
+        </div>
+        <div data-reveal-for="assign-responsible" data-reveal-value="other"><label class="form-label" for="assign-owner">Equipo o persona sin cuenta</label><input id="assign-owner" name="owner" class="form-input" maxlength="120" value="{{ risk.owner }}" placeholder="Infraestructura, proveedor…"></div>
+      </form>
+      {% endif %}
+    </section>
+
+    {# Con tratamiento decidido (o una comprobación ya pedida) lo siguiente es comprobar; sin él, decidir. #}
+    {% if risk.treatment or verification.latest %}{% include "detection/_risk_verification.html" %}{% endif %}
+
     <section class="card flex flex-col gap-3" id="tratamiento">
       <h3 class="card-title mb-0">Tratamiento</h3>
       {% if risk.treatment %}
-      <p class="text-sm">{{ risk.get_treatment_display }}{% if risk.owner %} · responsable <strong><a href="{% url 'detection:risks' %}?owner={{ risk.owner|urlencode }}" title="Todos los riesgos de este responsable">{{ risk.owner }}</a></strong>{% endif %}</p>
+      <p class="text-sm">{{ risk.get_treatment_display }}</p>
       {% if risk.target_date %}<p class="text-sm">Fecha compromiso: <span class="font-mono text-xs">{{ risk.target_date|fecha_corta }}</span>{% if risk.target_overdue %} <span class="badge-critical">vencida</span>{% endif %}</p>{% endif %}
       {% if risk.review_at %}<p class="text-sm">Revisar la decisión el <span class="font-mono text-xs">{{ risk.review_at|fecha_corta }}</span>{% if risk.review_overdue %} <span class="badge-high">revisión vencida</span>{% endif %}</p>{% endif %}
       <p class="text-xs text-muted">Decidido por <span class="font-mono">{{ risk.decided_by.get_username|default:"—" }}</span> el {{ risk.decided_at|fecha }}.{% if risk.treatment_note %} «{{ risk.treatment_note }}»{% endif %}</p>
@@ -134,8 +159,9 @@
         {% if queue %}<input type="hidden" name="cola" value="{{ queue.query }}"><input type="hidden" name="next" value="{{ request.get_full_path }}">{% endif %}
         <label class="form-label" for="treatment">Opción (ISO/IEC 27005)</label>
         <select id="treatment" name="treatment" class="form-input">{% for value, label in treatment_form.fields.treatment.choices %}<option value="{{ value }}"{% if value == risk.treatment %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
-        <label class="form-label" for="owner">Responsable</label>
-        <input id="owner" name="owner" class="form-input" maxlength="120" value="{{ risk.owner }}" placeholder="Equipo o persona">
+        <label class="form-label" for="treatment-responsible">Responsable</label>
+        <select id="treatment-responsible" name="responsible" class="form-input">{% for value, label in responsible_choices %}<option value="{{ value }}"{% if value == responsible_choice %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+        <div data-reveal-for="treatment-responsible" data-reveal-value="other"><label class="form-label" for="owner">Equipo o persona sin cuenta</label><input id="owner" name="owner" class="form-input" maxlength="120" value="{{ risk.owner }}" placeholder="Infraestructura, proveedor…"></div>
         <div class="grid grid-cols-2 gap-2">
           <div><label class="form-label" for="target_date">Fecha compromiso</label><input id="target_date" name="target_date" type="date" class="form-input" value="{{ suggested_target|date:'Y-m-d' }}"><p class="form-help">Obligatoria al mitigar o transferir.{% if suggested_target and not risk.target_date %} Propuesta: el plazo de la política.{% endif %}</p></div>
           <div><label class="form-label" for="review_at">Revisar el</label><input id="review_at" name="review_at" type="date" class="form-input" value="{{ risk.review_at|date:'Y-m-d' }}"><p class="form-help">Al aceptar; si se deja vacío, en {{ policy.accept_review_days }} días.</p></div>
@@ -157,6 +183,8 @@
       </form>
       {% else %}<p class="text-sm text-muted">Solo lectura.</p>{% endif %}
     </section>
+
+    {% if not risk.treatment and not verification.latest %}{% include "detection/_risk_verification.html" %}{% endif %}
   </div>
 </div>
 

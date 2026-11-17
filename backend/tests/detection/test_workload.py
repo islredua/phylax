@@ -368,7 +368,7 @@ def test_bulk_treatment_decides_several_risks_with_the_policy_deadline(client, a
     today = timezone.localdate()
 
     body = client.get("/detection/").content.decode()
-    assert "Tratamiento para los marcados" in body and body.count('name="ids"') == 3
+    assert "Para los marcados" in body and body.count('name="ids"') == 3
     assert 'data-require="risk-bulk-note"' in body
 
     ids = [str(r.pk) for r in (fresh, other, late, closed)]
@@ -405,7 +405,7 @@ def test_bulk_treatment_decides_several_risks_with_the_policy_deadline(client, a
         },
         follow=True,
     )
-    assert "3 riesgos → transferir · responsable Proveedor" in response.content.decode()
+    assert "3 riesgos → transferir · responsable: Proveedor" in response.content.decode()
     late.refresh_from_db(), other.refresh_from_db()
     assert late.treatment == "TRANSFER" and late.target_date == target
     assert other.owner == "Proveedor"

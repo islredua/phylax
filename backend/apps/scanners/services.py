@@ -175,15 +175,127 @@ def _ingest(execution, tool_findings):
             ids.append(outcome.finding.pk)
     if ids:
         findings.request_scoring(ids)
-    # Los hallazgos abiertos que la herramienta no volvió a ver quedan con el reescaneo anotado.
-    others = findings.open_findings(execution.asset_id).exclude(pk__in=ids)
-    findings.record_rescan(
-        others.values_list("pk", flat=True),
-        execution_ref=str(execution.pk),
-        message=f"Reescaneado con {execution.get_tool_display()} ({execution.profile}); no reportado en esta pasada.",
-        at=observed_at,
-    )
+    _settle_unreported(execution, ids, source, observed_at)
     return created, updated, len(ids)
+
+
+REACH_TIMEOUT_S = 3.0
+
+
+def _reachable(host, port, timeout=REACH_TIMEOUT_S) -> bool:
+    """¿Responde el puerto? Una conexión TCP desde el mismo worker que escanea."""
+    import socket
+
+    try:
+        with socket.create_connection((host, int(port)), timeout=timeout):
+            return True
+    except (OSError, ValueError):
+        return False
+
+
+def _coverage(execution, candidates, source):
+    """De las observaciones de esta herramienta que no volvieron a salir, cuáles **pudo** ver.
+
+    Devuelve ``(revisadas, {motivo: [ids]})``. Que nuclei no reporte algo solo cuenta si la pasada
+    era capaz de reportarlo: el perfil corre esa plantilla (por sus etiquetas y su tipo), el puerto
+    estaba entre los objetivos y respondía (un equipo apagado no reporta nada y no por eso está
+    corregido). Grype analiza el SBOM o la imagen completos: revisa todo lo suyo.
+    """
+    from apps.detection import findings
+
+    if execution.tool != Tool.NUCLEI:
+        return list(candidates), {}
+    label = f"{execution.get_tool_display()} ({execution.profile})"
+    targets = []
+    for target in execution.targets:
+        try:
+            host, port = profiles.split_host_port(target)
+        except ValidationError:
+            continue
+        targets.append((host, int(port) if port else None))
+    hosts = sorted({host for host, _ in targets})
+    target_ports = {port for _, port in targets if port}
+    answers: dict[tuple[str, int], bool] = {}
+    covered, skipped = [], {}
+
+    def skip(finding, reason):
+        skipped.setdefault(reason, []).append(finding.pk)
+
+    for finding in candidates:
+        evidence = findings.recent_evidence(finding, source)
+        # Toda plantilla de un CVE lleva la etiqueta «cve»; vale para evidencia antigua que no
+        # guardó las etiquetas.
+        implied = ("cve",) if finding.vulnerability_id.startswith("CVE-") else ()
+        runs_it = any(
+            profiles.nuclei_covers(
+                execution.profile,
+                ((e.data or {}).get("template") or {}).get("tags") or implied,
+                (e.data or {}).get("type") or "",
+            )
+            for e in evidence
+        )
+        if not runs_it:
+            skip(
+                finding,
+                f"Reescaneado con {label}; este perfil no corre la plantilla que la observó: "
+                "esta pasada no la revisa.",
+            )
+            continue
+        ports = findings.evidence_ports(finding, source, evidence)
+        if ports and target_ports and not ports & target_ports:
+            skip(
+                finding,
+                f"Reescaneado con {label}; el puerto donde se observó no estaba entre los "
+                "objetivos de esta pasada.",
+            )
+            continue
+        if target_ports:
+            probe = [(h, p) for h, p in targets if p and (not ports or p in ports)]
+        else:
+            probe = [(h, p) for h in hosts for p in sorted(ports)]
+        alive = False
+        for host, port in probe:
+            if (host, port) not in answers:
+                answers[(host, port)] = _reachable(host, port)
+            if answers[(host, port)]:
+                alive = True
+                break
+        if not alive:
+            where = ", ".join(f"{h}:{p}" for h, p in probe[:3]) or "el objetivo"
+            skip(
+                finding,
+                f"No se pudo comprobar con {label}: {where} no respondió. Si el servicio se "
+                "retiró, el siguiente escaneo de servicios lo reflejará.",
+            )
+            continue
+        covered.append(finding)
+    return covered, skipped
+
+
+def _settle_unreported(execution, reported_ids, source, observed_at):
+    """Lo que la herramienta ya no reporta: cuenta como pasada sin verla solo si pudo verla."""
+    from apps.detection import findings, verification
+
+    label = f"{execution.get_tool_display()} ({execution.profile})"
+    ref = str(execution.pk)
+    others = findings.open_findings(execution.asset_id).exclude(pk__in=reported_ids)
+    mine = list(others.filter(sources__contains=[source]))
+    covered, skipped = _coverage(execution, mine, source)
+    closed = 0
+    if covered:
+        closed = findings.mark_unreported(
+            [finding.pk for finding in covered],
+            source,
+            reason=f"{label} la revisó y ya no la reporta.",
+            at=observed_at,
+            verified=verification.requested_for(execution.action_id),
+            execution_ref=ref,
+        )
+    # Las de otras fuentes no llevan nota: esta pasada no dice nada de ellas, y una línea por
+    # cada observación del activo en cada escaneo solo tapaba lo que sí les pasa.
+    for reason, finding_ids in skipped.items():
+        findings.record_rescan(finding_ids, execution_ref=ref, message=reason[:500], at=observed_at)
+    return closed
 
 
 def execute(execution_id):

@@ -116,12 +116,7 @@ def test_navigation_has_detection_section(client, as_role):
 def test_auditor_cannot_change_anything(client, as_role):
     as_role(AUDITOR)
     finding = _finding()
-    assert (
-        client.post(
-            f"/detection/findings/{finding.pk}/transition/", {"status": "CONFIRMED"}
-        ).status_code
-        == 403
-    )
+    assert client.post(f"/detection/findings/{finding.pk}/note/", {"text": "x"}).status_code == 403
     assert client.post("/detection/automation/", {"mode": "MANUAL"}).status_code == 403
     assert client.post("/detection/automation/pause/", {"paused": "1"}).status_code == 403
     assert client.post("/administration/organization/", {"name": "x"}).status_code == 403
@@ -135,10 +130,12 @@ def test_operator_cannot_manage_but_can_work(client, as_role):
     assert client.post("/administration/organization/", {"name": "x"}).status_code == 403
     assert client.post("/detection/sources/KEV/sync/").status_code == 403
     finding = _finding()
-    response = client.post(f"/detection/findings/{finding.pk}/transition/", {"status": "CONFIRMED"})
+    response = client.post(f"/detection/findings/{finding.pk}/note/", {"text": "Lo reviso hoy"})
     assert response.status_code == 302
     finding.refresh_from_db()
-    assert finding.status == "CONFIRMED"
+    assert finding.note == "Lo reviso hoy"
+    # W6: la ruta para cambiar a mano el estado de una observación se retiró.
+    assert client.post(f"/detection/findings/{finding.pk}/transition/", {}).status_code == 404
 
 
 # --- Panel y detalle ----------------------------------------------------------------
@@ -156,10 +153,24 @@ def test_observations_list_and_filters(client, as_role):
     assert response.context["paginator"].count == 0
     response = client.get(f"/detection/observations/?asset={finding.asset_id}&q=nginx")
     assert response.context["paginator"].count == 1
-    findings.transition(finding.pk, user=None, status="MITIGATED")
+    # W6: la lista dice la situación (lo único que cambia), no un «estado» que nadie decide.
+    assert "Situación" in body and "vigente" in body and ">Nuevo<" not in body
+    assert "Ya no se observan" in body and "Reaparecidas" in body
+    findings.mark_unreported(
+        [finding.pk], "CTI_MATCH", reason="El software afectado ya no se observa en el activo."
+    )
     assert client.get("/detection/observations/").context["paginator"].count == 0
     assert client.get("/detection/observations/?status=all").context["paginator"].count == 1
-    assert client.get("/detection/observations/?status=MITIGATED").context["paginator"].count == 1
+    response = client.get("/detection/observations/?status=MITIGATED")
+    assert response.context["paginator"].count == 1
+    assert "ya no se observa" in response.content.decode()
+    # Si la fuente vuelve a verla, reaparece y la lista lo dice.
+    findings.upsert_finding(
+        asset_id=finding.asset_id, vulnerability_id=finding.vulnerability_id, source="CTI_MATCH"
+    )
+    response = client.get("/detection/observations/?status=REOPENED")
+    assert response.context["paginator"].count == 1 and "reapareció" in response.content.decode()
+    assert client.get("/detection/observations/").context["paginator"].count == 1
     assert client.get("/detection/observations/?in_kev=1&source=CTI_MATCH").status_code == 200
     # El panel ahora son vulnerabilidades: sin consolidar, explica que hay observaciones esperando.
     body = client.get(f"/detection/vulnerabilities/?asset={finding.asset_id}").content.decode()
@@ -173,22 +184,10 @@ def test_finding_detail_actions_and_escaping(client, as_role):
     body = client.get(f"/detection/findings/{finding.pk}/").content.decode()
     assert "&lt;script&gt;" in body and "<script>alert" not in body
     assert "Línea de tiempo" in body and "Rango afectado" in body
-    # La observación ya no ofrece el flujo humano de estados (vive en la vulnerabilidad).
-    assert "/transition/" not in body
-    response = client.post(
-        f"/detection/findings/{finding.pk}/transition/",
-        {"status": "ACCEPTED", "note": ""},
-        follow=True,
-    )
-    assert "requiere una nota" in response.content.decode()
-    client.post(
-        f"/detection/findings/{finding.pk}/transition/",
-        {"status": "ACCEPTED", "note": "Compensado"},
-    )
-    finding.refresh_from_db()
-    assert finding.status == "ACCEPTED" and finding.status_changed_by == operator
-    body = client.get(f"/detection/findings/{finding.pk}/").content.decode()
-    assert "Riesgo aceptado" in body and "Compensado" in body
+    # La observación no ofrece cambiar su estado a mano (eso vive en la vulnerabilidad) y la
+    # ruta ya no existe; su cabecera dice la situación.
+    assert "/transition/" not in body and "vigente" in body
+    assert client.post(f"/detection/findings/{finding.pk}/transition/", {}).status_code == 404
     client.post(f"/detection/findings/{finding.pk}/note/", {"text": ""})
     assert (
         client.get("/detection/findings/00000000-0000-0000-0000-000000000000/").status_code == 404

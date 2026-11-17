@@ -14,7 +14,7 @@
 </div>
 {% endblock %}
 {% block content %}
-<p class="text-sm text-ink-soft">Las observaciones <strong>nunca se borran</strong>: son la materia prima. Cuando una herramienta deja de reportarlas o el software desaparece quedan como mitigadas con su historia. Los estados que importan a la organización (confirmada, falso positivo, riesgo aceptado) se fijan en la vulnerabilidad consolidada.</p>
+<p class="text-sm text-ink-soft">Las observaciones <strong>nunca se borran</strong>: son la materia prima. Lo único que les cambia es su situación: <strong>vigente</strong> mientras alguna fuente la sigue viendo, <strong>ya no se observa</strong> cuando todas dejan de verla (la versión cambió, el puerto se cerró o la herramienta la revisó y no la reportó) y <strong>reapareció</strong> si vuelve. Confirmar, descartar como falso positivo o aceptar el riesgo se decide en la vulnerabilidad que la consolida.</p>
 
 <form method="get" class="card grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6 lg:items-end">
   {% for field in filter_form %}{% if field.name != 'asset' %}

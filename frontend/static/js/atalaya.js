@@ -204,6 +204,22 @@
     });
   }
 
+  // --- Campos que solo aplican a una opción de un selector ([data-reveal-for]) -----------
+  // <div data-reveal-for="id-del-select" data-reveal-value="other">…</div>: visible (y enviado)
+  // solo con esa opción elegida. Sin JS el campo queda a la vista y el servidor lo ignora.
+  function initReveal(el) {
+    var select = document.getElementById(el.getAttribute("data-reveal-for"));
+    if (!select) return;
+    var value = el.getAttribute("data-reveal-value");
+    function refresh() {
+      var on = select.value === value;
+      el.hidden = !on;
+      el.querySelectorAll("input,select,textarea").forEach(function (f) { f.disabled = !on; });
+    }
+    select.addEventListener("change", refresh);
+    refresh();
+  }
+
   // --- Selectores que envían su formulario al cambiar ([data-autosubmit]) --------------
   function initAutosubmit(select) {
     select.addEventListener("change", function () {
@@ -286,6 +302,7 @@
     document.querySelectorAll("[data-nav]").forEach(initNav);
     document.querySelectorAll("form[data-confirm]").forEach(initConfirm);
     document.querySelectorAll("[data-autosubmit]").forEach(initAutosubmit);
+    document.querySelectorAll("[data-reveal-for]").forEach(initReveal);
     document.querySelectorAll('form[method="post"]:not([hx-post]):not([data-no-busy])').forEach(initSubmitOnce);
     initHtmxErrors();
     initPollingPause();

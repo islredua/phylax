@@ -23,6 +23,8 @@ class Item:
     url: str
     detail: str = ""
     at: datetime | None = None  # cuándo ocurrió (para no avisar hechos anteriores al canal)
+    # Cuenta a la que también se le avisa en persona, a su correo (``services.dispatch``).
+    recipient_id: int | None = None
 
 
 def absolute(path):
@@ -98,6 +100,8 @@ def pending_items(now=None) -> list[Item]:
             )
         )
 
+    items.extend(assigned_items())
+
     wait_hours = int(getattr(settings, "ALERTS_ACTION_WAIT_HOURS", 4))
     limit = now - timedelta(hours=wait_hours)
     for action in (
@@ -127,6 +131,44 @@ def pending_items(now=None) -> list[Item]:
                 "El modelo local (Ollama) no responde",
                 absolute(reverse("llm:settings")),
                 "las sugerencias de criticidad y las consolidaciones corren por regla hasta que vuelva",
+            )
+        )
+    return items
+
+
+def assigned_items(limit=500) -> list[Item]:
+    """Riesgos abiertos a nombre de una persona con cuenta: los que se le asignaron y los que
+    hereda por ser responsable técnico del activo. Cada uno se le avisa una vez; si se le vuelve a
+    asignar más adelante, se le avisa de nuevo. Lo que alguien se asignó a sí mismo no se avisa.
+    """
+    from apps.detection import responsibles
+    from apps.detection.models import RISK_OPEN_STATUSES, Risk
+
+    items = []
+    queryset = responsibles.with_people(
+        Risk.objects.filter(status__in=RISK_OPEN_STATUSES)
+    ).order_by("-first_identified_at")[:limit]
+    for risk in queryset:
+        who = responsibles.of(risk)
+        if not who.has_account:
+            continue
+        if not who.inherited and risk.assigned_by_id == who.user_id:
+            continue
+        if who.inherited or not risk.assigned_at:
+            key, when = f"risk-assigned:{risk.pk}:{who.user_id}", risk.first_identified_at
+        else:
+            stamp = f"{risk.assigned_at:%Y%m%d%H%M}"
+            key, when = f"risk-assigned:{risk.pk}:{who.user_id}:{stamp}", risk.assigned_at
+        items.append(
+            Item(
+                AlertEvent.RISK_ASSIGNED,
+                key,
+                f"{risk.headline} · {risk.asset.name}",
+                absolute(reverse("detection:risk", args=[risk.pk])),
+                f"nivel {risk.get_level_display().lower()}; a nombre de {who.label}"
+                + (" por ser responsable del activo" if who.inherited else ""),
+                at=when,
+                recipient_id=who.user_id,
             )
         )
     return items

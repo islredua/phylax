@@ -50,7 +50,7 @@
         {% for n in recent %}
         <tr>
           <td class="font-mono text-xs whitespace-nowrap">{{ n.created_at|fecha:True }}</td>
-          <td class="text-xs">{{ n.channel.name }}</td>
+          <td class="text-xs">{{ n.destination }}</td>
           <td class="text-xs">{{ n.get_event_display }}</td>
           <td class="col-md text-xs text-ink-soft">{{ n.subject }}</td>
           <td>{% if n.status == 'SENT' %}<span class="badge-low">enviado</span>{% else %}<span class="badge-critical">falló</span> <span class="text-xs text-critical" title="{{ n.error }}">{{ n.error|truncatechars:70 }}</span>{% endif %}</td>

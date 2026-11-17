@@ -801,21 +801,45 @@ def _apply_item(asset_id, item, group, context, *, by_rule, log_obj, now):
     return vuln
 
 
+def _mark_resolved(vuln, now) -> bool:
+    if vuln.human_locked or not vuln.is_open:
+        return False
+    vuln.status = VulnerabilityStatus.MITIGATED
+    vuln.status_source = StatusSource.RULE
+    vuln.status_at = now
+    vuln.resolved_at = now
+    vuln.save(update_fields=["status", "status_source", "status_at", "resolved_at"])
+    _event(vuln, VulnerabilityEventKind.RESOLVED, "Ninguna fuente la observa ya")
+    return True
+
+
 def _resolve_orphans(asset_id, touched_ids, now):
     """Vulnerabilidades que ya no tienen observación abierta: mitigadas (si nadie decidió otra cosa)."""
-    resolved = 0
     qs = Vulnerability.objects.filter(asset_id=asset_id).exclude(pk__in=touched_ids)
-    for vuln in qs:
-        if vuln.human_locked or not vuln.is_open:
-            continue
-        vuln.status = VulnerabilityStatus.MITIGATED
-        vuln.status_source = StatusSource.RULE
-        vuln.status_at = now
-        vuln.resolved_at = now
-        vuln.save(update_fields=["status", "status_source", "status_at", "resolved_at"])
-        _event(vuln, VulnerabilityEventKind.RESOLVED, "Ninguna fuente la observa ya")
-        resolved += 1
-    return resolved
+    return sum(int(_mark_resolved(vuln, now)) for vuln in qs)
+
+
+@transaction.atomic
+def resolve_unobserved(asset_id, *, now=None) -> int:
+    """Lo mismo que hace la consolidación al terminar, sin esperar su turno en la cola del modelo:
+    las vulnerabilidades abiertas cuyas observaciones ya están todas cerradas quedan mitigadas.
+
+    Es una regla (no hay nada que redactar ni que valorar), así que comprobar una corrección no
+    depende de cuántas tareas tenga pendientes el modelo.
+    """
+    from django.db.models import Exists, OuterRef
+
+    now = now or timezone.now()
+    observations = Finding.objects.filter(consolidated=OuterRef("pk"))
+    qs = (
+        Vulnerability.objects.filter(asset_id=asset_id, status__in=VULN_OPEN_STATUSES)
+        .annotate(
+            observed=Exists(observations),
+            observed_open=Exists(observations.filter(status__in=OPEN_STATUSES)),
+        )
+        .filter(observed=True, observed_open=False)
+    )
+    return sum(int(_mark_resolved(vuln, now)) for vuln in qs)
 
 
 @dataclass(frozen=True)

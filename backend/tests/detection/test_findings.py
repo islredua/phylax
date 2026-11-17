@@ -84,66 +84,48 @@ def test_same_vulnerability_from_two_tools_is_one_finding(lab_cti):
     assert _kinds(finding)[-1] == FindingEventKind.SEEN_AGAIN
 
 
-def test_mitigated_finding_reopens_as_reappeared(lab_cti, analyst):
+def _gone(finding, source="NUCLEI"):
+    """La fuente deja de verla (pasada pedida por una persona: cuenta completa)."""
+    findings.mark_unreported([finding.pk], source, reason="Ya no se reporta.", verified=True)
+    finding.refresh_from_db()
+    return finding
+
+
+def test_mitigated_finding_reopens_as_reappeared(lab_cti):
     asset = AssetFactory()
     outcome = findings.upsert_finding(
         asset_id=asset.pk, vulnerability_id="CVE-2024-6387", source="NUCLEI"
     )
-    finding = findings.transition(outcome.finding.pk, user=analyst, status="CONFIRMED")
-    finding = findings.transition(finding.pk, user=analyst, status="MITIGATED")
-    assert finding.resolved_at is not None
+    finding = _gone(outcome.finding)
+    assert finding.status == FindingStatus.MITIGATED and finding.resolved_at is not None
     again = findings.upsert_finding(
         asset_id=asset.pk, vulnerability_id="CVE-2024-6387", source="NUCLEI"
     )
     assert again.reopened and again.finding.status == FindingStatus.REOPENED
     assert again.finding.reopened_count == 1 and again.finding.resolved_at is None
+    assert again.finding.unseen == {}  # volvió a verse: la cuenta empieza de cero
     assert FindingEventKind.REOPENED in _kinds(again.finding)
-    # Aceptado o falso positivo: la persona decidió; no se reabre solo.
-    findings.transition(finding.pk, user=analyst, status="ACCEPTED", note="Compensado por WAF")
+    # Estados heredados (ya no hay pantalla que los ponga): lo que una persona aceptó o descartó
+    # no se reabre solo.
+    Finding.objects.filter(pk=finding.pk).update(status=FindingStatus.ACCEPTED)
     seen = findings.upsert_finding(
         asset_id=asset.pk, vulnerability_id="CVE-2024-6387", source="NUCLEI"
     )
     assert not seen.reopened and seen.finding.status == FindingStatus.ACCEPTED
 
 
-@pytest.mark.parametrize(
-    ("path", "ok"),
-    [
-        (["CONFIRMED", "PRIORITIZED", "MITIGATED"], True),
-        (["CONFIRMED", "ACCEPTED"], True),
-        (["FALSE_POSITIVE", "CONFIRMED"], True),
-        (["PRIORITIZED"], False),
-        (["CONFIRMED", "NEW"], False),
-        (["MITIGATED", "ACCEPTED"], False),
-    ],
-)
-def test_lifecycle_transitions(analyst, path, ok):
-    finding = findings.upsert_finding(
-        asset_id=AssetFactory().pk, vulnerability_id="CVE-2020-0001", source="MANUAL"
-    ).finding
-    try:
-        for status in path:
-            findings.transition(finding.pk, user=analyst, status=status, note="motivo")
-    except ValidationError:
-        assert not ok
-    else:
-        assert ok
-        finding.refresh_from_db()
-        assert finding.status == path[-1] and finding.status_changed_by == analyst
-        last = finding.events.last()
-        assert last.kind == FindingEventKind.STATUS_CHANGED and last.data["to"] == path[-1]
+def test_observations_have_no_manual_status_change():
+    """W6: el estado de una observación no lo decide nadie a mano (eso vive en la
+    vulnerabilidad); el servicio de transición se retiró junto con su ruta."""
+    assert not hasattr(findings, "transition") and not hasattr(findings, "TRANSITIONS")
 
 
-def test_accepting_requires_note_and_permission(analyst, make_user):
+def test_notes_require_text_and_permission(analyst, make_user):
     finding = findings.upsert_finding(
         asset_id=AssetFactory().pk, vulnerability_id="CVE-2020-0002", source="MANUAL"
     ).finding
-    with pytest.raises(ValidationError, match="requiere una nota"):
-        findings.transition(finding.pk, user=analyst, status="ACCEPTED")
     with pytest.raises(PermissionDenied):
-        findings.transition(finding.pk, user=make_user(AUDITOR), status="CONFIRMED")
-    with pytest.raises(ValidationError, match="Estado desconocido"):
-        findings.transition(finding.pk, user=analyst, status="OTRO")
+        findings.add_note(finding.pk, user=make_user(AUDITOR), text="No debería poder")
     findings.add_note(finding.pk, user=analyst, text="Revisar con el dueño")
     finding.refresh_from_db()
     assert finding.note == "Revisar con el dueño" and finding.events.last().kind == "NOTE"
@@ -253,7 +235,6 @@ def test_scoring_contract_sets_priority(monkeypatch, analyst):
     ).finding
     # El Módulo 4 ya está disponible; upsert_finding no puntúa por sí mismo (lo hace quien ingiere).
     assert finding.priority_score is None and scoring.is_available()
-    findings.transition(finding.pk, user=analyst, status="CONFIRMED")
     monkeypatch.setattr(
         scoring,
         "score_findings",
@@ -262,8 +243,12 @@ def test_scoring_contract_sets_priority(monkeypatch, analyst):
     assert findings.request_scoring([finding.pk]) == 1
     finding.refresh_from_db()
     assert finding.priority_score == 7.5 and finding.priority_breakdown == {"cvss": 3.0}
-    assert finding.status == FindingStatus.PRIORITIZED
+    assert finding.status == FindingStatus.NEW  # puntuar no cambia la situación
     assert finding.events.last().kind == FindingEventKind.PRIORITY_CHANGED
+    # Recalcular sin que cambie el puntaje no añade un renglón «7.5 → 7.5» a la línea de tiempo.
+    before = finding.events.count()
+    assert findings.request_scoring([finding.pk]) == 1
+    assert finding.events.count() == before
 
 
 def test_record_rescan_and_summary(lab_cti):

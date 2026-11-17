@@ -165,8 +165,11 @@ ejecución falla con un mensaje claro.
 `Finding` es una **observación**: lo que una herramienta, la reconciliación CTI o una persona
 reportó sobre un activo. Única por `(activo, identificador)`; cada fuente añade `FindingEvidence`
 (con los metadatos de la plantilla de nuclei: etiquetas, producto declarado, CWE, vector CVSS,
-remediación, impacto). **Nunca se borra**: cuando nadie la reporta ya pasa a mitigada con evento, y
-si reaparece queda **Reaparecida**. `FindingEvent` es solo de inserción. El analista puede
+remediación, impacto). **Nunca se borra**: lo único que le cambia es su *situación* (vigente, ya
+no se observa, reapareció), y cambia sola cuando **todas** las fuentes que la reportaron dejan de
+verla (ver «Cerrar el ciclo y repartir el trabajo»). No hay estado que alguien cambie a mano: la
+ruta `findings/<id>/transition/` y `findings.transition` se retiraron (W6); confirmar, descartar
+como falso positivo o aceptar se decide en la vulnerabilidad. `FindingEvent` es solo de inserción. El analista puede
 registrar una observación manual (`Observaciones › Registrar observación`, fuente `MANUAL`) y
 anotar contexto; los estados que importan a la organización no se deciden aquí sino en la
 vulnerabilidad consolidada. Cada observación muestra a qué vulnerabilidad pertenece (o «sin
@@ -506,6 +509,14 @@ Teams) suscrito a uno o más eventos:
 | Fecha compromiso o revisión vencida | `Risk` en tratamiento con `target_date` pasada, o aceptado con `review_at` pasada | `followup:<id>:<fecha>` |
 | Acción esperando aprobación | `PlannedAction` propuesta o en revisión desde hace más de `ALERTS_ACTION_WAIT_HOURS` (4) | `action-waiting:<id>` |
 | El modelo local no responde | `llm.status` con `available=False` | `llm-down:<día>` |
+| Riesgo a nombre de una persona | `Risk` abierto cuyo responsable efectivo tiene cuenta: asignado, o heredado del responsable técnico del activo. No se avisa lo que alguien se asignó a sí mismo | `risk-assigned:<id>:<usuario>[:<fecha de asignación>]` |
+
+**Aviso directo a la persona (W4).** Además de los canales, `services.dispatch_personal` manda a
+cada persona **un correo a la dirección de su cuenta** con los riesgos que tiene a su nombre y aún
+no se le avisaron, haya o no canales configurados; deja una `Notification` sin canal y con
+`recipient` («directo a ana» en la pantalla). Sin correo en la cuenta no se envía nada: la persona
+los ve igual en «a mi nombre». Un canal suscrito a este evento recibe solo las asignaciones
+posteriores a su alta, igual que con los riesgos críticos.
 
 `alerts.services.dispatch` corre cada 10 minutos (`alerts-dispatch`) y también a mano («Enviar
 pendientes ahora»): por canal y evento junta los hechos que aún no se le han avisado en **un solo
@@ -555,6 +566,109 @@ lo pide. Fecha vacía = `policy.suggested_target(risk)` (el plazo de la polític
 cumplir); si ya venció, mitigar y transferir no se aplican a ese riesgo y el aviso lo dice.
 Responsable vacío = el que cada riesgo ya tenía. Los cerrados no se tocan.
 
+## Cerrar el ciclo y repartir el trabajo (revisión del 2026-11-16, bloque 4)
+
+### Cuándo se cierra una observación (`findings.mark_unseen`)
+
+Antes, que una herramienta dejara de reportar algo solo dejaba la nota «no reportado en esta
+pasada»: nada se cerraba salvo que el software desapareciera del inventario. Ahora cada fuente
+lleva su cuenta de pasadas sin verla (`Finding.unseen`, `{fuente: veces}`) y la observación pasa a
+«ya no se observa» cuando **todas** sus fuentes llegaron a su umbral (`UNSEEN_TO_CLOSE`):
+
+| Fuente | Deja de verla cuando | Pasadas |
+|---|---|---|
+| Versión del software (`CTI_MATCH`) | la reconciliación ya no encuentra el software en el rango afectado | 1 |
+| Grype | analizó el SBOM o la imagen completos y no la reportó | 1 |
+| nuclei | una pasada que **pudo verla** no la reportó | 2 (una plantilla puede fallar por tiempo de espera); 1 si la pasada la pidió una persona para comprobar una corrección |
+| nuclei, puerto cerrado | el inventario marca cerrado el puerto donde se observó (`resolve_closed_services`) | cuenta completa |
+| Una persona (`MANUAL`) | nunca: lo que registró una persona se cierra en la vulnerabilidad | — |
+
+Con varias fuentes hacen falta todas: que nuclei no la reporte no desmiente que la versión
+instalada siga en el rango afectado. Si una fuente vuelve a verla, su cuenta empieza de cero y, si
+estaba cerrada, queda «reapareció».
+
+**El silencio de nuclei solo cuenta si pudo verla** (`scanners.services._coverage`): el perfil de
+esa pasada corre la plantilla (por sus etiquetas y su tipo, `profiles.nuclei_covers`:
+`cves-network` no corre plantillas HTTP, `cves` no corre las de exposición), el puerto donde se
+observó estaba entre los objetivos y respondía a una conexión TCP desde el mismo worker (un equipo
+apagado no reporta nada y no por eso está corregido). Si no se cumple, la línea de tiempo de la
+observación dice por qué esa pasada no la revisó. Las observaciones de otras fuentes ya no reciben
+una nota en cada escaneo del activo.
+
+### «Ya lo corregí: comprobar» (`detection/verification.py`, W5)
+
+La ficha del riesgo dice qué volvería a escanear y lo pide con un botón. El plan sale de las
+fuentes que vieron sus vulnerabilidades abiertas:
+
+| Lo vio | Se pide |
+|---|---|
+| la versión de un servicio | Reescanear servicios (y la reconciliación de siempre si el inventario cambia) |
+| nuclei, o software que detectó nuclei | Detectar vulnerabilidades (nuclei) |
+| Grype, o un componente del SBOM | Reanalizar SBOM o imagen |
+
+Las acciones entran por `actions.request_manual_many` (un evento, una acción por pasada, urgencia
+alta: no esperan la ventana) y respetan modo, cola de aprobación y guardarraíles. Queda una
+`RiskVerification` con la línea base (qué vulnerabilidades estaban abiertas y qué pasada revisa cada
+una) y un evento en el riesgo. Cuando terminan las acciones y no queda un lote del activo sin
+procesar, `verification.settle` cierra por regla, sin esperar el turno del modelo, las
+vulnerabilidades que se quedaron sin observaciones abiertas (`consolidation.resolve_unobserved`) y
+los riesgos que se quedaron sin vulnerabilidades abiertas (`risks.close_resolved`), y dice qué
+resultó:
+
+- **Corregido**: ninguna se observa ya; el riesgo quedó cerrado.
+- **N de M ya no se observan. Siguen observándose: …**: solo se dice «sigue» de lo que una fuente
+  volvió a ver (una herramienta la reportó de nuevo, o se releyó el inventario y el software sigue
+  en el rango afectado).
+- **Sin comprobar / No se pudo comprobar**: la pasada no corrió (rechazada, bloqueada, fallida) o
+  corrió y no pudo revisarla (perfil, puerto, equipo sin respuesta).
+
+La tarjeta de la ficha afirma lo que es cierto **hoy** (`verification.view`, `outcome`):
+«corregido» mientras el riesgo siga cerrado; «reapareció» si esa comprobación lo cerró y después
+volvió a abrirse (la corrección se revirtió), con la fecha en que volvió; «comprobado» con un
+titular corto («2 de 5 ya no se observan», «Sigue ahí: las fuentes lo volvieron a ver») y, aparte,
+la lista enlazada de lo que sigue y de lo que quedó sin comprobar; «sin comprobar» si ninguna
+pasada corrió. Mientras una pasada corre, su renglón dice «corriendo» aunque la acción siga en
+cola. Sin tratamiento decidido la tarjeta va después del tratamiento y su botón es secundario:
+lo primero en la ficha sigue siendo decidir.
+
+Lo que solo registró una persona no lo comprueba ninguna herramienta y la ficha lo dice. Una
+comprobación que nadie termina (acción olvidada en la cola) se cierra sola a los 7 días. Permiso:
+`detection.request_evaluation`. La tarjeta se refresca sola mientras está en curso
+(`detection:risk_verification`).
+
+### Responsables (`detection/responsibles.py`, W4)
+
+Cada riesgo tiene un responsable **efectivo**, en este orden: la cuenta a la que se asignó
+(`Risk.assignee`), el equipo o persona sin cuenta que alguien escribió (`Risk.owner`), el
+responsable técnico del activo, el responsable de negocio del activo, o nadie. La herencia se
+calcula al leer: si cambia el responsable del activo, sus riesgos sin asignación propia lo siguen
+en el acto. El selector «Responsable» (ficha del riesgo, tratamiento y acción en lote) ofrece «el
+del activo», cada cuenta activa y «otro equipo o persona sin cuenta». «Asignar responsable» en
+lote no decide el tratamiento. Cada cambio deja un evento en el riesgo (`RiskEventKind.ASSIGNED`).
+
+El registro filtra **A mi nombre** (`?mine=1`: asignados a quien mira o heredados de sus activos),
+**Sin responsable** (`?unassigned=1`) y por nombre (`?owner=`, que busca también en los heredados);
+«Por responsable» agrupa por responsable efectivo y marca la fila de quien mira; «Hoy» abre con
+«N riesgos a tu nombre» (cuántos sin decidir y cuántos con seguimiento vencido), con su cola de
+trabajo, en el registro y en Inicio (`responsibles.today_item`). En la lista el responsable va en
+la celda del tratamiento («a cargo de X (del activo)»): una columna más no cabe a 1440 px. Solo quien tiene cuenta lo ve en «a mi nombre» y
+recibe el aviso (ver Avisos). Permiso para asignar: `detection.work_findings`.
+
+### Contadores en las pestañas (`presentation/counters.py`, N4)
+
+«Por confirmar», «Clasificación» y «Cola de aprobación» muestran cuántos pendientes hay adentro, y
+nada si no hay ninguno. Cada contador cuenta lo mismo que su pantalla lista como pendiente, sin
+caché (al atender el último, el número desaparece en la siguiente página) y solo se calcula si la
+pestaña se dibuja. Si un contador falla, la pestaña sale sin número.
+
+### Exportar lo filtrado (`detection/exports.py`, N5)
+
+Las listas de riesgos y de vulnerabilidades tienen «Exportar lo filtrado» (`?export=csv` sobre la
+misma URL): el CSV trae lo que la lista muestra con sus filtros, sin paginar; la de
+vulnerabilidades, una fila por vulnerabilidad aunque la lista esté agrupada por software. Las
+columnas son las mismas que la descarga de Inicio, más el responsable efectivo y su origen en los
+riesgos. Quien puede ver la lista puede exportarla.
+
 ## Título coherente con el software observado (`detection/titles.py`)
 
 El título de una vulnerabilidad lo escribe el modelo (al consolidar o al redactar) y se revisa por
@@ -600,7 +714,8 @@ registro muestra la fecha bajo el tratamiento (en rojo si venció), ofrece el fi
 compromiso o revisión vencida» (`?overdue=1`) y el filtro por responsable (`?owner=`), la tarjeta
 «Seguimiento vencido» y la tabla plegable **Por responsable** (riesgos abiertos, críticos y
 vencidos de cada quien, con enlace a «sus riesgos»); el nombre del responsable en una fila o en
-el detalle lleva a esa vista. «Hoy» del registro y de Inicio añaden «N riesgos con fecha
+el detalle lleva a esa vista. Desde el bloque 4 el responsable es el **efectivo** (asignado o
+heredado del activo, ver «Responsables»). «Hoy» del registro y de Inicio añaden «N riesgos con fecha
 compromiso o revisión vencida → Dar seguimiento», y el evento de Avisos correspondiente lo notifica.
 
 **Presupuesto del prompt de riesgos.** Con `LLM_NUM_CTX=4096` el prompt de un activo con decenas

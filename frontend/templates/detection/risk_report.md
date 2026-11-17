@@ -11,7 +11,7 @@
 
 - **Qué podría pasar:** {{ risk.impact_description|default:risk.scenario }}
 - **Qué hacer primero:** {% if risk.recommendations %}{{ risk.recommendations.0 }}{% else %}ver las acciones de cada vulnerabilidad ligada{% endif %}
-- **Decisión:** {% if closure %}riesgo cerrado el {{ closure.at|fecha }} ({{ closure.message }}){% elif risk.treatment %}{{ risk.get_treatment_display }}{% if risk.owner %}, responsable {{ risk.owner }}{% endif %}, decidido por {{ risk.decided_by.get_username|default:"—" }} el {{ risk.decided_at|fecha }}{% else %}pendiente: nadie ha decidido el tratamiento{% endif %}
+- **Decisión:** {% if closure %}riesgo cerrado el {{ closure.at|fecha }} ({{ closure.message }}){% elif risk.treatment %}{{ risk.get_treatment_display }}{% if responsible %}, responsable {{ responsible.label }}{% if responsible.inherited %} (del activo){% endif %}{% endif %}, decidido por {{ risk.decided_by.get_username|default:"—" }} el {{ risk.decided_at|fecha }}{% else %}pendiente: nadie ha decidido el tratamiento{% endif %}
 
 ## Activo
 
@@ -60,7 +60,7 @@ Ver las acciones de cada vulnerabilidad.{% endfor %}
 
 ## Tratamiento
 
-{% if risk.treatment %}{{ risk.get_treatment_display }}{% if risk.owner %} · responsable: {{ risk.owner }}{% endif %} · decidido por {{ risk.decided_by.get_username|default:"—" }} el {{ risk.decided_at|fecha }}.{% if risk.treatment_note %} «{{ risk.treatment_note }}»{% endif %}{% if risk.residual_level %} Riesgo residual: {{ risk.get_residual_level_display }} ({{ risk.residual_likelihood }} × {{ risk.residual_impact }}).{% endif %}{% else %}Sin tratamiento decidido todavía.{% endif %}
+{% if risk.treatment %}{{ risk.get_treatment_display }}{% if responsible %} · responsable: {{ responsible.label }}{% if responsible.inherited %} (del activo){% endif %}{% endif %} · decidido por {{ risk.decided_by.get_username|default:"—" }} el {{ risk.decided_at|fecha }}.{% if risk.treatment_note %} «{{ risk.treatment_note }}»{% endif %}{% if risk.residual_level %} Riesgo residual: {{ risk.get_residual_level_display }} ({{ risk.residual_likelihood }} × {{ risk.residual_impact }}).{% endif %}{% else %}Sin tratamiento decidido todavía.{% endif %}
 
 ## Evidencia técnica
 

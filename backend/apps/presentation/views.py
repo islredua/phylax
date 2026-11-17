@@ -415,7 +415,7 @@ def stage_context(stage, data, user):
             ctx["links"].append(("Ver las vulnerabilidades", panel_url))
     elif stage == "risks":
         ctx["top"] = indicators.top_risks(limit=3)
-        work = next((item for item in indicators.today(data) if item["work_url"]), None)
+        work = next((item for item in indicators.today(data, user=user) if item["work_url"]), None)
         ctx["work"] = work
         ctx["links"].append(("Abrir el registro de riesgos", risks_url))
     elif stage == "ai":
@@ -474,7 +474,7 @@ class HomeView(TemplateView):
             **narrative.reading(data, top),
             narrative_pending=bool(cache.get(NARRATIVE_PENDING_KEY)),
             linker=Linker.from_db(),
-            today=indicators.today(data),
+            today=indicators.today(data, user=user),
             health_url=indicators.health_target(data),
             has_trend=any(r["has_data"] for r in rows),
             setup=_setup_reminder(user),
@@ -702,114 +702,27 @@ class HomeExportView(PermissionRequiredMixin, View):
         )
 
     def get(self, request, kind):
-        import csv
+        from django.http import Http404
 
-        from apps.core.templatetags.ui import fecha
+        from apps.detection import exports
         from apps.detection.descriptions import SUSTAINED
-        from apps.detection.models import FindingSeverity, Risk, Vulnerability
+        from apps.detection.models import Risk, Vulnerability
 
         from . import indicators
-        from .templatetags.presentation_tags import SOURCE_LABELS
 
-        severity_label = dict(FindingSeverity.choices)
-
-        stamp = timezone.localdate().isoformat()
-        response = HttpResponse(content_type="text/csv; charset=utf-8")
-        response["Content-Disposition"] = f'attachment; filename="atalaya-{kind}-{stamp}.csv"'
-        response.write("\ufeff")
-        writer = csv.writer(response)
         if kind == "risks":
-            writer.writerow(
-                [
-                    "activo",
-                    "riesgo",
-                    "consecuencia",
-                    "fuente_amenaza",
-                    "probabilidad",
-                    "impacto",
-                    "nivel",
-                    "estado",
-                    "tratamiento",
-                    "responsable",
-                    "valorado_por",
-                    "valorado_el",
-                    "vulnerabilidades",
-                ]
+            return exports.csv_response(
+                kind,
+                exports.RISK_COLUMNS,
+                exports.risk_rows(Risk.objects.filter(status__in=indicators.RISK_OPEN)),
             )
-            for r in (
-                Risk.objects.filter(status__in=indicators.RISK_OPEN)
-                .select_related("asset")
-                .prefetch_related("vulnerabilities")
-            ):
-                writer.writerow(
-                    [
-                        r.asset.name,
-                        r.title,
-                        r.get_consequence_display() if r.consequence else "",
-                        r.get_threat_source_display(),
-                        r.likelihood,
-                        r.impact,
-                        r.get_level_display(),
-                        r.get_status_display(),
-                        r.get_treatment_display() if r.treatment else "",
-                        r.owner,
-                        r.get_assessment_source_display(),
-                        fecha(r.assessed_at) if r.assessed_at else "",
-                        "; ".join(v.key for v in r.vulnerabilities.all()),
-                    ]
-                )
-        elif kind == "vulnerabilities":
-            writer.writerow(
-                [
-                    "activo",
-                    "clave",
-                    "titulo",
-                    "software",
-                    "estado",
-                    "plausibilidad",
-                    "severidad",
-                    "cvss",
-                    "epss",
-                    "kev",
-                    "plazo_cisa",
-                    "puntaje_tecnico",
-                    "puntaje_contextual",
-                    "fuentes",
-                    "detectada",
-                    "vista",
-                ]
+        if kind == "vulnerabilities":
+            return exports.csv_response(
+                kind,
+                exports.VULNERABILITY_COLUMNS,
+                exports.vulnerability_rows(Vulnerability.objects.filter(status__in=SUSTAINED)),
             )
-            for v in (
-                Vulnerability.objects.filter(status__in=SUSTAINED)
-                .select_related("asset", "component")
-                .prefetch_related("observations")
-            ):
-                sources = sorted({s for f in v.observations.all() for s in (f.sources or [])})
-                writer.writerow(
-                    [
-                        v.asset.name,
-                        v.key,
-                        v.title,
-                        v.component.label if v.component else "",
-                        v.get_status_display(),
-                        v.plausibility,
-                        severity_label.get(v.severity, v.severity),
-                        v.cvss_score,
-                        v.epss_score,
-                        "sí" if v.in_kev else "no",
-                        v.kev_due_at.isoformat() if v.kev_due_at else "",
-                        v.technical_score,
-                        v.contextual_score,
-                        "; ".join(SOURCE_LABELS.get(s, s) for s in sources),
-                        fecha(v.first_detected_at),
-                        fecha(v.last_seen_at),
-                    ]
-                )
-        else:
-            from django.http import Http404
-
-            raise Http404
-        return response
+        raise Http404
 
 
 class HomeSettingsView(PermissionRequiredMixin, View):

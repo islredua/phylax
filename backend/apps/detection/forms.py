@@ -15,15 +15,6 @@ from .models import (
 
 # Estados que las observaciones usan de verdad desde que los estados de negocio (confirmada,
 # falso positivo, riesgo aceptado) se deciden en la vulnerabilidad consolidada.
-OBSERVATION_STATUSES = (FindingStatus.NEW, FindingStatus.REOPENED, FindingStatus.MITIGATED)
-
-TRANSITION_LABELS = {
-    FindingStatus.CONFIRMED: "Confirmar",
-    FindingStatus.PRIORITIZED: "Marcar priorizado",
-    FindingStatus.MITIGATED: "Marcar mitigado",
-    FindingStatus.ACCEPTED: "Aceptar el riesgo",
-    FindingStatus.FALSE_POSITIVE: "Falso positivo",
-}
 
 
 class FindingFilterForm(StyledMixin, forms.Form):
@@ -35,13 +26,16 @@ class FindingFilterForm(StyledMixin, forms.Form):
     severity = forms.ChoiceField(
         label="Severidad", required=False, choices=[("", "Todas"), *FindingSeverity.choices]
     )
+    # Lo único que cambia en una observación es si las fuentes la siguen viendo. Confirmar,
+    # aceptar o descartar se decide en la vulnerabilidad que la consolida.
     status = forms.ChoiceField(
-        label="Estado",
+        label="Situación",
         required=False,
         choices=[
-            ("", "Abiertas"),
+            ("", "Vigentes"),
+            (FindingStatus.REOPENED.value, "Reaparecidas"),
+            (FindingStatus.MITIGATED.value, "Ya no se observan"),
             ("all", "Todas"),
-            *[(s.value, s.label) for s in OBSERVATION_STATUSES],
         ],
     )
     in_kev = forms.ChoiceField(
@@ -56,11 +50,6 @@ class FindingFilterForm(StyledMixin, forms.Form):
         label="Fuente", required=False, choices=[("", "Todas"), *FindingSource.choices]
     )
     asset = forms.UUIDField(required=False, widget=forms.HiddenInput())
-
-
-class FindingTransitionForm(forms.Form):
-    status = forms.ChoiceField(choices=list(TRANSITION_LABELS.items()))
-    note = forms.CharField(required=False, max_length=2000)
 
 
 class NoteForm(forms.Form):
@@ -339,8 +328,10 @@ class RiskFilterForm(StyledMixin, forms.Form):
     owner = forms.CharField(
         label="Responsable",
         required=False,
-        widget=forms.TextInput(attrs={"placeholder": "Equipo o persona"}),
+        widget=forms.TextInput(attrs={"placeholder": "Persona o equipo"}),
     )
+    mine = forms.BooleanField(label="A mi nombre", required=False)
+    unassigned = forms.BooleanField(label="Sin responsable", required=False)
     overdue = forms.BooleanField(label="Fecha compromiso o revisión vencida", required=False)
     policy_overdue = forms.BooleanField(label="Fuera del plazo de la política", required=False)
     likelihood = forms.IntegerField(
@@ -354,6 +345,9 @@ class RiskFilterForm(StyledMixin, forms.Form):
 
 class RiskTreatmentForm(forms.Form):
     treatment = forms.ChoiceField(choices=RiskTreatment.choices)
+    # ``responsible``: el del activo, una cuenta o «otro» (``responsibles.resolve``); ``owner`` es
+    # el texto de ese «otro» (equipo o persona sin cuenta).
+    responsible = forms.CharField(required=False, max_length=40)
     owner = forms.CharField(required=False, max_length=120)
     target_date = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}))
     review_at = forms.DateField(required=False, widget=forms.DateInput(attrs={"type": "date"}))
@@ -366,15 +360,27 @@ class RiskTreatmentForm(forms.Form):
     )
 
 
+BULK_ASSIGN = "ASSIGN"
+
+
 class RiskBulkForm(forms.Form):
     """La misma decisión para varios riesgos. La fecha vacía significa «el plazo de la política
-    de cada riesgo»; el responsable vacío conserva el que cada uno ya tenía."""
+    de cada riesgo»; el responsable vacío conserva el que cada uno ya tenía. ``ASSIGN`` solo
+    cambia el responsable, sin decidir el tratamiento."""
 
-    treatment = forms.ChoiceField(choices=RiskTreatment.choices)
+    treatment = forms.ChoiceField(
+        choices=[*RiskTreatment.choices, (BULK_ASSIGN, "Asignar responsable")]
+    )
+    responsible = forms.CharField(required=False, max_length=40)
     owner = forms.CharField(required=False, max_length=120)
     target_date = forms.DateField(required=False)
     review_at = forms.DateField(required=False)
     note = forms.CharField(required=False, max_length=2000)
+
+
+class RiskAssignForm(forms.Form):
+    responsible = forms.CharField(max_length=40)
+    owner = forms.CharField(required=False, max_length=120)
 
 
 class TreatmentPolicyForm(StyledMixin, forms.Form):

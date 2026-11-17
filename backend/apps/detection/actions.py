@@ -131,23 +131,35 @@ def request_manual(asset_id, action, *, user, reason=""):
     """Una persona pide una acción concreta («Detectar con herramienta» desde una vulnerabilidad
     por verificar). Pasa por la misma cola, modo y guardarraíles que las decisiones del
     planificador; la decisión queda marcada como pedida a mano, sin consultar al modelo."""
+    return request_manual_many(asset_id, [action], user=user, reason=reason)[0]
+
+
+def request_manual_many(asset_id, wanted, *, user, reason="", payload=None):
+    """Varias acciones concretas sobre el mismo activo en un solo evento (p. ej. comprobar la
+    corrección de un riesgo: reescanear servicios y volver a pasar nuclei). Mismas reglas que
+    ``request_manual``; devuelve las acciones en el orden pedido."""
     from .models import DetectionEvent, EventKind, EventStatus, PlannerDecision
 
     if user is not None and not user.has_perm("detection.request_evaluation"):
         raise PermissionDenied("No tienes permiso para pedir escaneos.")
     from . import capabilities
 
-    action = str(action)
+    wanted = [str(action) for action in wanted]
+    if not wanted:
+        raise ValidationError("No hay ninguna acción que pedir.")
     caps = capabilities.for_asset(asset_id)
-    if action not in caps.allowed_actions:
-        raise ValidationError(
-            caps.unavailable_actions.get(action, "La acción no está disponible para este activo.")
-        )
+    for action in wanted:
+        if action not in caps.allowed_actions:
+            raise ValidationError(
+                caps.unavailable_actions.get(
+                    action, "La acción no está disponible para este activo."
+                )
+            )
     now = timezone.now()
     event, batch = events.ingest_asset_event(
         EventKind.MANUAL_EVALUATION,
         asset_id,
-        payload={"requested_action": action, "reason": reason[:255]},
+        payload={"requested_action": ", ".join(wanted), "reason": reason[:255], **(payload or {})},
         requested_by=user,
         source=events.BatchSource.MANUAL,
     )
@@ -158,22 +170,25 @@ def request_manual(asset_id, action, *, user, reason=""):
         status=EventStatus.PLANNED, processed_at=now, triage_reason="acción pedida a mano"
     )
     batch.processed_at = now
-    batch.stats = {"manual": 1}
+    batch.stats = {"manual": len(wanted)}
     batch.save(update_fields=["processed_at", "stats", "updated_at"])
     who = user.get_username() if user is not None else "sistema"
-    decision = PlannerDecision.objects.create(
-        event=event,
-        asset_id=asset_id,
-        action=action,
-        urgency=Urgency.HIGH,
-        category="cves" if action == str(Action.DETECT_VULNS) else "",
-        rationale=reason or f"Pedida a mano por {who}.",
-        evidence=["pedida por una persona"],
-        prompt_version="manual",
-        fallback=True,
-        fallback_reason="acción pedida por una persona; el planificador no intervino",
-    )
-    return enqueue_from_decision(decision)
+    planned = []
+    for action in wanted:
+        decision = PlannerDecision.objects.create(
+            event=event,
+            asset_id=asset_id,
+            action=action,
+            urgency=Urgency.HIGH,
+            category="cves" if action == str(Action.DETECT_VULNS) else "",
+            rationale=reason or f"Pedida a mano por {who}.",
+            evidence=["pedida por una persona"],
+            prompt_version="manual",
+            fallback=True,
+            fallback_reason="acción pedida por una persona; el planificador no intervino",
+        )
+        planned.append(enqueue_from_decision(decision))
+    return planned
 
 
 # --------------------------------------------------------------------------
@@ -505,7 +520,17 @@ def on_execution_finished(execution):
         ),
         **action.result,
     )
+    _settle_verifications(action.asset_id)
     return action
+
+
+def _settle_verifications(asset_id):
+    """Si el escaneo era parte de «Ya lo corregí: comprobar», se cierra lo que ya se pueda."""
+    if not asset_id:
+        return
+    from . import verification
+
+    transaction.on_commit(lambda: verification.settle_asset(asset_id))
 
 
 def requeue_interrupted(action, execution):
@@ -555,6 +580,7 @@ def on_discovery_finished(run_id, status, asset_id=None):
         action=action,
         message=f"Reescaneo de servicios: {status}",
     )
+    _settle_verifications(action.asset_id)
     return action
 
 

@@ -10,6 +10,7 @@
     {% if consolidation_pending %}<span class="badge-primary" title="La IA está consolidando las observaciones de este activo">consolidación en curso</span>{% endif %}
   </div>
   <div class="page-actions">
+    {% if total_vulnerabilities %}<a href="{{ export_url }}" class="btn-secondary btn-sm" data-export title="Descarga en CSV las {{ total_vulnerabilities|miles }} vulnerabilidades de esta lista, una por fila, con los filtros puestos">Exportar {% if filters_active %}lo filtrado{% else %}la lista{% endif %}</a>{% endif %}
     {% if asset_id %}
       {% if perms.detection.request_evaluation %}<form method="post" action="{% url 'detection:asset_consolidate' asset_id %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn-secondary btn-sm" type="submit" title="Vuelve a pasar las observaciones del activo por la IA">Reevaluar con IA</button></form>{% endif %}
       <a href="{% url 'assets:detail' asset_id %}" class="btn-secondary btn-sm">← Activo</a>

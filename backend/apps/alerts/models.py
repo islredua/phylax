@@ -23,6 +23,7 @@ class AlertEvent(models.TextChoices):
     FOLLOWUP_OVERDUE = "FOLLOWUP_OVERDUE", "Fecha compromiso o revisión de un riesgo vencida"
     ACTION_WAITING = "ACTION_WAITING", "Acción esperando aprobación demasiado tiempo"
     LLM_DOWN = "LLM_DOWN", "El modelo local (Ollama) no responde"
+    RISK_ASSIGNED = "RISK_ASSIGNED", "Riesgo a nombre de una persona (asignado o de su activo)"
 
 
 class NotificationChannel(UUIDModel):
@@ -62,10 +63,21 @@ class NotificationStatus(models.TextChoices):
 
 
 class Notification(UUIDModel):
-    """Constancia inmutable: qué se avisó, a quién y si llegó."""
+    """Constancia inmutable: qué se avisó, a quién y si llegó.
+
+    Por un canal, o directo al correo de una persona (``recipient``, sin canal): el aviso de que
+    tiene un riesgo a su nombre no depende de que alguien haya configurado un canal.
+    """
 
     channel = models.ForeignKey(
-        NotificationChannel, on_delete=models.CASCADE, related_name="notifications"
+        NotificationChannel,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="notifications",
+    )
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
     event = models.CharField(max_length=20, choices=AlertEvent.choices)
     dedupe_key = models.CharField(max_length=200)
@@ -80,8 +92,22 @@ class Notification(UUIDModel):
         verbose_name = "notificación"
         verbose_name_plural = "notificaciones"
         constraints = [
-            models.UniqueConstraint(fields=["channel", "dedupe_key"], name="unique_notification")
+            models.UniqueConstraint(fields=["channel", "dedupe_key"], name="unique_notification"),
+            models.UniqueConstraint(
+                fields=["recipient", "dedupe_key"],
+                condition=models.Q(channel__isnull=True),
+                name="unique_personal_notification",
+            ),
         ]
 
     def __str__(self):
-        return f"{self.get_event_display()} → {self.channel}"
+        return f"{self.get_event_display()} → {self.channel or self.recipient or 'persona'}"
+
+    @property
+    def destination(self) -> str:
+        """A dónde fue, para la pantalla de Avisos."""
+        if self.channel_id:
+            return self.channel.name
+        if self.recipient_id:
+            return f"directo a {self.recipient.get_username()}"
+        return "directo a una cuenta que ya no existe"

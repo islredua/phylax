@@ -28,6 +28,11 @@ def process_event_batch(batch_id):
     """Reconcilia un lote de eventos (una vez) y aplica el filtro rápido a cada uno."""
     batch = events.process_batch(batch_id)
     logger.info("Lote %s procesado: %s", batch_id, batch.stats)
+    # Un reescaneo pedido para comprobar una corrección termina aquí: ya se reconcilió.
+    from . import verification
+
+    for asset_id in set(batch.events.exclude(asset_id=None).values_list("asset_id", flat=True)):
+        verification.settle_asset(asset_id)
     return batch.stats
 
 
@@ -72,7 +77,9 @@ def dispatch_actions():
     """Beat (cada minuto): lanza las acciones aprobadas que ya pueden correr y recoge las colgadas."""
     launched = actions.dispatch_due()
     stale = actions.stale_running()
-    return {"launched": len(launched), "stale": stale}
+    from . import verification
+
+    return {"launched": len(launched), "stale": stale, "verified": verification.settle_pending()}
 
 
 @shared_task(acks_late=True, soft_time_limit=1900, time_limit=2000)

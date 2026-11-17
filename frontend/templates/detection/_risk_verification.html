@@ -1,0 +1,59 @@
+{% load detection_tags inventory %}
+{% comment %}
+«Ya lo corregí: comprobar» (apps.detection.verification). Dice qué volvería a escanear, deja
+pedirlo y muestra la última comprobación con el avance de cada pasada. Mientras está en curso se
+refresca sola.
+{% endcomment %}
+<section class="card flex flex-col gap-3" id="comprobacion"{% if verification.pending %} hx-get="{% url 'detection:risk_verification' risk.pk %}" hx-trigger="every 10s" hx-swap="outerHTML"{% endif %} data-verification="{% if verification.pending %}pending{% elif verification.latest %}{{ verification.latest.status|lower }}{% else %}none{% endif %}" data-outcome="{{ verification.outcome|default:'none' }}">
+  <div class="flex flex-wrap items-center justify-between gap-2">
+    <h3 class="card-title mb-0">¿Ya se corrigió?</h3>
+    {% if verification.outcome == 'pending' %}<span class="pill-warn">comprobando</span>{% elif verification.outcome == 'fixed' %}<span class="pill-ok">corregido</span>{% elif verification.outcome == 'returned' %}<span class="pill-warn">reapareció</span>{% elif verification.outcome == 'checked' %}<span class="pill-neutral">comprobado</span>{% elif verification.outcome == 'failed' %}<span class="pill-error">sin comprobar</span>{% endif %}
+  </div>
+
+  {% if verification.latest %}
+  <div class="flex flex-col gap-2">
+    {% if verification.pending %}
+    <p class="text-sm">Comprobación pedida por <span class="font-mono text-xs">{{ verification.latest.requested_by.get_username|default:"sistema" }}</span> el {{ verification.latest.created_at|fecha }}. Lo que deje de observarse se cierra solo.</p>
+    {% else %}
+    <p class="text-sm {% if verification.outcome == 'fixed' %}text-low{% endif %}"><strong class="font-medium">{{ verification.headline }}</strong></p>
+    <p class="text-xs text-muted">Comprobado el {{ verification.latest.finished_at|fecha }} · lo pidió <span class="font-mono">{{ verification.latest.requested_by.get_username|default:"sistema" }}</span>.{% if verification.outcome == 'returned' %} Esa vez ninguna fuente lo vio y el riesgo se cerró{% if verification.returned_at %}; volvió a abrirse el {{ verification.returned_at|fecha }}{% endif %}. Si la corrección se revirtió, hay que aplicarla otra vez.{% endif %}</p>
+    {% endif %}
+    <ul class="flex flex-col divide-y divide-line-soft rounded border border-line-soft text-sm">
+      {% for step in verification.steps %}
+      <li class="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5" data-step="{{ step.action.action }}" data-step-status="{{ step.action.status }}">
+        <a href="{% url 'detection:action' step.action.pk %}" title="Ver la acción con su evidencia">{{ step.name }}</a>
+        <span class="flex items-center gap-2">
+          <span class="pill-{{ step.tone }}">{{ step.state }}</span>
+          {% if step.needs_approval and perms.detection.view_plannedaction %}<a href="{% url 'detection:queue' %}" class="text-xs">Ir a la cola →</a>{% endif %}
+        </span>
+      </li>
+      {% endfor %}
+    </ul>
+    {% if verification.listed %}
+    {% with result=verification.latest.result %}
+    {% if result.still %}<p class="text-xs text-ink-soft">{{ result.still|length|pl:"-Sigue observándose,Siguen observándose" }} ({{ result.still|length }}): {% for v in result.still|slice:":6" %}<a href="{% url 'detection:vulnerability' v.pk %}" target="_blank" rel="noopener" class="font-mono">{{ v.key }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}{% if result.still|length > 6 %} y {{ result.still|length|add:"-6" }} más{% endif %}.</p>{% endif %}
+    {% if result.unchecked %}<p class="text-xs text-ink-soft">Sin comprobar ({{ result.unchecked|length }}): {% for v in result.unchecked|slice:":6" %}<a href="{% url 'detection:vulnerability' v.pk %}" target="_blank" rel="noopener" class="font-mono">{{ v.key }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}{% if result.unchecked|length > 6 %} y {{ result.unchecked|length|add:"-6" }} más{% endif %}. La pasada no pudo revisarlas; el motivo está en la línea de tiempo de cada observación.</p>{% endif %}
+    {% endwith %}
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if verification.plan %}
+  {% if verification.can_request and perms.detection.request_evaluation %}
+  <form method="post" action="{% url 'detection:risk_verify' risk.pk %}" class="flex flex-col gap-2{% if verification.latest %} border-t border-line-soft pt-3{% endif %}" data-confirm="¿Comprobar ahora? Atalaya va a {{ verification.what }} de {{ risk.asset.name }}.">
+    {% csrf_token %}
+    <p class="text-sm text-ink-soft">Si ya aplicaste la corrección, Atalaya lo comprueba con las mismas fuentes que vieron el riesgo: va a <strong class="font-medium text-ink">{{ verification.what }}</strong> de {{ risk.asset.name }}. Lo que deje de observarse se cierra solo; lo que siga ahí, queda abierto y se dice cuál.</p>
+    {% if verification.plan.blocked %}<p class="text-xs text-high">Una parte no se podrá comprobar: {% for action, reason in verification.plan.blocked.items %}{{ reason }}{% if not forloop.last %}; {% endif %}{% endfor %}.</p>{% endif %}
+    {% if verification.plan.manual %}<p class="text-xs text-muted">{{ verification.plan.manual|length|pl:"vulnerabilidad la registró,vulnerabilidades las registró" }} una persona: ninguna herramienta puede comprobarla{{ verification.plan.manual|length|pluralize }}; se cierra{{ verification.plan.manual|length|pluralize:"n" }} a mano.</p>{% endif %}
+    {# Sin tratamiento decidido el botón principal de la ficha es «Registrar tratamiento». #}
+    <div><button class="{% if risk.treatment and not verification.latest %}btn-primary{% else %}btn-secondary{% endif %}" type="submit">{% if verification.latest %}Comprobar de nuevo{% else %}Ya lo corregí: comprobar{% endif %}</button></div>
+  </form>
+  {% elif verification.why_not %}
+  <p class="text-sm text-muted">{{ verification.why_not }}</p>
+  {% elif verification.can_request %}
+  <p class="text-sm text-muted">Quien puede pedir escaneos puede comprobar aquí si la corrección funcionó: se vuelve a escanear el activo y lo que deje de observarse se cierra solo.</p>
+  {% endif %}
+  {% elif not verification.latest %}
+  <p class="text-sm text-muted">El riesgo está cerrado: no hay nada que comprobar.</p>
+  {% endif %}
+</section>

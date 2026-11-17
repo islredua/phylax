@@ -27,7 +27,7 @@ modelo real y sin herramientas) y se comprueba en el navegador con los datos del
 | 1 · Que el trabajo quepa en una jornada | W1, W2, W3 (y P1, que estorbaba al añadir la tarjeta «Fuera de plazo») | Corregido el 2026-11-17 | Ver abajo. Pruebas: `tests/detection/test_workload.py`. |
 | 2 · Defectos a la vista | P2, P5, P6, W8, C1 | Corregido el 2026-11-17 | Ver abajo. Pruebas: `tests/detection/test_visible_defects.py`, `tests/test_text.py`. |
 | 3 · Que quien administra vea el sistema | G1, G2, G3, W7 | Corregido el 2026-11-17 | Ver abajo y `docs/modules/08-estado-del-sistema.md`. Pruebas: `tests/test_admin_system.py`, `tests/scanners/test_scanner_data.py`. |
-| 4 · Cerrar el ciclo y repartir el trabajo | W4, W5, W6, N4, N5 | Pendiente | |
+| 4 · Cerrar el ciclo y repartir el trabajo | W4, W5, W6, N4, N5 | Corregido el 2026-11-17 | Ver abajo y «Cerrar el ciclo y repartir el trabajo» en `docs/modules/03-deteccion-continua.md`. Pruebas: `tests/detection/test_closing_the_loop.py`, `tests/scanners/test_unreported.py`, `tests/alerts/test_personal_notice.py`, `tests/presentation/test_tab_counters.py`. |
 | 5 · Estructura y lectura | N1, N2, N3, P3, P4, P7–P11, C2 | Pendiente | |
 | 6 · Si sale del laboratorio | O1–O4, R1, R2 | Pendiente | |
 
@@ -164,6 +164,77 @@ se probaron con respuestas simuladas, no apagando contenedores. La descarga dire
 plantillas (cuando el actualizador de nuclei falla en silencio) se probó simulada: hoy la red
 respondió bien y no hizo falta. La estimación de la cola se vio con carga simulada sobre las
 duraciones reales (4.0 s por explicación, 52 s por consolidación).
+
+### Bloque 4 (2026-11-17)
+
+- **W5 · «Ya lo corregí: comprobar».** La ficha del riesgo dice qué volvería a escanear (según
+  las fuentes que vieron sus vulnerabilidades: reescanear servicios, volver a pasar nuclei,
+  reanalizar el SBOM o la imagen) y lo pide con un botón. Las pasadas entran por la cola de
+  siempre, con urgencia alta. Al terminar, lo que dejó de observarse se cierra por regla, sin
+  esperar el turno del modelo, y la tarjeta dice qué resultó: «Corregido», «N de M ya no se
+  observan» con la lista de lo que sigue, o «No se pudo comprobar» con el motivo. Solo dice
+  «sigue» de lo que una fuente volvió a ver.
+- **W6 · La situación de la observación dice algo.** El estado manual (que nadie movía) se fue,
+  con su ruta. La columna «Situación» dice lo que sí cambia: vigente, ya no se observa o
+  reapareció, y cuántas pasadas lleva cada fuente sin verla. Para que eso ocurra hizo falta la
+  regla que no existía: una observación se cierra cuando **todas** sus fuentes dejan de verla
+  (la versión instalada, 1 pasada; Grype, 1; nuclei, 2, o 1 si una persona pidió comprobar). El
+  silencio de nuclei solo cuenta si esa pasada podía verla: el perfil corre la plantilla, el
+  puerto estaba entre los objetivos y respondía. Lo que registró una persona nunca lo cierra una
+  herramienta.
+- **W4 · Responsables con dueño.** Cada riesgo tiene un responsable efectivo: la cuenta a la que
+  se asignó, el equipo sin cuenta que alguien escribió o, si nadie lo asignó, el responsable del
+  activo (se hereda al leer, no se copia). Se elige de una lista en la ficha, en el tratamiento y
+  en lote («Asignar responsable» no decide el tratamiento). El registro filtra «A mi nombre» y
+  «Sin responsable», «Por responsable» agrupa por responsable efectivo, y «Hoy» abre con «N
+  riesgos a tu nombre» en el registro y en Inicio. Quien tiene cuenta recibe un correo directo,
+  una vez por asignación, además del canal del equipo.
+- **N4 · Contadores en las pestañas.** «Por confirmar», «Clasificación» y «Cola de aprobación»
+  llevan el número de pendientes; sin pendientes, nada.
+- **N5 · Exportar lo filtrado.** Las listas de riesgos y de vulnerabilidades descargan en CSV lo
+  que muestran con sus filtros, sin paginar; los riesgos incluyen el responsable y de dónde viene.
+
+**Lo que destapó la revisión con los datos reales.** La primera versión de la comprobación podía
+decir «sigue observándose» de algo que la pasada ni revisó; ahora distingue «sigue» de «no se pudo
+comprobar». Al revertir la corrección, el riesgo se reabrió y la tarjeta seguía diciendo
+«Corregido»: ahora dice «reapareció» y cuándo volvió. Mientras nuclei corría, el renglón decía «en
+cola»: ahora dice «corriendo». Tres observaciones de una plantilla de nuclei guardan unas 26,700
+filas de evidencia y la cobertura las leía completas: ahora lee las 60 más recientes. Cada escaneo
+dejaba en la línea de tiempo un «Prioridad 3.22 → 3.22» aunque nada cambiara (166 de 1,552
+eventos de prioridad, 9 de ellos hoy): ya no se escribe si el puntaje es el mismo. En pantalla, una columna «Responsable» apretaba el registro
+a 1440 px: el responsable pasó a la celda del tratamiento.
+
+**Comprobado en el flujo real (2026-11-17).** Con los botones de la interfaz, sin tocar datos:
+
+| Caso | Qué se hizo | Qué resultó |
+|---|---|---|
+| Corrección aplicada | Se añadieron las cabeceras de seguridad a `lb-dmz` y se pulsó «Ya lo corregí: comprobar» en su riesgo (1 vulnerabilidad, vista por nuclei) | Plan: volver a pasar nuclei. La pasada (perfil web, puerto 80) tardó 5.0 min; la observación quedó «ya no se observa», las otras 4 de nuclei siguieron vigentes, la vulnerabilidad se cerró por regla y el riesgo quedó cerrado. De botón a «Corregido»: 5 min 2 s |
+| Corrección revertida | Se quitaron las cabeceras y se pidió evaluar el activo | nuclei volvió a verla: observación «reapareció ×1», vulnerabilidad de mitigada a probable y riesgo reabierto 7 minutos después de cerrarse; la tarjeta dice «reapareció» |
+| Nada corregido | Se pulsó el botón en un riesgo de `proxy-saliente` (7 vulnerabilidades, vistas por la versión de Squid) | Plan: reescanear servicios. El reescaneo tardó 24 s (esperó 4 min detrás de la pasada de nuclei: la cola de escaneos corre de una en una). Resultado: «Sigue ahí», con las 7 enlazadas; el riesgo sigue abierto |
+| Responsable heredado | Se puso a una cuenta como responsable técnico de `portal-publico` | Su riesgo apareció «a mi nombre (del activo)», «Hoy» abrió con «1 riesgo a tu nombre (1 sin decidir)» y «Por responsable» mostró tres grupos: la cuenta, «Mesa de servicio (sin cuenta)» y 34 sin responsable |
+| Aviso | «Enviar pendientes ahora» en Avisos | Un aviso directo a la persona, enviado; un segundo envío no lo repitió |
+| Exportar | CSV de cinco listas filtradas | Las filas coinciden con la lista: 9 críticos, 1 a mi nombre, 1 de «Mesa de servicio», 27 vulnerabilidades en KEV y 349 de «apache» |
+
+Las asignaciones de prueba se deshicieron con las mismas pantallas: el laboratorio quedó otra vez
+con 36 riesgos abiertos y ningún responsable. Queda el rastro de lo ocurrido (dos comprobaciones,
+un aviso, una observación con «reapareció ×1»).
+
+Algo que la prueba dejó a la vista y **no** se corrigió en este bloque: al reabrirse, el riesgo de
+`lb-dmz` se volvió a valorar y el modelo le dio probabilidad 2 en vez de 1, así que pasó de bajo a
+moderado con la misma evidencia. Ya había oscilado igual el 11 de noviembre (2, luego 1). La
+valoración de un riesgo sin evidencia nueva debería ser estable; se propone tratarlo con el
+bloque 5.
+
+*Qué no se comprobó:* el correo no salió a un buzón real (el laboratorio escribe los correos en
+el registro del contenedor); se vio el aviso guardado como enviado y que no se duplica. Todo se
+hizo con una sola cuenta: asignar a otra persona con cuenta y que no se avise a quien se asigna a
+sí mismo se probaron en las pruebas, igual que la asignación en lote. De la comprobación, solo
+con pruebas: la ruta de Grype, una pasada que espera aprobación o la ventana, una pasada fallida y
+el cierre a los 7 días de una comprobación abandonada. Las dos pasadas en silencio de nuclei en
+escaneos programados y el cierre por puerto cerrado tampoco ocurrieron en el laboratorio. Los
+contadores de las pestañas se vieron con pendientes creados dentro de una transacción que se
+descarta, porque el laboratorio no tiene ninguno. El ancho de teléfono se revisó a 390 px en tres
+pantallas (ficha del riesgo, registro y pestañas).
 
 ## 1. Flujo de trabajo
 

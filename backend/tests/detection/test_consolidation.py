@@ -243,7 +243,7 @@ def test_human_status_survives_reconsolidation_and_orphans_get_mitigated(make_us
     vuln.refresh_from_db()
     assert vuln.human_locked and vuln.status_by == user and not vuln.is_open
     # La herramienta deja de ver «Otra»: su observación se cierra y la vulnerabilidad se mitiga.
-    findings.transition(other.pk, user=user, status="MITIGATED")
+    findings.mark_unreported([other.pk], "NUCLEI", reason="Ya no se reporta.", verified=True)
     consolidation.consolidate_asset(asset.pk)
     vuln.refresh_from_db()
     assert vuln.status == VulnerabilityStatus.FALSE_POSITIVE  # la IA no lo tocó

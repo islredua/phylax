@@ -28,14 +28,17 @@ SEVERITY_STYLE = {
     FindingSeverity.LOW: "badge-low",
     FindingSeverity.INFO: "badge-neutral",
 }
-FINDING_STATUS_STYLE = {
-    FindingStatus.NEW: "badge-primary",
-    FindingStatus.REOPENED: "badge-high",
-    FindingStatus.CONFIRMED: "badge-medium",
-    FindingStatus.PRIORITIZED: "badge-medium",
-    FindingStatus.MITIGATED: "badge-low",
-    FindingStatus.ACCEPTED: "badge-neutral",
-    FindingStatus.FALSE_POSITIVE: "badge-neutral",
+# Una observación no tiene «estado» que alguien decida (eso vive en la vulnerabilidad): lo único
+# que le cambia es si sus fuentes la siguen viendo. «Nuevo», «confirmado» y «priorizado» son lo
+# mismo para quien lee: vigente.
+FINDING_SITUATION = {
+    FindingStatus.NEW: ("badge-neutral", "vigente"),
+    FindingStatus.CONFIRMED: ("badge-neutral", "vigente"),
+    FindingStatus.PRIORITIZED: ("badge-neutral", "vigente"),
+    FindingStatus.REOPENED: ("badge-high", "reapareció"),
+    FindingStatus.MITIGATED: ("badge-low", "ya no se observa"),
+    FindingStatus.ACCEPTED: ("badge-neutral", "riesgo aceptado"),
+    FindingStatus.FALSE_POSITIVE: ("badge-neutral", "falso positivo"),
 }
 ACTION_STATUS_STYLE = {
     ActionStatus.PROPOSED: "badge-medium",
@@ -96,7 +99,42 @@ def severity_badge(value):
 
 @register.simple_tag
 def finding_status_badge(value):
-    return _badge(FINDING_STATUS_STYLE.get(value, "badge-neutral"), FindingStatus(value).label)
+    """Situación de la observación: vigente, reapareció o ya no se observa."""
+    style, label = FINDING_SITUATION.get(value, ("badge-neutral", str(value).lower()))
+    return _badge(style, label)
+
+
+@register.simple_tag
+def finding_situation(finding):
+    """La situación y, si alguna fuente dejó de verla sin que baste para cerrarla, cuál."""
+    from apps.detection import findings as service
+    from apps.detection.models import FindingSource
+
+    badge = finding_status_badge(finding.status)
+    if not finding.is_open or not finding.unseen:
+        return badge
+    notes = []
+    for source, count in finding.unseen.items():
+        if source not in (finding.sources or []):
+            continue
+        label = FindingSource(source).label if source in FindingSource.values else source
+        need = service.unseen_threshold(source)
+        notes.append(
+            f"{label} ya no la reporta"
+            if count >= need
+            else f"{label}: {count} de {need} pasadas sin verla"
+        )
+    if not notes:
+        return badge
+    return format_html('{}<p class="text-xs text-muted">{}</p>', badge, "; ".join(notes))
+
+
+@register.simple_tag
+def risk_responsible(risk):
+    """Responsable efectivo del riesgo (propio o heredado del activo); ver ``responsibles``."""
+    from apps.detection import responsibles
+
+    return responsibles.of(risk)
 
 
 @register.simple_tag

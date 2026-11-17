@@ -46,6 +46,13 @@ urlpatterns = [
     path("risks/<uuid:pk>/report/", views.RiskReportView.as_view(), name="risk_report"),
     path("risks/<uuid:pk>/treatment/", views.RiskTreatmentView.as_view(), name="risk_treatment"),
     path("risks/<uuid:pk>/note/", views.RiskNoteView.as_view(), name="risk_note"),
+    path("risks/<uuid:pk>/assign/", views.RiskAssignView.as_view(), name="risk_assign"),
+    path("risks/<uuid:pk>/verify/", views.RiskVerifyView.as_view(), name="risk_verify"),
+    path(
+        "risks/<uuid:pk>/verification/",
+        views.RiskVerificationView.as_view(),
+        name="risk_verification",
+    ),
     path("observations/", views.ObservationsView.as_view(), name="observations"),
     path("observations/new/", views.ObservationCreateView.as_view(), name="observation_new"),
     path(
@@ -54,11 +61,6 @@ urlpatterns = [
         name="asset_consolidate",
     ),
     path("findings/<uuid:pk>/", views.FindingDetailView.as_view(), name="finding"),
-    path(
-        "findings/<uuid:pk>/transition/",
-        views.FindingTransitionView.as_view(),
-        name="finding_transition",
-    ),
     path("findings/<uuid:pk>/note/", views.FindingNoteView.as_view(), name="finding_note"),
     path("activity/", views.ActivityView.as_view(), name="activity"),
     path("events/<uuid:pk>/", views.EventDetailView.as_view(), name="event"),

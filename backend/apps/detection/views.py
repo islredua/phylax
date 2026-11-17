@@ -27,24 +27,28 @@ from . import (
     consolidation,
     descriptions,
     events,
+    exports,
     findings,
     grouping,
     planner,
     policy,
     profile,
+    responsibles,
     risks,
+    verification,
 )
 from .forms import (
+    BULK_ASSIGN,
     HUMAN_STATUS_LABELS,
     AutomationForm,
     FindingFilterForm,
-    FindingTransitionForm,
     NoteForm,
     ObservationForm,
     PauseForm,
     ProfileForm,
     RejectForm,
     ReviewForm,
+    RiskAssignForm,
     RiskBulkForm,
     RiskFilterForm,
     RiskTreatmentForm,
@@ -71,11 +75,19 @@ from .models import (
 
 # Parámetros que no son filtros: con cualquier otro presente, la lista está filtrada y un
 # resultado vacío significa «sin coincidencias», no «falta consolidar».
-NON_FILTER_PARAMS = {"asset", "page", "per_page", "tab", "view"}
+NON_FILTER_PARAMS = {"asset", "page", "per_page", "tab", "view", "export"}
 
 
 def filters_active(params):
     return any(value for key, value in params.items() if key not in NON_FILTER_PARAMS)
+
+
+def _export_url(request):
+    """La misma lista, con sus filtros, como CSV."""
+    params = request.GET.copy()
+    params.pop("page", None)
+    params["export"] = "csv"
+    return f"?{params.urlencode()}"
 
 
 class Perm(PermissionRequiredMixin):
@@ -263,6 +275,17 @@ class PanelView(Perm, PaginationMixin, ListView):
         self.mode = grouping.view_mode(self.request.GET)
         return grouping.groups(self.flat) if self.mode == "software" else self.flat
 
+    def get(self, request, *args, **kwargs):
+        if exports.wants_csv(request):
+            # Una fila por vulnerabilidad aunque la lista esté agrupada por software.
+            flat, _ = filter_vulnerabilities(request.GET)
+            return exports.csv_response(
+                "vulnerabilidades",
+                exports.VULNERABILITY_COLUMNS,
+                exports.vulnerability_rows(flat.order_by("-contextual_score", "key")),
+            )
+        return super().get(request, *args, **kwargs)
+
     def get_paginate_by(self, queryset):
         size = super().get_paginate_by(queryset)
         return max(size, grouping.PAGE_SIZE) if self.mode == "software" else size
@@ -313,6 +336,7 @@ class PanelView(Perm, PaginationMixin, ListView):
             total_groups=context["paginator"].count
             if software
             else grouping.groups(self.flat).count(),
+            export_url=_export_url(self.request),
             software_url=self._view_url("software"),
             list_url=self._view_url("list"),
             software_label=component.label
@@ -757,7 +781,7 @@ class ConsolidateAssetView(Perm, View):
         return HttpResponseRedirect(back)
 
 
-def filter_risks(params):
+def filter_risks(params, user=None):
     qs = (
         Risk.objects.select_related("asset", "decided_by")
         .prefetch_related("vulnerabilities")
@@ -789,7 +813,12 @@ def filter_risks(params):
         if data["kev_overdue"]:
             qs = qs.filter(risks.kev_overdue_filter()).distinct()
         if data["owner"]:
-            qs = qs.filter(owner__icontains=data["owner"].strip())
+            qs = qs.filter(responsibles.name_filter(data["owner"]))
+        if data["mine"]:
+            # «A mi nombre»: asignados a quien mira o heredados de sus activos.
+            qs = qs.filter(responsibles.mine_filter(user)) if user is not None else qs.none()
+        if data["unassigned"]:
+            qs = qs.filter(responsibles.unassigned_filter())
         if data["overdue"]:
             qs = qs.filter(risks.followup_overdue_filter())
         if data["policy_overdue"]:
@@ -815,11 +844,12 @@ def filter_risks(params):
             .values("message")[:1]
         )
     )
-    return policy.with_kev_due(qs), form
+    return policy.with_kev_due(responsibles.with_people(qs)), form
 
 
 QUEUE_LIMIT = 500
 QUEUE_LABELS = (
+    ("mine", "riesgos a tu nombre"),
     ("policy_overdue", "riesgos fuera del plazo de la política"),
     ("kev_overdue", "riesgos con plazo de CISA vencido"),
     ("overdue", "riesgos con seguimiento vencido"),
@@ -827,7 +857,7 @@ QUEUE_LABELS = (
 )
 
 
-def risk_queue(query, current_pk=None):
+def risk_queue(query, current_pk=None, user=None):
     """Cola de trabajo sobre el registro: los riesgos que cumplen ``query`` (los mismos filtros
     de la lista), en orden de trabajo, para atenderlos uno tras otro sin volver a la lista.
 
@@ -840,7 +870,7 @@ def risk_queue(query, current_pk=None):
     from django.http import QueryDict
 
     query = (query or "").lstrip("?")[:500]
-    qs, form = filter_risks(QueryDict(query))
+    qs, form = filter_risks(QueryDict(query), user=user)
     if not form.is_valid():
         return None
     pks = list(risks.triage_order(qs).values_list("pk", flat=True)[:QUEUE_LIMIT])
@@ -875,8 +905,16 @@ class RiskRegisterView(Perm, PaginationMixin, ListView):
     paginate_by = 25
 
     def get_queryset(self):
-        qs, self.filter_form = filter_risks(self.request.GET)
+        qs, self.filter_form = filter_risks(self.request.GET, user=self.request.user)
         return risks.triage_order(qs)
+
+    def get(self, request, *args, **kwargs):
+        if exports.wants_csv(request):
+            # «Exportar lo filtrado»: la misma consulta y el mismo orden que la lista, sin paginar.
+            return exports.csv_response(
+                "riesgos", exports.RISK_COLUMNS, exports.risk_rows(self.get_queryset())
+            )
+        return super().get(request, *args, **kwargs)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
@@ -889,14 +927,17 @@ class RiskRegisterView(Perm, PaginationMixin, ListView):
         context.update(
             policy=rules,
             bulk_treatments=list(Risk._meta.get_field("treatment").choices),
+            bulk_assign=BULK_ASSIGN,
             filter_form=self.filter_form,
             summary=risks.summary(asset_id),
             matrix=risks.matrix(listed),
             asset_id=asset_id,
             asset=listed[0].asset if asset_id and listed else None,
             consolidation_pending=consolidation.is_pending(asset_id) if asset_id else False,
-            today=risks.today(asset_id),
-            owners=risks.by_owner(asset_id),
+            today=risks.today(asset_id, user=self.request.user),
+            owners=responsibles.by_responsible(asset_id, user=self.request.user),
+            responsible_choices=responsibles.choices(),
+            export_url=_export_url(self.request),
             filters_active=filters_active(self.request.GET),
         )
         if asset_id and context["asset"] is None:
@@ -913,7 +954,8 @@ class RiskDetailView(Perm, TemplateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         risk = get_object_or_404(
-            Risk.objects.select_related("asset", "decided_by"), pk=kwargs["pk"]
+            responsibles.with_people(Risk.objects.select_related("decided_by", "assigned_by")),
+            pk=kwargs["pk"],
         )
         rules = policy.current()
         due = policy.deadline(risk, rules)
@@ -929,9 +971,13 @@ class RiskDetailView(Perm, TemplateView):
             matrix=risks.matrix([risk]),
             closure=risks.closure(risk),
             consolidation_pending=consolidation.is_pending(risk.asset_id),
-            queue=risk_queue(self.request.GET["cola"], risk.pk)
+            queue=risk_queue(self.request.GET["cola"], risk.pk, user=self.request.user)
             if self.request.GET.get("cola")
             else None,
+            responsible=responsibles.of(risk),
+            responsible_choices=responsibles.choices(risk.asset),
+            responsible_choice=responsibles.current_choice(risk),
+            verification=verification.view(risk),
             treatment_form=RiskTreatmentForm(
                 initial={
                     "treatment": risk.treatment,
@@ -955,10 +1001,13 @@ class RiskReportView(Perm, View):
         from django.http import HttpResponse
         from django.template.loader import render_to_string
 
-        risk = get_object_or_404(Risk.objects.select_related("asset", "decided_by"), pk=pk)
+        risk = get_object_or_404(
+            responsibles.with_people(Risk.objects.select_related("decided_by")), pk=pk
+        )
         evidence = risks.evidence(risk)
         context = {
             "risk": risk,
+            "responsible": responsibles.of(risk),
             "asset": risk.asset,
             "evidence": evidence,
             "evidence_groups": group_evidence(evidence),
@@ -1028,7 +1077,11 @@ class RiskTreatmentView(Perm, View):
             messages.error(request, str(error))
             return HttpResponseRedirect(back)
         # En una cola de trabajo, tras decidir se pasa al siguiente riesgo (o a la lista al acabar).
-        queue = risk_queue(request.POST.get("cola"), pk) if request.POST.get("cola") else None
+        queue = (
+            risk_queue(request.POST.get("cola"), pk, user=request.user)
+            if request.POST.get("cola")
+            else None
+        )
         if queue:
             if queue["next_url"]:
                 return HttpResponseRedirect(queue["next_url"])
@@ -1057,6 +1110,8 @@ class RiskBulkView(Perm, View):
             messages.error(request, "Elige el tratamiento y revisa las fechas.")
             return HttpResponseRedirect(back)
         data = form.cleaned_data
+        if data["treatment"] == BULK_ASSIGN:
+            return self._assign(request, ids, data, back)
         rules = policy.current()
         needs_date = data["treatment"] in ("MITIGATE", "TRANSFER")
         done, failed = 0, {}
@@ -1076,7 +1131,10 @@ class RiskBulkView(Perm, View):
                     risk.pk,
                     user=request.user,
                     treatment=data["treatment"],
-                    owner=data["owner"] or risk.owner,
+                    # Sin elegir responsable, cada riesgo conserva el suyo.
+                    responsible=data["responsible"],
+                    owner=data["owner"],
+                    keep_responsible=not (data["responsible"] or data["owner"]),
                     note=data["note"],
                     target_date=target,
                     review_at=data["review_at"],
@@ -1086,7 +1144,9 @@ class RiskBulkView(Perm, View):
                 failed.setdefault(str(error).rstrip("."), []).append(risk)
         label = dict(Risk._meta.get_field("treatment").choices)[data["treatment"]].lower()
         if done:
-            extra = f" · responsable {data['owner']}" if data["owner"] else ""
+            extra = ""
+            if data["responsible"] or data["owner"]:
+                extra = f" · responsable: {self._responsible_label(data)}"
             if data["treatment"] != "ACCEPT":
                 extra += (
                     f" · compromiso {data['target_date']:%Y-%m-%d}"
@@ -1103,6 +1163,111 @@ class RiskBulkView(Perm, View):
                 f"{len(group)} no se {'cambiaron' if len(group) != 1 else 'cambió'}: {reason}.",
             )
         return HttpResponseRedirect(back)
+
+    @staticmethod
+    def _responsible_label(data):
+        choice = data["responsible"] or (responsibles.OTHER if data["owner"] else "")
+        labels = dict(responsibles.choices())
+        return data["owner"] if choice == responsibles.OTHER else labels.get(choice, choice)
+
+    def _assign(self, request, ids, data, back):
+        """«Asignar responsable» en lote: no decide el tratamiento de ninguno."""
+        choice = data["responsible"] or (responsibles.OTHER if data["owner"] else "")
+        if not choice:
+            messages.error(request, "Elige a quién asignar los riesgos marcados.")
+            return HttpResponseRedirect(back)
+        try:
+            changed = responsibles.assign(ids, user=request.user, choice=choice, text=data["owner"])
+        except ValidationError as error:
+            _messages_from(request, error)
+            return HttpResponseRedirect(back)
+        label = self._responsible_label(data)
+        if changed:
+            messages.success(
+                request,
+                f"{changed} riesgo{'s' if changed != 1 else ''} → responsable: {label}.",
+            )
+        else:
+            messages.info(request, f"Los riesgos marcados ya tenían ese responsable ({label}).")
+        return HttpResponseRedirect(back)
+
+
+class RiskAssignView(Perm, View):
+    """Cambia el responsable de un riesgo sin decidir su tratamiento."""
+
+    permission_required = "detection.work_findings"
+
+    def post(self, request, pk):
+        back = _safe_next(request, reverse("detection:risk", args=[pk]) + "#tratamiento")
+        get_object_or_404(Risk, pk=pk)
+        form = RiskAssignForm(request.POST)
+        if not form.is_valid():
+            messages.error(request, "Elige un responsable.")
+            return HttpResponseRedirect(back)
+        try:
+            changed = responsibles.assign(
+                [pk],
+                user=request.user,
+                choice=form.cleaned_data["responsible"],
+                text=form.cleaned_data["owner"],
+            )
+        except ValidationError as error:
+            _messages_from(request, error)
+            return HttpResponseRedirect(back)
+        who = responsibles.of(responsibles.with_people(Risk.objects).get(pk=pk))
+        if not changed:
+            messages.info(request, "El riesgo ya tenía ese responsable.")
+        elif who.inherited or not who:
+            messages.success(
+                request,
+                f"Sin responsable propio: lo hereda del activo ({who.label})."
+                if who
+                else "Sin responsable: ni el riesgo ni el activo tienen uno.",
+            )
+        else:
+            messages.success(
+                request,
+                f"Responsable: {who.label}."
+                + (" Lo verá en «a mi nombre» y recibirá el aviso." if who.has_account else ""),
+            )
+        return HttpResponseRedirect(back)
+
+
+class RiskVerifyView(Perm, View):
+    """«Ya lo corregí: comprobar»: vuelve a escanear el activo con las fuentes que vieron el
+    riesgo y cierra lo que deje de observarse (``verification``)."""
+
+    permission_required = "detection.request_evaluation"
+
+    def post(self, request, pk):
+        back = _safe_next(request, reverse("detection:risk", args=[pk]) + "#comprobacion")
+        get_object_or_404(Risk, pk=pk)
+        try:
+            check = verification.request(pk, user=request.user)
+        except ValidationError as error:
+            _messages_from(request, error)
+            return HttpResponseRedirect(back)
+        waiting = check.actions.filter(status="PROPOSED").exists()
+        messages.success(
+            request,
+            "Comprobación pedida: el resultado aparecerá aquí mismo."
+            + (" Antes debe aprobarse en la cola de aprobación." if waiting else ""),
+        )
+        return HttpResponseRedirect(back)
+
+
+class RiskVerificationView(Perm, View):
+    """Fragmento con el avance de la comprobación; se consulta solo mientras está en curso."""
+
+    permission_required = "detection.view_risk"
+
+    def get(self, request, pk):
+        risk = get_object_or_404(Risk.objects.select_related("asset"), pk=pk)
+        return render(
+            request,
+            "detection/_risk_verification.html",
+            {"risk": risk, "verification": verification.view(risk)},
+        )
 
 
 class TreatmentPolicyView(Perm, View):
@@ -1283,30 +1448,6 @@ def external_evidence_hosts(finding, evidence):
         if host and host not in own and not any(host == o or host.startswith(o + ":") for o in own):
             hosts.add(host)
     return hosts
-
-
-class FindingTransitionView(Perm, View):
-    permission_required = "detection.work_findings"
-
-    def post(self, request, pk):
-        form = FindingTransitionForm(request.POST)
-        back = _safe_next(request, reverse("detection:finding", args=[pk]))
-        if not form.is_valid():
-            messages.error(request, "Elige una acción válida.")
-            return HttpResponseRedirect(back)
-        try:
-            finding = findings.transition(
-                pk,
-                user=request.user,
-                status=form.cleaned_data["status"],
-                note=form.cleaned_data["note"],
-            )
-            messages.success(
-                request, f"Hallazgo marcado como {finding.get_status_display().lower()}."
-            )
-        except ValidationError as error:
-            _messages_from(request, error)
-        return HttpResponseRedirect(back)
 
 
 class FindingNoteView(Perm, View):

@@ -1172,6 +1172,31 @@ def _close_orphans(asset_id, touched, now, *, sustained_pks=frozenset()):
     return closed
 
 
+@transaction.atomic
+def close_resolved(asset_id, *, now=None) -> int:
+    """Riesgos abiertos del activo que ya no tienen ninguna vulnerabilidad abierta: cerrados.
+
+    Es la primera regla de ``_close_orphans``, sin esperar a la siguiente valoración: cuando una
+    comprobación confirma que ya no se observa nada, el riesgo se cierra en el acto. Vale también
+    para un riesgo con tratamiento decidido: el tratamiento se cumplió.
+    """
+    now = now or timezone.now()
+    closed = 0
+    for risk in Risk.objects.select_for_update().filter(
+        asset_id=asset_id, status__in=RISK_OPEN_STATUSES
+    ):
+        if not risk.vulnerabilities.exists():
+            continue
+        if risk.vulnerabilities.filter(status__in=VULN_OPEN_STATUSES).exists():
+            continue
+        risk.status = RiskStatus.CLOSED
+        risk.closed_at = now
+        risk.save(update_fields=["status", "closed_at"])
+        _event(risk, RiskEventKind.CLOSED, "Ninguna de sus vulnerabilidades sigue abierta")
+        closed += 1
+    return closed
+
+
 _TRAILING_RECOMMENDATIONS = re.compile(
     r"\n\s*(?:recommendations?|recomendaciones)\s*:.*\Z", re.IGNORECASE | re.DOTALL
 )
@@ -1456,6 +1481,8 @@ def set_treatment(  # noqa: PLR0913 - decisión humana con todos sus datos
     user,
     treatment,
     owner="",
+    responsible="",
+    keep_responsible=False,
     note="",
     residual_likelihood=None,
     residual_impact=None,
@@ -1466,7 +1493,15 @@ def set_treatment(  # noqa: PLR0913 - decisión humana con todos sus datos
 
     Mitigar y transferir exigen una fecha compromiso (``target_date``) para poder dar seguimiento
     (F4); aceptar fija una fecha de revisión (``review_at``, 180 días si no se da).
+
+    Responsable: ``responsible`` es lo elegido en el selector (el del activo, una cuenta u «otro»,
+    con ``owner`` como texto de ese otro); sin él, ``owner`` con texto es un responsable sin cuenta
+    y vacío significa «el del activo». ``keep_responsible`` deja el que el riesgo ya tenía.
     """
+    from django.core.exceptions import ValidationError
+
+    from . import responsibles
+
     if treatment not in RiskTreatment.values:
         raise ValueError("Tratamiento no válido.")
     note = (note or "").strip()
@@ -1494,11 +1529,22 @@ def set_treatment(  # noqa: PLR0913 - decisión humana con todos sus datos
         review_at = None
     else:
         review_at = None
+    if not keep_responsible:
+        choice = responsible or (
+            responsibles.OTHER if (owner or "").strip() else responsibles.INHERIT
+        )
+        try:
+            assignee, owner = responsibles.resolve(choice, owner)
+        except ValidationError as error:
+            raise ValueError("; ".join(error.messages)) from error
     now = timezone.now()
     with transaction.atomic():
-        risk = Risk.objects.select_for_update().get(pk=risk_id)
+        risk = responsibles.with_people(Risk.objects.select_for_update(of=("self",))).get(
+            pk=risk_id
+        )
         risk.treatment = treatment
-        risk.owner = (owner or "").strip()[:120]
+        if not keep_responsible:
+            responsibles.set_on(risk, assignee=assignee, owner=owner, actor=user, now=now)
         risk.target_date = target_date
         risk.review_at = review_at
         risk.treatment_note = note
@@ -1516,8 +1562,9 @@ def set_treatment(  # noqa: PLR0913 - decisión humana con todos sus datos
         )
         risk.save()
         message = f"{RiskTreatment(treatment).label}"
-        if risk.owner:
-            message += f" · responsable {risk.owner}"
+        who = responsibles.of(risk)
+        if who:
+            message += f" · responsable {who.label}" + (" (del activo)" if who.inherited else "")
         if risk.target_date:
             message += f" · compromiso {risk.target_date:%Y-%m-%d}"
         if risk.review_at:
@@ -1664,27 +1711,10 @@ def followup_overdue_filter(today=None):
     )
 
 
-def by_owner(asset_id=None):
-    """Riesgos abiertos agrupados por responsable: cuántos lleva cada quien y cuántos vencidos."""
-    from django.db.models import Count, Q
-
-    qs = Risk.objects.filter(status__in=RISK_OPEN_STATUSES).exclude(owner="")
-    if asset_id:
-        qs = qs.filter(asset_id=asset_id)
-    rows = (
-        qs.values("owner")
-        .annotate(
-            total=Count("id"),
-            overdue=Count("id", filter=followup_overdue_filter()),
-            critical=Count("id", filter=Q(level=RiskLevel.CRITICAL)),
-        )
-        .order_by("-overdue", "-critical", "-total", "owner")
-    )
-    return list(rows)
-
-
-def today(asset_id=None):
+def today(asset_id=None, user=None):
     """«Hoy» del registro: lo que una persona debe decidir primero.
+
+    Con ``user``, lo primero es lo que tiene a su nombre (asignado o heredado de sus activos).
 
     Cada elemento separa **ver** de **hacer**: ``url`` abre la lista filtrada y ``work_url``
     (si existe) empieza el trabajo de verdad: abre el primer riesgo en su formulario de
@@ -1695,7 +1725,7 @@ def today(asset_id=None):
 
     from apps.assets.models import Asset
 
-    from . import policy
+    from . import policy, responsibles
     from .views import risk_queue
 
     suffix = f"&asset={asset_id}" if asset_id else ""
@@ -1711,7 +1741,7 @@ def today(asset_id=None):
     def add(level, count, singular, plural, *, query=None, url=None, work=None, view="Ver lista"):
         if not count:
             return
-        queue = risk_queue(query + suffix) if query and work else None
+        queue = risk_queue(query + suffix, user=user) if query and work else None
         items.append(
             {
                 "level": level,
@@ -1724,6 +1754,16 @@ def today(asset_id=None):
             }
         )
 
+    mine = responsibles.today_item(user, asset_id)
+    if mine:
+        add(
+            mine["level"],
+            mine["count"],
+            mine["singular"],
+            mine["plural"],
+            query=mine["query"],
+            work=mine["work"],
+        )
     add(
         "critical",
         open_qs.filter(level=RiskLevel.CRITICAL, treatment="").count(),

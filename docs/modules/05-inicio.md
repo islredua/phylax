@@ -133,7 +133,9 @@ Orden de lectura de Inicio (lo visual arriba, el texto abajo; divulgación progr
    gráfica de barras «Riesgos abiertos por nivel» se retiró: duplicaba la barra segmentada.
 2. **Qué hago hoy** (`detection/_today.html`, compartido con Riesgos): tarjetas compactas en
    rejilla. Cada una separa **ver** (el texto y el enlace abren la lista filtrada, con un nombre
-   que dice lo que hace) de **hacer** (el botón primario).
+   que dice lo que hace) de **hacer** (el botón primario). La primera tarjeta, si la persona
+   lleva riesgos, es «N riesgos a tu nombre»: los asignados a ella y los heredados de sus activos
+   (`detection.responsibles.today_item`, la misma del registro de riesgos).
 3. Indicadores, tendencias y comparativas.
 4. La **lectura del estado** redactada por la IA, lo que el sistema hizo solo y la tabla de riesgos.
 

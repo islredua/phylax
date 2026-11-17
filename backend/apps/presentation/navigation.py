@@ -12,6 +12,7 @@ filtran por permisos.
 """
 
 from dataclasses import dataclass, field
+from functools import cached_property
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,8 @@ class Tab:
     # Nombres de vista (``namespace:url_name``) que pertenecen a la pestaña además
     # de ``url_name``. Un patrón ``"namespace:*"`` cubre todo el namespace.
     matches: tuple[str, ...] = ()
+    # Contador de pendientes (``counters.COUNTERS``): la pestaña muestra el número si hay trabajo.
+    counter: str = ""
 
     def is_visible(self, user):
         return not self.permissions or any(user.has_perm(p) for p in self.permissions)
@@ -77,12 +80,14 @@ SECTIONS = (
                 "assets:unconfirmed",
                 ("assets.view_asset",),
                 ("assets:confirm",),
+                counter="unconfirmed",
             ),
             Tab(
                 "classification",
                 "Clasificación",
                 "assets:classification",
                 ("assets.view_criticalitysuggestion",),
+                counter="classification",
             ),
             Tab("conflicts", "Conflictos", "assets:conflicts", ("assets.view_assetconflict",)),
             Tab(
@@ -135,6 +140,9 @@ SECTIONS = (
                     "detection:risk_report",
                     "detection:risk_treatment",
                     "detection:risk_note",
+                    "detection:risk_assign",
+                    "detection:risk_verify",
+                    "detection:risk_verification",
                 ),
             ),
             Tab(
@@ -161,7 +169,6 @@ SECTIONS = (
                 ("detection.view_finding",),
                 (
                     "detection:finding",
-                    "detection:finding_transition",
                     "detection:finding_note",
                     "detection:observation_new",
                 ),
@@ -173,6 +180,7 @@ SECTIONS = (
                 "detection:queue",
                 ("detection.view_plannedaction",),
                 ("detection:queue_bulk",),
+                counter="approval",
             ),
             Tab("sources", "Fuentes CTI", "detection:sources", ("cti.view_ctisource",)),
             Tab(
@@ -283,6 +291,21 @@ class NavItem:
     label: str
     url_name: str
     active: bool = False
+    counter: str = ""
+
+    @cached_property
+    def count(self) -> int:
+        """Pendientes tras la pestaña. Se cuenta solo si la plantilla lo pide: los fragmentos
+        que se refrescan solos pasan por aquí sin pintar las pestañas."""
+        from . import counters
+
+        return counters.pending(self.counter) if self.counter else 0
+
+    @property
+    def count_unit(self) -> str:
+        from . import counters
+
+        return counters.unit(self.counter)
 
 
 @dataclass
@@ -312,7 +335,8 @@ def build_navigation(user, view_name):
             nav.section = item
             if len(tabs) > 1:
                 nav.tabs = [
-                    NavItem(t.key, t.label, t.url_name, active=t is active_tab) for t in tabs
+                    NavItem(t.key, t.label, t.url_name, active=t is active_tab, counter=t.counter)
+                    for t in tabs
                 ]
             if section.key != "home":
                 nav.breadcrumbs = [NavItem("home", "Inicio", "home"), item]

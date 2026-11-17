@@ -46,6 +46,29 @@ NUCLEI_COMMON = [
     "-severity",
     "info,low,medium,high,critical",
 ]
+
+
+def nuclei_covers(profile, tags=(), kind="") -> bool:
+    """¿Este perfil vuelve a correr una plantilla con esas etiquetas y de ese tipo?
+
+    Sirve para saber si una pasada pudo ver una observación anterior: ``cves-network`` no corre
+    plantillas HTTP y ``cves`` no corre las de exposición, así que su silencio no dice nada de
+    ellas. Sin etiquetas conocidas solo responde que sí el perfil que lo corre todo.
+    """
+    args = NUCLEI_PROFILES.get(profile)
+    if args is None:
+        return False
+    wanted = excluded = None
+    for flag, value in zip(args[::2], args[1::2], strict=False):
+        if flag == "-tags":
+            wanted = set(value.split(","))
+        elif flag == "-exclude-type":
+            excluded = set(value.split(","))
+    if wanted is not None and not wanted & {str(tag) for tag in tags}:
+        return False
+    return not (excluded and kind in excluded)
+
+
 GRYPE_PROFILES = {"image": [], "sbom": []}
 GRYPE_COMMON = ["-o", "json", "--quiet"]
 

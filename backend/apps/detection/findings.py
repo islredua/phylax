@@ -39,35 +39,13 @@ SEVERITY_FROM_CTI = {
     Severity.LOW: FindingSeverity.LOW,
     Severity.NONE: FindingSeverity.INFO,
 }
-# Transiciones por decisión humana (sección H). Reabrir un cerrado vuelve a «Confirmado».
-TRANSITIONS = {
-    FindingStatus.NEW: {
-        FindingStatus.CONFIRMED,
-        FindingStatus.ACCEPTED,
-        FindingStatus.FALSE_POSITIVE,
-        FindingStatus.MITIGATED,
-    },
-    FindingStatus.CONFIRMED: {
-        FindingStatus.PRIORITIZED,
-        FindingStatus.MITIGATED,
-        FindingStatus.ACCEPTED,
-        FindingStatus.FALSE_POSITIVE,
-    },
-    FindingStatus.PRIORITIZED: {
-        FindingStatus.MITIGATED,
-        FindingStatus.ACCEPTED,
-        FindingStatus.FALSE_POSITIVE,
-    },
-    FindingStatus.REOPENED: {
-        FindingStatus.CONFIRMED,
-        FindingStatus.PRIORITIZED,
-        FindingStatus.MITIGATED,
-        FindingStatus.ACCEPTED,
-        FindingStatus.FALSE_POSITIVE,
-    },
-    FindingStatus.MITIGATED: {FindingStatus.CONFIRMED},
-    FindingStatus.ACCEPTED: {FindingStatus.CONFIRMED},
-    FindingStatus.FALSE_POSITIVE: {FindingStatus.CONFIRMED},
+# Pasadas seguidas sin verla que cada fuente necesita para dar una observación por corregida. La
+# reconciliación y Grype son deterministas (misma entrada, misma salida): basta una. nuclei depende
+# de la red: dos, salvo que una persona haya dicho que lo corrigió y pedido comprobarlo.
+UNSEEN_TO_CLOSE = {
+    FindingSource.CTI_MATCH: 1,
+    FindingSource.GRYPE: 1,
+    FindingSource.NUCLEI: 2,
 }
 
 
@@ -171,6 +149,9 @@ def upsert_finding(
         )
     else:
         finding.last_seen_at = max(finding.last_seen_at, observed_at)
+        if source in (finding.unseen or {}):
+            # La fuente la volvió a ver: su cuenta de pasadas sin verla empieza de cero.
+            finding.unseen = {k: v for k, v in finding.unseen.items() if k != source}
         if cve is not None and finding.cve_id is None:
             finding.cve = cve
             _cti_snapshot(finding, cve)
@@ -291,30 +272,203 @@ def apply_matches(result: ReconcileResult, *, observed_at=None) -> ApplyStats:
     return ApplyStats(created, updated, reopened, 0, tuple(ids))
 
 
+def unseen_threshold(source) -> int:
+    return UNSEEN_TO_CLOSE.get(source, 2)
+
+
+def _sources_gone(finding) -> bool:
+    """¿Todas las fuentes que la reportaron dejaron de verla las veces que hacen falta?"""
+    sources = list(finding.sources or [])
+    if not sources or FindingSource.MANUAL in sources:
+        return False  # lo que registró una persona lo cierra una persona, en la vulnerabilidad
+    unseen = finding.unseen or {}
+    return all(unseen.get(source, 0) >= unseen_threshold(source) for source in sources)
+
+
+def mark_unseen(finding, source, *, reason, at=None, verified=False, execution_ref="") -> bool:
+    """Una fuente pudo ver la observación y no la reportó. Devuelve si con eso quedó mitigada.
+
+    ``verified``: la pasada la pidió una persona que dice haberlo corregido; cuenta completa. Una
+    observación con varias fuentes solo se cierra cuando todas dejan de verla: que nuclei no la
+    reporte no desmiente que la versión instalada siga en el rango afectado.
+    """
+    at = at or timezone.now()
+    need = unseen_threshold(source)
+    unseen = dict(finding.unseen or {})
+    unseen[source] = need if verified else min(unseen.get(source, 0) + 1, need)
+    finding.unseen = unseen
+    if _sources_gone(finding):
+        _set_status(
+            finding,
+            FindingStatus.MITIGATED,
+            actor=None,
+            at=at,
+            kind=FindingEventKind.AUTO_RESOLVED,
+            message=reason,
+        )
+        return True
+    finding.save(update_fields=["unseen", "updated_at"])
+    waiting = []
+    for other in finding.sources:
+        seen = unseen.get(other, 0)
+        if seen >= unseen_threshold(other):
+            continue
+        label = FindingSource(other).label if other in FindingSource.values else other
+        if other == source:
+            waiting.append(f"falta otra pasada de {label} sin reportarla ({seen} de {need})")
+        elif other == FindingSource.MANUAL:
+            waiting.append("la registró una persona")
+        else:
+            waiting.append(f"{label} la sigue reportando")
+    _event(
+        finding,
+        FindingEventKind.RESCANNED,
+        at=at,
+        message=f"{reason} Sigue abierta: {'; '.join(waiting)}."[:500],
+        data={"execution_ref": execution_ref, "source": source, "unseen": unseen},
+    )
+    return False
+
+
+@transaction.atomic
+def mark_unreported(finding_ids, source, *, reason, at=None, verified=False, execution_ref=""):
+    """Observaciones que una herramienta revisó y no reportó en esta pasada. Devuelve cuántas
+    quedaron mitigadas."""
+    closed = 0
+    for finding in Finding.objects.select_for_update().filter(
+        pk__in=list(finding_ids), status__in=OPEN_STATUSES
+    ):
+        closed += int(
+            mark_unseen(
+                finding,
+                source,
+                reason=reason,
+                at=at,
+                verified=verified,
+                execution_ref=execution_ref,
+            )
+        )
+    return closed
+
+
+@transaction.atomic
 def resolve_vanished(asset_id, result: ReconcileResult, *, observed_at=None) -> int:
-    """Cierra hallazgos de reconciliación cuyo software ya no está (versión corregida o
-    servicio cerrado). Solo los que **únicamente** reportó la reconciliación: si una
-    herramienta lo vio, la decisión la toma el reescaneo."""
+    """Cierra lo que ya no se observa tras reconciliar el activo con su inventario.
+
+    - Reconciliación: el software afectado ya no está (versión corregida o servicio cerrado).
+    - Herramientas de red: el puerto donde nuclei la observó ya no está abierto.
+
+    Con varias fuentes, la observación se cierra cuando todas dejan de verla (``mark_unseen``).
+    """
     observed_at = observed_at or timezone.now()
     still = {(m.asset_id, m.cve_id) for m in result.matches}
     resolved = 0
-    for finding in Finding.objects.filter(
-        asset_id=asset_id, status__in=OPEN_STATUSES, sources=[FindingSource.CTI_MATCH]
-    ).select_related("component"):
+    for finding in (
+        # ``of=self``: el componente es opcional y PostgreSQL no bloquea el lado nulo de la unión.
+        Finding.objects.select_for_update(of=("self",))
+        .filter(
+            asset_id=asset_id,
+            status__in=OPEN_STATUSES,
+            sources__contains=[FindingSource.CTI_MATCH],
+        )
+        .select_related("component")
+    ):
         if (finding.asset_id, finding.vulnerability_id) in still:
             continue
         if finding.component is not None and finding.component.is_current:
             # El componente sigue; la versión del rango pudo cambiar en la fuente: no cerrar.
             continue
-        _set_status(
-            finding,
-            FindingStatus.MITIGATED,
-            actor=None,
-            at=observed_at,
-            kind=FindingEventKind.AUTO_RESOLVED,
-            message="El software afectado ya no se observa en el activo.",
+        resolved += int(
+            mark_unseen(
+                finding,
+                FindingSource.CTI_MATCH,
+                reason="El software afectado ya no se observa en el activo.",
+                at=observed_at,
+            )
         )
-        resolved += 1
+    return resolved + resolve_closed_services(asset_id, observed_at=observed_at)
+
+
+# Una plantilla que coincide en cada página (patrones de datos personales) deja miles de
+# evidencias en una sola observación; para saber dónde y con qué se vio bastan las últimas.
+EVIDENCE_SAMPLE = 60
+
+
+def recent_evidence(finding, source):
+    """Las evidencias más recientes de esa fuente (acotadas a ``EVIDENCE_SAMPLE``)."""
+    return list(
+        finding.evidence.filter(source=source)
+        .order_by("-observed_at")
+        .only("source", "data")[:EVIDENCE_SAMPLE]
+    )
+
+
+def evidence_ports(finding, source=FindingSource.NUCLEI, evidence=None) -> set[int]:
+    """Puertos donde la herramienta de red observó la vulnerabilidad (de su evidencia)."""
+    from urllib.parse import urlsplit
+
+    ports = set()
+    for item in recent_evidence(finding, source) if evidence is None else evidence:
+        data = item.data or {}
+        for key in ("matched-at", "host"):
+            text = str(data.get(key) or "")
+            if not text:
+                continue
+            try:
+                parsed = urlsplit(text if "://" in text else f"//{text}")
+                port = parsed.port or {"http": 80, "https": 443}.get(parsed.scheme)
+            except ValueError:
+                port = None
+            if port:
+                ports.add(int(port))
+                break
+    return ports
+
+
+@transaction.atomic
+def resolve_closed_services(asset_id, *, observed_at=None) -> int:
+    """Observaciones de nuclei cuyo puerto ya no está abierto según el inventario.
+
+    Sin esto no cerraban nunca: el puerto deja de ser objetivo del escaneo y la herramienta ya no
+    tiene cómo decir que no la ve. Solo cuenta un puerto que el inventario conoce y marcó cerrado
+    tras un escaneo completo; uno que nunca se escaneó no demuestra nada.
+    """
+    from apps.assets.models import Service
+
+    observed_at = observed_at or timezone.now()
+    states: dict[int, set[str]] = {}
+    for port, state in (
+        Service.objects.filter(asset_id=asset_id)
+        .exclude(protocol="udp")
+        .values_list("port", "state")
+    ):
+        states.setdefault(port, set()).add(state)
+    if not states:
+        return 0
+    resolved = 0
+    for finding in Finding.objects.select_for_update().filter(
+        asset_id=asset_id, status__in=OPEN_STATUSES, sources__contains=[FindingSource.NUCLEI]
+    ):
+        ports = evidence_ports(finding)
+        if not ports or any("open" in states.get(port, {"open"}) for port in ports):
+            continue  # sin puerto conocido, o alguno sigue abierto (o no se ha escaneado)
+        if (finding.unseen or {}).get(FindingSource.NUCLEI, 0) >= unseen_threshold(
+            FindingSource.NUCLEI
+        ):
+            continue  # ya contado; espera a sus otras fuentes
+        listed = ", ".join(str(port) for port in sorted(ports))
+        resolved += int(
+            mark_unseen(
+                finding,
+                FindingSource.NUCLEI,
+                reason=(
+                    f"El puerto donde se observó ({listed}) ya no está abierto según el último "
+                    "escaneo de servicios."
+                ),
+                at=observed_at,
+                verified=True,  # el servicio no está: no hay otra pasada que esperar
+            )
+        )
     return resolved
 
 
@@ -343,32 +497,6 @@ def _set_status(finding, status, *, actor, at, kind, message, note=""):
         message=message,
         data={"from": before, "to": status, "note": note},
     )
-
-
-@transaction.atomic
-def transition(finding_id, *, user, status, note=""):
-    """Decisión humana: confirmar, priorizar, mitigar, aceptar el riesgo, falso positivo o reabrir."""
-    _require(user)
-    finding = Finding.objects.select_for_update().get(pk=finding_id)
-    if status not in FindingStatus.values:
-        raise ValidationError("Estado desconocido.")
-    if status not in TRANSITIONS.get(finding.status, set()):
-        raise ValidationError(
-            f"No se puede pasar de «{finding.get_status_display()}» a "
-            f"«{FindingStatus(status).label}»."
-        )
-    if status in (FindingStatus.ACCEPTED, FindingStatus.FALSE_POSITIVE) and not note.strip():
-        raise ValidationError("Aceptar el riesgo o marcar falso positivo requiere una nota.")
-    _set_status(
-        finding,
-        status,
-        actor=user,
-        at=timezone.now(),
-        kind=FindingEventKind.STATUS_CHANGED,
-        message=f"{finding.get_status_display()} → {FindingStatus(status).label}",
-        note=note.strip()[:2000],
-    )
-    return finding
 
 
 @transaction.atomic
@@ -498,9 +626,11 @@ def set_priority(finding_id, score, breakdown=None, algorithm_version=""):
     finding.priority_score = score
     finding.priority_breakdown = breakdown or {}
     finding.priority_computed_at = timezone.now()
-    if finding.status == FindingStatus.CONFIRMED:
-        finding.status = FindingStatus.PRIORITIZED
     finding.save()
+    if previous == score:
+        # Cada escaneo recalcula la prioridad de lo que vio: si no cambió, la línea de tiempo no
+        # gana nada con «3.22 → 3.22».
+        return finding
     _event(
         finding,
         FindingEventKind.PRIORITY_CHANGED,

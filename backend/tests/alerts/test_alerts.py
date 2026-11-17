@@ -14,7 +14,7 @@ from apps.alerts import events, services
 from apps.alerts.models import AlertEvent, Notification, NotificationChannel
 from apps.cti import services as cti
 from apps.cti.models import CtiSource, CtiSyncRun, SourceKind, SyncStatus
-from apps.detection import descriptions, risks
+from apps.detection import descriptions, responsibles, risks
 from apps.detection.models import (
     DetectionEvent,
     EventKind,
@@ -300,7 +300,7 @@ def test_treatment_requires_dates_and_register_tracks_followup(client, as_role):
     assert any(
         "fecha compromiso o revisión vencida" in i["text"] and i["count"] == 2 for i in today
     )
-    owners = risks.by_owner()
+    owners = responsibles.by_responsible()
     assert (
         owners[0]["owner"] in ("Infraestructura", "CISO") and sum(o["overdue"] for o in owners) == 2
     )

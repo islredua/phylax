@@ -51,6 +51,7 @@ IMMUTABLE_MODELS = {
     ("detection", "eventbatch"),
     ("detection", "plannerdecision"),
     ("detection", "automationlogentry"),
+    ("detection", "riskverification"),
     ("scanners", "toolexecution"),
     ("scanners", "scannerdatarun"),
     ("alerts", "notification"),

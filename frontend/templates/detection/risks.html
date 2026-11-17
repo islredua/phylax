@@ -9,6 +9,7 @@
     {% if consolidation_pending %}<span class="badge-primary">la IA está reevaluando</span>{% endif %}
   </div>
   <div class="page-actions">
+    {% if paginator.count %}<a href="{{ export_url }}" class="btn-secondary btn-sm" data-export title="Descarga en CSV los {{ paginator.count|miles }} riesgos de esta lista, con los filtros puestos">Exportar {% if filters_active %}lo filtrado{% else %}la lista{% endif %}</a>{% endif %}
     {% if asset_id %}
       {% if perms.detection.request_evaluation %}<form method="post" action="{% url 'detection:asset_consolidate' asset_id %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn-secondary btn-sm" type="submit" title="Vuelve a consolidar vulnerabilidades y a derivar riesgos con la IA">Reevaluar con IA</button></form>{% endif %}
       <a href="{% url 'detection:panel' %}?asset={{ asset_id }}" class="btn-secondary btn-sm">Vulnerabilidades</a>
@@ -49,14 +50,19 @@
   <div class="flex gap-2"><button type="submit" class="btn-primary">Filtrar</button><a href="{% url 'detection:risks' %}{% if asset_id %}?asset={{ asset_id }}{% endif %}" class="btn-secondary">Limpiar</a></div>
 </form>
 {% if owners %}
-<details class="card fold"{% if filter_form.owner.value %} open{% endif %}>
+<details class="card fold"{% if filter_form.owner.value or filter_form.mine.value or filter_form.unassigned.value %} open{% endif %}>
   <summary>Por responsable: quién lleva qué y cuánto tiene vencido ({{ owners|length }})</summary>
+  <p class="mt-2 text-xs text-muted">El responsable de un riesgo es quien se le asignó; si nadie lo hizo, quien lleva el activo. Solo quien tiene cuenta lo ve en «a mi nombre» y recibe el aviso.</p>
   <div class="table-wrap mt-3">
     <table class="data-table">
       <thead><tr><th scope="col">Responsable</th><th scope="col">Riesgos abiertos</th><th scope="col">Críticos</th><th scope="col">Seguimiento vencido</th><th scope="col"></th></tr></thead>
       <tbody>
         {% for o in owners %}
-        <tr><td class="font-medium">{{ o.owner }}</td><td class="font-mono">{{ o.total }}</td><td class="font-mono {% if o.critical %}text-critical{% endif %}">{{ o.critical }}</td><td class="font-mono {% if o.overdue %}text-critical{% endif %}">{{ o.overdue }}</td><td class="text-right"><a href="?owner={{ o.owner|urlencode }}{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="btn-secondary btn-sm">Sus riesgos</a></td></tr>
+        <tr{% if o.mine %} class="bg-primary-soft/40"{% endif %} data-responsible="{% if o.nobody %}nobody{% elif o.mine %}mine{% else %}other{% endif %}">
+          <td class="font-medium">{% if o.nobody %}<span class="text-high">Sin responsable</span>{% else %}{{ o.owner }}{% if o.mine %} <span class="badge-primary">tú</span>{% elif not o.has_account %} <span class="badge-neutral">sin cuenta</span>{% endif %}{% if o.inherited %}<p class="text-xs font-normal text-muted">{{ o.inherited }} por {% if o.inherited == 1 %}su activo{% else %}sus activos{% endif %}</p>{% endif %}{% endif %}</td>
+          <td class="font-mono">{{ o.total }}</td><td class="font-mono {% if o.critical %}text-critical{% endif %}">{{ o.critical }}</td><td class="font-mono {% if o.overdue %}text-critical{% endif %}">{{ o.overdue }}</td>
+          <td class="text-right"><a href="?{% if o.nobody %}unassigned=1{% elif o.mine %}mine=1{% else %}owner={{ o.owner|urlencode }}{% endif %}{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="btn-secondary btn-sm">{% if o.nobody %}Verlos{% elif o.mine %}Los míos{% else %}Sus riesgos{% endif %}</a></td>
+        </tr>
         {% endfor %}
       </tbody>
     </table>
@@ -69,17 +75,25 @@
 <form method="post" action="{% url 'detection:risk_bulk' %}" class="flex flex-col gap-2" data-no-busy>
   {% csrf_token %}
   <input type="hidden" name="next" value="{{ request.get_full_path }}">
-  <div class="card flex flex-wrap items-end gap-3 py-3" data-bulk data-bulk-hint-empty="Marca riesgos en la tabla para decidir el mismo tratamiento en todos." data-bulk-hint-action="Elige el tratamiento.">
+  <div class="card flex flex-wrap items-end gap-3 py-3" data-bulk data-bulk-hint-empty="Marca riesgos en la tabla para decidir el mismo tratamiento en todos o asignarles responsable." data-bulk-hint-action="Elige qué hacer con los marcados.">
     <div>
-      <label class="form-label" for="risk-bulk-treatment">Tratamiento para los marcados</label>
+      <label class="form-label" for="risk-bulk-treatment">Para los marcados</label>
       <select id="risk-bulk-treatment" name="treatment" class="form-input w-auto" data-bulk-action required>
-        <option value="">Elige un tratamiento…</option>
+        <option value="">Elige qué hacer…</option>
+        <option value="{{ bulk_assign }}" data-param="assign" data-require="risk-bulk-responsible" data-confirm="¿Cambiar el responsable de {n} riesgos? No decide su tratamiento.">Asignar responsable</option>
         {% for value, label in bulk_treatments %}<option value="{{ value }}" data-param="{% if value == 'ACCEPT' %}accept{% else %}plan{% endif %}"{% if value == 'ACCEPT' %} data-require="risk-bulk-note"{% endif %} data-confirm="¿Registrar «{{ label|lower }}» en {n} riesgos? La decisión queda a tu nombre en cada uno.">{{ label }}</option>{% endfor %}
       </select>
     </div>
     <div>
-      <label class="form-label" for="risk-bulk-owner">Responsable</label>
-      <input id="risk-bulk-owner" name="owner" class="form-input" maxlength="120" placeholder="Equipo o persona" title="Vacío: cada riesgo conserva el suyo">
+      <label class="form-label" for="risk-bulk-responsible">Responsable</label>
+      <select id="risk-bulk-responsible" name="responsible" class="form-input w-auto max-w-56" data-bulk-optional>
+        <option value="">Cada uno conserva el suyo</option>
+        {% for value, label in responsible_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+      </select>
+    </div>
+    <div data-reveal-for="risk-bulk-responsible" data-reveal-value="other">
+      <label class="form-label" for="risk-bulk-owner">Equipo o persona sin cuenta</label>
+      <input id="risk-bulk-owner" name="owner" class="form-input" maxlength="120" placeholder="Infraestructura, proveedor…">
     </div>
     <div data-bulk-param="plan">
       <label class="form-label" for="risk-bulk-date">Fecha compromiso</label>
@@ -95,7 +109,7 @@
       <label class="form-label" for="risk-bulk-note">Nota (obligatoria para aceptar)</label>
       <input id="risk-bulk-note" name="note" class="form-input" maxlength="2000" placeholder="Por qué se decide así" data-bulk-optional>
     </div>
-    <button type="submit" class="btn-secondary" data-bulk-submit>Decidir en <span data-bulk-count>los</span> marcados</button>
+    <button type="submit" class="btn-secondary" data-bulk-submit>Aplicar a <span data-bulk-count>los</span> marcados</button>
     <p class="w-full text-xs text-muted" data-bulk-hint>Marca riesgos en la tabla para decidir el mismo tratamiento en todos.</p>
   </div>
   {% include "detection/_risk_rows.html" with bulk=True %}

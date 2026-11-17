@@ -68,7 +68,7 @@
       {% if nav.tabs %}
       <nav class="tabs" aria-label="{{ nav.section.label }}">
         {% for tab in nav.tabs %}
-        <a href="{% url tab.url_name %}" class="tab {% if tab.active %}tab-active{% endif %}"{% if tab.active %} aria-current="page"{% endif %}>{{ tab.label }}</a>
+        <a href="{% url tab.url_name %}" class="tab {% if tab.active %}tab-active{% endif %}"{% if tab.active %} aria-current="page"{% endif %}>{{ tab.label }}{% if tab.count %} <span class="tab-count" data-tab-count="{{ tab.key }}" title="{{ tab.count|miles }} {{ tab.count_unit }}">{{ tab.count|miles }}<span class="sr-only"> {{ tab.count_unit }}</span></span>{% endif %}</a>
         {% endfor %}
       </nav>
       {% endif %}

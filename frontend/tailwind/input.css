@@ -387,11 +387,16 @@
     @apply flex gap-1 overflow-x-auto border-b border-line max-md:flex-nowrap md:flex-wrap;
   }
   .tab {
-    @apply -mb-px border-b-2 border-transparent px-3 py-2 text-[13px] text-ink-soft
+    @apply -mb-px border-b-2 border-transparent px-3 py-2 text-[13px] whitespace-nowrap text-ink-soft
       hover:text-primary hover:no-underline;
   }
   .tab-active {
     @apply border-primary font-semibold text-primary;
+  }
+  /* Pendientes tras la pestaña: solo aparece si hay trabajo. */
+  .tab-count {
+    @apply ml-1 inline-flex min-w-5 items-center justify-center rounded-full bg-high-soft px-1.5
+      py-px font-mono text-[11px] leading-4 font-semibold text-high;
   }
   /* Migas de pan: Inicio › Sección › Pestaña › página. La última no es enlace. */
   .breadcrumbs ol {
