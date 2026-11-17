@@ -170,7 +170,7 @@
         <tr>
           <td class="font-mono text-xs whitespace-nowrap">{{ ev.occurred_at|fecha:True }}</td>
           <td><span class="badge-neutral">{{ ev.get_kind_display }}</span></td>
-          <td class="text-xs text-ink-soft">{{ ev.message }}</td>
+          <td class="text-xs text-ink-soft">{{ ev.message|legible }}</td>
           <td class="font-mono text-xs">{{ ev.actor.get_username|default:"sistema" }}</td>
         </tr>
         {% endfor %}

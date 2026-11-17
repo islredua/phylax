@@ -7,6 +7,8 @@ from django.urls import reverse
 from django.utils.html import escape, format_html
 from django.utils.safestring import mark_safe
 
+from apps.core.text import cuantos
+from apps.cti import wording as cti_wording
 from apps.detection.models import (
     ActionStatus,
     EventStatus,
@@ -177,7 +179,7 @@ def intel_badges(risk):
             _badge(
                 "badge-critical",
                 "Explotación activa",
-                f"{kev} vulnerabilidad(es) en el catálogo KEV de CISA",
+                f"{cuantos(kev, 'vulnerabilidad', 'vulnerabilidades')} en el catálogo KEV de CISA",
             )
         )
     if epss is not None and epss >= high:
@@ -493,3 +495,24 @@ def risk_text(text, risk, css="text-ink-soft"):
             )
         paragraphs.append(f'<p class="{escape(css)}">{safe.replace(chr(10), "<br>")}</p>')
     return mark_safe("".join(paragraphs))  # noqa: S308 - todo pasó por escape()
+
+
+# --- Fuentes de inteligencia: frases en lugar de diccionarios y excepciones --------------------
+
+
+@register.filter
+def sync_detail(run):
+    """«cambios publicados desde el 10 nov 2026», «cobertura del producto wordpress»."""
+    return cti_wording.run_detail(getattr(run, "detail", None))
+
+
+@register.filter
+def sync_error(error):
+    """Frase en español para el error de una sincronización (el original se muestra aparte)."""
+    return cti_wording.error_phrase(error)
+
+
+@register.filter
+def source_detail(source):
+    """``{"text", "raw"}`` de la última sincronización de una fuente."""
+    return cti_wording.source_detail(source)

@@ -28,6 +28,7 @@ from django.utils import timezone
 
 from apps.assets import catalogs
 from apps.assets import services as assets_services
+from apps.core.text import cuantos
 from apps.cti.products import product_key
 from apps.cti.versions import is_distro_package, precision
 from apps.llm.client import register_mock, run_structured
@@ -38,6 +39,7 @@ from apps.llm.status import active_model
 from apps.scoring import services as scoring
 
 from . import components as components_index
+from . import titles
 from .models import (
     AI_STATUSES,
     OPEN_STATUSES,
@@ -137,8 +139,12 @@ def rule_title(key, lead):
     «CVE-… en producto versión» si se conoce el software; si no, el CVE con el nombre de la
     plantilla u observación (nombre propio, se conserva). Para las debilidades sin CVE, la familia.
     """
+    # El producto de la plantilla solo sirve si es un nombre: «horizon_daas» es una clave de
+    # catálogo y el modelo la copiaba al título.
     product = (
-        lead.component.label if lead.component else (_template_meta(lead).get("product") or "")
+        lead.component.label
+        if lead.component
+        else titles.readable_product(_template_meta(lead).get("product"))
     )
     if key.startswith("CVE-"):
         if product:
@@ -678,9 +684,20 @@ def _apply_item(asset_id, item, group, context, *, by_rule, log_obj, now):
     # Un ítem que el modelo fusionó («Vulnerabilidades en Apache…») se partió por CVE: su texto es
     # genérico, así que cada CVE toma título por regla y se redacta aparte, uno por uno.
     split = bool(item.get("split_from"))
+    component = lead.component or component_from_findings(asset_id, findings)
     title = clean(item.get("title"), 160)
     if by_rule or split or not title or not looks_spanish(title):
         title = rule_title(key, lead)
+    else:
+        # El título del modelo se ajusta al software observado; si nombra una clave de otro
+        # producto, lo pone la regla.
+        title = titles.reviewed(
+            title,
+            component,
+            cve_id=cve.pk if cve else None,
+            extra_keys=[_template_meta(lead).get("product")],
+            grounding=titles.grounding_text(asset_id, findings, cve.description if cve else ""),
+        )[0] or rule_title(key, lead)
     discarded = non_spanish(
         item.get("summary"), item.get("business_impact"), *(item.get("actions") or [])
     )
@@ -700,7 +717,7 @@ def _apply_item(asset_id, item, group, context, *, by_rule, log_obj, now):
     )
     previous_status = vuln.status
     vuln.cve = cve
-    vuln.component = lead.component or component_from_findings(asset_id, findings)
+    vuln.component = component
     keep_text = vuln.summary and vuln.description_source in (StatusSource.AI, StatusSource.HUMAN)
     if described:
         vuln.title = title[:200]
@@ -752,7 +769,7 @@ def _apply_item(asset_id, item, group, context, *, by_rule, log_obj, now):
         _event(
             vuln,
             VulnerabilityEventKind.CREATED,
-            f"Consolidada a partir de {len(findings)} observación(es)",
+            f"Consolidada a partir de {cuantos(len(findings), 'observación', 'observaciones')}",
             observations=[f.vulnerability_id for f in findings],
             by_rule=by_rule,
         )

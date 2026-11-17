@@ -134,7 +134,7 @@
 <h2>Historia</h2>
 <table>
   <thead><tr><th>Cuándo</th><th>Qué pasó</th><th>Detalle</th><th>Quién</th></tr></thead>
-  <tbody>{% for ev in timeline %}<tr><td class="mono">{{ ev.occurred_at|fecha }}</td><td>{{ ev.get_kind_display }}</td><td>{{ ev.message }}</td><td class="mono">{{ ev.actor.get_username|default:"sistema" }}</td></tr>{% endfor %}</tbody>
+  <tbody>{% for ev in timeline %}<tr><td class="mono">{{ ev.occurred_at|fecha }}</td><td>{{ ev.get_kind_display }}</td><td>{{ ev.message|legible }}</td><td class="mono">{{ ev.actor.get_username|default:"sistema" }}</td></tr>{% endfor %}</tbody>
 </table>
 
 <footer>Generado por Atalaya el {{ generated_at|fecha }} para {{ generated_by.get_username }}. Las valoraciones marcadas «por IA» las produjo un modelo local y pueden corregirse en la plataforma; el tratamiento lo decide siempre una persona.</footer>

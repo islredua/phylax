@@ -7,6 +7,7 @@ from datetime import datetime
 
 from django.urls import reverse
 
+from apps.core.text import cuantos, legible
 from apps.scanners.models import ToolExecution
 
 from .models import AutomationLogEntry, DetectionEvent, PlannedAction, PlannerDecision
@@ -91,10 +92,10 @@ def recent(limit=60, kinds=None, include_filtered=False):
                     subject=_asset_name(execution),
                     text=execution.error
                     or (
-                        f"{execution.findings_seen} hallazgo(s) distintos · "
-                        f"{execution.raw_results} resultado(s) crudos"
+                        f"{cuantos(execution.findings_seen, 'hallazgo distinto', 'hallazgos distintos')} · "
+                        f"{cuantos(execution.raw_results, 'resultado crudo', 'resultados crudos')}"
                         + (
-                            f" · {execution.external_queries} consulta(s) a terceros"
+                            f" · {cuantos(execution.external_queries, 'consulta')} a terceros"
                             if execution.external_queries
                             else ""
                         )
@@ -113,7 +114,7 @@ def recent(limit=60, kinds=None, include_filtered=False):
                     label=entry.get_kind_display(),
                     badge=entry.kind,
                     subject=_asset_name(entry) or (entry.user.get_username() if entry.user else ""),
-                    text=entry.message,
+                    text=legible(entry.message),
                     url=(
                         reverse("detection:action", args=[entry.action_id])
                         if entry.action_id

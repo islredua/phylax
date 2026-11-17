@@ -19,6 +19,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.assets import services as assets_services
+from apps.core.text import cuantos, forma
 
 from . import capabilities
 from .models import (
@@ -59,10 +60,10 @@ def planner_typical_seconds():
 def _reconciliation_detail(event):
     rec = event.reconciliation or {}
     found = (rec.get("findings") or {}).get("created", 0)
-    parts = [f"{rec.get('components', 0)} componente(s) de software"]
-    parts.append(f"{rec.get('matches', 0)} coincidencia(s) con la inteligencia")
+    parts = [f"{cuantos(rec.get('components', 0), 'componente')} de software"]
+    parts.append(f"{cuantos(rec.get('matches', 0), 'coincidencia')} con la inteligencia")
     if found:
-        parts.append(f"{found} hallazgo(s) nuevo(s)")
+        parts.append(cuantos(found, "hallazgo nuevo", "hallazgos nuevos"))
     return ", ".join(parts)
 
 
@@ -120,7 +121,8 @@ def _outcome(event, decision, action, caps):
             seen, created = result.get("findings_seen", 0), result.get("findings_created", 0)
             if seen:
                 return (
-                    f"Se encontraron {seen} hallazgo(s), {created} nuevo(s).",
+                    f"Se {forma(seen, 'encontró', 'encontraron')} {cuantos(seen, 'hallazgo')}, "
+                    f"{cuantos(created, 'nuevo')}.",
                     "alert-warning",
                     asset_url,
                 )
@@ -129,7 +131,8 @@ def _outcome(event, decision, action, caps):
             created = result.get("created", 0)
             if created:
                 return (
-                    f"La inteligencia conocida produjo {created} hallazgo(s) nuevo(s).",
+                    f"La inteligencia conocida produjo "
+                    f"{cuantos(created, 'hallazgo nuevo', 'hallazgos nuevos')}.",
                     "alert-warning",
                     asset_url,
                 )
@@ -224,7 +227,7 @@ def evaluation_progress(asset_id):
                     "execution",
                     "Herramienta",
                     "done" if action.status == ActionStatus.DONE else "active",
-                    f"{(action.result or {}).get('findings_seen', '…')} hallazgo(s) vistos"
+                    _seen_label((action.result or {}).get("findings_seen"))
                     if action.status == ActionStatus.DONE
                     else "ejecutándose",
                     reverse("detection:execution", args=[execution_id]),
@@ -289,9 +292,10 @@ def _scan_step(asset_id, caps, run, scan_active):
             "scan",
             "Escaneo de servicios",
             "done",
-            f"{run.services_seen} servicio(s) · {timezone.localtime(run.finished_at):%Y-%m-%d %H:%M}"
+            f"{cuantos(run.services_seen, 'servicio')} · "
+            f"{timezone.localtime(run.finished_at):%Y-%m-%d %H:%M}"
             if run.finished_at
-            else f"{run.services_seen} servicio(s)",
+            else cuantos(run.services_seen, "servicio"),
             reverse("discovery:run_detail", args=[run.pk]),
             "rescan" if caps.can_scan_network else "",
             "Re-escanear",
@@ -324,7 +328,14 @@ def _scan_step(asset_id, caps, run, scan_active):
 
 def plural(n, one, many):
     """«1 riesgo», «3 riesgos»: nunca «riesgo(s)»."""
-    return f"{n} {one if n == 1 else many}"
+    return cuantos(n, one, many)
+
+
+def _seen_label(seen):
+    """«9 hallazgos vistos»; «… hallazgos vistos» si la herramienta aún no reporta el número."""
+    if seen is None:
+        return "… hallazgos vistos"
+    return cuantos(seen, "hallazgo visto", "hallazgos vistos")
 
 
 def _criticality_step(asset_id, summary, scan_active, llm_ready, llm_blocker=""):
@@ -460,7 +471,7 @@ def _consolidation_step(asset_id, evaluation, scan_active):
             "consolidation",
             label,
             "pending",
-            f"{open_obs} observación(es) esperan consolidarse",
+            f"{cuantos(open_obs, 'observación espera', 'observaciones esperan')} consolidarse",
             f"{reverse('detection:observations')}?asset={asset_id}",
             "consolidate",
             "Consolidar con IA",

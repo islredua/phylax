@@ -12,7 +12,7 @@
           {% if e.kind == 'event' %}{% event_status_badge e.badge %}{% elif e.kind == 'decision' %}{% urgency_badge e.badge %}{% elif e.kind == 'action' %}{% action_status_badge e.badge %}{% elif e.kind == 'execution' %}{% execution_status_badge e.badge %}{% else %}<span class="badge-neutral">bitácora</span>{% endif %}
         </td>
         <td class="text-xs">{{ e.subject|default:"—" }}</td>
-        <td class="text-xs text-ink-soft">{{ e.text|truncatechars:160 }}</td>
+        <td class="text-xs text-ink-soft">{{ e.text|legible|truncatechars:160 }}</td>
       </tr>
       {% empty %}<tr><td colspan="4" class="table-empty">Aún no hay actividad. Sincroniza una fuente CTI, confirma un activo o pide una evaluación.</td></tr>{% endfor %}
     </tbody>

@@ -16,6 +16,10 @@ _ACCENTS = re.compile(r"[áéíóúñ¿¡]", re.IGNORECASE)
 # Lo que va entre acentos graves es un comando, una ruta o una opción (`wp core update`,
 # `--version`): no es prosa y no dice en qué idioma está escrita la frase.
 _CODE = re.compile(r"`[^`]*`")
+# Letras que el español no usa y el portugués sí («interpretação», «solicitações», «inconsistência»):
+# el modelo local a veces resbala a portugués y las palabras funcionales («de», «em», «na») se
+# parecen demasiado para distinguirlo contándolas.
+_NOT_SPANISH = re.compile(r"[ãõçêôâà]", re.IGNORECASE)
 
 SPANISH = frozenset(
     """de la el que en y los las un una para con por se del es al como más pero sus le ya o este
@@ -53,6 +57,8 @@ def looks_spanish(text: str | None, *, min_words: int = 3) -> bool:
     Textos de menos de ``min_words`` palabras (una clave, un nombre de producto) se aceptan.
     """
     text = _CODE.sub(" ", text or "")
+    if _NOT_SPANISH.search(text):
+        return False
     words = [w.lower() for w in _WORD.findall(text)]
     if len(words) < min_words:
         return True

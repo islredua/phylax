@@ -19,6 +19,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from apps.assets.models import Asset
+from apps.core.text import cuantos
 from apps.cti.models import CtiSource
 from apps.detection.descriptions import SUSTAINED
 from apps.detection.models import (
@@ -392,7 +393,7 @@ def alerts(data=None, now=None, limit=12) -> list[dict]:
         out.append(
             _alert(
                 "high",
-                f"{exposed} activo(s) de criticidad alta con posibles vulnerabilidades explotables "
+                f"{cuantos(exposed, 'activo')} de criticidad alta con posibles vulnerabilidades explotables "
                 "sin verificar y sin riesgo registrado",
                 reverse("detection:panel") + "?status=NEEDS_VERIFICATION&exploitable=1",
                 now,
@@ -433,7 +434,8 @@ def alerts(data=None, now=None, limit=12) -> list[dict]:
         out.append(
             _alert(
                 "medium",
-                f"{pending} acción(es) del planificador esperan aprobación",
+                f"{cuantos(pending, 'acción del planificador espera', 'acciones del planificador esperan')} "
+                "aprobación",
                 reverse("detection:queue"),
                 now,
             )
@@ -443,7 +445,8 @@ def alerts(data=None, now=None, limit=12) -> list[dict]:
         out.append(
             _alert(
                 "medium",
-                f"{failed} ejecución(es) de herramientas fallaron en las últimas 24 h",
+                f"{cuantos(failed, 'ejecución de herramientas falló', 'ejecuciones de herramientas fallaron')} "
+                "en las últimas 24 h",
                 reverse("detection:activity"),
                 now,
             )

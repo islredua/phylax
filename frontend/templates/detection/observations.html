@@ -4,7 +4,7 @@
 {% block toolbar %}
 <div class="toolbar">
   <div class="flex flex-wrap items-center gap-2">
-    <h2>Observaciones <span class="ml-1 font-mono text-xs font-normal text-muted">{{ paginator.count }}</span></h2>
+    <h2>Observaciones <span class="ml-1 font-mono text-xs font-normal text-muted">{{ paginator.count|miles }}</span></h2>
     <span class="text-xs text-muted">lo que reportó cada herramienta, la reconciliación CTI o una persona; la IA las consolida en <a href="{% url 'detection:panel' %}{% if asset_id %}?asset={{ asset_id }}{% endif %}">vulnerabilidades</a></span>
   </div>
   <div class="page-actions">

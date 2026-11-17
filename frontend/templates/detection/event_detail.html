@@ -32,7 +32,7 @@
   </div>
   <p class="text-ink-soft">{{ d.rationale|linebreaksbr }}</p>
   {% if d.evidence %}<ul class="flex flex-wrap gap-1">{% for e in d.evidence %}<li class="badge-neutral">{{ e }}</li>{% endfor %}</ul>{% endif %}
-  <p class="text-xs text-muted">{{ d.created_at|fecha:True }}{% if d.fallback %} · por regla{% else %} · modelo {{ d.model_requested|default:"—" }}{% if d.model_responded and d.model_responded != d.model_requested %} (respondió {{ d.model_responded }}){% endif %} · prompt {{ d.prompt_version }}{% endif %}{% if d.duration_ms %} · {{ d.duration_ms|floatformat:0 }} ms{% endif %}{% if d.category %} · plantillas: {{ d.category|category_label }}{% endif %}</p>
+  <p class="text-xs text-muted">{{ d.created_at|fecha:True }}{% if d.fallback %} · por regla{% else %} · modelo {{ d.model_requested|default:"—" }}{% if d.model_responded and d.model_responded != d.model_requested %} (respondió {{ d.model_responded }}){% endif %} · prompt {{ d.prompt_version }}{% endif %}{% if d.duration_ms %} · {{ d.duration_ms|duracion }}{% endif %}{% if d.category %} · plantillas: {{ d.category|category_label }}{% endif %}</p>
   {% if d.input_payload %}<details class="fold"><summary>Entrada que recibió el modelo</summary><pre class="code-block mt-2 text-xs">{{ d.input_payload|pretty_json }}</pre></details>{% endif %}
   {% with planned=d.planned %}{% if planned %}<p class="text-sm"><a href="{% url 'detection:action' planned.pk %}">Ver la acción</a> {% action_status_badge planned.status %}</p>{% endif %}{% endwith %}
 </section>

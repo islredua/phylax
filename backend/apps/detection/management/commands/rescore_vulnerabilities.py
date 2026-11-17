@@ -6,6 +6,7 @@ o las anclas del scoring: el panel vuelve a ordenarse sin reevaluar con IA.
 from django.core.management.base import BaseCommand
 
 from apps.assets.models import Asset
+from apps.core.text import cuantos
 from apps.detection import consolidation
 from apps.detection.models import Vulnerability
 from apps.scoring import services as scoring
@@ -34,7 +35,9 @@ class Command(BaseCommand):
             changed = consolidation.rescore_asset(asset.pk)
             total += changed
             if changed:
-                self.stdout.write(f"{asset.name}: {changed} recalculada(s)")
+                self.stdout.write(f"{asset.name}: {cuantos(changed, 'recalculada')}")
         self.stdout.write(
-            self.style.SUCCESS(f"{total} vulnerabilidad(es) con {scoring.ALGORITHM_VERSION}.")
+            self.style.SUCCESS(
+                f"{cuantos(total, 'vulnerabilidad', 'vulnerabilidades')} con {scoring.ALGORITHM_VERSION}."
+            )
         )

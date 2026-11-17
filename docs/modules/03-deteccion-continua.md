@@ -555,6 +555,41 @@ lo pide. Fecha vacía = `policy.suggested_target(risk)` (el plazo de la polític
 cumplir); si ya venció, mitigar y transferir no se aplican a ese riesgo y el aviso lo dice.
 Responsable vacío = el que cada riesgo ya tenía. Los cerrados no se tocan.
 
+## Título coherente con el software observado (`detection/titles.py`)
+
+El título de una vulnerabilidad lo escribe el modelo (al consolidar o al redactar) y se revisa por
+código contra el componente observado antes de guardarse:
+
+| Qué trae el título | Qué se hace |
+|---|---|
+| La clave de catálogo del propio software (`http_server`) | Se cambia por su nombre («Apache httpd») |
+| La versión observada junto a otro producto («PHPMailer 4.7», y 4.7 es de WordPress) | La versión vuelve a su software: «PHPMailer (en wordpress 4.7)» |
+| Una versión que no aparece en lo observado ni en el texto técnico («Samba smbd 4.0.0 - 4.2.13») | Se quita, con su rango entero: «Samba smbd». Si el título se queda en menos de tres palabras, título por regla |
+| La clave de otro producto del CVE o de la plantilla (`horizon_daas`) | Se descarta: título por regla (`rule_title`) |
+| Otro idioma (inglés, portugués) | Se descarta: título por regla |
+| Un nombre propio con guion bajo (`mod_proxy_ajp`) | Se conserva |
+
+Lo que sustenta una versión (`titles.grounding_text`) es: el título y la descripción de cada
+observación, la descripción del CVE, la evidencia (resumen, versión corregida y rango afectado) y
+el nombre y la versión de todo el software registrado en el activo. Solo cuentan los números con
+punto («2.4.49», «6.5.x»); las versiones se miran por tramos unidos por conectores («a», «-», «<»,
+«y») y si una del tramo no tiene sustento se va el tramo completo, para que un extremo del rango
+no se lea como la versión observada.
+
+Además el modelo ya no recibe claves: `rule_title` solo usa el producto de la plantilla si es un
+nombre (`titles.readable_product`) y la evidencia del rango afectado nombra al software observado.
+`descriptions.review_titles()` aplica las mismas reglas a los títulos ya guardados que escribió la
+IA; corre dentro de `describe_pending_vulnerabilities` (beat) una vez por `titles.RULES_VERSION` y
+deja un evento «Título ajustado por regla…» con el título anterior en `data.previous_title`. Lo
+que no se arregla por código vuelve al título de la regla y se pide de nuevo al modelo
+(`request_description(force=True)`).
+
+**Números y plurales (`apps/core/text.py`).** `cuantos(n, singular, plural=None)` es la única
+forma de escribir una cantidad en un texto: separador de miles y la forma que toca. `legible`
+(función y filtro de plantilla) arregla al mostrar los textos guardados con «(s)» antes de la
+regla. Los detalles de las sincronizaciones de inteligencia se convierten en frases en
+`apps/cti/wording.py` (filtros `sync_detail`, `sync_error`, `source_detail`).
+
 ## Seguimiento del tratamiento (F4)
 
 `Risk.target_date` (fecha compromiso) y `Risk.review_at` (revisar el). `risks.set_treatment` exige

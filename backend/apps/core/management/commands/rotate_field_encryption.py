@@ -4,6 +4,7 @@ from django.db import connection
 
 from apps.core import crypto
 from apps.core.fields import EncryptedTextField
+from apps.core.text import cuantos
 
 
 class Command(BaseCommand):
@@ -33,7 +34,11 @@ class Command(BaseCommand):
                             [crypto.rotate(token), row_pk],
                         )
                 total += len(rows)
-                self.stdout.write(f"{model._meta.label}.{field.name}: {len(rows)} valor(es)")
+                self.stdout.write(
+                    f"{model._meta.label}.{field.name}: {cuantos(len(rows), 'valor', 'valores')}"
+                )
         self.stdout.write(
-            self.style.SUCCESS(f"Re-cifrados {total} valor(es) con la llave primaria.")
+            self.style.SUCCESS(
+                f"Re-cifrados {cuantos(total, 'valor', 'valores')} con la llave primaria."
+            )
         )

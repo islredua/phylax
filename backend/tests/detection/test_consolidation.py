@@ -635,10 +635,10 @@ def test_pii_pattern_templates_are_informational_and_rescore_updates_stale_score
     vuln.refresh_from_db()
     assert vuln.algorithm_version == scoring.ALGORITHM_VERSION
     assert vuln.contextual_score <= scoring.CRITICALITY_CAP["INFORMATIVO"]
-    assert "1 recalculada(s)" in out.getvalue()
+    assert "1 recalculada" in out.getvalue() and "(s)" not in out.getvalue()
     out = StringIO()
     call_command("rescore_vulnerabilities", stdout=out)
-    assert "0 vulnerabilidad(es)" in out.getvalue()  # idempotente
+    assert "0 vulnerabilidades" in out.getvalue()  # idempotente
 
 
 # --------------------------------------------------------------------------
@@ -836,7 +836,9 @@ def test_describe_keeps_the_rule_title_when_the_model_title_is_not_spanish(
     assert vuln.title == rule_title_before and vuln.summary.startswith("Una petición")
     assert vuln.business_impact and vuln.description_source == "AI"
     assert VulnerabilityEvent.objects.filter(
-        vulnerability=vuln, kind="DESCRIBED", message__icontains="se conserva el de la regla"
+        vulnerability=vuln,
+        kind="DESCRIBED",
+        message__icontains="no estaba en español) y queda el de la regla",
     ).exists()
 
 

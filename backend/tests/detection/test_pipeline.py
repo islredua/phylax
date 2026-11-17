@@ -94,7 +94,12 @@ def test_done_steps_show_results_and_reevaluate_waits_the_cooldown(client, as_ro
     }
     assert pipeline["poll"] == 0 and not pipeline["can_reevaluate"]
     body = client.get(f"/detection/assets/{asset.pk}/pipeline/").content.decode()
-    assert "2 servicio(s)" in body and "Re-escanear" in body and "Recalcular" in body
+    assert (
+        "2 servicios" in body
+        and "(s)" not in body
+        and "Re-escanear" in body
+        and "Recalcular" in body
+    )
     assert "Alto · Calculada por IA" in body and "evaluada hace 5 min" in body
     assert "Volver a evaluar" not in body and "Ver el detalle de la última evaluación" in body
     # Pasado el plazo, se ofrece volver a evaluar.

@@ -19,6 +19,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.utils import timezone
 
+from . import wording
 from .clients import epss as epss_client
 from .clients import kev as kev_client
 from .clients import nvd as nvd_client
@@ -289,7 +290,7 @@ def _finish(run, source, *, error=None, sha256="", detail=None):
     if source is not None:
         source.last_run_at = run.finished_at
         source.last_status = run.status
-        source.last_detail = (run.error or f"{run.changes} cambio(s)")[:255]
+        source.last_detail = (run.error or wording.changes_phrase(run.changes))[:255]
         if not error:
             source.last_success_at = run.finished_at
         source.save(update_fields=["last_run_at", "last_status", "last_detail", "last_success_at"])

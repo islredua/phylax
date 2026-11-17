@@ -13,6 +13,8 @@ from django.conf import settings
 from django.core.cache import cache
 from pydantic import ValidationError
 
+from apps.core.text import cuantos
+
 from . import status
 from .models import InferenceLog
 
@@ -214,7 +216,7 @@ def run_structured(
             try:
                 log.parsed = validator.model_validate_json(log.response_raw).model_dump()
             except ValidationError as exc:
-                log.error = f"Salida inválida (intento {attempt}): {exc.error_count()} error(es) de validación."
+                log.error = f"Salida inválida (intento {attempt}): {cuantos(exc.error_count(), 'error', 'errores')} de validación."
                 # El reintento ve su respuesta y qué falló: corrige en vez de repetir el error.
                 conversation = [
                     *messages,

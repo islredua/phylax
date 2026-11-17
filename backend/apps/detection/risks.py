@@ -20,6 +20,7 @@ from django.utils import timezone
 
 from apps.assets import catalogs
 from apps.assets import services as assets_services
+from apps.core.text import cuantos
 from apps.llm.client import register_mock, run_structured
 from apps.llm.language import fix_spanish, looks_spanish
 from apps.llm.prompts import load_prompt
@@ -1121,7 +1122,7 @@ def _apply(asset_id, item, context, *, by_rule, log_obj, now):
         _event(
             risk,
             RiskEventKind.IDENTIFIED,
-            f"Identificado a partir de {len(vulns)} vulnerabilidad(es)",
+            f"Identificado a partir de {cuantos(len(vulns), 'vulnerabilidad', 'vulnerabilidades')}",
             vulnerabilities=[v.key for v in vulns],
             by_rule=by_rule,
         )

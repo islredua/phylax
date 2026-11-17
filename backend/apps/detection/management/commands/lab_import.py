@@ -19,6 +19,7 @@ from django.utils import timezone
 from apps.assets import services as assets_services
 from apps.assets.enums import DataCategory, DataClassification, IdentifierKind
 from apps.assets.models import Asset, NetworkRange, Tag
+from apps.core.text import cuantos
 
 TAG = "lab-aseguradora-norte"
 REFERENCE = "Laboratorio Aseguradora Norte · proyecto de tesis (GROUND-TRUTH.md)"
@@ -184,8 +185,9 @@ class Command(BaseCommand):
                 scans += int(self._scan(asset, user))
         self.stdout.write(
             self.style.SUCCESS(
-                f"Laboratorio: {created} activo(s) nuevo(s), {sboms} SBOM adjunto(s), "
-                f"{scans} escaneo(s) de servicios en cola. Etiqueta {TAG}."
+                f"Laboratorio: {cuantos(created, 'activo nuevo', 'activos nuevos')}, "
+                f"{cuantos(sboms, 'SBOM adjunto', 'SBOM adjuntos')}, "
+                f"{cuantos(scans, 'escaneo')} de servicios en cola. Etiqueta {TAG}."
             )
         )
 
@@ -223,4 +225,4 @@ class Command(BaseCommand):
         count = assets.count()
         assets.delete()
         NetworkRange.objects.filter(cidr__in=[r[1] for r in RANGES]).delete()
-        self.stdout.write(f"Laboratorio anterior eliminado ({count} activo(s)).")
+        self.stdout.write(f"Laboratorio anterior eliminado ({cuantos(count, 'activo')}).")

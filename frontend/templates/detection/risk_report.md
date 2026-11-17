@@ -83,7 +83,7 @@ Acciones: {{ row.vuln.actions|join:" · " }}
 {% endif %}{% endfor %}{% endif %}
 ## Historia
 {% for ev in timeline %}
-- {{ ev.occurred_at|fecha }} · {{ ev.get_kind_display }} · {{ ev.message }} ({{ ev.actor.get_username|default:"sistema" }}){% endfor %}
+- {{ ev.occurred_at|fecha }} · {{ ev.get_kind_display }} · {{ ev.message|legible }} ({{ ev.actor.get_username|default:"sistema" }}){% endfor %}
 
 ---
 Generado por Atalaya el {{ generated_at|fecha }} para {{ generated_by.get_username }}. Las valoraciones «por IA» las produjo un modelo local y pueden corregirse en la plataforma; el tratamiento lo decide siempre una persona.

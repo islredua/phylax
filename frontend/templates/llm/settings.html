@@ -70,7 +70,7 @@
           <td class="text-xs">{{ log.get_task_display }}</td>
           <td class="font-mono text-xs">{{ log.model }}</td>
           <td>{% if log.parsed_ok %}<span class="badge-low">válida</span>{% else %}<span class="badge-critical">error</span> <span class="text-xs text-critical" title="{{ log.error }}">{{ log.error|truncatechars:90 }}</span>{% endif %}</td>
-          <td class="font-mono text-xs">{% if log.total_duration_ms %}{{ log.total_duration_ms|floatformat:0 }} ms{% else %}—{% endif %}</td>
+          <td class="font-mono text-xs">{% if log.total_duration_ms %}{{ log.total_duration_ms|duracion }}{% else %}—{% endif %}</td>
           <td class="font-mono text-xs">{{ log.tokens_per_second|floatformat:1|default:"—" }}</td>
           <td class="font-mono text-xs">{{ log.accelerator|upper|default:"—" }}</td>
         </tr>

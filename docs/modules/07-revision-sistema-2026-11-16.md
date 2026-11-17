@@ -25,7 +25,7 @@ modelo real y sin herramientas) y se comprueba en el navegador con los datos del
 | Bloque | Hallazgos | Estado | Cómo quedó |
 |---|---|---|---|
 | 1 · Que el trabajo quepa en una jornada | W1, W2, W3 (y P1, que estorbaba al añadir la tarjeta «Fuera de plazo») | Corregido el 2026-11-17 | Ver abajo. Pruebas: `tests/detection/test_workload.py`. |
-| 2 · Defectos a la vista | P2, P5, P6, W8, C1 | Pendiente | |
+| 2 · Defectos a la vista | P2, P5, P6, W8, C1 | Corregido el 2026-11-17 | Ver abajo. Pruebas: `tests/detection/test_visible_defects.py`, `tests/test_text.py`. |
 | 3 · Que quien administra vea el sistema | G1, G2, G3, W7 | Pendiente | |
 | 4 · Cerrar el ciclo y repartir el trabajo | W4, W5, W6, N4, N5 | Pendiente | |
 | 5 · Estructura y lectura | N1, N2, N3, P3, P4, P7–P11, C2 | Pendiente | |
@@ -62,6 +62,58 @@ modelo real y sin herramientas) y se comprueba en el navegador con los datos del
 de pruebas, no pulsando el botón en un navegador (ahí solo se comprobó que la barra cuenta, muestra
 los campos del tratamiento elegido y exige la nota al aceptar). No se cambió ningún dato del
 laboratorio: ningún riesgo recibió tratamiento.
+
+### Bloque 2 (2026-11-17)
+
+- **W8 · «Corregir estado» ya no viene elegido.** El selector abre en «Elige el estado…» y es
+  obligatorio: un clic en «Fijar estado» sin elegir no cambia nada.
+- **P2 · La lista de vulnerabilidades cabe a 1440 px.** De ocho columnas a cinco: vulnerabilidad,
+  activo y software, una sola de prioridad (puntaje contextual y severidad; debajo el técnico y la
+  plausibilidad), estado con los factores de la regla en segunda línea, y la fecha. Se ven unas 9
+  filas por pantalla en lugar de 6 y nada queda fuera.
+- **P5 · Miles y plurales.** Una sola regla (`apps/core/text.py`): `cuantos(n, "hallazgo")` escribe
+  «1 hallazgo» / «33,753 hallazgos». La usan los 30 textos que arma el código (actividad,
+  automatización, etapas del activo, alertas de Inicio, bitácora, órdenes de consola). Los textos
+  que ya estaban guardados con «(s)» se arreglan **al mostrarse** (filtro `legible`), sin tocar la
+  base. Las duraciones se leen como «5.7 s» o «48 s» (filtro `duracion`) en lugar de «5671 ms».
+- **P6 · Fuentes CTI.** El detalle de cada sincronización es una frase («cambios publicados desde
+  el 10 nov 2026», «catálogo versión 2026.11.13», «cobertura del producto wordpress») y un error
+  se explica en español («La fuente tardó demasiado en responder») con el mensaje original
+  plegado (`apps/cti/wording.py`).
+- **C1 · Títulos que no correspondían al software observado.** La causa estaba en el flujo: el
+  título de referencia y la evidencia que recibía el modelo traían claves de catálogo
+  («CVE-2019-5544 en horizon_daas», «http_server 2.4.49 está en el rango afectado») y el modelo
+  las copiaba. Tres cambios, ninguno pide más al modelo (`detection/titles.py`):
+  1. *Entrada:* el modelo recibe el nombre del software observado, nunca su clave.
+  2. *Salida:* el título que escribe se revisa contra el componente observado. La clave del propio
+     software se cambia por su nombre («http_server 2.4.49» → «Apache httpd 2.4.49»); una versión
+     pegada a otro producto vuelve a su software («PHPMailer 4.7» → «PHPMailer (en wordpress
+     4.7)»); una versión que no sale de lo observado ni del texto técnico se quita, con su rango
+     entero («Samba smbd 4.0.0 - 4.2.13» → «Samba smbd»); si nombra la clave de otro producto o no
+     está en español (el portugués ya no pasa por español), el título lo pone la regla.
+  3. *Lo ya guardado:* la tarea periódica repasa los títulos que había escrito la IA una vez por
+     versión de las reglas, corrige por código los que puede (queda en la línea de tiempo de cada
+     vulnerabilidad, con el título anterior) y pide de nuevo al modelo los que no. Los títulos que
+     fijó una persona no se tocan.
+
+  **Comprobado con el modelo real (2026-11-17, 1,053 vulnerabilidades del laboratorio).** El
+  repaso corrió dentro de la tarea periódica, sin tocar datos a mano:
+
+  | Pasada | Qué hizo | Tiempo |
+  |---|---|---|
+  | Reglas v1 | 15 títulos corregidos por código (13 «http_server» → «Apache httpd», 2 versiones devueltas a WordPress y PHP) y 4 descartados y vueltos a redactar por el modelo | 0.7 s |
+  | Reglas v2 | 12 títulos sin versiones que nadie observó (9 de Samba, 3 de ESXi) | 1.0 s |
+
+  De los 4 que volvió a redactar el modelo, el que estaba en portugués salió en español («Bypass
+  de autenticación en Apache httpd 2.4.10»). Los otros 3 (CVE-2019-5544) ya no traían la clave
+  `horizon_daas`, pero el modelo les agregó «6.5.x, 6.7.x»: versiones que no estaban en nada de lo
+  que recibió. De ahí salió la regla v2, que además encontró el mismo defecto en 9 títulos de
+  Samba que nadie había reportado. No queda ningún título con clave de catálogo.
+
+  *Qué no se comprobó:* la regla de versiones solo mira números con punto; un entero suelto
+  («Samba 4») o un nombre de producto inventado sin clave de catálogo no los detecta. Los títulos
+  de vulnerabilidades ya resueltas no se repasan.
+
 
 ## 1. Flujo de trabajo
 

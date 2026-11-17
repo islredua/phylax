@@ -23,6 +23,7 @@ from pathlib import Path
 from django.conf import settings
 from django.core.management.base import BaseCommand
 
+from apps.core.text import cuantos
 from apps.scanners.runner import ToolError, run_command
 
 TIMEOUT_S = 1800
@@ -69,7 +70,11 @@ class Command(BaseCommand):
         if only in (None, "grype"):
             failures += self._run("Grype (base de datos)", [settings.GRYPE_BIN, "db", "update"])
         if failures:
-            self.stderr.write(self.style.ERROR(f"{failures} actualización(es) fallaron."))
+            self.stderr.write(
+                self.style.ERROR(
+                    f"{cuantos(failures, 'actualización falló', 'actualizaciones fallaron')}."
+                )
+            )
             raise SystemExit(1)
         self.stdout.write(self.style.SUCCESS("Datos de las herramientas actualizados."))
 

@@ -20,6 +20,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.assets import services as assets_services
+from apps.core.text import cuantos
 
 from . import automation, consolidation, events, findings, matching
 from .models import (
@@ -342,7 +343,7 @@ def _guardrails(action, config, now):
         return False, False
     if action.action in (Action.DETECT_VULNS, Action.REANALYZE_SBOM):
         targets = _targets_for(action)
-        if not _check(action, "objetivos", bool(targets), f"{len(targets)} objetivo(s)"):
+        if not _check(action, "objetivos", bool(targets), cuantos(len(targets), "objetivo")):
             return False, False
     running = scanners.active_count()
     if not _check(
@@ -493,10 +494,11 @@ def on_execution_finished(execution):
         LogKind.FINISHED if ok else LogKind.FAILED,
         action=action,
         message=(
-            f"{execution.get_tool_display()} {execution.profile}: {execution.findings_seen} "
-            f"hallazgo(s) distintos de {execution.raw_results} resultado(s)"
+            f"{execution.get_tool_display()} {execution.profile}: "
+            f"{cuantos(execution.findings_seen, 'hallazgo distinto', 'hallazgos distintos')} de "
+            f"{cuantos(execution.raw_results, 'resultado')}"
             + (
-                f" · {execution.external_queries} consulta(s) a terceros"
+                f" · {cuantos(execution.external_queries, 'consulta')} a terceros"
                 if execution.external_queries
                 else ""
             )

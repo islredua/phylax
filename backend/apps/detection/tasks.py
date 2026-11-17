@@ -90,9 +90,18 @@ def consolidate_asset(asset_id, reason="", user_id=None):
 @shared_task
 def describe_pending_vulnerabilities():
     """``beat``: encola un lote de vulnerabilidades sostenidas sin descripción en español."""
-    from . import descriptions
+    from django.core.cache import cache
 
-    return {"queued": descriptions.queue_missing_everywhere()}
+    from . import descriptions, titles
+
+    result = {"queued": descriptions.queue_missing_everywhere()}
+    # Repaso de los títulos ya guardados con las reglas vigentes: una vez por versión de las
+    # reglas (y de nuevo si la caché se vacía; es barato y no cambia lo que ya está bien).
+    if cache.add(f"detection:titles:reviewed:v{titles.RULES_VERSION}", True, 24 * 3600):
+        reviewed = descriptions.review_titles()
+        if reviewed["fixed"] or reviewed["redone"]:
+            result["titles"] = reviewed
+    return result
 
 
 @shared_task(acks_late=True, soft_time_limit=600, time_limit=660)

@@ -10,6 +10,8 @@ from datetime import date, datetime
 from django import template
 from django.utils import timezone
 
+from apps.core import text as core_text
+
 register = template.Library()
 
 MESES = (
@@ -111,6 +113,31 @@ def pl(value, formas):
         number = 0
     palabra = singular if number == 1 else (plural or singular + "s")
     return palabra if sin_numero else f"{number:,} {palabra}"
+
+
+@register.filter
+def duracion(ms):
+    """Milisegundos como se leen: «850 ms», «5.7 s», «48 s», «2 min 5 s»."""
+    try:
+        ms = float(ms)
+    except (TypeError, ValueError):
+        return "—"
+    if ms < 1000:
+        return f"{ms:.0f} ms"
+    seconds = ms / 1000
+    if seconds < 10:
+        return f"{seconds:.1f} s"
+    if seconds < 60:
+        return f"{seconds:.0f} s"
+    minutes, rest = divmod(round(seconds), 60)
+    return f"{minutes} min {rest} s" if rest else f"{minutes} min"
+
+
+@register.filter
+def legible(value):
+    """Arregla al mostrar un texto guardado con «(s)»: «9 hallazgo(s) de 33753 resultado(s)» →
+    «9 hallazgos de 33,753 resultados»."""
+    return core_text.legible(value)
 
 
 _MARKDOWN = re.compile(r"(\*\*|__|`+|^#+\s*|^\s*[-*]\s+)", re.M)

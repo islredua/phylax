@@ -43,7 +43,7 @@ def test_lab_import_creates_ranges_assets_sboms_and_scans(make_user):
         str(DATASETS / "lab-inventario-hosts.csv"),
         stdout=out,
     )
-    assert "20 activo(s) nuevo(s), 3 SBOM adjunto(s), 20 escaneo(s)" in out.getvalue()
+    assert "20 activos nuevos, 3 SBOM adjuntos, 20 escaneos" in out.getvalue()
     assert NetworkRange.objects.filter(cidr="10.60.10.0/24", zone="DMZ").get().is_authorized()
     api = Asset.objects.get(name="api-pagos")
     assert api.criticality is None and api.business_role == "PAGOS" and api.exposure == "DMZ"
@@ -64,7 +64,7 @@ def test_lab_import_creates_ranges_assets_sboms_and_scans(make_user):
         str(DATASETS / "lab-inventario-hosts.csv"),
         stdout=out,
     )
-    assert "0 activo(s) nuevo(s), 0 SBOM adjunto(s), 0 escaneo(s)" in out.getvalue()
+    assert "0 activos nuevos, 0 SBOM adjuntos, 0 escaneos" in out.getvalue()
     assert Asset.objects.filter(tags__name="lab-aseguradora-norte").count() == 20
     call_command("lab_import", "--user", "admin-lab", "--reset", "--no-scan", stdout=StringIO())
     assert Asset.objects.filter(tags__name="lab-aseguradora-norte").count() == 20

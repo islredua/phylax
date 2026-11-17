@@ -26,7 +26,7 @@
     </div>
     <p class="text-[11px] text-muted">
       {{ s.get_trigger_display|lower }} · {{ s.created_at|fecha }}{% if s.reused_from_id %} · respuesta reutilizada{% endif %}
-      {% if s.inference and not s.reused_from_id %}<details class="inline"><summary class="inline cursor-pointer text-primary">detalles técnicos</summary> <span class="font-mono">{{ s.model|default:"—" }}{% if s.inference.total_duration_ms %} · {{ s.inference.total_duration_ms|floatformat:0 }} ms{% endif %}{% if s.inference.tokens_per_second %} · {{ s.inference.tokens_per_second|floatformat:1 }} tok/s{% endif %}{% if s.inference.accelerator and s.inference.accelerator != 'unknown' %} · {{ s.inference.accelerator|upper }}{% endif %}</span></details>{% endif %}
+      {% if s.inference and not s.reused_from_id %}<details class="inline"><summary class="inline cursor-pointer text-primary">detalles técnicos</summary> <span class="font-mono">{{ s.model|default:"—" }}{% if s.inference.total_duration_ms %} · {{ s.inference.total_duration_ms|duracion }}{% endif %}{% if s.inference.tokens_per_second %} · {{ s.inference.tokens_per_second|floatformat:1 }} tok/s{% endif %}{% if s.inference.accelerator and s.inference.accelerator != 'unknown' %} · {{ s.inference.accelerator|upper }}{% endif %}</span></details>{% endif %}
     </p>
   </div>
 

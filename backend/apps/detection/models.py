@@ -9,6 +9,7 @@ from django.db import models
 from django.utils import timezone
 
 from apps.core.models import UUIDModel
+from apps.core.text import cuantos
 
 USER = settings.AUTH_USER_MODEL
 
@@ -830,7 +831,7 @@ class EventBatch(UUIDModel):
         verbose_name_plural = "lotes de eventos"
 
     def __str__(self):
-        return f"{self.get_source_display()} · {self.size} evento(s)"
+        return f"{self.get_source_display()} · {cuantos(self.size, 'evento')}"
 
 
 class DetectionEvent(UUIDModel):

@@ -23,7 +23,8 @@ from apps.llm.prompts import load_prompt
 from apps.llm.schemas import VULN_DESCRIBE_SCHEMA, VulnDescribeOutput
 from apps.llm.status import active_model, active_model_ready
 
-from .consolidation import _event, clean, render_user_message, rule_title
+from . import titles
+from .consolidation import _event, _template_meta, clean, render_user_message, rule_title
 from .models import StatusSource, Vulnerability, VulnerabilityEventKind, VulnerabilityStatus
 
 STATUS_HINT = {
@@ -108,8 +109,13 @@ def build_payload(vuln):
             if data.get("fix"):
                 fixes.add(clean(data["fix"], 160))
             if data.get("affected_range"):
+                # El nombre del software observado, no la clave del catálogo («http_server»): el
+                # modelo copia en el título lo que recibe.
+                software = titles.software_name(f.component) or titles.readable_product(
+                    data.get("product_key")
+                )
                 evidence.append(
-                    f"{ev.source}: {data.get('product_key', '')} {data.get('version', '')} está en el "
+                    f"{ev.source}: {software} {data.get('version', '')} está en el "
                     f"rango afectado {data['affected_range']} (confianza {data.get('confidence', '')})"
                 )
             elif ev.summary:
@@ -167,6 +173,85 @@ def mock_description(request_payload):
     }
 
 
+def _observations(vuln):
+    return list(vuln.observations.select_related("component", "cve").prefetch_related("evidence"))
+
+
+def _lead(vuln):
+    found = _observations(vuln)
+    return found[0] if found else None
+
+
+def fallback_title(vuln, lead=None) -> str:
+    """El título determinista de la regla para esta vulnerabilidad."""
+    lead = lead or _lead(vuln)
+    return rule_title(vuln.key, lead) if lead else clean(vuln.title, 160)
+
+
+def _checked_title(title, vuln, observations=None):
+    """``(título | None, notas)``: el título del modelo, ajustado al software observado; ``None``
+    si hay que quedarse con el de la regla (no es español, nombra una clave de otro producto o no
+    queda nada tras quitarle las versiones sin sustento)."""
+    if not looks_spanish(title):
+        return None, ["no estaba en español"]
+    observations = _observations(vuln) if observations is None else observations
+    lead = observations[0] if observations else None
+    return titles.reviewed(
+        title,
+        vuln.component,
+        cve_id=vuln.cve_id,
+        extra_keys=[_template_meta(lead).get("product")] if lead else (),
+        grounding=titles.grounding_text(
+            vuln.asset_id,
+            observations,
+            vuln.technical_description,
+            vuln.cve.description if vuln.cve_id and vuln.cve else "",
+            vuln.component.label if vuln.component else "",
+        ),
+    )
+
+
+def review_titles() -> dict:
+    """Repasa con las reglas vigentes los títulos que ya había escrito la IA.
+
+    Corre dentro del drenaje periódico, una vez por versión de las reglas. Lo que se arregla por
+    código se corrige y queda en la línea de tiempo; lo que no (otro idioma, una clave de otro
+    producto) vuelve al título de la regla y se pide de nuevo al modelo, que ahora recibe el
+    nombre del software y no su clave. Los títulos que fijó una persona no se tocan.
+    """
+    fixed = redone = 0
+    qs = (
+        Vulnerability.objects.filter(description_source=StatusSource.AI, status__in=SUSTAINED)
+        .select_related("component", "asset", "cve")
+        .order_by("pk")
+    )
+    for vuln in qs.iterator(chunk_size=500):
+        quick = looks_spanish(vuln.title) and not titles.suspicious(
+            vuln.title, vuln.component, vuln.technical_description or ""
+        )
+        if quick:
+            continue
+        observations = _observations(vuln)
+        fallback = fallback_title(vuln, observations[0] if observations else None)
+        if vuln.title == fallback[:200]:
+            continue  # ya es el de la regla: nada que repasar
+        title, notes = _checked_title(vuln.title, vuln, observations)
+        if title == vuln.title:
+            continue
+        previous = vuln.title
+        vuln.title = (title or fallback)[:200]
+        vuln.save(update_fields=["title"])
+        if title:
+            fixed += 1
+            message = f"Título ajustado por regla: {'; '.join(notes)}"
+        else:
+            redone += 1
+            message = f"El título de la IA se descartó ({'; '.join(notes)}); se vuelve a redactar"
+            request_description(vuln, force=True)
+        _event(vuln, VulnerabilityEventKind.DESCRIBED, message, previous_title=previous)
+    return {"fixed": fixed, "redone": redone}
+
+
 def describe_vulnerability(vuln_id, *, requested_by=None):
     """Redacta en español la vulnerabilidad. Devuelve el ``InferenceLog`` o ``None`` si no aplica."""
     try:
@@ -208,9 +293,11 @@ def describe_vulnerability(vuln_id, *, requested_by=None):
         now = timezone.now()
         if not vuln.technical_description and vuln.cve and vuln.cve.description:
             vuln.technical_description = clean(vuln.cve.description, 2000)
-        title_kept = not looks_spanish(parsed["title"])
-        if not title_kept:
-            vuln.title = parsed["title"][:200]
+        title, title_notes = _checked_title(parsed["title"], vuln)
+        title_kept = title is None
+        # Rechazado: queda el título de la regla (no el que hubiera antes, que pudo ser el que
+        # motivó volver a redactarla).
+        vuln.title = (title or fallback_title(vuln))[:200]
         vuln.summary = parsed["description"]
         vuln.business_impact = parsed.get("business_impact", "")
         vuln.actions = list(parsed["actions"])
@@ -232,8 +319,10 @@ def describe_vulnerability(vuln_id, *, requested_by=None):
             VulnerabilityEventKind.DESCRIBED,
             f"Redactada en español por IA ({log_obj.model_responded or log_obj.model})"
             + (
-                "; el título del modelo no parecía español y se conserva el de la regla"
+                f"; el título del modelo se descartó ({'; '.join(title_notes)}) y queda el de la regla"
                 if title_kept
+                else f"; título ajustado por regla: {'; '.join(title_notes)}"
+                if title_notes
                 else ""
             ),
             actor=requested_by,
@@ -244,13 +333,14 @@ def describe_vulnerability(vuln_id, *, requested_by=None):
         cache.delete(_pending_key(vuln_id))
 
 
-def request_description(vuln, *, requested_by=None, countdown=0) -> bool:
+def request_description(vuln, *, requested_by=None, countdown=0, force=False) -> bool:
     """Encola la redacción si hace falta y no está ya en cola. ``True`` si se encoló.
 
     Tras un fallo, el drenaje automático espera (``cooling_down``); una persona que la pide desde
-    el detalle (``requested_by``) no.
+    el detalle (``requested_by``) no. ``force`` la pide aunque ya tenga texto (el repaso de
+    títulos, cuando el que escribió la IA no se puede arreglar por código).
     """
-    if not needs_description(vuln) or is_pending(vuln.pk):
+    if not (force or needs_description(vuln)) or is_pending(vuln.pk):
         return False
     if requested_by is None and cooling_down(vuln.pk):
         return False

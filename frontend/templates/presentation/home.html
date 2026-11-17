@@ -55,7 +55,7 @@
         <div class="hidden h-52" data-chart-wrap="vuln_trend"><canvas data-chart="vuln_trend" aria-label="Vulnerabilidades sostenidas y en KEV por día" role="img"></canvas></div>
         {% endif %}
         <p class="legend mt-2">{% for _k, label, color in charts.vuln_series %}<span><span class="legend-dot" style="background:{{ color }}"></span> {{ label }}</span>{% endfor %}</p>
-        <details class="fold mt-2 text-xs"><summary>Ver datos</summary><div class="table-wrap mt-1"><table class="data-table"><thead><tr><th scope="col">Día</th><th scope="col">Sostenidas</th><th scope="col">KEV</th></tr></thead><tbody>{% for r in charts.rows %}{% if r.has_data %}<tr><td>{{ r.day|fecha }}</td><td class="font-mono">{{ r.vulns_sustained }}</td><td class="font-mono">{{ r.vulns_kev }}</td></tr>{% endif %}{% endfor %}{% if not has_trend %}<tr><td colspan="3" class="table-empty">Aún no hay instantáneas.</td></tr>{% endif %}</tbody></table></div></details>
+        <details class="fold mt-2 text-xs"><summary>Ver datos</summary><div class="table-wrap mt-1"><table class="data-table"><thead><tr><th scope="col">Día</th><th scope="col">Sostenidas</th><th scope="col">KEV</th></tr></thead><tbody>{% for r in charts.rows %}{% if r.has_data %}<tr><td>{{ r.day|fecha }}</td><td class="font-mono">{{ r.vulns_sustained|miles }}</td><td class="font-mono">{{ r.vulns_kev|miles }}</td></tr>{% endif %}{% endfor %}{% if not has_trend %}<tr><td colspan="3" class="table-empty">Aún no hay instantáneas.</td></tr>{% endif %}</tbody></table></div></details>
       </section>
     </div>
 
