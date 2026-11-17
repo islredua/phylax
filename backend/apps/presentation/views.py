@@ -31,6 +31,27 @@ def _home_blocks(user):
     return {key: user.has_perm(perm) for key, perm in HOME_PERMS.items()}
 
 
+SETUP_REMINDER_KEY = "presentation:setup:essential"
+# Quién ve Administración › Sistema: quien administra y quien audita (el Analista no, ADR-004).
+SYSTEM_PERMS = ("llm.manage_llm", "accounts.view_auditlogentry")
+
+
+def _setup_reminder(user):
+    """Lo esencial que falta de la puesta en marcha, para recordárselo en Inicio a quien
+    administra. Se recuerda un minuto: Inicio se abre muchas veces y la lista cuesta consultas."""
+    from django.core.cache import cache
+
+    from . import onboarding
+
+    if not user.has_perm("accounts.view_user"):
+        return None
+    pending = cache.get(SETUP_REMINDER_KEY)
+    if pending is None:
+        pending = [item["title"] for item in onboarding.checklist()["essential_pending"]]
+        cache.set(SETUP_REMINDER_KEY, pending, 60)
+    return {"pending": pending} if pending else None
+
+
 def _charts(data, rows):
     from apps.detection.models import RiskLevel
 
@@ -456,6 +477,7 @@ class HomeView(TemplateView):
             today=indicators.today(data),
             health_url=indicators.health_target(data),
             has_trend=any(r["has_data"] for r in rows),
+            setup=_setup_reminder(user),
         )
         return context
 
@@ -845,9 +867,23 @@ class AdministrationView(PermissionRequiredMixin, TemplateView):
         return any(self.request.user.has_perm(p) for p in self.permission_required)
 
     def get_context_data(self, **kwargs):
+        from . import onboarding, system
+
         context = super().get_context_data(**kwargs)
         user = self.request.user
         context["window_days"] = self.window_days
+        checklist = onboarding.checklist(user)
+        context["onboarding"] = checklist
+        context["onboarding_groups"] = (
+            (
+                "Esencial",
+                "sin esto la plataforma no cumple o queda expuesta",
+                checklist["essential"],
+            ),
+            ("Recomendado", "mejora las decisiones", checklist["recommended"]),
+        )
+        if any(user.has_perm(perm) for perm in SYSTEM_PERMS):
+            context["system"] = system.headline()
         if user.has_perm("accounts.view_user"):
             users = get_user_model().objects.all()
             active = users.filter(is_active=True)
@@ -872,3 +908,61 @@ class AdministrationView(PermissionRequiredMixin, TemplateView):
                 "user"
             )[:8]
         return context
+
+
+class SystemView(PermissionRequiredMixin, TemplateView):
+    """Administración › Sistema: servicios, colas, datos de inteligencia y de escáneres, disco."""
+
+    template_name = "presentation/system.html"
+    permission_required = SYSTEM_PERMS
+    raise_exception = True
+
+    def has_permission(self):
+        return any(self.request.user.has_perm(p) for p in self.permission_required)
+
+    def get_context_data(self, **kwargs):
+        from apps.scanners.models import ScannerDataRun
+
+        from . import system
+
+        context = super().get_context_data(**kwargs)
+        user = self.request.user
+        context.update(
+            report=system.report(),
+            model_queue=system.model_queue(),
+            data_runs=ScannerDataRun.objects.select_related("requested_by")[:8],
+            data_schedule="04:30",
+            can_update_data=user.has_perm("scanners.update_scanner_data"),
+            can_see_llm=user.has_perm("llm.manage_llm"),
+            can_see_sources=user.has_perm("cti.view_ctisource"),
+        )
+        return context
+
+
+class ScannerDataUpdateView(PermissionRequiredMixin, View):
+    """Pide actualizar las plantillas de nuclei y la base de Grype (o una sola)."""
+
+    permission_required = "scanners.update_scanner_data"
+    raise_exception = True
+
+    def post(self, request):
+        from apps.scanners import data
+        from apps.scanners.models import DataRunTrigger, DataSet
+
+        only = request.POST.get("dataset") or None
+        if only and only not in DataSet.values:
+            messages.error(request, "No se reconoce qué datos actualizar.")
+            return HttpResponseRedirect(reverse("system") + "#datos")
+        created = data.request_update(
+            user=request.user, trigger=DataRunTrigger.MANUAL, only=DataSet(only) if only else None
+        )
+        if created:
+            names = " y ".join(run.get_dataset_display().lower() for run in created)
+            messages.success(
+                request,
+                f"Actualización pedida: {names}. Corre en la cola de escaneo, después de lo que "
+                "esté en marcha; con una red lenta la descarga puede tardar más de media hora.",
+            )
+        else:
+            messages.info(request, "Ya hay una actualización en cola o en curso para esos datos.")
+        return HttpResponseRedirect(reverse("system") + "#datos")

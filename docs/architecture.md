@@ -81,6 +81,11 @@ gráficas SVG del servidor, «lo que el sistema hizo por sí solo», avisos por 
 real (HTMX) y descargas (reporte ejecutivo imprimible / Markdown, CSV). La vista técnica vive en
 Detección (riesgos, vulnerabilidades, observaciones, actividad).
 
+Administración › Sistema (`docs/modules/08-estado-del-sistema.md`) dice si cada servicio está en
+marcha (base de datos, Redis, Ollama, los tres trabajadores y el programador, por un latido que
+`beat` deja cada minuto), qué espera cada cola, de cuándo son los datos de los escáneres (que se
+actualizan solos cada madrugada) y qué falta de la puesta en marcha.
+
 ### LLM Client (`apps.llm_client`)
 
 Cliente HTTP único que todos los módulos consumen. Implementa reintentos, timeout configurable, y abstrae el modelo específico detrás de la configuración.

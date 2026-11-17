@@ -220,6 +220,9 @@ CELERY_TASK_ROUTES = {
     "apps.detection.tasks.consolidate_asset": {"queue": "llm"},
     "apps.detection.tasks.describe_vulnerability": {"queue": "llm"},
     "apps.scanners.tasks.run_tool": {"queue": "discovery"},
+    # Misma cola que las herramientas (concurrencia 1): los datos nunca se reemplazan durante
+    # un escaneo.
+    "apps.scanners.tasks.update_scanner_data": {"queue": "discovery"},
 }
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_BEAT_SCHEDULE = {
@@ -280,6 +283,17 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.detection.tasks.dispatch_actions",
         "schedule": 60.0,
     },
+    # Plantillas de nuclei y base de Grype: cada madrugada, antes de la jornada. Grype rechaza
+    # una base construida hace más de cinco días.
+    "scanners-update-data": {
+        "task": "apps.scanners.tasks.update_scanner_data_scheduled",
+        "schedule": crontab(hour=4, minute=30),
+    },
+    # Latido del sistema: qué trabajadores responden y qué hacen (Administración › Sistema).
+    "system-heartbeat": {
+        "task": "apps.presentation.tasks.refresh_system_status",
+        "schedule": 60.0,
+    },
     # Avisos (F3): correo/webhook con los hechos nuevos que piden a una persona.
     "alerts-dispatch": {
         "task": "apps.alerts.tasks.dispatch_alerts",
@@ -331,6 +345,8 @@ GRYPE_BIN = os.environ.get("GRYPE_BIN", "/usr/local/bin/grype")
 SCAN_RESULTS_DIR = os.environ.get("SCAN_RESULTS_DIR", "/data/scan-results")
 # Plantillas de nuclei (vacío = las que nuclei encuentre en su directorio por defecto).
 NUCLEI_TEMPLATES_DIR = os.environ.get("NUCLEI_TEMPLATES_DIR", "")
+# Grype lee esta misma variable; aquí sirve para mostrar la antigüedad de su base.
+GRYPE_DB_CACHE_DIR = os.environ.get("GRYPE_DB_CACHE_DIR", "")
 # Tiempo máximo de una ejecución de nuclei o Grype.
 SCANNER_TIMEOUT_S = int(os.environ.get("SCANNER_TIMEOUT_S", "3600"))
 

@@ -1,0 +1,37 @@
+{% comment %}Cola del modelo: qué espera, qué corre y cuánto falta. Se refresca sola cada 15 s.{% endcomment %}
+<section class="card flex flex-col gap-3" id="cola" hx-get="{% url 'llm:settings' %}?fragment=queue" hx-trigger="every 15s" hx-swap="outerHTML">
+  <div class="flex flex-wrap items-baseline justify-between gap-2">
+    <h3 class="card-title mb-0">Cola del modelo</h3>
+    {% if queue.eager %}<span class="pill-neutral">modo síncrono</span>
+    {% elif not queue.known %}<span class="pill-neutral">sin datos</span>
+    {% elif queue.safe_to_restart %}<span class="pill-ok">vacía</span>
+    {% else %}<span class="pill-warn">trabajando</span>{% endif %}
+  </div>
+  {% if queue.eager %}
+  <p class="text-sm text-muted">Las tareas corren en la misma petición: no hay cola que mostrar.</p>
+  {% elif not queue.known %}
+  <p class="text-sm text-muted">No se pudo leer Redis: se desconoce qué espera el modelo.</p>
+  {% else %}
+  <div class="grid grid-cols-3 gap-3">
+    <div><p class="stat-label">En espera</p><p class="stat-value">{{ queue.waiting|miles }}</p></div>
+    <div><p class="stat-label">En curso</p><p class="stat-value">{{ queue.running|length }}</p></div>
+    <div><p class="stat-label">Se vacía en</p><p class="stat-value">{% if queue.eta %}≈ {{ queue.eta }}{% else %}—{% endif %}</p></div>
+  </div>
+  {% if queue.running %}<p class="text-sm">Ahora: {% for t in queue.running %}<strong class="font-medium">{{ t.label }}</strong>{% if t.lapse %} <span class="text-muted">(lleva {{ t.lapse }})</span>{% endif %}{% if not forloop.last %} · {% endif %}{% endfor %}</p>{% endif %}
+  {% if queue.rows %}
+  <div class="table-wrap">
+    <table class="data-table">
+      <thead><tr><th scope="col">Qué espera</th><th scope="col" class="text-right">Cuántas</th><th scope="col" class="text-right">Cada una</th><th scope="col" class="text-right">En total</th></tr></thead>
+      <tbody>
+        {% for r in queue.rows %}
+        <tr><td class="text-sm">{{ r.label }}</td><td class="text-right font-mono text-xs">{{ r.count|miles }}</td><td class="text-right font-mono text-xs">{% if r.each %}{% widthratio r.each 1 1000 as ms %}≈ {{ ms|duracion }}{% else %}—{% endif %}</td><td class="text-right font-mono text-xs">≈ {{ r.total }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+  {% if queue.backlog %}<p class="text-sm">Además, {{ queue.backlog|pl:"vulnerabilidad espera,vulnerabilidades esperan" }} su explicación y aún no {{ queue.backlog|pl:"-entra,entran" }} a la cola (se encolan por lotes): unos <strong class="font-medium">{{ queue.backlog_eta }}</strong> más.</p>{% endif %}
+  {% if not queue.served and queue.workers_known %}<div class="alert-error text-sm">Ningún trabajador atiende esta cola: lo que entra se queda esperando.</div>{% endif %}
+  <p class="text-xs text-muted">{% if queue.safe_to_restart %}Sin nada en espera ni en curso: es buen momento para reiniciar los trabajadores si hace falta.{% else %}Si vas a reiniciar los trabajadores, espera a que la cola se vacíe: la tarea en curso se interrumpe y vuelve a empezar.{% endif %} La duración de cada tarea es la mediana de las últimas ejecuciones.</p>
+  {% endif %}
+</section>

@@ -115,6 +115,40 @@ def pl(value, formas):
     return palabra if sin_numero else f"{number:,} {palabra}"
 
 
+_STATE_PILLS = {
+    "ok": ("pill-ok", "en marcha"),
+    "warn": ("pill-warn", "atención"),
+    "down": ("pill-error", "no responde"),
+    "missing": ("pill-error", "faltan"),
+    "unknown": ("pill-neutral", "sin datos"),
+}
+
+
+@register.simple_tag
+def state_pill(state, ok="", warn="", down="", missing="", unknown=""):
+    """Píldora de estado de un servicio o de unos datos. El texto dice el estado (no solo el
+    color); cada pantalla puede poner sus palabras: ``{% state_pill s ok="al día" %}``."""
+    from django.utils.html import format_html
+
+    css, label = _STATE_PILLS.get(state, _STATE_PILLS["unknown"])
+    custom = {"ok": ok, "warn": warn, "down": down, "missing": missing, "unknown": unknown}
+    return format_html('<span class="{}">{}</span>', css, custom.get(state) or label)
+
+
+@register.filter
+def dias(value):
+    """Antigüedad en días como se lee: «5 h», «2.4 días», «43 días»."""
+    try:
+        days = float(value)
+    except (TypeError, ValueError):
+        return "—"
+    if days < 1:
+        return f"{max(round(days * 24), 1)} h"
+    if days < 10 and round(days, 1) != round(days):
+        return f"{days:.1f} días"
+    return core_text.cuantos(round(days), "día")
+
+
 @register.filter
 def duracion(ms):
     """Milisegundos como se leen: «850 ms», «5.7 s», «48 s», «2 min 5 s»."""

@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}Sistema{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <h2>Estado del sistema</h2>
+  <div class="page-actions"><a href="{% url 'system' %}" class="btn-secondary btn-sm">Volver a comprobar</a></div>
+</div>
+{% endblock %}
+{% block content %}
+{% if report.eager %}
+<div class="alert-info">Modo síncrono: las tareas corren en la misma petición, sin colas ni trabajadores que consultar.</div>
+{% elif report.state == 'ok' %}
+<div class="alert-success" role="status"><strong class="font-semibold">Todo en marcha.</strong> Servicios, trabajadores, fuentes y datos de escáner al día{% if report.heartbeat_age %} · último latido hace {{ report.heartbeat_age }}{% endif %}.</div>
+{% else %}
+<div class="{% if report.state == 'down' %}alert-error{% else %}alert-warning{% endif %}" role="status">
+  <p class="font-semibold">{{ report.problems|length|pl:"cosa requiere,cosas requieren" }} atención</p>
+  <ul class="mt-1 flex list-disc flex-col gap-0.5 pl-5">
+    {% for p in report.problems %}<li><strong class="font-medium">{{ p.name }}:</strong> {{ p.detail }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<section class="flex flex-col gap-2" aria-labelledby="sys-services">
+  <h3 class="eyebrow" id="sys-services">Servicios</h3>
+  {# Lista, no tabla: en pantallas angostas cada servicio se apila (nombre y estado, luego el detalle). #}
+  <ul class="flex flex-col divide-y divide-line-soft rounded border border-line bg-surface">
+    {% for s in report.services %}
+    <li class="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1 px-4 py-3 md:grid-cols-[16rem_7rem_minmax(0,1fr)] md:items-center" data-service="{{ s.key }}" data-state="{{ s.state }}">
+      <div><p class="text-sm font-medium">{{ s.name }}</p><p class="text-xs text-muted">{{ s.role }}</p></div>
+      <div class="justify-self-end md:justify-self-start">{% state_pill s.state %}</div>
+      <div class="col-span-2 text-sm md:col-span-1">{{ s.detail }}{% if s.fix %}<p class="text-xs text-muted">{{ s.fix }}</p>{% endif %}</div>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+
+<section class="flex flex-col gap-2" aria-labelledby="sys-queues">
+  <h3 class="eyebrow" id="sys-queues">Colas de trabajo</h3>
+  <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
+    {% for q in report.queues %}
+    <div class="card flex flex-col gap-1">
+      <div class="flex items-baseline justify-between gap-2"><p class="stat-label">{{ q.label }}</p>{% if not report.eager %}{% if q.served %}<span class="pill-ok">atendida</span>{% else %}<span class="pill-error">sin trabajador</span>{% endif %}{% endif %}</div>
+      <p class="stat-value">{% if q.waiting is None %}—{% else %}{{ q.waiting|miles }}{% endif %} <span class="text-xs font-normal text-muted">en espera</span></p>
+      <p class="text-sm">{% if q.active %}<span class="text-ink">En curso: {{ q.active|join:" · " }}</span>{% else %}<span class="text-muted">Nada en curso</span>{% endif %}</p>
+      <p class="text-xs text-muted">{{ q.what }}.</p>
+      {% if q.name == 'llm' %}
+      <p class="text-xs">{% if model_queue.eta %}Se vacía en unos <strong class="font-medium">{{ model_queue.eta }}</strong>. {% endif %}{% if model_queue.backlog %}Faltan por encolar {{ model_queue.backlog|pl:"explicación,explicaciones" }} (≈ {{ model_queue.backlog_eta }}). {% endif %}{% if can_see_llm %}<a href="{% url 'llm:settings' %}#cola">Ver la cola del modelo →</a>{% endif %}</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% if not report.queues_known and not report.eager %}<p class="text-xs text-muted">No se pudo leer Redis: se desconoce cuánto espera en cada cola.</p>{% endif %}
+</section>
+
+<section class="flex flex-col gap-2" id="datos" aria-labelledby="sys-data"{% for d in report.scanner_data %}{% if d.running %} hx-get="{% url 'system' %}" hx-select="#datos" hx-trigger="every 15s" hx-swap="outerHTML"{% endif %}{% endfor %}>
+  <div class="toolbar">
+    <h3 class="eyebrow" id="sys-data">Datos de los escáneres</h3>
+    {% if can_update_data %}<form method="post" action="{% url 'scanner_data_update' %}">{% csrf_token %}<button type="submit" class="btn-secondary btn-sm">Actualizar ambos</button></form>{% endif %}
+  </div>
+  <div class="grid grid-cols-1 gap-3 lg:grid-cols-2">
+    {% for d in report.scanner_data %}
+    <div class="card flex flex-col gap-2" data-dataset="{{ d.key }}">
+      <div class="flex flex-wrap items-baseline justify-between gap-2">
+        <h4 class="card-title mb-0">{{ d.name }}</h4>
+        {% state_pill d.state ok="al día" warn="envejecen" down="vencida" missing="faltan" %}
+      </div>
+      {% if d.present %}
+      <p class="stat-value">{{ d.age_days|dias }} <span class="text-xs font-normal text-muted">de antigüedad</span></p>
+      <p class="text-xs text-ink-soft">Datos del {{ d.data_date|fecha_corta }} · instalados el {{ d.installed_at|fecha_corta }}{% if d.count %} · {{ d.count|pl:"plantilla,plantillas" }}{% endif %}{% if d.version %} · <span class="font-mono">{{ d.version }}</span>{% endif %}</p>
+      {% else %}
+      <p class="stat-value text-critical">Sin datos</p>
+      {% endif %}
+      <p class="text-sm">{{ d.note }}</p>
+      <p class="text-xs text-muted">{{ d.used_for }}.</p>
+      <div class="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-2">
+        <p class="text-xs text-ink-soft">
+          {% if d.running %}<span class="pill-warn">{{ d.running.get_status_display|lower }}</span> {{ d.running.summary }}{% if d.running.requested_by %} · la pidió {{ d.running.requested_by.get_username }}{% endif %}
+          {% elif d.last_run %}Última actualización: <span title="{{ d.last_run.finished_at|fecha }}">{{ d.last_run.finished_at|fecha_corta }}</span> · {{ d.last_run.summary|lower }}
+          {% else %}Aún no se ha actualizado desde esta pantalla.{% endif %}
+        </p>
+        {% if can_update_data and not d.running %}<form method="post" action="{% url 'scanner_data_update' %}">{% csrf_token %}<input type="hidden" name="dataset" value="{{ d.key }}"><button type="submit" class="btn-secondary btn-sm">Actualizar</button></form>{% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <p class="text-xs text-muted">Se actualizan solos cada día a las {{ data_schedule }}, en la cola de escaneo: nunca a mitad de un escaneo. Con una red lenta la descarga puede tardar más de media hora y los escaneos esperan mientras tanto.</p>
+  {% if data_runs %}
+  <details class="fold">
+    <summary class="text-xs">Actualizaciones recientes ({{ data_runs|length }})</summary>
+    <div class="table-wrap mt-2">
+      <table class="data-table">
+        <thead><tr><th scope="col">Cuándo</th><th scope="col">Datos</th><th scope="col" class="col-md">Origen</th><th scope="col">Resultado</th><th scope="col" class="col-md">Duración</th></tr></thead>
+        <tbody>
+          {% for r in data_runs %}
+          <tr>
+            <td class="font-mono text-xs whitespace-nowrap">{{ r.created_at|fecha }}</td>
+            <td class="text-sm">{{ r.get_dataset_display }}</td>
+            <td class="col-md text-xs">{{ r.get_trigger_display }}{% if r.requested_by %} · {{ r.requested_by.get_username }}{% endif %}</td>
+            <td class="text-sm">{% if r.status == 'SUCCEEDED' %}<span class="badge-low">ok</span>{% elif r.status == 'FAILED' or r.status == 'INTERRUPTED' %}<span class="badge-critical">falló</span>{% else %}<span class="badge-primary">{{ r.get_status_display|lower }}</span>{% endif %} {{ r.summary }}{% if r.changed %} <span class="text-xs text-muted">del {{ r.data_date_before|fecha_corta }} al {{ r.data_date_after|fecha_corta }}</span>{% endif %}{% if r.detail %}<details class="fold mt-1"><summary class="text-xs">salida de la herramienta</summary><pre class="code-block mt-1 whitespace-pre-wrap">{{ r.detail }}</pre></details>{% endif %}</td>
+            <td class="col-md font-mono text-xs">{% if r.seconds is not None %}{% widthratio r.seconds 1 1000 as ms %}{{ ms|duracion }}{% else %}—{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </details>
+  {% endif %}
+</section>
+
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+  <section class="flex flex-col gap-2" aria-labelledby="sys-sources">
+    <div class="toolbar"><h3 class="eyebrow" id="sys-sources">Fuentes de inteligencia</h3>{% if can_see_sources %}<a href="{% url 'detection:sources' %}" class="text-xs">Ver fuentes →</a>{% endif %}</div>
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th scope="col">Fuente</th><th scope="col">Estado</th><th scope="col">Última correcta</th></tr></thead>
+        <tbody>
+          {% for s in report.sources %}
+          <tr>
+            <td class="font-medium">{{ s.name }}</td>
+            <td>{% state_pill s.state ok="al día" warn="revisar" unknown="apagada" %}<p class="text-xs text-muted">{{ s.note }}</p></td>
+            <td class="text-sm whitespace-nowrap">{% if s.last_success_at %}<span title="{{ s.last_success_at|fecha }}">hace {{ s.age }}</span>{% else %}—{% endif %}</td>
+          </tr>
+          {% empty %}<tr><td colspan="3" class="table-empty">Sin fuentes configuradas.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="flex flex-col gap-2" aria-labelledby="sys-storage">
+    <h3 class="eyebrow" id="sys-storage">Almacenamiento</h3>
+    <div class="card flex flex-col gap-3">
+      {% if report.db_size %}<p class="text-sm"><span class="font-medium">Base de datos:</span> <span class="font-mono">{{ report.db_size }}</span></p>{% endif %}
+      {% for d in report.storage %}
+      <div>
+        <div class="flex flex-wrap items-baseline justify-between gap-2 text-sm"><span class="font-medium">{{ d.labels|join:" · " }}</span><span class="font-mono text-xs">{{ d.free }} libres de {{ d.total }}</span></div>
+        <div class="bar-track mt-1" role="img" aria-label="{{ d.used_pct }} % ocupado"><span class="bar-fill {% if d.state == 'down' %}bar-fill-bad{% elif d.state == 'warn' %}bar-fill-warn{% endif %}" style="width: {{ d.used_pct }}%"></span></div>
+        <p class="mt-0.5 text-xs text-muted">{{ d.used_pct }} % ocupado{% if d.state == 'warn' %} · queda menos del 15 %{% elif d.state == 'down' %} · queda menos del 5 %: los escaneos y las descargas pueden fallar{% endif %}</p>
+      </div>
+      {% empty %}<p class="text-sm text-muted">No se pudo leer el espacio en disco.</p>{% endfor %}
+    </div>
+  </section>
+</div>
+{% endblock %}

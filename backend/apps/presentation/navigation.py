@@ -194,6 +194,15 @@ SECTIONS = (
                 "administration",
                 permissions=("accounts.view_user", "accounts.view_auditlogentry"),
             ),
+            # Estado del sistema: servicios, colas y antigüedad de los datos. Lo ven quien
+            # administra y quien audita; el Analista no ve Administración (ADR-004).
+            Tab(
+                "system",
+                "Sistema",
+                "system",
+                ("llm.manage_llm", "accounts.view_auditlogentry"),
+                ("scanner_data_update",),
+            ),
             # Perfil de la organización: contexto para detección, scoring y reportes; lo edita el
             # administrador (manage_profile). Misma puerta que el resumen de Administración
             # (administrador y Lector): el Analista no ve esta sección (ADR-004). La vista en sí

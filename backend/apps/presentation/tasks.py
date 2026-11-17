@@ -36,3 +36,14 @@ def generate_health_narrative(user_id=None, force=False):
         # La bandera «la IA está redactando» se apaga pase lo que pase.
         cache.delete(narrative.NARRATIVE_PENDING_KEY)
     return {"created": row is not None, "by_rule": bool(row and row.by_rule)}
+
+
+@shared_task(soft_time_limit=30, time_limit=45)
+def refresh_system_status():
+    """Beat (cada minuto): qué trabajadores responden, qué colas atienden y qué ejecutan.
+
+    El registro queda en la caché y sirve también de latido del programador (Administración ›
+    Sistema)."""
+    from . import system
+
+    return len(system.take_snapshot()["workers"])

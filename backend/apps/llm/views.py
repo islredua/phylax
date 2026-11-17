@@ -7,6 +7,8 @@ from django.core.exceptions import ValidationError
 from django.shortcuts import redirect, render
 from django.views import View
 
+from apps.presentation import system
+
 from . import status
 from .forms import ActiveModelForm
 from .models import InferenceLog
@@ -35,12 +37,16 @@ class LLMSettingsView(PermissionRequiredMixin, View):
             "models": details,
             "missing": missing,
             "form": form or ActiveModelForm(initial={"model": active}, installed=installed),
+            "queue": system.model_queue(),
             "recent": InferenceLog.objects.order_by("-created_at")[:10],
             "timeout_gpu": settings.LLM_TIMEOUT_S,
             "timeout_cpu": settings.LLM_TIMEOUT_CPU_S,
         }
 
     def get(self, request):
+        if request.GET.get("fragment") == "queue":
+            # La tarjeta de la cola se refresca sola (HTMX) sin recargar el resto.
+            return render(request, "llm/_queue.html", {"queue": system.model_queue()})
         if request.GET.get("refresh"):
             status.refresh()
             return redirect("llm:settings")

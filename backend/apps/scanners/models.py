@@ -1,4 +1,5 @@
-"""Ejecuciones de herramientas FOSS (nuclei, Grype) con su evidencia. Inmutables para la UI."""
+"""Ejecuciones de herramientas FOSS (nuclei, Grype) con su evidencia, y las actualizaciones de
+los datos que necesitan para escanear. Inmutables para la UI."""
 
 from django.conf import settings
 from django.db import models
@@ -86,4 +87,81 @@ class ToolExecution(UUIDModel):
     def duration_s(self):
         if self.started_at and self.finished_at:
             return round((self.finished_at - self.started_at).total_seconds(), 1)
+        return None
+
+
+class DataSet(models.TextChoices):
+    NUCLEI = "NUCLEI", "Plantillas de nuclei"
+    GRYPE = "GRYPE", "Base de vulnerabilidades de Grype"
+
+
+class DataRunTrigger(models.TextChoices):
+    SCHEDULED = "SCHEDULED", "Programada"
+    MANUAL = "MANUAL", "Manual"
+
+
+class DataRunStatus(models.TextChoices):
+    QUEUED = "QUEUED", "En cola"
+    RUNNING = "RUNNING", "En curso"
+    SUCCEEDED = "SUCCEEDED", "Correcta"
+    FAILED = "FAILED", "Fallida"
+    INTERRUPTED = "INTERRUPTED", "Interrumpida"
+
+
+ACTIVE_DATA_RUNS = (DataRunStatus.QUEUED, DataRunStatus.RUNNING)
+
+
+class ScannerDataRun(UUIDModel):
+    """Una actualización de los datos de una herramienta: quién la pidió, qué fecha tenían los
+    datos antes y después, y qué dijo la herramienta. La escribe el sistema."""
+
+    dataset = models.CharField("datos", max_length=8, choices=DataSet.choices)
+    trigger = models.CharField(
+        "origen", max_length=10, choices=DataRunTrigger.choices, default=DataRunTrigger.SCHEDULED
+    )
+    status = models.CharField(
+        "estado", max_length=12, choices=DataRunStatus.choices, default=DataRunStatus.QUEUED
+    )
+    requested_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    # Fecha de los datos (no de la descarga) antes y después: iguales = ya estaban al día.
+    data_date_before = models.DateTimeField(null=True, blank=True)
+    data_date_after = models.DateTimeField(null=True, blank=True)
+    detail = models.TextField("salida", blank=True, help_text="Últimas líneas de la herramienta.")
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "actualización de datos de herramienta"
+        verbose_name_plural = "actualizaciones de datos de herramientas"
+        permissions = [("update_scanner_data", "Actualizar los datos de las herramientas")]
+        indexes = [models.Index(fields=["dataset", "-created_at"])]
+
+    def __str__(self):
+        return f"{self.get_dataset_display()} · {self.get_status_display()}"
+
+    @property
+    def changed(self):
+        """``True`` si la actualización dejó datos de otra fecha."""
+        return bool(self.data_date_after) and self.data_date_after != self.data_date_before
+
+    @property
+    def summary(self):
+        """Frase para una persona: qué pasó con los datos."""
+        if self.status == DataRunStatus.QUEUED:
+            return "Espera su turno en la cola de escaneo"
+        if self.status == DataRunStatus.RUNNING:
+            return "Descargando"
+        if self.status == DataRunStatus.INTERRUPTED:
+            return "No terminó: el trabajador se detuvo o no la tomó"
+        if self.status == DataRunStatus.FAILED:
+            return "No se pudo actualizar"
+        return "Datos nuevos" if self.changed else "Ya estaban al día"
+
+    @property
+    def seconds(self):
+        if self.started_at and self.finished_at:
+            return (self.finished_at - self.started_at).total_seconds()
         return None

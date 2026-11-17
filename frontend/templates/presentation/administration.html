@@ -1,6 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Administración{% endblock %}
 {% block content %}
+{% if system %}
+{% if system.eager %}{% elif system.state == 'ok' %}
+<a href="{% url 'system' %}" class="alert-success flex flex-wrap items-center justify-between gap-2 hover:no-underline" data-system-state="ok"><span><strong class="font-semibold">Sistema en marcha.</strong> Servicios, trabajadores, fuentes y datos de escáner al día.</span><span class="text-xs">Ver el estado del sistema →</span></a>
+{% else %}
+<a href="{% url 'system' %}" class="{% if system.state == 'down' %}alert-error{% else %}alert-warning{% endif %} flex flex-wrap items-center justify-between gap-2 hover:no-underline" data-system-state="{{ system.state }}">
+  <span><strong class="font-semibold">Sistema: {{ system.problems|length|pl:"cosa requiere,cosas requieren" }} atención.</strong> {% for p in system.problems|slice:":3" %}{{ p.name }}{% if not forloop.last %} · {% endif %}{% endfor %}{% if system.problems|length > 3 %} y {{ system.problems|length|add:"-3" }} más{% endif %}</span>
+  <span class="text-xs">Ver el estado del sistema →</span>
+</a>
+{% endif %}
+{% endif %}
+{% include "presentation/_onboarding.html" with groups=onboarding_groups %}
 {% if user_stats %}
 <section class="flex flex-col gap-2">
   <div class="toolbar">

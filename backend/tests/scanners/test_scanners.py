@@ -344,6 +344,11 @@ def test_update_scanner_data_command_uses_configured_dirs(monkeypatch, settings,
 
     def nuclei_silent_failure(argv, *, timeout=None, env=None):
         calls.append(argv)
+        if argv[0] == "curl" and argv[-1] == cmd.TEMPLATES_LATEST:
+            # Pregunta cuál es la última versión publicada para descargar esa y anotarla.
+            return CommandResult(
+                stdout='{"tag_name": "v10.5.0"}', stderr="", exit_code=0, duration_s=0.2
+            )
         if argv[0] == "curl":
             __import__("shutil").copy(archive, argv[-2])
             return CommandResult(stdout="", stderr="", exit_code=0, duration_s=1)
@@ -359,10 +364,14 @@ def test_update_scanner_data_command_uses_configured_dirs(monkeypatch, settings,
         )
 
     monkeypatch.setattr(cmd, "run_command", nuclei_silent_failure)
+    monkeypatch.setattr(cmd, "latest_templates_tag", lambda: "")
     call_command("update_scanner_data", only="nuclei", stdout=StringIO())
-    assert [c[0] for c in calls] == [settings.NUCLEI_BIN, "curl", "unzip"]
-    assert "github.com/projectdiscovery/nuclei-templates" in calls[1][-1]
+    assert [c[0] for c in calls] == [settings.NUCLEI_BIN, "curl", "curl", "unzip"]
+    assert calls[2][-1].endswith(
+        "github.com/projectdiscovery/nuclei-templates/archive/refs/tags/v10.5.0.zip"
+    )
     assert (templates / "http" / "cves" / "CVE-2021-41773.yaml").read_text() == "id: CVE-2021-41773"
+    assert (templates / ".atalaya-version").read_text() == "v10.5.0"
 
     def failing(argv, *, timeout=None, env=None):
         raise ToolMissingError("no instalada")

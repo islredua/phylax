@@ -26,7 +26,7 @@ modelo real y sin herramientas) y se comprueba en el navegador con los datos del
 |---|---|---|---|
 | 1 · Que el trabajo quepa en una jornada | W1, W2, W3 (y P1, que estorbaba al añadir la tarjeta «Fuera de plazo») | Corregido el 2026-11-17 | Ver abajo. Pruebas: `tests/detection/test_workload.py`. |
 | 2 · Defectos a la vista | P2, P5, P6, W8, C1 | Corregido el 2026-11-17 | Ver abajo. Pruebas: `tests/detection/test_visible_defects.py`, `tests/test_text.py`. |
-| 3 · Que quien administra vea el sistema | G1, G2, G3, W7 | Pendiente | |
+| 3 · Que quien administra vea el sistema | G1, G2, G3, W7 | Corregido el 2026-11-17 | Ver abajo y `docs/modules/08-estado-del-sistema.md`. Pruebas: `tests/test_admin_system.py`, `tests/scanners/test_scanner_data.py`. |
 | 4 · Cerrar el ciclo y repartir el trabajo | W4, W5, W6, N4, N5 | Pendiente | |
 | 5 · Estructura y lectura | N1, N2, N3, P3, P4, P7–P11, C2 | Pendiente | |
 | 6 · Si sale del laboratorio | O1–O4, R1, R2 | Pendiente | |
@@ -114,6 +114,56 @@ laboratorio: ningún riesgo recibió tratamiento.
   («Samba 4») o un nombre de producto inventado sin clave de catálogo no los detecta. Los títulos
   de vulnerabilidades ya resueltas no se repasan.
 
+
+### Bloque 3 (2026-11-17)
+
+- **G1 · Administración › Sistema.** Pestaña nueva (quien administra y quien audita) con cada
+  servicio y su estado en palabras: base de datos, Redis, Ollama, los tres trabajadores y el
+  programador. Debajo, las tres colas (cuánto espera, qué corre), los datos de los escáneres, las
+  fuentes de inteligencia y el espacio en disco. Si algo falla, arriba dice qué y qué consecuencia
+  tiene («Trabajador · modelo: no responde: nada de lo que decide o redacta el modelo avanza»). El
+  Resumen de Administración abre con una línea que enlaza a esta pantalla. El programador deja un
+  latido cada minuto; si se queda viejo, la pantalla pregunta en vivo para decir si falta el
+  programador o el trabajador.
+- **G2 · Cola del modelo.** En Administración › LLM: cuántas tareas esperan por tipo, qué corre
+  ahora y desde cuándo, y en cuánto se vacía (mediana de las últimas ejecuciones de cada tipo;
+  una consolidación suma sus inferencias seguidas). Cuenta también las explicaciones que aún no
+  entran a la cola. Dice si es buen momento para reiniciar los trabajadores. Se refresca sola.
+- **G3 · Datos de los escáneres.** La pantalla muestra la antigüedad de las plantillas de nuclei
+  y de la base de Grype, con su fecha, versión y cantidad. Se actualizan solos cada día a las
+  04:30 y con un botón, en la misma cola que los escaneos (nunca a mitad de uno). Cada
+  actualización queda registrada: quién la pidió, de qué fecha a qué fecha pasaron los datos y la
+  salida de la herramienta.
+- **W7 · Puesta en marcha.** Tarjeta en el Resumen de Administración con once puntos y su enlace:
+  seis esenciales (modelo, rangos con descubrimiento programado, canal de avisos, segundo factor,
+  fuentes de inteligencia, datos de escáner) y cinco recomendados (perfil de la organización,
+  criticidad revisada, responsables, personas con rol, plazos revisados). Mientras falte algo
+  esencial, Inicio se lo recuerda a quien administra con una sola línea.
+
+**Lo que destapó la revisión con los datos reales.** Grype marcaba su base como inválida: llevaba
+7.7 días y su límite son 5, así que el análisis de imágenes y SBOM dependía de que lograra
+actualizarla en el momento de correr. Las plantillas de nuclei tenían 43 días (no 5.9: esa cifra de
+la revisión era la de Grype el día anterior). Además Grype corta su descarga a los 5 minutos, lo
+que no alcanza en una red lenta: la orden ahora le da 30.
+
+**Comprobado en el flujo real (2026-11-17).** Con el botón «Actualizar ambos» de la pantalla:
+
+| Pasada | Plantillas de nuclei | Base de Grype |
+|---|---|---|
+| 1 | v10.5.0 → v10.5.2, 14,036 → 14,225 plantillas, 18 s | del 10 nov → 17 nov, 101 s; `grype db status` pasó de `invalid` a `valid` |
+| 2 | «ya están en la última versión publicada (v10.5.2)», 1 s | «No vulnerability database update available», 1 s |
+
+La primera pasada destapó dos errores que se corrigieron antes de cerrar el bloque: mientras
+descarga, Grype deja la base nueva en una carpeta temporal y la pantalla la leía como si fuera la
+que usa (decía «al día» antes de tiempo); y la versión de las plantillas no quedaba a la vista
+porque nuclei la guarda en una carpeta que no sobrevive al contenedor.
+
+*Qué no se comprobó:* la tarea programada de las 04:30 no ha corrido todavía (se probó la misma
+ruta con el botón y con Celery síncrono en las pruebas). Los estados «no responde» de cada servicio
+se probaron con respuestas simuladas, no apagando contenedores. La descarga directa del archivo de
+plantillas (cuando el actualizador de nuclei falla en silencio) se probó simulada: hoy la red
+respondió bien y no hizo falta. La estimación de la cola se vio con carga simulada sobre las
+duraciones reales (4.0 s por explicación, 52 s por consolidación).
 
 ## 1. Flujo de trabajo
 

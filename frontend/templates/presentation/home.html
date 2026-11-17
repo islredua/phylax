@@ -28,6 +28,12 @@
 {% if blocks.detection %}
 <div class="flex flex-col gap-4" data-home-charts="{% url 'home_charts' %}" data-every="60" data-stage-url="{% url 'home_block' 'stage' %}">
 <p class="sr-only">Los enlaces de Inicio que llevan a otra pantalla se abren en una pestaña nueva, para no perder este tablero.</p>
+{% if setup %}
+<div class="queue-bar" data-setup-reminder>
+  <span><strong class="font-semibold">Puesta en marcha: falta lo esencial.</strong> {{ setup.pending|join:" · " }}</span>
+  <a href="{% url 'administration' %}#puesta-en-marcha" target="_blank" rel="noopener" class="btn-secondary btn-sm">Ver pendientes</a>
+</div>
+{% endif %}
 {% include "presentation/_home_hero.html" %}
 {% include "detection/_today.html" with title="Qué hago hoy" anchor="hoy" newtab=True empty="Nada espera una decisión humana: sin riesgos críticos, plazos vencidos, aprobaciones pendientes ni fallas." %}
 {% include "presentation/_home_indicators.html" %}

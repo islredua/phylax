@@ -650,12 +650,15 @@ LLM simulados.
 
 No se descargan en el build (el despliegue puede no tener internet). Con `NUCLEI_TEMPLATES_DIR` y
 `GRYPE_DB_CACHE_DIR` apuntando al volumen `cti_cache` (valores de `.env.example`) sobreviven a
-recrear los contenedores; se descargan o actualizan una vez (y cuando se quiera) desde el worker que
-ejecuta las herramientas:
+recrear los contenedores. La primera descarga se hace desde el worker que ejecuta las herramientas:
 
 ```bash
 docker compose exec worker-discovery python manage.py update_scanner_data   # --only nuclei|grype
 ```
+
+Después se actualizan solos cada día a las 04:30 y con el botón de Administración › Sistema, que
+también muestra su antigüedad (ver `08-estado-del-sistema.md`). Grype no escanea con una base de más
+de cinco días.
 
 Sin plantillas, las acciones `DETECT_VULNS` fallan con el mensaje de nuclei en la ejecución; sin base
 de Grype, `REANALYZE_SBOM` intenta descargarla en el momento (necesita internet).
@@ -671,7 +674,8 @@ ventana no operativa y los guardarraíles.
 ## Pendientes
 
 - Plantillas de nuclei y base de Grype: no se descargan en el build; `update_scanner_data` una vez
-  (o montarlas) en despliegues sin internet.
+  (o montarlas) en despliegues sin internet. Sin internet la actualización diaria falla y la
+  pantalla de Sistema lo dice; la base de Grype hay que traerla a mano antes de cinco días.
 - Motor de scoring (Módulo 4): hoy `score_findings` devuelve vacío.
 - Ejecuciones huérfanas: si un worker se reinicia a medio escaneo, la ejecución quedaría «en
   ejecución» y contaría para el límite de concurrencia; `recover_orphaned_executions` (beat cada

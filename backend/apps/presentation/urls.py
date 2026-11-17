@@ -11,6 +11,8 @@ from .views import (
     HomeSettingsView,
     HomeView,
     NarrativeRefreshView,
+    ScannerDataUpdateView,
+    SystemView,
 )
 
 urlpatterns = [
@@ -22,6 +24,12 @@ urlpatterns = [
     path("home/report/", HomeReportView.as_view(), name="home_report"),
     path("home/export/<str:kind>.csv", HomeExportView.as_view(), name="home_export"),
     path("administration/", AdministrationView.as_view(), name="administration"),
+    path("administration/system/", SystemView.as_view(), name="system"),
+    path(
+        "administration/system/scanner-data/",
+        ScannerDataUpdateView.as_view(),
+        name="scanner_data_update",
+    ),
     path("administration/home/", HomeSettingsView.as_view(), name="home_settings"),
     # Perfil de la organización: contexto de toda la plataforma (lo edita el administrador).
     # El modelo y las vistas viven en apps.detection; la pantalla, en Administración.

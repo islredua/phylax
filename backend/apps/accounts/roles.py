@@ -52,6 +52,7 @@ IMMUTABLE_MODELS = {
     ("detection", "plannerdecision"),
     ("detection", "automationlogentry"),
     ("scanners", "toolexecution"),
+    ("scanners", "scannerdatarun"),
     ("alerts", "notification"),
 }
 # Configuración que solo admin modifica; el operador solo la consulta.
