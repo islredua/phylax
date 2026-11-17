@@ -96,21 +96,21 @@ def test_roleless_user_is_forbidden(client, user):
     assert client.get("/detection/").status_code == 403
 
 
-def test_navigation_has_detection_section(client, as_role):
+def test_navigation_splits_detection_into_results_and_machinery(client, as_role):
     as_role(OPERATOR)
     nav = client.get("/detection/queue/").context["nav"]
-    assert nav.section.key == "detection"
-    # Riesgos primero: es lo que una persona decide; las otras capas lo sustentan.
-    assert [t.key for t in nav.tabs] == [
-        "risks",
-        "panel",
-        "observations",
-        "activity",
-        "queue",
-        "sources",
-        "automation",
-    ]
+    # La maquinaria (qué hizo el sistema, qué espera aprobación) va en Operación.
+    assert nav.section.key == "operation"
+    assert [t.key for t in nav.tabs] == ["activity", "queue"]
     assert [t.key for t in nav.tabs if t.active] == ["queue"]
+    # Riesgos es una sección por sí misma, sin barra de pestañas.
+    nav = client.get("/detection/").context["nav"]
+    assert nav.section.key == "risks" and nav.tabs == []
+    # Las vulnerabilidades y su materia prima.
+    nav = client.get("/detection/observations/").context["nav"]
+    assert nav.section.key == "vulnerabilities"
+    assert [t.key for t in nav.tabs] == ["panel", "observations"]
+    assert [t.key for t in nav.tabs if t.active] == ["observations"]
 
 
 def test_auditor_cannot_change_anything(client, as_role):
@@ -246,6 +246,46 @@ def test_activity_feed_and_detail_pages(client, as_role, fake_tool):
     execution = action.executions.get()
     exec_body = client.get(f"/detection/executions/{execution.pk}/").content.decode()
     assert "-jsonl" in exec_body and "CVE-2021-41773" in exec_body
+
+
+def test_activity_shows_one_row_per_action_with_its_steps_folded(client, as_role, fake_tool):
+    """P7: una acción ocupaba cuatro filas o más (enviada, ejecución terminada, acción
+    ejecutada, herramienta completada). Ahora es una fila con sus pasos dentro."""
+    from apps.detection import activity
+    from apps.detection.models import AutomationLogEntry, LogKind
+
+    as_role(OPERATOR)
+    asset = _asset()
+    event, batch = events.ingest_asset_event(EventKind.MANUAL_EVALUATION, asset.pk)
+    events.process_batch(batch.pk)
+    # Algo que no cuelga de ningún evento: va como fila suelta.
+    AutomationLogEntry.objects.create(kind=LogKind.PAUSED, message="Pausa por mantenimiento")
+
+    threads = activity.threads()
+    thread = next(t for t in threads if t.key == str(event.pk))
+    kinds = [step.kind for step in thread.steps]
+    assert kinds[0] == "event" and {"decision", "action", "execution", "log"} <= set(kinds)
+    assert [step.at for step in thread.steps] == sorted(step.at for step in thread.steps)
+    # La fila se resume con la acción y con lo que dijo la herramienta.
+    assert thread.head.kind == "action" and thread.head.label == "Detectar vulnerabilidades"
+    assert "hallazgo" in thread.summary and thread.at == thread.steps[-1].at
+    loose = next(t for t in threads if not t.key)
+    assert loose.head.label == "Pausa de emergencia" and loose.steps == []
+
+    response = client.get("/detection/activity/")
+    body = response.content.decode()
+    assert body.count(f'data-thread="{event.pk}"') == 1
+    assert f'id="hilo-{event.pk}"' in body and f"{len(thread.steps)} pasos" in body
+    assert "Pausa por mantenimiento" in body and "data-keep-open" in body
+    # Cada paso conserva su enlace al detalle.
+    action = PlannedAction.objects.get(event=event)
+    assert f"/detection/actions/{action.pk}/" in body
+    assert f"/detection/executions/{action.executions.get().pk}/" in body
+
+    # Las pestañas por tipo siguen siendo el listado plano de un solo tipo.
+    flat = client.get("/detection/activity/?kind=log")
+    assert flat.context["threads"] is None and "data-thread" not in flat.content.decode()
+    assert "Enviada a ejecutar" in flat.content.decode()
 
 
 def test_model_mismatch_warning_is_visible(client, as_role):
@@ -429,13 +469,13 @@ def test_sources_page_edit_and_sync(client, as_role, monkeypatch):
 def test_every_detection_page_has_breadcrumbs(client, as_role):
     as_role(ADMIN)
     finding = _finding()
-    for path in (
-        f"/detection/findings/{finding.pk}/",
-        "/detection/queue/",
-        "/detection/automation/",
+    for path, section in (
+        (f"/detection/findings/{finding.pk}/", "vulnerabilities"),
+        ("/detection/queue/", "operation"),
+        ("/detection/automation/", "administration"),
     ):
         response = client.get(path)
-        assert response.context["nav"].section.key == "detection"
+        assert response.context["nav"].section.key == section
         assert 'class="breadcrumbs"' in response.content.decode()
 
 

@@ -118,6 +118,57 @@ def test_fecha_filters_use_local_time_and_spanish_months(settings):
     assert ui.fecha(None) == "—"
 
 
+def test_relative_time_for_lists_with_the_exact_moment_on_hover(settings):
+    """P4: en las listas, tiempo relativo; el momento exacto queda al pasar el cursor."""
+    from datetime import timedelta
+
+    settings.TIME_ZONE = "America/Mexico_City"
+    now = datetime(2026, 11, 17, 18, 0, 0, tzinfo=UTC)  # 12:00 en México
+    cases = [
+        (timedelta(seconds=20), "hace un momento"),
+        (timedelta(minutes=5), "hace 5 min"),
+        (timedelta(hours=3), "hace 3 h"),
+        (timedelta(hours=23, minutes=59), "hace 23 h"),
+        (timedelta(days=1, hours=2), "ayer"),
+        (timedelta(days=6), "hace 6 días"),
+        (timedelta(days=30), "hace 30 días"),
+        (timedelta(days=45), "3 oct"),
+        (timedelta(days=400), "13 oct 2025"),
+        (-timedelta(minutes=10), "en 10 min"),
+        (-timedelta(days=3, hours=1), "en 3 días"),
+    ]
+    for delta, expected in cases:
+        assert ui.relativo(now - delta, now=now) == expected, delta
+    # Una fecha sin hora (un plazo) se compara por días.
+    today = date(2026, 11, 17)
+    assert ui.relativo(today, now=now) == "hoy"
+    assert ui.relativo(date(2026, 11, 18), now=now) == "mañana"
+    assert ui.relativo(date(2026, 11, 10), now=now) == "hace 7 días"
+
+    moment = datetime(2026, 11, 9, 22, 32, 41, tzinfo=UTC)
+    html = str(ui.hace(moment))
+    assert html.startswith('<time datetime="2026-11-09T16:32:41-06:00"')
+    assert 'title="2026-11-09 16:32:41"' in html and "</time>" in html
+    # Bitácoras y líneas de tiempo: el momento al minuto, los segundos al pasar el cursor.
+    html = str(ui.momento(moment))
+    assert ">2026-11-09 16:32</time>" in html and 'title="2026-11-09 16:32:41"' in html
+    assert ui.hace(None) == "—" and ui.momento("") == "—"
+    # Lo que se pinta va escapado: el filtro devuelve marcado seguro solo para el <time>.
+    rendered = Template("{{ d|hace }}").render(Context({"d": moment}))
+    assert rendered.count("<time ") == 1 and "&lt;" not in rendered
+
+
+def test_lists_show_relative_time_and_logs_the_exact_moment(client, admin_user):
+    client.force_login(admin_user)
+    client.get("/accounts/audit-log/")
+    body = client.get("/accounts/audit-log/").content.decode()
+    # La bitácora es evidencia: momento exacto, no «hace 2 min».
+    assert "<time datetime=" in body and "hace un momento" not in body
+    # La lista de usuarios dice cuándo entró cada quien en relativo.
+    body = client.get("/users/").content.decode()
+    assert "<time datetime=" in body or "nunca" in body
+
+
 def test_number_filters():
     assert ui.miles(84735) == "84,735"
     assert ui.miles("x") == "x"

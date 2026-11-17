@@ -2,6 +2,15 @@
 
 Se cargan con ``{% load ui %}``. Toda la interfaz debe mostrar las fechas y los números con el
 mismo formato; estos filtros son la única fuente.
+
+Qué filtro de fecha va en cada sitio (revisión del 2026-11-16, P4: había tres formatos):
+
+- **Listas** (una fila por cosa: activos, riesgos, vulnerabilidades, ejecuciones…): ``hace``,
+  tiempo relativo («hace 3 h», «ayer») con el momento exacto al pasar el cursor.
+- **Fichas, bitácoras y líneas de tiempo**: el momento exacto, ``2026-11-09 10:14``. ``fecha``
+  da el texto; ``momento`` lo mismo con los segundos al pasar el cursor (para lo que es
+  evidencia: bitácora, línea de tiempo de un riesgo).
+- **Inicio y reportes** (prosa): la fecha en palabras, ``fecha_corta`` o ``fecha_larga``.
 """
 
 import re
@@ -9,6 +18,7 @@ from datetime import date, datetime
 
 from django import template
 from django.utils import timezone
+from django.utils.html import format_html
 
 from apps.core import text as core_text
 
@@ -77,6 +87,64 @@ def fecha_corta(value):
     if isinstance(value, datetime | date):
         return f"{value.day} {MESES_CORTOS[value.month - 1]} {value.year}"
     return str(value)
+
+
+def relativo(value, now=None):
+    """«hace 5 min», «hace 3 h», «ayer», «hace 6 días», «en 3 días»; a más de un mes, la fecha
+    («10 nov», con el año si no es el actual). Una fecha sin hora se compara por días."""
+    value = _local(value)
+    now = _local(now or timezone.now())
+    if isinstance(value, datetime):
+        if timezone.is_naive(value) and timezone.is_aware(now):
+            now = now.replace(tzinfo=None)
+        seconds = (now - value).total_seconds()
+        ahead, seconds = seconds < 0, abs(seconds)
+        if seconds < 60:
+            return "en un momento" if ahead else "hace un momento"
+        if seconds < 3600:
+            return f"{'en' if ahead else 'hace'} {int(seconds // 60)} min"
+        if seconds < 86400:
+            return f"{'en' if ahead else 'hace'} {int(seconds // 3600)} h"
+        day = value.date()
+    elif isinstance(value, date):
+        day = value
+    else:
+        return str(value)
+    days = (day - now.date()).days
+    if days == 0:
+        return "hoy"
+    if days in (-1, 1):
+        return "ayer" if days < 0 else "mañana"
+    if abs(days) <= 30:
+        return f"hace {-days} días" if days < 0 else f"en {days} días"
+    short = f"{day.day} {MESES_CORTOS[day.month - 1]}"
+    return short if day.year == now.year else f"{short} {day.year}"
+
+
+def _time_tag(value, text):
+    """``<time>`` con el momento exacto (con segundos) al pasar el cursor."""
+    local = _local(value)
+    if not isinstance(local, datetime | date):
+        return str(value)
+    iso = local.isoformat(timespec="seconds") if isinstance(local, datetime) else local.isoformat()
+    return format_html('<time datetime="{}" title="{}">{}</time>', iso, fecha(value, True), text)
+
+
+@register.filter
+def hace(value):
+    """Para listas: tiempo relativo («hace 3 h»), con el momento exacto al pasar el cursor."""
+    if not value:
+        return "—"
+    return _time_tag(value, relativo(value))
+
+
+@register.filter
+def momento(value):
+    """Para bitácoras y líneas de tiempo: ``2026-11-09 10:14``, con los segundos al pasar el
+    cursor."""
+    if not value:
+        return "—"
+    return _time_tag(value, fecha(value))
 
 
 @register.filter

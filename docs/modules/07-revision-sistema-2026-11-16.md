@@ -28,7 +28,7 @@ modelo real y sin herramientas) y se comprueba en el navegador con los datos del
 | 2 · Defectos a la vista | P2, P5, P6, W8, C1 | Corregido el 2026-11-17 | Ver abajo. Pruebas: `tests/detection/test_visible_defects.py`, `tests/test_text.py`. |
 | 3 · Que quien administra vea el sistema | G1, G2, G3, W7 | Corregido el 2026-11-17 | Ver abajo y `docs/modules/08-estado-del-sistema.md`. Pruebas: `tests/test_admin_system.py`, `tests/scanners/test_scanner_data.py`. |
 | 4 · Cerrar el ciclo y repartir el trabajo | W4, W5, W6, N4, N5 | Corregido el 2026-11-17 | Ver abajo y «Cerrar el ciclo y repartir el trabajo» en `docs/modules/03-deteccion-continua.md`. Pruebas: `tests/detection/test_closing_the_loop.py`, `tests/scanners/test_unreported.py`, `tests/alerts/test_personal_notice.py`, `tests/presentation/test_tab_counters.py`. |
-| 5 · Estructura y lectura | N1, N2, N3, P3, P4, P7–P11, C2 | Pendiente | |
+| 5 · Estructura y lectura | N1, N2, N3, P3, P4, P7–P11, C2 | Corregido el 2026-11-17 | Ver abajo y «Estructura y lectura» en `docs/modules/03-deteccion-continua.md`. Pruebas: `tests/presentation/test_search.py`, `tests/test_presentation.py`, `tests/core/test_ui_shell.py`, `tests/assets/test_ux_inventory.py`, `tests/discovery/test_discovery.py`, `tests/detection/test_detection_views.py`, `tests/detection/test_ux_detection.py`, `tests/detection/test_risks.py`. |
 | 6 · Si sale del laboratorio | O1–O4, R1, R2 | Pendiente | |
 
 ### Bloque 1 (2026-11-17)
@@ -235,6 +235,108 @@ escaneos programados y el cierre por puerto cerrado tampoco ocurrieron en el lab
 contadores de las pestañas se vieron con pendientes creados dentro de una transacción que se
 descarta, porque el laboratorio no tiene ninguno. El ancho de teléfono se revisó a 390 px en tres
 pantallas (ficha del riesgo, registro y pestañas).
+
+### Bloque 5 (2026-11-17)
+
+- **N1 · La barra lateral sigue lo que se viene a hacer.** Inicio · Riesgos · Vulnerabilidades ·
+  Inventario · Operación · Administración. Riesgos y Vulnerabilidades (con Observaciones como su
+  segunda pestaña) son secciones propias; Actividad y Cola de aprobación van en «Operación». Las
+  rutas no cambiaron: ningún enlace guardado se rompe.
+- **N2 · Toda la configuración en Administración.** Fuentes CTI y Automatización pasaron a
+  Administración, y la pestaña «Inicio» se llama «Portada». Quien analiza sigue sin ver
+  Administración; llega a lo que le toca leer (el modo de automatización) por su enlace.
+- **N3 · Buscador global.** Un campo sobre la barra lateral (la tecla `/` lo enfoca) busca en
+  activos, riesgos, vulnerabilidades y el catálogo de CVE. Cada grupo usa el filtro de su lista,
+  así que «Ver los N en la lista» muestra lo mismo; un CVE que ningún activo tiene responde «no
+  se observa en ningún activo».
+- **P4 · Una regla de fechas.** En listas, tiempo relativo con el momento exacto al pasar el
+  cursor; en fichas, bitácoras y líneas de tiempo, el momento exacto; en Inicio y reportes, la
+  forma larga. Se aplicó en 28 plantillas.
+- **P9 · El inventario dice la postura de cada activo.** Columnas «Riesgo» (el nivel más alto
+  entre sus riesgos abiertos y cuántos son, con enlace) y «Último escaneo», las dos ordenables;
+  el primer clic en «Riesgo» trae lo peor primero. La etiqueta que llevan todos los activos de
+  la página se dice una vez sobre la tabla.
+- **P10 · Matriz.** Las casillas sin riesgos conservan su color de nivel, atenuado; las ocupadas
+  resaltan.
+- **P7 · Actividad: una fila por acción.** En «Todo», cada fila es una acción completa (del
+  evento que la originó a lo que resultó) con sus pasos plegados. Las pestañas por tipo siguen
+  siendo el listado plano.
+- **P8 · Descubrimiento por lanzamiento.** Los escaneos de varios activos pedidos de una vez son
+  una fila, con la suma de lo que encontraron y cada ejecución dentro.
+- **P3 · Ficha del riesgo.** Abre con tres líneas (qué puede pasar, por qué este nivel, qué
+  sigue) y la matriz reducida. Detalles, Inteligencia y Valoración van plegadas, con lo esencial
+  en su título; la lectura de explotación activa y probabilidad se dice una vez en el resumen y,
+  explicada, en su sección. La columna de tratamiento acompaña al desplazar.
+- **P11 · Teléfono.** Los filtros de las listas quedan tras un botón «Filtros · N aplicados» y la
+  ficha del riesgo lleva un botón fijo «Decidir tratamiento» que se retira cuando el formulario
+  entra en pantalla.
+- **C2 · Títulos y recomendaciones.** En las listas, el buscador y la ficha encabeza lo que
+  distingue al riesgo (el software o la vía de ataque) y la consecuencia va debajo. Al guardar,
+  «Compromiso del <activo>» se sustituye por la consecuencia de su campo y la causa no repite el
+  nombre del activo. «Verificar la corrección con un nuevo escaneo» dejó de ser recomendación:
+  por regla ya no se añade, lo que escribe el modelo se filtra y los riesgos ya valorados se
+  muestran sin ella.
+- **Valoración estable (pendiente que dejó el bloque 4).** Cada valoración guarda la huella de
+  su evidencia; si el modelo vuelve a valorar un riesgo y la huella es la misma, se conserva la
+  valoración anterior y el razonamiento dice qué proponía el modelo.
+- **Un riesgo que el modelo expresa distinto sigue siendo el mismo.** Si entre dos valoraciones
+  solo cambia la fuente de amenaza o la consecuencia que eligió el modelo, el riesgo conserva su
+  ficha, su línea de tiempo y su responsable (antes se cerraba como «reemplazado» y nacía otro).
+  La identidad la da la vulnerabilidad principal en ese activo.
+- **El plazo no se reinicia al reagrupar.** Un riesgo que nace con vulnerabilidades que ya
+  estaban en otro riesgo del activo cuenta su plazo desde la fecha de aquel, y lo dice.
+
+**Lo que destapó la revisión con los datos reales.** El buscador se rompía con los CVE que el
+catálogo trae sin severidad («NONE»): ahora dice «sin severidad en el catálogo». 82 de las 103
+ejecuciones de descubrimiento habían perdido su objetivo porque el activo se dio de baja y se
+volvió a crear: la fila mostraba «—» y ahora dice la dirección que se escaneó. La bitácora
+guardaba el estado crudo del reescaneo («Reescaneo de servicios: SUCCEEDED») y así llegaba a
+Actividad: ahora se escribe en palabras. Con trece pestañas, Administración partía la barra en
+dos renglones a 1440 px: se ajustó el espaciado. En la primera pasada real, el modelo escribió
+la verificación de otra forma («Implementar un escáner de seguridad web para verificar…»): la
+regla cubre también esa variante. La nota que explicaba dónde se comprueba una corrección
+nombraba el botón también a quien no lo tiene (quien audita): ahora señala la sección «¿Ya se
+corrigió?», que ven todos.
+
+Lo más serio salió al pedir «Reevaluar con IA» con el modelo real: **el plazo de un riesgo
+crítico se reiniciaba**. Con la misma evidencia, el modelo cambió la fuente de amenaza o la
+consecuencia (en `api-pagos`, Log4Shell pasó de «malware» a «atacante externo»; en
+`portal-expuesto-apache`, los cinco riesgos de Apache pasaron de «atacante externo» a «cadena de
+suministro»). Como las dos van en la clave del riesgo, el anterior se cerraba como «reemplazado»
+y nacía otro con fecha de hoy: el plazo de Log4Shell en `api-pagos` pasó del 17 al 24 de
+noviembre sin que nadie hubiera hecho nada, y la regla de valoración estable no encontraba la
+valoración anterior. De ahí las dos últimas reglas de la lista.
+
+**Comprobado en el flujo real (2026-11-17, laboratorio de 20 activos, qwen2.5:7b).** «Reevaluar
+con IA» pedido desde la aplicación en cuatro activos, dos rondas: la primera con títulos,
+recomendaciones y huella; la segunda, ya con la identidad por vulnerabilidad principal y el
+plazo que no se reinicia. Ningún dato se corrigió a mano: lo que la primera ronda dejó mal lo
+arregló la segunda por el flujo.
+
+| Caso | Qué se hizo | Qué resultó |
+|---|---|---|
+| Misma evidencia, misma valoración | `lb-dmz` revalorado tres veces | La primera guardó la huella. En las otras dos el modelo propuso 1 × 3 y el riesgo se quedó en 2 × 3 (moderado); el razonamiento dice «se conserva la valoración anterior porque la evidencia no cambió (el modelo proponía 1 × 3)». Sin evento «Valorado» nuevo. |
+| Recomendaciones | Los cuatro activos | Ninguna recomendación guardada pide escanear. El modelo escribió «Implementar un escáner de seguridad web para verificar…» y la regla, ya ampliada, la descartó en la pasada siguiente. De los 36 riesgos abiertos, 9 de activos que no se revaloraron conservan guardada una recomendación de escaneo (eran 11) y ninguno la muestra. |
+| Títulos | Los cuatro activos | «Compromiso del api-pagos por Log4Shell en log4j-core» → «Pérdida financiera en api-pagos por ejecución remota de código en log4j-core 2.14.1». Cabezas «Compromiso del <activo>»: de 10 a 2 (activos sin revalorar). En el registro, 35 de 36 encabezados son distintos (los dos iguales son de activos distintos). «Fuga de información…» subió de 17 a 21 cabezas: es la consecuencia más común, y por eso las listas encabezan con la causa. |
+| El plazo se reiniciaba (primera ronda) | `api-pagos`, `portal-expuesto-apache`, `portal-rh` | 9 riesgos cerrados como «reemplazados», 6 de ellos solo porque cambió la fuente o la consecuencia (la vulnerabilidad principal era la misma); 3 riesgos nacieron con fecha de hoy, entre ellos Log4Shell en `api-pagos` (crítico, plazo del 17 al 24 de noviembre). |
+| Mismo riesgo aunque cambie la fuente (segunda ronda) | Los mismos activos | `portal-rh`: el modelo cambió la fuente (cadena de suministro → atacante externo) y el título; el riesgo de Apache httpd 2.4.54 conserva su ficha y su fecha, con la nota «La valoración lo expresa de otra forma; antes: «…»». `api-pagos`: el riesgo de jackson-databind cerrado como reemplazado en la primera ronda se reabrió, con su ficha, como «Afectación operativa en api-pagos por DoS en jackson-databind 2.17.2». Ningún riesgo se cerró por cambiar de fuente o de consecuencia; los 2 cierres por reemplazo de la ronda fueron reagrupaciones reales. |
+| El plazo no se reinicia | `api-pagos` | Log4Shell recuperó su fecha de identificación (2026-11-10) y su plazo volvió al 2026-11-17, con nota en la línea de tiempo. Un riesgo nuevo de log4j-core nació diciendo «sus vulnerabilidades ya estaban en otro riesgo del activo desde el 2026-11-10: el plazo cuenta desde entonces». |
+| Valoración que el modelo quiso bajar | `portal-expuesto-apache` | El riesgo de CVE-2024-38475 (explotación activa) se quedó en 4 × 5 cuando el modelo proponía 3 × 4 con la misma evidencia. |
+| Ficha del riesgo | Log4Shell en `api-pagos`, a 1440 px y a 390 px | Tres líneas de resumen con la matriz reducida, la consecuencia bajo el título, secciones de consulta plegadas, columna de tratamiento que acompaña al desplazar; en teléfono, botón fijo «Decidir tratamiento» que se retira al llegar al formulario. |
+| Navegación, buscador y listas | Capturas a 1440 px y 390 px | Barra lateral nueva con el buscador; «apache» da 369 resultados en tres grupos (activos, riesgos, vulnerabilidades) con «Ver los 19 en la lista»; inventario con «Riesgo» y «Último escaneo»; 103 ejecuciones de descubrimiento en 12 filas; Actividad con una fila por acción; filtros plegados en teléfono con «Filtros · 2 aplicados». |
+
+*Qué no se comprobó:* se revaloraron 4 de los 20 activos; los otros 16 conservan su título y sus
+recomendaciones guardadas hasta su siguiente valoración (se muestran bien porque las reglas de
+despliegue no dependen de eso). **La valoración todavía se mueve cuando cambia lo que hay
+debajo**: al reconsolidar un activo, el modelo cambia factores de sus vulnerabilidades
+(explotabilidad, controles compensatorios) o las agrupa distinto, y entonces la evidencia ya no
+es la misma (en `api-pagos`, jackson-databind pasó de 3 × 4 a 4 × 5 al agruparse 11
+vulnerabilidades en vez de 13, y el riesgo por regla de log4j-api de 3 × 5 a 2 × 5). La regla
+de estabilidad cubre la evidencia idéntica; llevarla a los factores de cada vulnerabilidad queda
+pendiente. Las vistas de teléfono se revisaron con capturas a 390 px en Chrome sin interfaz, no
+en un dispositivo. El buscador se probó con los datos del laboratorio (20 activos, unas mil
+vulnerabilidades), no con inventarios grandes. En Actividad no había acciones en curso ni en
+espera de aprobación al capturar: esos estados quedan cubiertos por las pruebas.
 
 ## 1. Flujo de trabajo
 

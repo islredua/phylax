@@ -2,7 +2,7 @@
 {# Se refresca cada 3 s mientras la ejecución está en cola o en curso. #}
 <div id="run-status" class="flex flex-col gap-4" {% if run.is_active %}hx-get="{% url 'discovery:run_detail' run.pk %}" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
   <section class="card">
-    <div class="mb-3 flex flex-wrap items-center gap-2">{% run_status_badge run %}{% if run.is_active %}<span class="text-xs text-muted">se actualiza automáticamente…</span>{% endif %}<span class="text-xs text-muted">· {{ run.get_profile_display|lower }}, nmap {{ scan_mode_label }} · {{ run.started_at|fecha:True }} → {{ run.finished_at|fecha:True }} · solicitó {{ run.requested_by.get_username|default:"la programación" }}</span></div>
+    <div class="mb-3 flex flex-wrap items-center gap-2">{% run_status_badge run %}{% if run.is_active %}<span class="text-xs text-muted">se actualiza automáticamente…</span>{% endif %}<span class="text-xs text-muted">· {{ run.get_profile_display|lower }}, nmap {{ scan_mode_label }} · {{ run.started_at|momento }} → {{ run.finished_at|momento }} · solicitó {{ run.requested_by.get_username|default:"la programación" }}</span></div>
     <div class="grid grid-cols-2 gap-3 md:grid-cols-5">
       <div><p class="stat-label">Hosts activos</p><p class="stat-value">{{ run.hosts_up }}</p></div>
       <div><p class="stat-label">Por confirmar</p><p class="stat-value"><a href="?show=pending#observed-hosts" class="hover:no-underline" title="Ver los hosts por confirmar">{{ host_counts.pending }}</a></p></div>

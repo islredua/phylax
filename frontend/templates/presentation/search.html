@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% load detection_tags inventory %}
+{% block title %}{% if search.query %}{{ search.query }} · {% endif %}Buscar{% endblock %}
+{% block content %}
+{# Buscador global (apps.presentation.search). Los grupos usan el mismo filtro «Buscar» que su lista. #}
+<form method="get" action="{% url 'search' %}" role="search" class="card flex flex-wrap items-end gap-3">
+  <div class="min-w-0 flex-1">
+    <label class="form-label" for="buscar-q">Buscar en toda la plataforma</label>
+    <input id="buscar-q" type="search" name="q" value="{{ search.query }}" class="form-input" placeholder="Nombre de un activo, IP, CVE o parte de un título" autocomplete="off" maxlength="120"{% if search.state != 'results' %} autofocus{% endif %}>
+  </div>
+  <button type="submit" class="btn-primary">Buscar</button>
+</form>
+
+{% if search.state == 'empty' %}
+<p class="text-sm text-ink-soft">Una sola búsqueda recorre los activos (por nombre, IP u otro identificador), los riesgos, las vulnerabilidades y el catálogo de CVE. Por ejemplo: {% for example in search.examples %}<a href="{% url 'search' %}?q={{ example|urlencode }}" class="font-mono text-xs">{{ example }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}.</p>
+{% elif search.state == 'short' %}
+<p class="text-sm text-ink-soft">Escribe al menos dos caracteres.</p>
+{% elif search.state == 'none' %}
+<div class="card" data-search-empty>
+  <p class="text-sm"><strong class="font-medium">Nada coincide con «{{ search.query }}».</strong></p>
+  <p class="mt-1 text-sm text-ink-soft">{% if search.unknown_cve %}Ese CVE no está en ningún activo ni en el catálogo local: puede ser muy reciente (el catálogo se sincroniza cada día) o estar mal escrito.{% else %}Se buscó en el nombre y los identificadores de los activos, en el título y el detalle de los riesgos, y en la clave y el título de las vulnerabilidades. Prueba con menos letras, con la IP o con el identificador del CVE.{% endif %}</p>
+</div>
+{% else %}
+<p class="text-sm text-ink-soft" data-search-total>{{ search.total|pl:"resultado,resultados" }} para «{{ search.query }}»{% if search.unknown_cve %} · ese CVE no está en el catálogo local{% endif %}</p>
+{% for group in search.groups %}
+<section class="flex flex-col gap-2" data-search-group="{{ group.key }}">
+  <div class="toolbar">
+    <h2>{{ group.label }} <span class="ml-1 font-mono text-xs font-normal text-muted">{{ group.total|miles }}</span>{% if group.note %} <span class="ml-1 text-xs font-normal text-muted">{{ group.note }}</span>{% endif %}</h2>
+    {% if group.more and group.url %}<a href="{{ group.url }}" class="text-sm">Ver los {{ group.total|miles }} en la lista →</a>{% endif %}
+  </div>
+  <div class="table-wrap">
+    <table class="data-table">
+      <tbody>
+        {% if group.key == 'assets' %}
+        {% for a in group.items %}
+        <tr>
+          <td><a href="{% url 'assets:detail' a.pk %}" class="font-medium">{{ a.name }}</a><p class="font-mono text-xs text-muted">{{ a.display_identifier|truncatechars:60|default:"sin identificador" }}</p></td>
+          <td class="col-md text-ink-soft">{{ a.asset_type|catalog:"ASSET_TYPE" }}</td>
+          <td class="whitespace-nowrap">{% criticality_badge a.criticality a.criticality_source %}</td>
+          <td class="col-md">{% exposure_badge a.exposure a.exposure_source %}</td>
+          <td class="text-right">{% status_badge a.status %}</td>
+        </tr>
+        {% endfor %}
+        {% elif group.key == 'risks' %}
+        {% for r in group.items %}
+        <tr>
+          <td><a href="{% url 'detection:risk' r.pk %}" class="font-medium" title="{{ r.title }}">{{ r.subject|truncatechars:90 }}</a>{% if r.cause %}<p class="text-xs text-muted">{{ r.headline|truncatechars:90 }}</p>{% endif %}</td>
+          <td class="col-md"><a href="{% url 'assets:detail' r.asset_id %}">{{ r.asset.name }}</a></td>
+          <td class="whitespace-nowrap">{% risk_level_badge r.level %}</td>
+          <td class="text-right whitespace-nowrap">{% risk_status_badge r.status %}</td>
+        </tr>
+        {% endfor %}
+        {% elif group.key == 'vulnerabilities' %}
+        {% for v in group.items %}
+        <tr>
+          <td><a href="{% url 'detection:vulnerability' v.pk %}" class="font-medium">{{ v.title|truncatechars:80 }}</a><p class="font-mono text-xs text-muted">{{ v.key }}</p></td>
+          <td class="col-md"><a href="{% url 'assets:detail' v.asset_id %}">{{ v.asset.name }}</a></td>
+          <td class="whitespace-nowrap">{% severity_badge v.severity %} {% kev_badge v.in_kev %}</td>
+          <td class="text-right whitespace-nowrap">{% vuln_status_badge v.status %}</td>
+        </tr>
+        {% endfor %}
+        {% else %}
+        {% for c in group.items %}
+        <tr>
+          <td><span class="font-mono text-sm font-medium">{{ c.cve_id }}</span>{% if c.description %}<p class="text-xs text-muted">{{ c.description|truncatechars:170 }}</p>{% endif %}</td>
+          <td class="whitespace-nowrap">{% if c.severity == 'NONE' %}<span class="text-xs text-muted" title="El catálogo local no tiene la ficha de NVD de este CVE">sin severidad en el catálogo</span>{% else %}{% severity_badge c.severity %}{% endif %}{% if c.cvss_score %} <span class="font-mono text-xs text-muted">CVSS {{ c.cvss_score }}</span>{% endif %} {% if c.kev_added_at %}{% kev_badge True %}{% endif %}</td>
+          <td class="text-right text-sm whitespace-nowrap">{% if c.affected_assets %}<a href="{{ c.list_url }}">en {{ c.affected_assets|pl:"activo,activos" }} →</a>{% elif c.affected_assets == 0 %}<span class="text-muted" title="Ninguna vulnerabilidad abierta con este CVE en el inventario">no se observa en ningún activo</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+  {% if group.more and not group.url %}<p class="text-xs text-muted">Se muestran los {{ group.items|length }} más recientes de {{ group.total|miles }}: escribe el identificador completo para afinar.</p>{% endif %}
+</section>
+{% endfor %}
+{% endif %}
+{% endblock %}

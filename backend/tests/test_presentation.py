@@ -34,11 +34,22 @@ def test_sidebar_shows_sections_not_subsections(client, admin_user):
     client.force_login(admin_user)
     response = client.get("/users/")
     nav = response.context["nav"]
+    # Riesgos, el resultado del sistema, tiene su lugar propio; la maquinaria va en Operación.
     assert [i.key for i in nav.main] == [
         "home",
+        "risks",
+        "vulnerabilities",
         "inventory",
-        "detection",
+        "operation",
         "administration",
+    ]
+    assert [i.label for i in nav.main] == [
+        "Inicio",
+        "Riesgos",
+        "Vulnerabilidades",
+        "Inventario",
+        "Operación",
+        "Administración",
     ]
     assert [i.key for i in nav.footer] == ["account"]
     # Las subsecciones viven en las pestañas superiores, no en la barra lateral.
@@ -51,11 +62,15 @@ def test_sidebar_shows_sections_not_subsections(client, admin_user):
         "llm",
         "home_settings",
         "policy",
+        "automation",
+        "sources",
         "catalogs",
         "registries",
         "alerts",
     ]
-    assert nav.main[3].url_name == "administration"
+    assert nav.main[5].url_name == "administration"
+    # La pestaña que configura la portada ya no se llama como la portada.
+    assert {t.key: t.label for t in nav.tabs}["home_settings"] == "Portada"
 
 
 def test_discovery_lives_inside_inventory(client, admin_user):
@@ -98,6 +113,38 @@ def test_administration_hidden_for_operator(client, make_user):
     assert client.get("/administration/").status_code == 403
 
 
+@pytest.mark.parametrize(
+    ("path", "label"),
+    [
+        ("/detection/automation/", "Automatización"),
+        ("/detection/sources/", "Fuentes CTI"),
+        ("/detection/risks/policy/", "Plazos"),
+    ],
+)
+def test_operator_reaches_settings_by_link_without_seeing_administration(
+    client, make_user, path, label
+):
+    """La configuración vive en Administración, que el Analista no ve; las pantallas que
+    consulta (por los enlaces de Operación, Inicio y el riesgo) le responden con su nombre como
+    título y una miga para volver, sin abrirle la sección."""
+    client.force_login(make_user(OPERATOR))
+    response = client.get(path)
+    assert response.status_code == 200
+    nav = response.context["nav"]
+    assert [i.key for i in nav.main] == [
+        "home",
+        "risks",
+        "vulnerabilities",
+        "inventory",
+        "operation",
+    ]
+    assert nav.section.label == label and nav.tabs == []
+    assert not any(i.active for i in nav.main)
+    assert [c.label for c in nav.breadcrumbs] == ["Inicio", label]
+    body = response.content.decode()
+    assert f"<h1>{label}</h1>" in body and "/administration/" not in body
+
+
 def test_auditor_sees_administration_tabs(client, auditor_user):
     client.force_login(auditor_user)
     nav = client.get("/administration/").context["nav"]
@@ -110,6 +157,8 @@ def test_auditor_sees_administration_tabs(client, auditor_user):
         "users",
         "audit",
         "policy",
+        "automation",
+        "sources",
         "alerts",
     ]
     page = client.get("/detection/risks/policy/")
@@ -135,6 +184,8 @@ def test_tabs_are_filtered_by_permission(make_user):
         "organization",
         "audit",
         "policy",
+        "automation",
+        "sources",
         "alerts",
     ]
 
@@ -254,6 +305,13 @@ def test_audit_log_renders_severity_badges(client, auditor_user):
         ("/accounts/me/security/", ["Inicio", "Mi cuenta", "Seguridad"]),
         ("/inventory/", ["Inicio", "Inventario", "Activos"]),
         ("/inventory/ranges/", ["Inicio", "Inventario", "Rangos de red"]),
+        # Una sola pestaña, o una que se llama como su sección: la miga no se repite.
+        ("/detection/", ["Inicio", "Riesgos"]),
+        ("/detection/vulnerabilities/", ["Inicio", "Vulnerabilidades"]),
+        ("/detection/observations/", ["Inicio", "Vulnerabilidades", "Observaciones"]),
+        ("/detection/activity/", ["Inicio", "Operación", "Actividad"]),
+        ("/detection/automation/", ["Inicio", "Administración", "Automatización"]),
+        ("/detection/sources/", ["Inicio", "Administración", "Fuentes CTI"]),
     ],
 )
 def test_breadcrumbs_follow_navigation(client, admin_user, path, crumbs):

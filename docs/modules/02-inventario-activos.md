@@ -253,7 +253,8 @@ sección. Migas de pan en todas las pantallas (ADR-007). Las correcciones de la 
 - **Detalle del activo.** Nueve pestañas: Resumen, Riesgos, Vulnerabilidades, Observaciones,
   **Servicios y escaneos** (servicios + las ejecuciones que lo tocaron; `?tab=descubrimientos`
   sigue abriendo aquí), Identificadores, SBOM, **Criticidad (IA)** y Historial. Las listas de
-  Detección muestran las 20 más recientes con «Ver todas en Detección». Cabecera con una sola
+  riesgos, vulnerabilidades y observaciones muestran las 20 más recientes con «Ver todas en
+  Vulnerabilidades» / «Ver todas en Observaciones». Cabecera con una sola
   marca de criticidad («Alto · por IA, sin revisar»); Ignorar/Restaurar/Retirar en el menú
   «Más acciones», cada uno con su consecuencia. «Autorizado para escaneo» (alcance) y
   «Conectividad desde Atalaya» (sondeo) son dos filas distintas; el botón es «Comprobar
@@ -301,6 +302,25 @@ sección. Migas de pan en todas las pantallas (ADR-007). Las correcciones de la 
   cerrar las demás; la bitácora y los conflictos muestran los metadatos como clave → valor en
   español (filtros `clave` y `valor`); Catálogos muestra «0» y los identificadores requeridos con
   su etiqueta; la verificación MFA dice que el código de respaldo va en el mismo campo.
+- **Postura en la lista de activos (revisión del 2026-11-16, P9).** La lista dice de cada
+  activo su **Riesgo** (el nivel más alto entre sus riesgos abiertos y cuántos son, con enlace a
+  ellos; solo para quien puede ver el registro de riesgos) y su **Último escaneo** (el más
+  reciente entre servicios, nuclei y Grype; «nunca» si ninguna herramienta lo ha revisado), y
+  deja ordenar por ambos: el primer clic en «Riesgo» trae lo peor primero y, a igual nivel, el
+  que más riesgos tiene; los nunca escaneados van primero al ordenar de menos a más reciente
+  (`assets.views.with_posture`, `list_columns`). Una etiqueta que llevan todos los activos de la
+  página se dice una vez sobre la tabla en lugar de repetirse en cada fila.
+- **Descubrimiento por lanzamiento (P8).** Pedir el escaneo de servicios de varios activos de
+  una vez crea una ejecución por activo en el mismo instante; en la lista eran N filas iguales.
+  Ahora son una fila («19 activos en un lanzamiento») con la suma de lo que encontraron, el
+  estado de todas («17 completados · 2 fallidos») y cada ejecución dentro, a un clic. Un
+  lanzamiento se reconoce por cómo nace: misma persona, mismo perfil y menos de 60 s entre una
+  ejecución y la siguiente (`discovery.views.group_launches`); no hizo falta cambiar el modelo
+  y agrupa igual lo ya registrado. El descubrimiento de un rango es siempre una fila. Si el
+  activo de una ejecución ya no está en el inventario, la fila dice la dirección que se escaneó.
+- **Filtros plegados en teléfono (P11).** Las listas marcan su formulario de filtros
+  (`data-filter-form`) y, por debajo de 640 px, `atalaya.js` lo deja tras un botón «Filtros · N
+  aplicados». Sin JavaScript el formulario se ve entero.
 
 ## Autorización
 

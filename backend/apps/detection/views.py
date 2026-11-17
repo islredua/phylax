@@ -162,7 +162,7 @@ def order_findings(qs):
     return items
 
 
-# Las pestañas del activo muestran lo más urgente; el resto se ve en Detección con filtros (A1).
+# Las pestañas del activo muestran lo más urgente; el resto se ve en Riesgos y Vulnerabilidades con filtros (A1).
 ASSET_TAB_LIMIT = 20
 
 
@@ -170,7 +170,7 @@ def asset_tab_context(asset, tab):
     """Datos de las pestañas Riesgos / Vulnerabilidades / Observaciones de la página del activo.
 
     Las tres listas viven dentro del activo para no sacar a la persona de su contexto; las
-    pantallas de Detección son las mismas listas para toda la organización, con filtros.
+    pantallas de Riesgos y Vulnerabilidades son las mismas listas para toda la organización, con filtros.
     """
     params = {"asset": asset.pk, "status": ""}
     open_findings = findings.open_findings(asset.pk)
@@ -959,22 +959,30 @@ class RiskDetailView(Perm, TemplateView):
         )
         rules = policy.current()
         due = policy.deadline(risk, rules)
+        intel = risks.intelligence(risk.vulnerabilities.select_related("cve"))
+        closure = risks.closure(risk)
+        responsible = responsibles.of(risk)
         context.update(
+            brief=risks.brief(
+                risk, intel=intel, deadline=due, closure=closure, responsible=responsible
+            ),
+            # La lectura de inteligencia tiene su sección: en «Detalles» no se repite.
+            details_text=risks.details_without_support(risk.details),
             policy=rules,
             deadline=due,
             # Fecha compromiso propuesta: el plazo de la política mientras se pueda cumplir.
             suggested_target=risk.target_date or (due.date if due and not due.overdue else None),
             risk=risk,
             evidence=risks.evidence(risk),
-            intel=risks.intelligence(risk.vulnerabilities.select_related("cve")),
+            intel=intel,
             timeline=risk.events.select_related("actor").order_by("-occurred_at", "-id"),
             matrix=risks.matrix([risk]),
-            closure=risks.closure(risk),
+            closure=closure,
             consolidation_pending=consolidation.is_pending(risk.asset_id),
             queue=risk_queue(self.request.GET["cola"], risk.pk, user=self.request.user)
             if self.request.GET.get("cola")
             else None,
-            responsible=responsibles.of(risk),
+            responsible=responsible,
             responsible_choices=responsibles.choices(risk.asset),
             responsible_choice=responsibles.current_choice(risk),
             verification=verification.view(risk),
@@ -1481,7 +1489,10 @@ class ActivityView(Perm, TemplateView):
         kinds = [kind] if kind in ("event", "decision", "action", "execution", "log") else None
         show_filtered = kind == "event" and self.request.GET.get("filtered") == "1"
         context.update(
-            entries=activity.recent(kinds=kinds, include_filtered=show_filtered),
+            # «Todo» agrupa: una fila por acción con sus pasos plegados. Las demás pestañas son
+            # el listado plano de un solo tipo.
+            threads=None if kinds else activity.threads(),
+            entries=activity.recent(kinds=kinds, include_filtered=show_filtered) if kinds else [],
             kind=kind,
             show_filtered=show_filtered,
             filtered_today=DetectionEvent.objects.filter(

@@ -44,11 +44,11 @@ texto se escapa siempre; solo se insertan `<a>` con URLs del sistema.
 - Sin `detection.view_risk` la pantalla solo muestra la tarjeta de la cuenta (rol, 2FA, sesiones).
 - Fragmentos, reporte y CSV de riesgos exigen `detection.view_risk`; el CSV de vulnerabilidades,
   `detection.view_vulnerability`; el pulso, `detection.view_detectionevent`.
-- La configuración (Administración → Inicio) exige `presentation.change_presentationsettings`,
+- La configuración (Administración → Portada) exige `presentation.change_presentationsettings`,
   que solo tiene el rol admin (`ADMIN_MANAGED_MODELS`). `HealthSnapshot` y `HealthNarrative` las
   escribe el sistema (`IMMUTABLE_MODELS`).
 
-## Configuración (Administración → Inicio)
+## Configuración (Administración → Portada)
 
 `PresentationSettings` (una fila):
 
@@ -281,3 +281,22 @@ minutos. Dos correcciones en el flujo:
 - `detection.descriptions`: tras un rechazo la espera crece (30 min, 1 h, 2 h… hasta un día) antes
   de que el drenaje automático la vuelva a pedir; quien la pide desde el detalle no espera y al
   lograrse la redacción el historial se borra.
+
+## Buscador global (`presentation/search.py`, revisión del 2026-11-16, N3)
+
+Sobre la barra lateral hay un campo «Buscar activo, IP, CVE…» (la tecla `/` lo enfoca; en
+teléfono va dentro del menú). `/search/?q=` recorre, en este orden, **activos**, **riesgos**
+(abiertos y cerrados, los abiertos primero), **vulnerabilidades** abiertas y, cuando el texto
+parece un CVE, el **catálogo de CVE** (el espejo local, que responde «¿nos afecta?» aunque
+ningún activo lo tenga: «en 3 activos» o «no se observa en ningún activo»).
+
+- Cada grupo usa **el mismo filtro que su lista** (`filter_assets`, `filter_risks`,
+  `filter_vulnerabilities`): muestra los seis primeros y «Ver los N en la lista» abre esa lista
+  con el mismo texto y la misma cuenta.
+- Cada grupo respeta el permiso de su lista; quien no puede ver una lista no ve su grupo.
+- Estados: sin texto (ejemplos), menos de dos caracteres, nada coincide (y si era un CVE exacto
+  que el catálogo no conoce, lo dice) y resultados.
+- No es un enlace más de la barra: una sección oculta del registro de navegación le da título
+  («Buscar») y migas.
+
+Pruebas: `tests/presentation/test_search.py`.

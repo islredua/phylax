@@ -6,7 +6,19 @@ from django.contrib import messages
 from django.contrib.auth.mixins import PermissionRequiredMixin
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
-from django.db.models import Case, Count, Exists, IntegerField, OuterRef, Q, Value, When
+from django.db.models import (
+    Case,
+    Count,
+    Exists,
+    F,
+    IntegerField,
+    OuterRef,
+    Q,
+    Subquery,
+    Value,
+    When,
+)
+from django.db.models.functions import Coalesce, Greatest
 from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -67,9 +79,18 @@ LIST_COLUMNS = (
     ("criticality", "Criticidad", ""),
     ("exposure", "Exposición", "col-md"),
     ("environment", "Entorno", "col-lg"),
+    # Postura (P9): el nivel más alto entre sus riesgos abiertos y cuántos son.
+    ("risk", "Riesgo", ""),
     ("status", "Estado", ""),
-    ("seen", "Visto", "col-md"),
+    ("scan", "Último escaneo", "col-md"),
+    ("seen", "Visto", "col-lg"),
 )
+# Columnas que solo ve quien tiene el permiso de su dato.
+COLUMN_PERMISSIONS = {"risk": "detection.view_risk"}
+# El primer clic en estas cabeceras ordena de mayor a menor: lo que importa es lo peor.
+DESC_FIRST = {"risk"}
+# Sin dato (nunca escaneado) va primero al ordenar de menos a más reciente, y al final al revés.
+NULLS_AS_OLDEST = {"last_scan"}
 SORTS = {
     "name": ("name",),
     "type": ("asset_type", "name"),
@@ -78,6 +99,8 @@ SORTS = {
     "environment": ("environment", "name"),
     "status": ("status", "name"),
     "seen": ("last_seen", "name"),
+    "risk": ("risk_sort", "name"),
+    "scan": ("last_scan", "name"),
 }
 # Pestañas del activo que muestran la capa de detección; requieren su permiso.
 DETECTION_TABS = {
@@ -167,9 +190,37 @@ def with_suggestion_flags(qs):
     )
 
 
+def with_posture(qs):
+    """Postura de cada activo para la lista (P9): cuántos riesgos abiertos tiene, el nivel más
+    alto entre ellos y cuándo lo revisó una herramienta por última vez (servicios, nuclei o
+    Grype). ``risk_sort`` ordena por nivel y, a igual nivel, por cantidad."""
+    from apps.detection.models import RISK_OPEN_STATUSES, Risk
+    from apps.detection.risks import LEVEL_ORDER
+
+    worst_first = len(LEVEL_ORDER)
+    rank = Case(
+        *[When(level=level, then=Value(worst_first - n)) for level, n in LEVEL_ORDER.items()],
+        default=Value(0),
+        output_field=IntegerField(),
+    )
+    open_risks = Risk.objects.filter(asset=OuterRef("pk"), status__in=RISK_OPEN_STATUSES)
+    ranked = open_risks.annotate(rank=rank).order_by("-rank")
+    counted = open_risks.order_by().values("asset").annotate(n=Count("pk")).values("n")
+    return qs.annotate(
+        risk_count=Coalesce(Subquery(counted[:1], output_field=IntegerField()), Value(0)),
+        risk_rank=Coalesce(Subquery(ranked.values("rank")[:1]), Value(0)),
+        risk_level=Subquery(ranked.values("level")[:1]),
+        last_scan=Greatest(
+            "detection_state__last_vuln_scan_at",
+            "detection_state__last_sbom_scan_at",
+            "detection_state__last_service_scan_at",
+        ),
+    ).annotate(risk_sort=F("risk_rank") * Value(100000) + F("risk_count"))
+
+
 def filter_assets(params):
     """Filtros de la lista (también los usa la exportación CSV). Devuelve ``(queryset, form)``."""
-    qs = (
+    qs = with_posture(
         Asset.objects.select_related("network_range")
         .prefetch_related("identifiers", "tags")
         .annotate(criticality_rank=CRITICALITY_RANK)
@@ -213,9 +264,38 @@ def sort_fields(sort):
         return fields
     desc = sort.startswith("-")
     first, *rest = fields
+    if first in NULLS_AS_OLDEST:
+        column = F(first)
+        return (column.desc(nulls_last=True) if desc else column.asc(nulls_first=True), *rest)
     first = f"-{first}" if desc else first
     # Con «-» los sin clasificar (rango 0) irían primero: siempre al final.
     return (first, *rest)
+
+
+def list_columns(user, sort):
+    """Cabeceras de la lista con el enlace de orden de cada una. El primer clic ordena de menor
+    a mayor, salvo en ``DESC_FIRST``; el segundo invierte."""
+    key_now, desc_now = sort.lstrip("-"), sort.startswith("-")
+    columns = []
+    for key, label, css in LIST_COLUMNS:
+        permission = COLUMN_PERMISSIONS.get(key)
+        if permission and not user.has_perm(permission):
+            continue
+        active = bool(key) and key == key_now
+        # Activa: el clic invierte. Si no: el sentido de su primer clic.
+        goes_down = not desc_now if active else key in DESC_FIRST
+        next_sort = f"-{key}" if goes_down else key
+        columns.append(
+            {
+                "key": key,
+                "label": label,
+                "css": css,
+                "active": active,
+                "desc": active and desc_now,
+                "next": next_sort,
+            }
+        )
+    return columns
 
 
 class AssetListView(Perm, PaginationMixin, ListView):
@@ -239,7 +319,15 @@ class AssetListView(Perm, PaginationMixin, ListView):
         self.get_context_data_flags(context["assets"])
         counts = dict(Asset.objects.values_list("status").annotate(n=Count("id")))
         sort = self.request.GET.get("sort", "")
+        columns = list_columns(self.request.user, sort)
+        # Una etiqueta que llevan todos los de la página no distingue a ninguno: se dice una
+        # vez arriba de la tabla en lugar de repetirla en cada fila.
+        tag_sets = [{t.name for t in a.tags.all()} for a in context["assets"]]
+        common_tags = sorted(set.intersection(*tag_sets)) if len(tag_sets) > 1 else []
         context.update(
+            common_tags=common_tags,
+            show_risk=any(c["key"] == "risk" for c in columns),
+            column_count=len(columns),
             filter_form=self.filter_form,
             status_counts=[(s, label, counts.get(s, 0)) for s, label in AssetStatus.choices],
             review_count=Asset.objects.filter(
@@ -247,7 +335,7 @@ class AssetListView(Perm, PaginationMixin, ListView):
                 status__in=(AssetStatus.ACTIVE, AssetStatus.STALE),
             ).count(),
             sort=sort,
-            columns=LIST_COLUMNS,
+            columns=columns,
             sort_key=sort.lstrip("-"),
             sort_desc=sort.startswith("-"),
             filters_active=any(

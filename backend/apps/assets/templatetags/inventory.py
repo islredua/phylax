@@ -1,7 +1,7 @@
 """Badges del inventario con el sistema visual (ADR-007). Todo el texto pasa por format_html."""
 
 from django import template
-from django.utils.html import format_html
+from django.utils.html import format_html, format_html_join
 from django.utils.safestring import mark_safe
 
 from apps.assets.enums import AssetStatus, Criticality, CriticalitySource, Exposure
@@ -74,6 +74,16 @@ def run_status_badge(run):
         '<span class="{}">{}</span>',
         RUN_STYLE.get(run.status, "badge-neutral"),
         run.get_status_display(),
+    )
+
+
+@register.simple_tag
+def launch_status_badges(parts):
+    """Estados de un lanzamiento de varias ejecuciones: «17 completados» «2 fallidos»."""
+    return format_html_join(
+        " ",
+        '<span class="{}">{}</span>',
+        ((RUN_STYLE.get(status, "badge-neutral"), text) for status, text in parts),
     )
 
 

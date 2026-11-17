@@ -39,7 +39,7 @@ Apps: `apps.cti` (almacén CTI), `apps.detection` (lazo), `apps.scanners` (herra
 
 | Origen | Cómo entra | Evento(s) |
 |---|---|---|
-| CTI | Beat horario revisa qué fuente venció su intervalo (`Detección › Fuentes CTI`). NVD incremental por fecha + por producto del inventario; KEV completo; EPSS para el espejo. Cada diferencia es un `CtiChange`. | `CTI_NEW_CVE`, `CTI_CVE_MODIFIED`, `CTI_KEV_ADDED`, `CTI_EPSS_RISE` |
+| CTI | Beat horario revisa qué fuente venció su intervalo (`Administración › Fuentes CTI`). NVD incremental por fecha + por producto del inventario; KEV completo; EPSS para el espejo. Cada diferencia es un `CtiChange`. | `CTI_NEW_CVE`, `CTI_CVE_MODIFIED`, `CTI_KEV_ADDED`, `CTI_EPSS_RISE` |
 | Inventario | Señales `services_changed` (descubrimiento), `asset_confirmed`, `sbom_attached` | `ASSET_SERVICES_CHANGED`, `ASSET_CONFIRMED`, `ASSET_SBOM_UPDATED` |
 | Tiempo | Beat horario: activos sin decisión del planificador en `DETECTION_ASSET_REVIEW_DAYS` **o nunca reconciliados** (inventario anterior al módulo: se indexan y reconcilian en la primera pasada); hallazgos abiertos sin verse en `DETECTION_FINDING_REVIEW_DAYS` | `ASSET_STALE_REVIEW`, `FINDING_STALE_REVIEW` |
 | Manual | Botón «Evaluar ahora» (detalle del activo o del hallazgo) | `MANUAL_EVALUATION` |
@@ -134,7 +134,7 @@ responde como simulada.
 
 ## E. Modo automático / manual
 
-`Detección › Automatización` (solo admin cambia): modo global, modo por entorno (el global `MANUAL`
+`Administración › Automatización` (solo admin cambia): modo global, modo por entorno (el global `MANUAL`
 manda), escalamiento de críticos en modo manual, **pausa de emergencia** (detiene planificador y
 despacho; las aprobadas esperan), ventana no operativa (inicio, fin, días) a la que se difieren las
 acciones pesadas de urgencia baja/normal, máximo de escaneos por hora, ejecuciones simultáneas y
@@ -142,7 +142,7 @@ decisiones del planificador por hora. La **bitácora** (`AutomationLogEntry`, so
 aprobaciones automáticas, escalamientos, despachos, bloqueos, diferimientos, resultados, cambios de
 modo y pausas.
 
-`Detección › Cola de aprobación`: en modo manual cada acción pesada llega como «Propuesta» con su
+`Operación › Cola de aprobación`: en modo manual cada acción pesada llega como «Propuesta» con su
 porqué; aprobar/rechazar por tarjeta, en lote con casillas y atajos (`A`, `R`, `J`/`K`, `X`). Lo
 aprobado en lote queda marcado.
 
@@ -362,13 +362,15 @@ párrafo a partir de agregados sin IP ni nombres de equipo; el admin lo edita.
 
 ## J. Pantallas
 
-Sección **Detección**, en el orden en que se decide: **Riesgos** primero (portada de
-`/detection/`: registro ISO/IEC 27005 con matriz 5×5 de los riesgos listados, filtros por nivel,
-estado y tratamiento) · Vulnerabilidades (`/detection/vulnerabilities/`: consolidadas, ordenadas
-por puntaje contextual, con resumen y filtros) · Observaciones (capa cruda con filtros, enlace a
-su vulnerabilidad y «Registrar observación») · Actividad (flujo en vivo) · Cola de aprobación ·
-Fuentes CTI · Automatización. El perfil de la organización vive en **Administración ›
-Organización**. Detalle de riesgo: descripción a alto nivel con consecuencia y fuente de amenaza,
+Desde la revisión del 2026-11-16 (N1, N2) el módulo ya no es una sola sección «Detección»: sus
+pantallas se reparten por lo que la persona viene a hacer. Las rutas (`/detection/…`) no cambian.
+**Riesgos** (sección propia, portada de `/detection/`: registro ISO/IEC 27005 con matriz 5×5 de
+los riesgos listados, filtros por nivel, estado y tratamiento) · **Vulnerabilidades**
+(`/detection/vulnerabilities/`: consolidadas, ordenadas por puntaje contextual, con resumen y
+filtros; su segunda pestaña es Observaciones, la capa cruda con filtros, enlace a su vulnerabilidad
+y «Registrar observación») · **Operación** (Actividad, el flujo en vivo con una fila por acción y
+sus pasos plegados, y Cola de aprobación) · y, en **Administración**, la configuración: Fuentes
+CTI, Automatización y el perfil de la organización (**Administración › Organización**). Detalle de riesgo: descripción a alto nivel con consecuencia y fuente de amenaza,
 escenario, posible impacto, recomendaciones, valoración (probabilidad × impacto = nivel, por qué),
 posición en la matriz, evidencia técnica (cada vulnerabilidad ligada con puntajes, estado y lo que
 la sustenta), tratamiento (opción, responsable, residual, nota), notas, línea de tiempo y botones
@@ -432,9 +434,10 @@ evaluación contada como pasos queda desplegable. La tarjeta se refresca sola ca
 corre y cada 20 s mientras espera a una persona. Las pestañas **Riesgos · Vulnerabilidades ·
 Observaciones** del activo (tras Resumen, con conteos, solo con el permiso de cada capa) muestran
 las listas **dentro de la página del activo** (`detection.views.asset_tab_context`, mismas filas
-que las pantallas de Detección), con «Reevaluar con IA» / «Registrar observación» y un enlace
-«Abrir en Detección» para ver lo mismo con filtros y frente al resto de activos. El detalle de un
-riesgo, una vulnerabilidad o una observación sigue siendo una sola pantalla (la de Detección, su
+que las listas generales), con «Reevaluar con IA» / «Registrar observación» y un enlace
+«Abrir en Riesgos» / «Abrir en Vulnerabilidades» / «Abrir en Observaciones» para ver lo mismo con
+filtros y frente al resto de activos. El detalle de un
+riesgo, una vulnerabilidad o una observación sigue siendo una sola pantalla (la del módulo, su
 URL canónica), pero con miga y «Volver» hacia la pestaña del activo: no hay dos pantallas para el
 mismo objeto y la persona no pierde el contexto.
 
@@ -669,6 +672,95 @@ vulnerabilidades, una fila por vulnerabilidad aunque la lista esté agrupada por
 columnas son las mismas que la descarga de Inicio, más el responsable efectivo y su origen en los
 riesgos. Quien puede ver la lista puede exportarla.
 
+## Estructura y lectura (revisión del 2026-11-16, bloque 5)
+
+### La ficha del riesgo (`risks.brief`, P3 y P11)
+
+La ficha abre con **tres líneas** que salen de datos ya calculados, no del modelo: *qué puede
+pasar* (la primera frase del impacto), *por qué este nivel* (probabilidad × impacto y la lectura
+determinista de inteligencia, `intelligence()["text"]`) y *qué sigue* (falta decidir y cuándo
+vence el plazo, o el tratamiento decidido con su fecha y responsable, o que está cerrado). Junto
+a ellas va la matriz **reducida** (`_risk_matrix.html` con `mini=True`).
+
+La lectura de inteligencia se decía cuatro veces; ahora una en el resumen y, explicada, en su
+sección. «Detalles» se muestra sin su párrafo «Sustento:» (`risks.details_without_support`; el
+texto guardado y el reporte lo conservan) y desaparecen los párrafos «Detalle técnico» y «Lectura
+de la IA». Descripción, recomendaciones y evidencia quedan a la vista; **Detalles, Inteligencia de
+amenazas y Valoración van plegadas** (`details.section-fold`) con lo esencial en su título. La
+columna de decisión (tratamiento, responsable, comprobación) es `sticky` en escritorio; con el
+tratamiento ya decidido su formulario se pliega tras «Cambiar el tratamiento». En teléfono, un
+botón fijo «Decidir tratamiento» lleva al formulario y se retira cuando este entra en pantalla
+(`data-sticky-action` en `atalaya.js`).
+
+### Lo que encabeza un riesgo (`Risk.subject`, C2)
+
+El título guardado sigue la fórmula «Consecuencia en activo por causa». En las listas, el
+buscador y la ficha encabeza **la causa** (`Risk.subject`: el software o la vía de ataque, sin
+repetir el nombre del activo) y la consecuencia va debajo: «Fuga de información en…» y
+«Compromiso del…» se repetían fila tras fila y no distinguían un riesgo de otro. Inicio y los
+reportes conservan el enunciado completo. Al guardar, `fix_title` ahora también sustituye la
+cabeza «Compromiso del <activo>» por la consecuencia de su campo y quita de la causa el nombre del
+activo.
+
+### Recomendaciones que piden hacer algo (`risks.actionable_recommendations`, C2)
+
+«Verificar la corrección con un nuevo escaneo» no es una recomendación: es el botón «Ya lo
+corregí: comprobar». La regla descarta las recomendaciones que solo piden escanear o usar un
+escáner (por regla ya no se añade, y lo que escribe el modelo pasa por el mismo filtro al
+guardarse). Los riesgos valorados antes se muestran sin ellas (filtro `actionable` en la ficha y
+el reporte) sin tocar lo guardado.
+
+### Con la misma evidencia, la misma valoración (`risks.evidence_fingerprint`)
+
+Cada valoración guarda la huella de lo que la sustenta (`Risk.evidence_fingerprint`): qué
+vulnerabilidades, en qué estado, si están en KEV, si su EPSS es alto, su severidad y el contexto
+del activo (criticidad, exposición, entorno, función y datos). No entra lo que cambia sin que
+cambie la evidencia: el EPSS de cada día, las fechas, la redacción. Si el modelo vuelve a valorar
+un riesgo que él mismo valoró y la huella es la misma, **se conserva la valoración anterior** y el
+razonamiento lo dice («se conserva la valoración anterior porque la evidencia no cambió (el modelo
+proponía 2 × 3)»). Las anclas siguen aplicando encima. Un riesgo valorado antes de esta regla no
+tiene huella: la primera valoración la guarda. Al reabrirse un riesgo, la línea de tiempo dice
+primero que volvió y después cómo quedó valorado.
+
+### Un riesgo que el modelo expresa distinto sigue siendo el mismo (`risks._same_risk`)
+
+La clave de un riesgo es consecuencia + fuente de amenaza + vulnerabilidad principal. La fuente y
+la consecuencia las elige el modelo, y con la misma evidencia cambian de una corrida a otra
+(«atacante externo» → «cadena de suministro», «fuga de información» → «pérdida financiera»). Cada
+cambio cerraba el riesgo como «reemplazado» y abría otro: se perdían su dirección, su línea de
+tiempo y su responsable, la regla de «misma evidencia, misma valoración» no encontraba la
+valoración anterior y **el plazo volvía a empezar**. Ahora:
+
+- Si la clave exacta no existe, es el mismo riesgo el del activo que tiene **la misma
+  vulnerabilidad principal**: conserva su fila y toma la clave nueva. Primero uno abierto (antes
+  el que tiene tratamiento decidido); si no, el que se cerró más recientemente. No se le da a
+  otro un riesgo que esta misma valoración va a encontrar por su clave exacta: dos riesgos con
+  la misma vulnerabilidad principal y consecuencias distintas siguen pudiendo convivir.
+- La línea de tiempo lo dice con una nota: «La valoración lo expresa de otra forma; antes:
+  «…». Es el mismo riesgo: su vulnerabilidad principal es la misma».
+- «Reemplazado» queda para cuando la valoración agrupa distinto de verdad (ningún riesgo nuevo
+  tiene esa vulnerabilidad principal). Si después vuelve a expresarlo, la línea de tiempo dice
+  «La valoración del activo vuelve a expresarlo», no que «vuelve a tener vulnerabilidades».
+
+### El plazo no se reinicia al reagrupar (`risks._known_since`)
+
+El plazo de la política cuenta desde que el riesgo se identificó. Un riesgo que nace porque la
+valoración partió otro en dos, o porque expresó lo mismo con otra vulnerabilidad principal, no es
+trabajo nuevo: toma la fecha del más antiguo de los **otros** riesgos del activo que ya tenían
+alguna de sus vulnerabilidades, y su evento «Identificado» lo dice («sus vulnerabilidades ya
+estaban en otro riesgo del activo desde el 2026-11-10: el plazo cuenta desde entonces»). La regla
+se aplica en cada valoración, así que un riesgo que hubiera estrenado plazo antes de ella lo
+recupera en la siguiente, con una nota en su línea de tiempo.
+
+### Actividad por acción (`activity.threads`, P7)
+
+En «Todo», cada fila es un **hilo**: el evento, la decisión del planificador, la acción, la
+herramienta y su bitácora, con la acción como cabeza, lo que resultó como detalle y los pasos
+plegados («N pasos»). Los hilos se eligen por su último movimiento y se traen completos. Lo que
+no cuelga de ningún evento (una pausa, un cambio de configuración) va como fila suelta. Las
+pestañas por tipo siguen siendo el listado plano. Lo que la persona desplegó sigue abierto tras
+el refresco de 10 s (`data-keep-open`).
+
 ## Título coherente con el software observado (`detection/titles.py`)
 
 El título de una vulnerabilidad lo escribe el modelo (al consolidar o al redactar) y se revisa por
@@ -754,7 +846,7 @@ docker compose exec backend python manage.py seed_lab_assets
 docker compose exec backend python manage.py seed_lab_detection
 ```
 
-Luego en **Detección › Actividad** se ve: lote CTI reconciliado (hallazgos para nginx 1.27.3,
+Luego en **Operación › Actividad** se ve: lote CTI reconciliado (hallazgos para nginx 1.27.3,
 PostgreSQL 16.4, Apache 2.4.49 en KEV), evaluaciones pedidas para `web01` y `web-pagos`, decisión del
 planificador (simulado), acción aprobada (modo automático), ejecución de nuclei en `worker-discovery`
 (requiere plantillas: ver abajo). Las pruebas automatizadas

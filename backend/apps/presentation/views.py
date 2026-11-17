@@ -823,6 +823,20 @@ class AdministrationView(PermissionRequiredMixin, TemplateView):
         return context
 
 
+class SearchView(TemplateView):
+    """Buscador global (N3): activos, riesgos, vulnerabilidades y catálogo de CVE en una sola
+    búsqueda. Cada grupo respeta el permiso de su lista (``presentation.search``)."""
+
+    template_name = "presentation/search.html"
+
+    def get_context_data(self, **kwargs):
+        from . import search
+
+        context = super().get_context_data(**kwargs)
+        context["search"] = search.search(self.request.user, self.request.GET.get("q", ""))
+        return context
+
+
 class SystemView(PermissionRequiredMixin, TemplateView):
     """Administración › Sistema: servicios, colas, datos de inteligencia y de escáneres, disco."""
 

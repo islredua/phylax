@@ -108,9 +108,9 @@ class Command(BaseCommand):
 
                     process_event_batch.delay(str(batch.pk))
             self.stdout.write(
-                "Evaluaciones pedidas para web01 y web-pagos (ver Detección › Actividad)."
+                "Evaluaciones pedidas para web01 y web-pagos (ver Operación › Actividad)."
             )
         self.stdout.write(
-            "Listo. Abre Detección › Panel; con LLM_MOCK_MODE=1 el planificador responde con la regla "
+            "Listo. Abre Vulnerabilidades; con LLM_MOCK_MODE=1 el planificador responde con la regla "
             "determinista y las herramientas corren en worker-discovery."
         )

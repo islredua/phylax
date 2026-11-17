@@ -1,0 +1,32 @@
+{% load inventory %}
+{# Lista de descubrimiento agrupada por lanzamiento (P8): pedir el escaneo de varios activos de una vez son N ejecuciones nacidas en el mismo instante; aquí son una fila con la suma de lo que encontraron y sus ejecuciones plegadas. #}
+<div class="table-wrap">
+  <table class="data-table">
+    <thead><tr><th scope="col">Fecha</th><th scope="col">Perfil</th><th scope="col">Objetivo</th><th scope="col">Estado</th><th scope="col">Hosts</th><th scope="col" class="col-md">Nuevos</th><th scope="col" class="col-md">Actualizados</th><th scope="col" class="col-md">Conflictos</th><th scope="col" class="col-lg">Solicitó</th><th scope="col"></th></tr></thead>
+    <tbody>
+      {% for l in launches %}
+      {% if l.single %}{% include "discovery/_run_row.html" with r=l.first %}{% else %}
+      <tr class="row-top" data-launch="{{ l.key }}" data-launch-size="{{ l.count }}">
+        <td class="text-xs whitespace-nowrap">{{ l.created_at|hace }}</td>
+        <td class="whitespace-nowrap">{{ l.first.get_profile_display }}</td>
+        <td>
+          <details id="lanzamiento-{{ l.key }}">
+            <summary class="cursor-pointer">{{ l.count }} activos <span class="text-xs text-muted">en un lanzamiento</span></summary>
+            <ul class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+              {% for r in l.runs %}<li><a href="{% url 'discovery:run_detail' r.pk %}">{{ r.target_text|default:"ejecución" }}</a>{% if r.status != 'SUCCEEDED' %} {% run_status_badge r %}{% endif %}</li>{% endfor %}
+            </ul>
+          </details>
+        </td>
+        <td>{% launch_status_badges l.statuses %}</td>
+        <td class="font-mono">{{ l.hosts_up }}</td>
+        <td class="col-md font-mono">{{ l.assets_created }}</td>
+        <td class="col-md font-mono">{{ l.assets_updated }}</td>
+        <td class="col-md font-mono">{% if l.conflicts %}<a href="{% url 'assets:conflicts' %}" class="text-high">{{ l.conflicts }}</a>{% else %}0{% endif %}</td>
+        <td class="col-lg font-mono text-xs">{{ l.first.requested_by.get_username|default:"programado" }}</td>
+        <td></td>
+      </tr>
+      {% endif %}
+      {% empty %}<tr><td colspan="10" class="table-empty">{% if filters_active %}Ninguna ejecución coincide con estos filtros. <a href="{% url 'discovery:runs' %}">Limpiar filtros</a>{% else %}Sin ejecuciones todavía. Un descubrimiento recorre un rango autorizado con nmap y propone los equipos que encuentra como «por confirmar».{% endif %}</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>

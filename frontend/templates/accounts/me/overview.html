@@ -13,7 +13,7 @@
       <div><dt class="kv-label">Nombre</dt><dd class="kv-value">{{ user.get_full_name|default:"—" }}</dd></div>
       <div><dt class="kv-label">Correo</dt><dd class="kv-value">{{ user.email|default:"—" }}</dd></div>
       <div><dt class="kv-label">Último inicio de sesión</dt><dd class="kv-value font-mono text-xs">{{ user.last_login|fecha }}</dd></div>
-      <div><dt class="kv-label">Miembro desde</dt><dd class="kv-value font-mono text-xs">{{ user.date_joined|fecha_corta }}</dd></div>
+      <div><dt class="kv-label">Miembro desde</dt><dd class="kv-value font-mono text-xs">{{ user.date_joined|fecha }}</dd></div>
     </dl>
     <a href="{% url 'accounts:profile' %}" class="btn-secondary mt-4">Editar perfil</a>
   </section>

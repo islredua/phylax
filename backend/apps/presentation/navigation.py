@@ -2,7 +2,8 @@
 
 Patrón único para toda la interfaz:
 
-- La barra lateral muestra solo **secciones** de primer nivel.
+- La barra lateral muestra solo **secciones** de primer nivel: Inicio, Riesgos,
+  Vulnerabilidades, Inventario, Operación y Administración.
 - Cada sección se abre en su primera **pestaña** visible; sus subsecciones se
   muestran como pestañas en la parte superior de la página.
 
@@ -45,7 +46,8 @@ class Section:
     key: str
     label: str
     tabs: tuple[Tab, ...]
-    # "main": bloque principal de la barra lateral; "footer": bloque inferior.
+    # "main": bloque principal de la barra lateral; "footer": bloque inferior; "hidden": no
+    # aparece en la barra (se llega por otro control, como el buscador) pero da título y migas.
     placement: str = "main"
     # Rótulo opcional sobre el enlace en la barra lateral.
     group: str = ""
@@ -56,6 +58,61 @@ class Section:
 
 SECTIONS = (
     Section(key="home", label="Inicio", tabs=(Tab("home", "Inicio", "home"),)),
+    # Riesgos es el resultado del sistema y lo que una persona decide: tiene su propio lugar en
+    # la barra lateral (revisión del 2026-11-16, N1).
+    Section(
+        key="risks",
+        label="Riesgos",
+        tabs=(
+            Tab(
+                "risks",
+                "Riesgos",
+                "detection:risks",
+                ("detection.view_risk",),
+                (
+                    "detection:risk",
+                    "detection:risk_report",
+                    "detection:risk_treatment",
+                    "detection:risk_note",
+                    "detection:risk_assign",
+                    "detection:risk_verify",
+                    "detection:risk_verification",
+                ),
+            ),
+        ),
+    ),
+    # Lo que sustenta los riesgos: las vulnerabilidades consolidadas y su materia prima.
+    Section(
+        key="vulnerabilities",
+        label="Vulnerabilidades",
+        tabs=(
+            Tab(
+                "panel",
+                "Vulnerabilidades",
+                "detection:panel",
+                ("detection.view_vulnerability",),
+                (
+                    "detection:vulnerability",
+                    "detection:vulnerability_status",
+                    "detection:vulnerability_description",
+                    "detection:vulnerability_release",
+                    "detection:vulnerability_note",
+                    "detection:asset_consolidate",
+                ),
+            ),
+            Tab(
+                "observations",
+                "Observaciones",
+                "detection:observations",
+                ("detection.view_finding",),
+                (
+                    "detection:finding",
+                    "detection:finding_note",
+                    "detection:observation_new",
+                ),
+            ),
+        ),
+    ),
     Section(
         key="inventory",
         label="Inventario",
@@ -126,54 +183,19 @@ SECTIONS = (
             ),
         ),
     ),
+    # La maquinaria: qué hizo el sistema solo y qué espera una aprobación. Su configuración
+    # (automatización, fuentes) vive en Administración (N2).
     Section(
-        key="detection",
-        label="Detección",
+        key="operation",
+        label="Operación",
         tabs=(
             Tab(
-                "risks",
-                "Riesgos",
-                "detection:risks",
-                ("detection.view_risk",),
-                (
-                    "detection:risk",
-                    "detection:risk_report",
-                    "detection:risk_treatment",
-                    "detection:risk_note",
-                    "detection:risk_assign",
-                    "detection:risk_verify",
-                    "detection:risk_verification",
-                ),
+                "activity",
+                "Actividad",
+                "detection:activity",
+                ("detection.view_detectionevent",),
+                ("detection:event", "detection:action", "detection:execution"),
             ),
-            Tab(
-                "panel",
-                "Vulnerabilidades",
-                "detection:panel",
-                ("detection.view_vulnerability",),
-                (
-                    "detection:vulnerability",
-                    "detection:vulnerability_status",
-                    "detection:vulnerability_description",
-                    "detection:vulnerability_release",
-                    "detection:vulnerability_note",
-                    "detection:asset_consolidate",
-                    "detection:event",
-                    "detection:action",
-                    "detection:execution",
-                ),
-            ),
-            Tab(
-                "observations",
-                "Observaciones",
-                "detection:observations",
-                ("detection.view_finding",),
-                (
-                    "detection:finding",
-                    "detection:finding_note",
-                    "detection:observation_new",
-                ),
-            ),
-            Tab("activity", "Actividad", "detection:activity", ("detection.view_detectionevent",)),
             Tab(
                 "queue",
                 "Cola de aprobación",
@@ -181,14 +203,6 @@ SECTIONS = (
                 ("detection.view_plannedaction",),
                 ("detection:queue_bulk",),
                 counter="approval",
-            ),
-            Tab("sources", "Fuentes CTI", "detection:sources", ("cti.view_ctisource",)),
-            Tab(
-                "automation",
-                "Automatización",
-                "detection:automation",
-                ("detection.view_automationsettings",),
-                ("detection:automation_pause",),
             ),
         ),
     ),
@@ -225,9 +239,10 @@ SECTIONS = (
             Tab("users", "Usuarios", "users:list", ("accounts.view_user",), ("users:*",)),
             Tab("audit", "Bitácora", "accounts:audit_log", ("accounts.view_auditlogentry",)),
             Tab("llm", "LLM", "llm:settings", ("llm.manage_llm",)),
+            # Qué muestra la portada (Inicio). Se llamaba «Inicio» y parecía un enlace a ella.
             Tab(
                 "home_settings",
-                "Inicio",
+                "Portada",
                 "home_settings",
                 ("presentation.change_presentationsettings",),
             ),
@@ -239,6 +254,22 @@ SECTIONS = (
                 "Plazos",
                 "detection:policy",
                 ("detection.change_treatmentpolicy", "accounts.view_auditlogentry"),
+            ),
+            # Toda la configuración vive aquí (N2). Como los plazos: el administrador la cambia,
+            # el Lector la consulta y el Analista llega por los enlaces de Operación, Inicio y la
+            # ficha del riesgo (la pantalla le responde aunque no vea Administración).
+            Tab(
+                "automation",
+                "Automatización",
+                "detection:automation",
+                ("detection.manage_automation", "accounts.view_auditlogentry"),
+                ("detection:automation_pause",),
+            ),
+            Tab(
+                "sources",
+                "Fuentes CTI",
+                "detection:sources",
+                ("cti.manage_sources", "accounts.view_auditlogentry"),
             ),
             Tab(
                 "catalogs",
@@ -264,6 +295,13 @@ SECTIONS = (
                 ("alerts:*",),
             ),
         ),
+    ),
+    # El buscador global está en la barra lateral como campo, no como enlace.
+    Section(
+        key="search",
+        label="Buscar",
+        placement="hidden",
+        tabs=(Tab("search", "Buscar", "search"),),
     ),
     Section(
         key="account",
@@ -330,7 +368,10 @@ def build_navigation(user, view_name):
             continue
         active_tab = next((t for t in tabs if view_name and t.matches_view(view_name)), None)
         item = NavItem(section.key, section.label, tabs[0].url_name, active=active_tab is not None)
-        (nav.footer if section.placement == "footer" else nav.main).append(item)
+        if section.placement == "footer":
+            nav.footer.append(item)
+        elif section.placement != "hidden":
+            nav.main.append(item)
         if active_tab is not None:
             nav.section = item
             if len(tabs) > 1:
@@ -340,8 +381,20 @@ def build_navigation(user, view_name):
                 ]
             if section.key != "home":
                 nav.breadcrumbs = [NavItem("home", "Inicio", "home"), item]
-                if len(tabs) > 1:
+                # «Vulnerabilidades › Vulnerabilidades» no dice nada: la pestaña que se llama
+                # como su sección no repite la miga.
+                if len(tabs) > 1 and active_tab.label != section.label:
                     nav.breadcrumbs.append(
                         NavItem(active_tab.key, active_tab.label, active_tab.url_name)
                     )
+    if nav.section is None and view_name:
+        # La pantalla existe pero su sección no está en la barra de esta persona (el Analista
+        # que llega a Automatización, Fuentes CTI o Plazos por un enlace): lleva el nombre de su
+        # pestaña como título y una miga para volver, sin abrirle la sección.
+        tab = next(
+            (t for section in SECTIONS for t in section.tabs if t.matches_view(view_name)), None
+        )
+        if tab is not None:
+            nav.section = NavItem(tab.key, tab.label, tab.url_name)
+            nav.breadcrumbs = [NavItem("home", "Inicio", "home"), nav.section]
     return nav

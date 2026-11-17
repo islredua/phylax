@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% load detection_tags inventory %}
 {% block title %}{{ risk.title }}{% endblock %}
-{% block breadcrumb_tail %}<li><a href="{% url 'assets:detail' risk.asset_id %}?tab=riesgos">{{ risk.asset.name }}</a></li><li>{{ risk.headline|truncatechars:60 }}</li>{% endblock %}
+{% block breadcrumb_tail %}<li><a href="{% url 'assets:detail' risk.asset_id %}?tab=riesgos">{{ risk.asset.name }}</a></li><li>{{ risk.subject|truncatechars:60 }}</li>{% endblock %}
 {% block toolbar %}
 <div class="toolbar">
   <div class="flex flex-wrap items-center gap-2">
-    <h2>{{ risk.headline }}</h2>
+    <h2>{{ risk.subject }}</h2>
     {% risk_level_badge risk.level %}{% risk_status_badge risk.status %}{% status_source_badge risk.assessment_source %}
     {% if consolidation_pending %}<span class="badge-primary">la IA está reevaluando</span>{% endif %}
   </div>
@@ -28,15 +28,25 @@
   </span>
 </div>
 {% endif %}
-{% if risk.cause %}<p class="-mt-2 text-sm text-ink-soft">por {{ risk.cause }}</p>{% endif %}
+{% if risk.cause %}<p class="-mt-2 text-sm text-ink-soft" title="{{ risk.title }}">{{ risk.headline }}</p>{% endif %}
 {% if closure %}
 <div class="alert-info" role="status">
   <strong>Riesgo cerrado el {{ closure.at|fecha }}:</strong> {{ closure.message }}.
-  {% if closure.replacements %} Hoy sus vulnerabilidades se expresan en {% for r in closure.replacements %}<a href="{% url 'detection:risk' r.pk %}" class="font-medium">{{ r.headline }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}.{% endif %}
+  {% if closure.replacements %} Hoy sus vulnerabilidades se expresan en {% for r in closure.replacements %}<a href="{% url 'detection:risk' r.pk %}" class="font-medium">{{ r.subject }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}.{% endif %}
   Si la valoración vuelve a sostenerlo, se reabre solo con su historia.
 </div>
 {% endif %}
-<div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+{# Lo esencial sin desplazar (P3): tres líneas y la posición en la matriz. Lo que antes se repetía en cuatro secciones (explotación activa y probabilidad) se dice aquí una vez. #}
+<section class="card grid grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_auto]" data-risk-brief>
+  <dl class="flex flex-col gap-2 text-sm">
+    {% for label, text in brief %}<div class="grid grid-cols-1 gap-x-3 sm:grid-cols-[9rem_minmax(0,1fr)]"><dt class="kv-label sm:pt-0.5">{{ label }}</dt><dd class="text-ink">{{ text }}</dd></div>{% endfor %}
+  </dl>
+  <div class="flex flex-col gap-1">
+    <p class="kv-label">Posición en la matriz</p>
+    {% include "detection/_risk_matrix.html" with matrix=matrix compact=True mini=True asset_id=risk.asset_id %}
+  </div>
+</section>
+<div class="grid items-start grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
   <div class="flex flex-col gap-4">
     <section class="card">
       <h3 class="card-title">Descripción</h3>
@@ -47,21 +57,22 @@
       <p class="mt-4 text-xs text-muted">{% if risk.assessment_source == 'AI' %}Redactado y valorado por IA ({{ risk.model }}, prompt {{ risk.prompt_version }}) el {{ risk.assessed_at|fecha }}; se revalora en cada consolidación del activo. El tratamiento es siempre decisión de una persona.{% else %}Redactado por regla (sin IA) el {{ risk.assessed_at|fecha }}, a partir de las vulnerabilidades ligadas; la valoración sale de explotabilidad, explotación activa, exposición y criticidad.{% if perms.detection.request_evaluation %} Pulsa «Reevaluar con IA» para que el modelo lo redacte y valore.{% endif %}{% endif %}</p>
     </section>
 
-    <section class="card">
-      <h3 class="card-title">Detalles</h3>
-      <p class="mb-3 text-xs text-muted">Para el equipo técnico: software y versiones afectadas, cómo se encadenaría el ataque y qué lo sustenta. Las vulnerabilidades que cita el texto abren su ficha en otra pestaña; la lista completa está en la evidencia técnica.</p>
-      <div class="flex flex-col gap-2 text-sm">{% risk_text risk.details|default:risk.scenario risk %}</div>
-      <p class="kv-label mt-4">Recomendaciones</p>
-      {% if risk.recommendations %}<ol class="mt-1 flex list-decimal flex-col gap-1 pl-5 text-sm text-ink-soft marker:text-muted">{% for r in risk.recommendations %}<li>{{ r }}</li>{% endfor %}</ol>{% else %}<p class="mt-1 text-sm text-muted">Sin recomendaciones propias; ver las acciones de cada vulnerabilidad ligada.</p>{% endif %}
+    <section class="card" id="recomendaciones">
+      <h3 class="card-title">Recomendaciones</h3>
+      {% with recs=risk.recommendations|actionable %}{% if recs %}<ol class="flex list-decimal flex-col gap-1 pl-5 text-sm text-ink-soft marker:text-muted">{% for r in recs %}<li>{{ r }}</li>{% endfor %}</ol>{% else %}<p class="text-sm text-muted">Sin recomendaciones propias; ver las acciones de cada vulnerabilidad ligada.</p>{% endif %}{% endwith %}
+      {% if not closure %}<p class="mt-3 text-xs text-muted">Comprobar que quedó corregido no es una recomendación más: se hace en <a href="#comprobacion">«¿Ya se corrigió?»</a>, en esta misma ficha.</p>{% endif %}
     </section>
 
-    <section class="card">
-      <h3 class="card-title">Inteligencia de amenazas</h3>
-      <p class="mb-3 flex flex-wrap gap-1">{% intel_badges risk as badges %}{% if badges %}{{ badges }}{% else %}<span class="badge-neutral">sin explotación conocida</span>{% endif %}</p>
+    {# Secciones de consulta, plegadas: su título ya dice lo esencial. #}
+    <details class="card section-fold" id="detalles">
+      <summary>Detalles <span class="section-hint">para el equipo técnico: software afectado y cadena de ataque</span></summary>
+      <p class="mb-3 text-xs text-muted">Software y versiones afectadas y cómo se encadenaría el ataque; lo que dice la inteligencia de amenazas va en su sección. Las vulnerabilidades que cita el texto abren su ficha en otra pestaña; la lista completa está en la evidencia técnica.</p>
+      <div class="flex flex-col gap-2 text-sm">{% risk_text details_text|default:risk.scenario risk %}</div>
+    </details>
+
+    <details class="card section-fold" id="inteligencia">
+      <summary>Inteligencia de amenazas {% intel_badges risk as badges %}{% if badges %}{{ badges }}{% else %}<span class="badge-neutral">sin explotación conocida</span>{% endif %}</summary>
       <p class="text-ink-soft">{{ intel.plain }}</p>
-      <p class="kv-label mt-4">Detalle técnico</p>
-      <p class="mt-1 text-sm text-ink-soft">{{ intel.text }}</p>
-      {% if risk.intelligence_summary and risk.assessment_source == 'AI' and risk.intelligence_summary != intel.text %}<p class="kv-label mt-4">Lectura de la IA</p><p class="mt-1 text-sm text-ink-soft">{{ risk.intelligence_summary }}</p>{% endif %}
       <dl class="kv-grid mt-4 text-sm">
         <div><dt class="kv-label">En el catálogo de explotación activa (KEV, CISA)</dt><dd class="kv-value">{{ intel.kev_count }} de {{ intel.total }}{% if intel.kev_since %} · desde el {{ intel.kev_since|fecha }}{% endif %}{% if intel.ransomware_count %} · {{ intel.ransomware_count }} en ransomware{% endif %}</dd></div>
         <div><dt class="kv-label">Plazo de remediación que fijó CISA</dt><dd class="kv-value">{% if intel.kev_due %}{{ intel.kev_due|fecha }}{% if intel.kev_overdue %} <span class="badge-critical">vencido</span>{% endif %}{% else %}—{% endif %}</dd></div>
@@ -69,10 +80,10 @@
         <div><dt class="kv-label">Confirmadas por más de una fuente</dt><dd class="kv-value">{{ intel.multi_source_count }} de {{ intel.total }}{% if intel.cti_only_count %} · {{ intel.cti_only_count }} solo por inteligencia{% endif %}</dd></div>
       </dl>
       <p class="mt-3 text-xs text-muted">Datos del espejo local de NVD, del catálogo KEV de CISA y de EPSS (FIRST), sincronizados en <a href="{% url 'detection:sources' %}">Fuentes CTI</a>. La probabilidad del riesgo tiene un piso cuando hay explotación activa en un activo expuesto.</p>
-    </section>
+    </details>
 
-    <section class="card">
-      <h3 class="card-title">Valoración (ISO/IEC 27005)</h3>
+    <details class="card section-fold" id="valoracion">
+      <summary>Valoración (ISO/IEC 27005) {% risk_level_badge risk.level %} <span class="section-hint font-mono">probabilidad {{ risk.likelihood }} × impacto {{ risk.impact }} = {{ risk.score }}</span></summary>
       <dl class="kv-grid text-sm">
         <div><dt class="kv-label">Activo</dt><dd class="kv-value"><a href="{% url 'assets:detail' risk.asset_id %}">{{ risk.asset.name }}</a> · {{ risk.environment|catalog:"ENVIRONMENT" }}</dd></div>
         <div><dt class="kv-label">Fuente de amenaza</dt><dd class="kv-value">{{ risk.get_threat_source_display }}</dd></div>
@@ -82,9 +93,9 @@
         <div><dt class="kv-label">Identificado / valorado</dt><dd class="kv-value font-mono text-xs">{{ risk.first_identified_at|fecha }} · {{ risk.assessed_at|fecha }}</dd></div>
       </dl>
       {% if risk.rationale %}<p class="kv-label mt-4">Por qué estos valores</p><p class="mt-1 text-sm text-ink-soft">{{ risk.rationale }}</p>{% endif %}
-    </section>
+    </details>
 
-    <section class="card">
+    <section class="card" id="evidencia">
       <h3 class="card-title">Evidencia técnica <span class="font-mono text-xs font-normal text-muted">{{ evidence|length|pl:"vulnerabilidad,vulnerabilidades" }}</span></h3>
       <div class="table-wrap">
         <table class="data-table">
@@ -105,34 +116,8 @@
     </section>
   </div>
 
-  <div class="flex flex-col gap-4">
-    <section class="card flex flex-col gap-2">
-      <h3 class="card-title mb-0">Posición en la matriz</h3>
-      {% include "detection/_risk_matrix.html" with matrix=matrix compact=True asset_id=risk.asset_id %}
-    </section>
-
-    <section class="card flex flex-col gap-2" id="responsable">
-      <h3 class="card-title mb-0">Responsable</h3>
-      {% if responsible %}
-      <p class="text-sm"><strong class="font-medium"><a href="{% url 'detection:risks' %}?owner={{ responsible.label|urlencode }}" title="Todos los riesgos de este responsable">{{ responsible.label }}</a></strong>{% if responsible.note %} <span class="badge-neutral">{{ responsible.note }}</span>{% endif %}</p>
-      <p class="text-xs text-muted">{% if responsible.inherited %}Nadie lo asignó en el riesgo: responde quien lleva el activo{% if responsible.has_account %} y lo ve en «a mi nombre»{% endif %}.{% elif responsible.has_account %}Asignado{% if risk.assigned_by %} por <span class="font-mono">{{ risk.assigned_by.get_username }}</span>{% endif %}{% if risk.assigned_at %} el {{ risk.assigned_at|fecha }}{% endif %}. Lo ve en «a mi nombre» y recibe el aviso.{% else %}Sin cuenta en la plataforma: no recibe avisos ni lo ve en «a mi nombre».{% endif %}</p>
-      {% else %}
-      <p class="text-sm {% if closure %}text-muted{% else %}text-high{% endif %}">Sin responsable: ni el riesgo ni el activo tienen uno.</p>
-      {% endif %}
-      {% if perms.detection.work_findings and not closure %}
-      <form method="post" action="{% url 'detection:risk_assign' risk.pk %}" class="flex flex-col gap-2 border-t border-line-soft pt-2">
-        {% csrf_token %}
-        <input type="hidden" name="next" value="{{ request.get_full_path }}">
-        <label class="form-label" for="assign-responsible">Cambiar responsable</label>
-        <div class="flex flex-wrap gap-2">
-          <select id="assign-responsible" name="responsible" class="form-input min-w-0 grow basis-40">{% for value, label in responsible_choices %}<option value="{{ value }}"{% if value == responsible_choice %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
-          <button class="btn-secondary btn-sm" type="submit">Asignar</button>
-        </div>
-        <div data-reveal-for="assign-responsible" data-reveal-value="other"><label class="form-label" for="assign-owner">Equipo o persona sin cuenta</label><input id="assign-owner" name="owner" class="form-input" maxlength="120" value="{{ risk.owner }}" placeholder="Infraestructura, proveedor…"></div>
-      </form>
-      {% endif %}
-    </section>
-
+  {# La columna de decisión acompaña al desplazar: el formulario queda siempre a la vista. #}
+  <div class="sticky-col flex flex-col gap-4">
     {# Con tratamiento decidido (o una comprobación ya pedida) lo siguiente es comprobar; sin él, decidir. #}
     {% if risk.treatment or verification.latest %}{% include "detection/_risk_verification.html" %}{% endif %}
 
@@ -140,21 +125,22 @@
       <h3 class="card-title mb-0">Tratamiento</h3>
       {% if risk.treatment %}
       <p class="text-sm">{{ risk.get_treatment_display }}</p>
-      {% if risk.target_date %}<p class="text-sm">Fecha compromiso: <span class="font-mono text-xs">{{ risk.target_date|fecha_corta }}</span>{% if risk.target_overdue %} <span class="badge-critical">vencida</span>{% endif %}</p>{% endif %}
-      {% if risk.review_at %}<p class="text-sm">Revisar la decisión el <span class="font-mono text-xs">{{ risk.review_at|fecha_corta }}</span>{% if risk.review_overdue %} <span class="badge-high">revisión vencida</span>{% endif %}</p>{% endif %}
+      {% if risk.target_date %}<p class="text-sm">Fecha compromiso: <span class="font-mono text-xs">{{ risk.target_date|fecha }}</span>{% if risk.target_overdue %} <span class="badge-critical">vencida</span>{% endif %}</p>{% endif %}
+      {% if risk.review_at %}<p class="text-sm">Revisar la decisión el <span class="font-mono text-xs">{{ risk.review_at|fecha }}</span>{% if risk.review_overdue %} <span class="badge-high">revisión vencida</span>{% endif %}</p>{% endif %}
       <p class="text-xs text-muted">Decidido por <span class="font-mono">{{ risk.decided_by.get_username|default:"—" }}</span> el {{ risk.decided_at|fecha }}.{% if risk.treatment_note %} «{{ risk.treatment_note }}»{% endif %}</p>
       {% if risk.residual_level %}<p class="text-sm">Riesgo residual: {% risk_level_badge risk.residual_level %} <span class="font-mono text-xs text-muted">{{ risk.residual_likelihood }} × {{ risk.residual_impact }}</span></p>{% endif %}
       {% elif closure %}<p class="text-xs text-muted">Se cerró sin tratamiento decidido: no hace falta decidir nada mientras siga cerrado.</p>
       {% else %}<p class="text-xs text-muted">Nadie ha decidido todavía qué hacer con este riesgo. La IA no decide tratamientos.</p>{% endif %}
       {% if deadline %}
       <div class="rounded border border-line bg-canvas px-3 py-2 text-sm" data-deadline="{{ deadline.state }}">
-        <p>Plazo según la política: <strong class="font-medium">{{ deadline.date|fecha_corta }}</strong> <span class="{% if deadline.state == 'late' %}badge-critical{% elif deadline.state == 'ok' %}badge-neutral{% else %}badge-high{% endif %}">{{ deadline.when }}</span></p>
-        <p class="text-xs text-muted">{{ deadline.rule|capfirst }} ({{ deadline.identified|fecha_corta }}).{% if deadline.overdue and not risk.treatment %} Ya venció: al decidir, fija la fecha en que quedará resuelto.{% endif %}</p>
+        <p>Plazo según la política: <strong class="font-medium">{{ deadline.date|fecha }}</strong> <span class="{% if deadline.state == 'late' %}badge-critical{% elif deadline.state == 'ok' %}badge-neutral{% else %}badge-high{% endif %}">{{ deadline.when }}</span></p>
+        <p class="text-xs text-muted">{{ deadline.rule|capfirst }} ({{ deadline.identified|fecha }}).{% if deadline.overdue and not risk.treatment %} Ya venció: al decidir, fija la fecha en que quedará resuelto.{% endif %}</p>
       </div>
       {% endif %}
       {% if perms.detection.work_findings %}
       {% if not closure %}
-      <form method="post" action="{% url 'detection:risk_treatment' risk.pk %}" class="flex flex-col gap-2 border-t border-line-soft pt-3">
+      {% if risk.treatment %}<details class="fold border-t border-line-soft pt-3" data-treatment-change><summary>Cambiar el tratamiento</summary>{% endif %}
+      <form method="post" action="{% url 'detection:risk_treatment' risk.pk %}" class="flex flex-col gap-2 {% if risk.treatment %}mt-2{% else %}border-t border-line-soft pt-3{% endif %}">
         {% csrf_token %}
         {% if queue %}<input type="hidden" name="cola" value="{{ queue.query }}"><input type="hidden" name="next" value="{{ request.get_full_path }}">{% endif %}
         <label class="form-label" for="treatment">Opción (ISO/IEC 27005)</label>
@@ -166,22 +152,51 @@
           <div><label class="form-label" for="target_date">Fecha compromiso</label><input id="target_date" name="target_date" type="date" class="form-input" value="{{ suggested_target|date:'Y-m-d' }}"><p class="form-help">Obligatoria al mitigar o transferir.{% if suggested_target and not risk.target_date %} Propuesta: el plazo de la política.{% endif %}</p></div>
           <div><label class="form-label" for="review_at">Revisar el</label><input id="review_at" name="review_at" type="date" class="form-input" value="{{ risk.review_at|date:'Y-m-d' }}"><p class="form-help">Al aceptar; si se deja vacío, en {{ policy.accept_review_days }} días.</p></div>
         </div>
-        <div class="grid grid-cols-2 gap-2">
+        <details class="fold"{% if risk.residual_likelihood or risk.residual_impact %} open{% endif %}><summary>Riesgo residual (opcional)</summary>
+        <div class="mt-2 grid grid-cols-2 gap-2">
           <div><label class="form-label" for="residual_likelihood">Probabilidad residual</label><select id="residual_likelihood" name="residual_likelihood" class="form-input"><option value="">—</option>{% for i in "12345" %}<option value="{{ i }}"{% if risk.residual_likelihood|stringformat:"s" == i %} selected{% endif %}>{{ i }}</option>{% endfor %}</select></div>
           <div><label class="form-label" for="residual_impact">Impacto residual</label><select id="residual_impact" name="residual_impact" class="form-input"><option value="">—</option>{% for i in "12345" %}<option value="{{ i }}"{% if risk.residual_impact|stringformat:"s" == i %} selected{% endif %}>{{ i }}</option>{% endfor %}</select></div>
         </div>
+        </details>
         <label class="form-label" for="treatment-note">Nota (obligatoria para aceptar)</label>
         <textarea id="treatment-note" name="note" class="form-input" rows="3" maxlength="2000"></textarea>
         <button class="btn-primary" type="submit">{% if risk.treatment %}Actualizar tratamiento{% else %}Registrar tratamiento{% endif %}</button>
       </form>
+      {% if risk.treatment %}</details>{% endif %}
       {% endif %}
-      <form method="post" action="{% url 'detection:risk_note' risk.pk %}" class="flex flex-col gap-2 border-t border-line-soft pt-3">
+      <details class="fold border-t border-line-soft pt-3"><summary>Agregar una nota</summary>
+      <form method="post" action="{% url 'detection:risk_note' risk.pk %}" class="mt-2 flex flex-col gap-2">
         {% csrf_token %}
-        <label class="form-label" for="note-text">Agregar nota</label>
+        <label class="sr-only" for="note-text">Agregar nota</label>
         <textarea id="note-text" name="text" class="form-input" rows="2" maxlength="2000" required></textarea>
         <button class="btn-secondary btn-sm" type="submit">Guardar nota</button>
       </form>
+      </details>
       {% else %}<p class="text-sm text-muted">Solo lectura.</p>{% endif %}
+    </section>
+
+    <section class="card flex flex-col gap-2" id="responsable">
+      <h3 class="card-title mb-0">Responsable</h3>
+      {% if responsible %}
+      <p class="text-sm"><strong class="font-medium"><a href="{% url 'detection:risks' %}?owner={{ responsible.label|urlencode }}" title="Todos los riesgos de este responsable">{{ responsible.label }}</a></strong>{% if responsible.note %} <span class="badge-neutral">{{ responsible.note }}</span>{% endif %}</p>
+      <p class="text-xs text-muted">{% if responsible.inherited %}Nadie lo asignó en el riesgo: responde quien lleva el activo{% if responsible.has_account %} y lo ve en «a mi nombre»{% endif %}.{% elif responsible.has_account %}Asignado{% if risk.assigned_by %} por <span class="font-mono">{{ risk.assigned_by.get_username }}</span>{% endif %}{% if risk.assigned_at %} el {{ risk.assigned_at|fecha }}{% endif %}. Lo ve en «a mi nombre» y recibe el aviso.{% else %}Sin cuenta en la plataforma: no recibe avisos ni lo ve en «a mi nombre».{% endif %}</p>
+      {% else %}
+      <p class="text-sm {% if closure %}text-muted{% else %}text-high{% endif %}">Sin responsable: ni el riesgo ni el activo tienen uno.</p>
+      {% endif %}
+      {% if perms.detection.work_findings and not closure %}
+      <details class="fold border-t border-line-soft pt-2"{% if not responsible %} open{% endif %}><summary>Cambiar responsable</summary>
+      <form method="post" action="{% url 'detection:risk_assign' risk.pk %}" class="mt-2 flex flex-col gap-2">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <label class="sr-only" for="assign-responsible">Responsable</label>
+        <div class="flex flex-wrap gap-2">
+          <select id="assign-responsible" name="responsible" class="form-input min-w-0 grow basis-40">{% for value, label in responsible_choices %}<option value="{{ value }}"{% if value == responsible_choice %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+          <button class="btn-secondary btn-sm" type="submit">Asignar</button>
+        </div>
+        <div data-reveal-for="assign-responsible" data-reveal-value="other"><label class="form-label" for="assign-owner">Equipo o persona sin cuenta</label><input id="assign-owner" name="owner" class="form-input" maxlength="120" value="{{ risk.owner }}" placeholder="Infraestructura, proveedor…"></div>
+      </form>
+      </details>
+      {% endif %}
     </section>
 
     {% if not risk.treatment and not verification.latest %}{% include "detection/_risk_verification.html" %}{% endif %}
@@ -196,7 +211,7 @@
       <tbody>
         {% for ev in timeline %}
         <tr>
-          <td class="font-mono text-xs whitespace-nowrap">{{ ev.occurred_at|fecha:True }}</td>
+          <td class="font-mono text-xs whitespace-nowrap">{{ ev.occurred_at|momento }}</td>
           <td><span class="badge-neutral">{{ ev.get_kind_display }}</span></td>
           <td class="text-xs text-ink-soft">{{ ev.message|legible }}</td>
           <td class="font-mono text-xs">{{ ev.actor.get_username|default:"sistema" }}</td>
@@ -206,4 +221,9 @@
     </table>
   </div>
 </section>
+{# Teléfono (P11): el formulario queda al final de la ficha; el botón lo trae a un toque y se retira cuando ya está a la vista. #}
+{% if perms.detection.work_findings and not closure and not risk.treatment %}
+<div class="h-14 lg:hidden" aria-hidden="true"></div>
+<div class="sticky-action" data-sticky-action data-target="#tratamiento"><a href="#tratamiento" class="btn-primary w-full justify-center">Decidir tratamiento ↓</a></div>
+{% endif %}
 {% endblock %}

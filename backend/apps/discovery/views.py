@@ -1,5 +1,9 @@
 """Ejecuciones de descubrimiento: lista, detalle con auto-refresco, lanzar, cancelar y evidencia."""
 
+import ipaddress
+from collections import Counter
+from datetime import timedelta
+
 from django.contrib import messages
 from django.contrib.auth.mixins import PermissionRequiredMixin
 from django.core.exceptions import ValidationError
@@ -22,7 +26,7 @@ from apps.assets.models import Asset, CriticalitySuggestion, NetworkRange
 from apps.core.views import PaginationMixin
 
 from . import services
-from .models import DiscoveryRun
+from .models import DiscoveryRun, RunStatus
 
 
 class Perm(PermissionRequiredMixin):
@@ -102,20 +106,116 @@ def filter_runs(params):
     return qs, form
 
 
+# Un lanzamiento (P8): pedir el escaneo de servicios de varios activos de una vez (confirmar una
+# tanda, importar un inventario) crea una ejecución por activo en el mismo instante. En la lista
+# eran 19 filas iguales; ahora son una. Se reconocen por cómo nacen: misma persona, mismo perfil
+# y menos de este tiempo entre una y la siguiente (en la práctica, milisegundos).
+LAUNCH_GAP = timedelta(seconds=60)
+LAUNCH_STATUS_WORDS = {
+    RunStatus.RUNNING: ("en ejecución", "en ejecución"),
+    RunStatus.QUEUED: ("en cola", "en cola"),
+    RunStatus.FAILED: ("fallido", "fallidos"),
+    RunStatus.CANCELLED: ("cancelado", "cancelados"),
+    RunStatus.SUCCEEDED: ("completado", "completados"),
+}
+
+
+def group_launches(qs):
+    """Las ejecuciones agrupadas en lanzamientos, del más reciente al más antiguo: una lista de
+    listas de ``pk``. El descubrimiento de un rango es siempre un lanzamiento por sí mismo."""
+    rows = qs.order_by("-created_at", "pk").values_list(
+        "pk", "created_at", "requested_by_id", "profile", "network_range_id"
+    )
+    groups = []
+    open_groups = {}  # (quién, perfil) -> [grupo, creación de su ejecución más antigua]
+    for pk, created, requester, profile, range_id in rows:
+        current = None if range_id is not None else open_groups.get((requester, profile))
+        if current is not None and current[1] - created <= LAUNCH_GAP:
+            current[0].append(pk)
+            current[1] = created
+            continue
+        group = [pk]
+        groups.append(group)
+        if range_id is None:
+            open_groups[(requester, profile)] = [group, created]
+    return groups
+
+
+def target_text(run):
+    """Sobre qué se lanzó, también cuando el activo ya no está en el inventario: entonces lo
+    dicen las direcciones con las que se llamó a nmap."""
+    if run.network_range_id:
+        return run.network_range.name
+    if run.target_asset_id:
+        return run.target_asset.name
+    command = run.command or []
+    commands = [command] if command and isinstance(command[0], str) else command
+    addresses = []
+    for argv in commands:
+        for arg in reversed(argv if isinstance(argv, list) else []):
+            try:
+                ipaddress.ip_network(str(arg), strict=False)
+            except ValueError:
+                break
+            addresses.append(str(arg))
+    return ", ".join(sorted(set(addresses)))
+
+
+def launches_for(groups):
+    """Los lanzamientos de una página, con sus ejecuciones y la suma de lo que encontraron."""
+    ids = [pk for group in groups for pk in group]
+    runs = DiscoveryRun.objects.select_related(
+        "network_range", "target_asset", "requested_by"
+    ).in_bulk(ids)
+    launches = []
+    for group in groups:
+        members = [runs[pk] for pk in group if pk in runs]
+        if not members:
+            continue
+        for run in members:
+            run.target_text = target_text(run)
+        counts = Counter(run.status for run in members)
+        oldest = members[-1]
+        launches.append(
+            {
+                "key": str(oldest.pk),
+                "first": oldest,
+                "single": len(members) == 1,
+                "count": len(members),
+                "runs": sorted(members, key=lambda r: (r.target_text, r.created_at)),
+                "created_at": oldest.created_at,
+                "statuses": [
+                    (status, f"{counts[status]} {words[counts[status] != 1]}")
+                    for status, words in LAUNCH_STATUS_WORDS.items()
+                    if counts[status]
+                ],
+                "hosts_up": sum(r.hosts_up for r in members),
+                "assets_created": sum(r.assets_created for r in members),
+                "assets_updated": sum(r.assets_updated for r in members),
+                "conflicts": sum(r.conflicts for r in members),
+            }
+        )
+    return launches
+
+
 class RunListView(Perm, PaginationMixin, ListView):
     permission_required = "discovery.view_discoveryrun"
     template_name = "discovery/run_list.html"
-    context_object_name = "runs"
+    context_object_name = "groups"
     paginate_by = 25
 
     def get_queryset(self):
         qs, self.filter_form = filter_runs(self.request.GET)
-        return qs
+        groups = group_launches(qs)
+        self.total_runs = sum(len(group) for group in groups)
+        return groups
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         launch_form = DiscoveryLaunchFromListForm()
         context.update(
+            launches=launches_for(context["groups"]),
+            total_runs=self.total_runs,
             filter_form=self.filter_form,
             launch_form=launch_form,
             launchable=launch_form.fields["network_range"].queryset.exists(),

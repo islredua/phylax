@@ -29,7 +29,7 @@
   <a href="{% url 'detection:observations' %}{% if asset_id %}?asset={{ asset_id }}{% endif %}" class="card hover:no-underline" title="Capa cruda: lo que reportó cada herramienta"><p class="stat-label">Observaciones abiertas</p><p class="stat-value">{{ observations_open|miles }}{% if unconsolidated %} <span class="text-xs font-normal text-muted">{{ unconsolidated|miles }} sin consolidar</span>{% endif %}</p></a>
 </div>
 
-<form method="get" class="card grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6 lg:items-end">
+<form method="get" id="filtros" data-filter-form class="card grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6 lg:items-end">
   {% for field in filter_form %}{% if field.widget_type == 'hidden' %}{{ field }}{% elif field.widget_type == 'checkbox' %}
   <label class="flex items-center gap-2 pb-2 text-sm" title="{{ field.help_text }}">{{ field }} {{ field.label }}</label>
   {% else %}

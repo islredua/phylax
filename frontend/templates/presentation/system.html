@@ -66,7 +66,7 @@
       </div>
       {% if d.present %}
       <p class="stat-value">{{ d.age_days|dias }} <span class="text-xs font-normal text-muted">de antigüedad</span></p>
-      <p class="text-xs text-ink-soft">Datos del {{ d.data_date|fecha_corta }} · instalados el {{ d.installed_at|fecha_corta }}{% if d.count %} · {{ d.count|pl:"plantilla,plantillas" }}{% endif %}{% if d.version %} · <span class="font-mono">{{ d.version }}</span>{% endif %}</p>
+      <p class="text-xs text-ink-soft">Datos del {{ d.data_date|fecha }} · instalados el {{ d.installed_at|fecha }}{% if d.count %} · {{ d.count|pl:"plantilla,plantillas" }}{% endif %}{% if d.version %} · <span class="font-mono">{{ d.version }}</span>{% endif %}</p>
       {% else %}
       <p class="stat-value text-critical">Sin datos</p>
       {% endif %}
@@ -75,7 +75,7 @@
       <div class="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-2">
         <p class="text-xs text-ink-soft">
           {% if d.running %}<span class="pill-warn">{{ d.running.get_status_display|lower }}</span> {{ d.running.summary }}{% if d.running.requested_by %} · la pidió {{ d.running.requested_by.get_username }}{% endif %}
-          {% elif d.last_run %}Última actualización: <span title="{{ d.last_run.finished_at|fecha }}">{{ d.last_run.finished_at|fecha_corta }}</span> · {{ d.last_run.summary|lower }}
+          {% elif d.last_run %}Última actualización: {{ d.last_run.finished_at|hace }} · {{ d.last_run.summary|lower }}
           {% else %}Aún no se ha actualizado desde esta pantalla.{% endif %}
         </p>
         {% if can_update_data and not d.running %}<form method="post" action="{% url 'scanner_data_update' %}">{% csrf_token %}<input type="hidden" name="dataset" value="{{ d.key }}"><button type="submit" class="btn-secondary btn-sm">Actualizar</button></form>{% endif %}
@@ -96,7 +96,7 @@
             <td class="font-mono text-xs whitespace-nowrap">{{ r.created_at|fecha }}</td>
             <td class="text-sm">{{ r.get_dataset_display }}</td>
             <td class="col-md text-xs">{{ r.get_trigger_display }}{% if r.requested_by %} · {{ r.requested_by.get_username }}{% endif %}</td>
-            <td class="text-sm">{% if r.status == 'SUCCEEDED' %}<span class="badge-low">ok</span>{% elif r.status == 'FAILED' or r.status == 'INTERRUPTED' %}<span class="badge-critical">falló</span>{% else %}<span class="badge-primary">{{ r.get_status_display|lower }}</span>{% endif %} {{ r.summary }}{% if r.changed %} <span class="text-xs text-muted">del {{ r.data_date_before|fecha_corta }} al {{ r.data_date_after|fecha_corta }}</span>{% endif %}{% if r.detail %}<details class="fold mt-1"><summary class="text-xs">salida de la herramienta</summary><pre class="code-block mt-1 whitespace-pre-wrap">{{ r.detail }}</pre></details>{% endif %}</td>
+            <td class="text-sm">{% if r.status == 'SUCCEEDED' %}<span class="badge-low">ok</span>{% elif r.status == 'FAILED' or r.status == 'INTERRUPTED' %}<span class="badge-critical">falló</span>{% else %}<span class="badge-primary">{{ r.get_status_display|lower }}</span>{% endif %} {{ r.summary }}{% if r.changed %} <span class="text-xs text-muted">del {{ r.data_date_before|fecha }} al {{ r.data_date_after|fecha }}</span>{% endif %}{% if r.detail %}<details class="fold mt-1"><summary class="text-xs">salida de la herramienta</summary><pre class="code-block mt-1 whitespace-pre-wrap">{{ r.detail }}</pre></details>{% endif %}</td>
             <td class="col-md font-mono text-xs">{% if r.seconds is not None %}{% widthratio r.seconds 1 1000 as ms %}{{ ms|duracion }}{% else %}—{% endif %}</td>
           </tr>
           {% endfor %}

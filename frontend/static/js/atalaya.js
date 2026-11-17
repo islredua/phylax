@@ -196,6 +196,81 @@
     apply();
   }
 
+  // --- Buscador global: «/» lleva el cursor al campo de la barra lateral -----------------
+  function initGlobalSearch(input) {
+    document.addEventListener("keydown", function (e) {
+      if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return;
+      var tag = (e.target.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select" || e.target.isContentEditable) return;
+      // En pantallas angostas el campo está dentro del menú plegado: se abre primero.
+      var aside = input.closest("[data-nav]");
+      var menu = aside && aside.querySelector("[data-nav-menu]");
+      var toggle = aside && aside.querySelector("[data-nav-toggle]");
+      if (menu && menu.hidden && toggle) toggle.click();
+      e.preventDefault();
+      input.focus();
+      input.select();
+    });
+  }
+
+  // --- Filtros plegados en teléfono ([data-filter-form]) ---------------------------------
+  // Diez campos de filtro ocupaban dos pantallas antes de la primera fila. En teléfono quedan
+  // tras un botón que dice cuántos hay aplicados; en escritorio no cambia nada. Sin JavaScript
+  // el formulario se ve entero.
+  function initFilterFold(form) {
+    var phone = window.matchMedia("(max-width: 639px)");
+    var applied = 0;
+    new URLSearchParams(window.location.search).forEach(function (value, name) {
+      if (value && form.elements[name]) applied += 1;
+    });
+    var button = document.createElement("button");
+    button.type = "button";
+    button.className = "filter-toggle";
+    button.setAttribute("aria-controls", form.id);
+    button.textContent = applied
+      ? "Filtros · " + applied + (applied === 1 ? " aplicado" : " aplicados")
+      : "Filtros";
+    form.parentNode.insertBefore(button, form);
+    var open = false;
+    function sync() {
+      button.hidden = !phone.matches;
+      form.hidden = phone.matches && !open;
+      button.setAttribute("aria-expanded", phone.matches && open ? "true" : "false");
+    }
+    button.addEventListener("click", function () {
+      open = !open;
+      sync();
+    });
+    if (phone.addEventListener) phone.addEventListener("change", sync);
+    sync();
+  }
+
+  // --- Acción fija al pie en teléfono ([data-sticky-action] con data-target) --------------
+  // Se retira mientras su destino (el formulario) está a la vista: no tapa su propio botón.
+  function initStickyAction(bar) {
+    var target = document.querySelector(bar.getAttribute("data-target") || "");
+    if (!target || !("IntersectionObserver" in window)) return;
+    new IntersectionObserver(function (entries) {
+      bar.hidden = entries[entries.length - 1].isIntersecting;
+    }).observe(target);
+  }
+
+  // --- Refrescos de HTMX: lo que la persona desplegó sigue abierto ([data-keep-open]) -----
+  function initKeepOpen() {
+    var open = {};
+    document.body.addEventListener("htmx:beforeSwap", function (e) {
+      var box = e.target && e.target.closest && e.target.closest("[data-keep-open]");
+      if (!box) return;
+      open = {};
+      box.querySelectorAll("details[id][open]").forEach(function (d) { open[d.id] = true; });
+    });
+    document.body.addEventListener("htmx:afterSwap", function (e) {
+      var box = e.target && e.target.closest && e.target.closest("[data-keep-open]");
+      if (!box) return;
+      box.querySelectorAll("details[id]").forEach(function (d) { if (open[d.id]) d.open = true; });
+    });
+  }
+
   // --- Confirmación antes de acciones irreversibles ([data-confirm] en formularios) ------
   function initConfirm(form) {
     form.addEventListener("submit", function (e) {
@@ -300,12 +375,16 @@
     document.querySelectorAll("[data-bulk]").forEach(initBulk);
     document.querySelectorAll("[data-queue]").forEach(initQueue);
     document.querySelectorAll("[data-nav]").forEach(initNav);
+    document.querySelectorAll("[data-global-search]").forEach(initGlobalSearch);
     document.querySelectorAll("form[data-confirm]").forEach(initConfirm);
     document.querySelectorAll("[data-autosubmit]").forEach(initAutosubmit);
     document.querySelectorAll("[data-reveal-for]").forEach(initReveal);
     document.querySelectorAll('form[method="post"]:not([hx-post]):not([data-no-busy])').forEach(initSubmitOnce);
     initHtmxErrors();
     initPollingPause();
+    initKeepOpen();
+    document.querySelectorAll("[data-sticky-action]").forEach(initStickyAction);
+    document.querySelectorAll("form[data-filter-form]").forEach(initFilterFold);
   }
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", init);

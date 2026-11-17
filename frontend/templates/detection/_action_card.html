@@ -9,7 +9,7 @@
       {% if a.decision.fallback %}<span class="badge-medium" title="{{ a.decision.fallback_reason }}">por regla, sin LLM</span>{% endif %}
       {% model_warning a.decision.model_mismatch a.decision.model_requested a.decision.model_responded %}
     </div>
-    <p class="font-mono text-[11px] text-muted">{{ a.event.get_kind_display|lower }} · prioridad {{ a.priority }} · {{ a.created_at|fecha }}</p>
+    <p class="font-mono text-[11px] text-muted">{{ a.event.get_kind_display|lower }} · prioridad {{ a.priority }} · {{ a.created_at|hace }}</p>
   </div>
   <p class="text-ink-soft">{{ a.decision.rationale }}</p>
   {% if a.decision.evidence %}<ul class="flex flex-wrap gap-1">{% for e in a.decision.evidence %}<li class="badge-neutral">{{ e }}</li>{% endfor %}</ul>{% endif %}

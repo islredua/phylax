@@ -434,3 +434,95 @@ def test_asset_scan_completes_identifiers_and_requests_suggestion(
     kinds = set(asset.identifiers.values_list("kind", flat=True))
     assert {"IPV4", "MAC"} <= kinds  # la MAC observada por nmap se agrega sola
     assert (asset.pk, "SCAN") in triggered
+
+
+# --- Lista agrupada por lanzamiento (revisión del 2026-11-16, P8) ------------------
+
+
+def _asset_run(asset, user, minutes_ago, *, status=RunStatus.SUCCEEDED, seconds=0, **kw):
+    run = DiscoveryRun.objects.create(
+        target_asset=asset,
+        profile=DiscoveryProfile.SERVICE_SCAN,
+        requested_by=user,
+        status=status,
+        hosts_up=1,
+        assets_updated=1,
+        **kw,
+    )
+    created = NOW - timedelta(minutes=minutes_ago) + timedelta(seconds=seconds)
+    DiscoveryRun.objects.filter(pk=run.pk).update(created_at=created)
+    return run
+
+
+def test_run_list_groups_the_scans_of_one_launch(client, make_user, lab_range):
+    """Escanear 19 activos de una vez eran 19 filas iguales; ahora es una con todas dentro."""
+    from apps.discovery.views import group_launches
+
+    user = make_user(OPERATOR)
+    other = make_user(OPERATOR)
+    assets = [AssetFactory(name=f"equipo-{i:02d}") for i in range(4)]
+    # Un lanzamiento: cuatro ejecuciones nacidas en el mismo instante, una falló.
+    launch = [
+        _asset_run(
+            asset, user, 30, seconds=n, status=RunStatus.SUCCEEDED if n else RunStatus.FAILED
+        )
+        for n, asset in enumerate(assets)
+    ]
+    # No son del mismo lanzamiento: otra persona a la misma hora, y la misma persona más tarde.
+    by_other = _asset_run(assets[0], other, 30)
+    later = _asset_run(assets[0], user, 5)
+    # Un activo que ya no está en el inventario se nombra por la dirección que se escaneó.
+    gone = _asset_run(
+        assets[1], None, 300, command=[["/usr/bin/nmap", "-sV", "-oX", "-", "10.60.10.12"]]
+    )
+    DiscoveryRun.objects.filter(pk=gone.pk).update(target_asset=None)
+    # El descubrimiento de un rango siempre es una fila propia.
+    sweeps = [
+        DiscoveryRun.objects.create(
+            network_range=lab_range,
+            profile=DiscoveryProfile.HOST_SWEEP,
+            requested_by=user,
+            status=RunStatus.SUCCEEDED,
+        )
+        for _ in range(2)
+    ]
+
+    groups = group_launches(DiscoveryRun.objects.all())
+    assert sorted(len(g) for g in groups) == [1, 1, 1, 1, 1, 4]
+    assert {pk for g in groups if len(g) == 4 for pk in g} == {r.pk for r in launch}
+    assert sum(len(g) for g in groups) == DiscoveryRun.objects.count() == 9
+
+    client.force_login(user)
+    response = client.get("/discovery/runs/")
+    body = response.content.decode()
+    assert response.context["paginator"].count == 6 and response.context["total_runs"] == 9
+    assert "9 ejecuciones en 6 lanzamientos" in body
+    grouped = next(x for x in response.context["launches"] if not x["single"])
+    assert grouped["count"] == 4 and grouped["hosts_up"] == 4 and grouped["assets_updated"] == 4
+    assert [text for _status, text in grouped["statuses"]] == ["1 fallido", "3 completados"]
+    assert body.count("data-launch=") == 1 and 'data-launch-size="4"' in body
+    assert "4 activos" in body and "1 fallido" in body and "3 completados" in body
+    # Cada ejecución sigue a un clic, también las agrupadas.
+    for run in (*launch, by_other, later, gone, *sweeps):
+        assert f"/discovery/runs/{run.pk}/" in body
+    assert "10.60.10.12" in body and "El activo ya no está en el inventario" in body
+
+    # Los filtros agrupan lo que queda: solo la fallida, ya como fila suelta.
+    failed = client.get("/discovery/runs/", {"status": "FAILED"})
+    assert failed.context["paginator"].count == 1 and failed.context["launches"][0]["single"]
+    # La lista de un rango no cambia: sus ejecuciones no se agrupan.
+    page = client.get(f"/inventory/ranges/{lab_range.pk}/").content.decode()
+    assert all(f"/discovery/runs/{run.pk}/" in page for run in sweeps)
+
+
+def test_launch_grouping_follows_the_gap_between_runs(make_user):
+    from apps.discovery.views import LAUNCH_GAP, group_launches
+
+    user = make_user(OPERATOR)
+    asset = AssetFactory()
+    gap = int(LAUNCH_GAP.total_seconds())
+    # Una cadena de ejecuciones a menos del margen entre una y la siguiente es un lanzamiento,
+    # aunque de la primera a la última pase más; un hueco mayor lo corta.
+    for seconds in (0, gap - 1, 2 * gap - 2, 3 * gap + 10):
+        _asset_run(asset, user, 60, seconds=seconds)
+    assert [len(g) for g in group_launches(DiscoveryRun.objects.all())] == [1, 3]

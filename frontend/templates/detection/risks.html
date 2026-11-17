@@ -4,7 +4,7 @@
 {% block toolbar %}
 <div class="toolbar">
   <div class="flex flex-wrap items-center gap-2">
-    <h2>Riesgos{% if asset %} de {{ asset.name }}{% endif %} <span class="ml-1 font-mono text-xs font-normal text-muted">{{ paginator.count|miles }}</span></h2>
+    <h2>{% if asset %}Riesgos de {{ asset.name }}{% else %}Registro de riesgos{% endif %} <span class="ml-1 font-mono text-xs font-normal text-muted">{{ paginator.count|miles }}</span></h2>
     <span class="text-xs text-muted">escenarios de amenaza según ISO/IEC 27005, derivados de las vulnerabilidades consolidadas</span>
     {% if consolidation_pending %}<span class="badge-primary">la IA está reevaluando</span>{% endif %}
   </div>
@@ -41,7 +41,7 @@
     <p class="text-xs text-muted">Nivel = probabilidad × impacto: 1–4 bajo · 5–9 moderado · 10–14 alto · 15–19 muy alto · 20–25 crítico. Pulsa una casilla para ver sus riesgos.</p>
   </section>
 </div>
-<form method="get" class="card grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6 lg:items-end">
+<form method="get" id="filtros" data-filter-form class="card grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6 lg:items-end">
   {% for field in filter_form %}{% if field.widget_type == 'hidden' %}{{ field }}{% elif field.widget_type == 'checkbox' %}
   <label class="flex items-center gap-2 pb-2 text-sm">{{ field }} {{ field.label }}</label>
   {% else %}

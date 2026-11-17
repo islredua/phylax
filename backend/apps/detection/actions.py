@@ -533,6 +533,10 @@ def _settle_verifications(asset_id):
     transaction.on_commit(lambda: verification.settle_asset(asset_id))
 
 
+# Estados de una ejecución de descubrimiento, en palabras para la bitácora.
+RUN_STATUS_WORDS = {"FAILED": "falló", "CANCELLED": "se canceló"}
+
+
 def requeue_interrupted(action, execution):
     """Una ejecución interrumpida (no un fallo de la herramienta) se vuelve a pedir una vez."""
     from apps.scanners import services as scanners
@@ -578,7 +582,10 @@ def on_discovery_finished(run_id, status, asset_id=None):
     automation.log(
         LogKind.FINISHED if ok else LogKind.FAILED,
         action=action,
-        message=f"Reescaneo de servicios: {status}",
+        # En palabras: el estado crudo («SUCCEEDED») llegaba tal cual a la pantalla de Actividad.
+        message="Reescaneo de servicios terminado"
+        if ok
+        else f"El reescaneo de servicios no terminó ({RUN_STATUS_WORDS.get(status, status)})",
     )
     _settle_verifications(action.asset_id)
     return action

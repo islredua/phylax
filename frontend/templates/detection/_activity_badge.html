@@ -1,0 +1,1 @@
+{% load detection_tags %}{% if e.kind == 'event' %}{% event_status_badge e.badge %}{% elif e.kind == 'decision' %}{% urgency_badge e.badge %}{% elif e.kind == 'action' %}{% action_status_badge e.badge %}{% elif e.kind == 'execution' %}{% execution_status_badge e.badge %}{% else %}<span class="badge-neutral">bitácora</span>{% endif %}

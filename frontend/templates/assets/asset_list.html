@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% load inventory %}
+{% load inventory detection_tags %}
 {% block title %}Activos{% endblock %}
 {% block toolbar %}
 <div class="toolbar">
@@ -19,7 +19,7 @@
 </div>
 {% endblock %}
 {% block content %}
-<form method="get" class="card grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5 lg:items-end">
+<form method="get" id="filtros" data-filter-form class="card grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5 lg:items-end">
   {% if sort %}<input type="hidden" name="sort" value="{{ sort }}">{% endif %}
   {% for field in filter_form %}
   <div class="{% if field.name == 'q' %}lg:col-span-2{% endif %}">
@@ -66,13 +66,14 @@
     <p class="w-full text-xs text-muted" data-bulk-hint>Marca activos en la tabla para actuar sobre varios a la vez.</p>
   </div>
   {% endif %}
+  {% if common_tags %}<p class="text-xs text-muted" data-common-tags>Todos los de esta página llevan {{ common_tags|length|pl:"-la etiqueta,las etiquetas" }} {% for name in common_tags %}<span class="badge-neutral">{{ name }}</span>{% if not forloop.last %} {% endif %}{% endfor %}: no se repite en cada fila.</p>{% endif %}
   <div class="table-wrap">
     <table class="data-table">
       <thead><tr>
         {% if perms.assets.change_asset %}<th scope="col" class="w-6"><input type="checkbox" class="checkbox" data-bulk-all aria-label="Seleccionar todos los de esta página"></th>{% endif %}
-        {% for key, label, cls in columns %}
-        <th scope="col" class="{{ cls }}"{% if key and sort_key == key %} aria-sort="{% if sort_desc %}descending{% else %}ascending{% endif %}"{% endif %}>
-          {% if key %}<a href="{% if sort_key == key and not sort_desc %}{% querystring sort='-'|add:key page=None %}{% else %}{% querystring sort=key page=None %}{% endif %}" class="th-sort{% if sort_key == key %} th-sort-active{% endif %}" title="Ordenar por {{ label|lower }}">{{ label }}{% if sort_key == key %} <span aria-hidden="true">{% if sort_desc %}↓{% else %}↑{% endif %}</span>{% endif %}</a>{% else %}{{ label }}{% endif %}
+        {% for col in columns %}
+        <th scope="col" class="{{ col.css }}"{% if col.active %} aria-sort="{% if col.desc %}descending{% else %}ascending{% endif %}"{% endif %}>
+          {% if col.key %}<a href="{% querystring sort=col.next page=None %}" class="th-sort{% if col.active %} th-sort-active{% endif %}" title="Ordenar por {{ col.label|lower }}">{{ col.label }}{% if col.active %} <span aria-hidden="true">{% if col.desc %}↓{% else %}↑{% endif %}</span>{% endif %}</a>{% else %}{{ col.label }}{% endif %}
         </th>
         {% endfor %}
       </tr></thead>
@@ -80,17 +81,19 @@
         {% for a in assets %}
         <tr>
           {% if perms.assets.change_asset %}<td><input type="checkbox" name="ids" value="{{ a.pk }}" class="checkbox" aria-label="Seleccionar {{ a.name }}"></td>{% endif %}
-          <td><a href="{% url 'assets:detail' a.pk %}" class="font-medium">{{ a.name }}</a>{% if a.review_suggested %} <span class="badge-medium">revisión sugerida</span>{% endif %}{% if a.reachable is False %} <span class="badge-medium" title="No respondió desde Atalaya el {{ a.reachability_checked_at|fecha }}">no responde</span>{% endif %}{% for t in a.tags.all %} <span class="badge-neutral">{{ t.name }}</span>{% endfor %}</td>
+          <td><a href="{% url 'assets:detail' a.pk %}" class="font-medium">{{ a.name }}</a>{% if a.review_suggested %} <span class="badge-medium">revisión sugerida</span>{% endif %}{% if a.reachable is False %} <span class="badge-medium" title="No respondió desde Atalaya el {{ a.reachability_checked_at|fecha }}">no responde</span>{% endif %}{% for t in a.tags.all %}{% if t.name not in common_tags %} <span class="badge-neutral">{{ t.name }}</span>{% endif %}{% endfor %}</td>
           <td class="col-md text-ink-soft">{{ a.asset_type|catalog:"ASSET_TYPE" }}</td>
           <td class="col-lg font-mono text-xs">{{ a.display_identifier|truncatechars:40|default:"—" }}</td>
           {% include "assets/_criticality_cell.html" %}
           <td class="col-md">{% exposure_badge a.exposure a.exposure_source %}</td>
           <td class="col-lg text-ink-soft">{{ a.environment|catalog:"ENVIRONMENT" }}</td>
+          {% if show_risk %}<td class="whitespace-nowrap" data-posture="{{ a.risk_level|default:'none' }}">{% if a.risk_count %}<a href="{% url 'detection:risks' %}?asset={{ a.pk }}" class="hover:no-underline" title="{{ a.risk_count|pl:'riesgo abierto,riesgos abiertos' }}; el más alto es de nivel {{ a.risk_level|risk_level_label|lower }}">{% risk_level_badge a.risk_level %} <span class="font-mono text-xs text-ink-soft">{{ a.risk_count }}</span></a>{% else %}<span class="text-xs text-muted" title="Sin riesgos abiertos">—</span>{% endif %}</td>{% endif %}
           <td>{% status_badge a.status %}</td>
-          <td class="col-md font-mono text-xs whitespace-nowrap text-ink-soft">{{ a.last_seen|fecha_corta }}</td>
+          <td class="col-md text-xs whitespace-nowrap text-ink-soft">{% if a.last_scan %}{{ a.last_scan|hace }}{% else %}<span class="text-muted" title="Ninguna herramienta ha revisado este activo">nunca</span>{% endif %}</td>
+          <td class="col-lg text-xs whitespace-nowrap text-ink-soft">{{ a.last_seen|hace }}</td>
         </tr>
         {% empty %}
-        <tr><td colspan="9" class="table-empty">{% if filters_active %}Sin activos para estos filtros. <a href="{% url 'assets:list' %}">Limpiar filtros</a>{% else %}Todavía no hay activos. Se llenan con un <a href="{% url 'discovery:runs' %}">descubrimiento</a> de un rango autorizado, una <a href="{% url 'assets:import' %}">importación CSV</a> o dando de alta uno a mano.{% endif %}</td></tr>
+        <tr><td colspan="{{ column_count|add:1 }}" class="table-empty">{% if filters_active %}Sin activos para estos filtros. <a href="{% url 'assets:list' %}">Limpiar filtros</a>{% else %}Todavía no hay activos. Se llenan con un <a href="{% url 'discovery:runs' %}">descubrimiento</a> de un rango autorizado, una <a href="{% url 'assets:import' %}">importación CSV</a> o dando de alta uno a mano.{% endif %}</td></tr>
         {% endfor %}
       </tbody>
     </table>

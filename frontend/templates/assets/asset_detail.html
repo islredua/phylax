@@ -85,7 +85,7 @@
   <p class="text-sm text-ink-soft">Escenarios de amenaza de este activo según ISO/IEC 27005, derivados por la IA de sus vulnerabilidades sostenidas. Aquí se decide el tratamiento.{% if consolidation_pending %} <span class="badge-primary">la IA está reevaluando</span>{% endif %}</p>
   <div class="flex flex-wrap gap-2">
     {% if perms.detection.request_evaluation %}<form method="post" action="{% url 'detection:asset_consolidate' asset.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn-secondary btn-sm" type="submit" title="Vuelve a consolidar las observaciones y a derivar riesgos con la IA">Reevaluar con IA</button></form>{% endif %}
-    <a href="{% url 'detection:risks' %}?asset={{ asset.pk }}" class="btn-secondary btn-sm" title="La misma lista en Detección, con filtros y comparada con el resto de activos">Abrir en Detección</a>
+    <a href="{% url 'detection:risks' %}?asset={{ asset.pk }}" class="btn-secondary btn-sm" title="La misma lista en Riesgos, con filtros y comparada con el resto de activos">Abrir en Riesgos</a>
   </div>
 </div>
 <div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_auto]">
@@ -101,21 +101,21 @@
   <p class="text-sm text-ink-soft">Vulnerabilidades reales del activo, consolidadas por la IA a partir de sus observaciones y ordenadas por puntaje contextual.{% if consolidation_pending %} <span class="badge-primary">consolidación en curso</span>{% endif %}</p>
   <div class="flex flex-wrap gap-2">
     {% if perms.detection.request_evaluation %}<form method="post" action="{% url 'detection:asset_consolidate' asset.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn-secondary btn-sm" type="submit" title="Vuelve a pasar las observaciones por la IA">Reevaluar con IA</button></form>{% endif %}
-    <a href="{% url 'detection:panel' %}?asset={{ asset.pk }}" class="btn-secondary btn-sm" title="La misma lista en Detección, con filtros">Abrir en Detección</a>
+    <a href="{% url 'detection:panel' %}?asset={{ asset.pk }}" class="btn-secondary btn-sm" title="La misma lista en Vulnerabilidades, con filtros">Abrir en Vulnerabilidades</a>
   </div>
 </div>
 {% include "detection/_vulnerability_rows.html" %}
-{% if tab_total > tab_limit %}<p class="text-sm text-muted">Se muestran las {{ tab_limit }} de mayor puntaje de {{ tab_total }}. <a href="{% url 'detection:panel' %}?asset={{ asset.pk }}">Ver todas en Detección</a>, con filtros y triaje en lote.</p>{% endif %}
+{% if tab_total > tab_limit %}<p class="text-sm text-muted">Se muestran las {{ tab_limit }} de mayor puntaje de {{ tab_total }}. <a href="{% url 'detection:panel' %}?asset={{ asset.pk }}">Ver todas en Vulnerabilidades</a>, con filtros y triaje en lote.</p>{% endif %}
 {% elif tab == "observaciones" %}
 <div class="flex flex-wrap items-center justify-between gap-3">
   <p class="text-sm text-ink-soft">Lo que reportó cada herramienta, la inteligencia o una persona sobre este activo. Nunca se borran: la IA las consolida en vulnerabilidades.</p>
   <div class="flex flex-wrap gap-2">
     {% if perms.detection.work_findings %}<a href="{% url 'detection:observation_new' %}?asset={{ asset.pk }}" class="btn-primary btn-sm">Registrar observación</a>{% endif %}
-    <a href="{% url 'detection:observations' %}?asset={{ asset.pk }}" class="btn-secondary btn-sm" title="La misma lista en Detección, con filtros">Abrir en Detección</a>
+    <a href="{% url 'detection:observations' %}?asset={{ asset.pk }}" class="btn-secondary btn-sm" title="La misma lista en Vulnerabilidades › Observaciones, con filtros">Abrir en Observaciones</a>
   </div>
 </div>
 {% include "detection/_observation_rows.html" %}
-{% if tab_total > tab_limit %}<p class="text-sm text-muted">Se muestran las {{ tab_limit }} más recientes de {{ tab_total }}. <a href="{% url 'detection:observations' %}?asset={{ asset.pk }}">Ver todas en Detección</a>.</p>{% endif %}
+{% if tab_total > tab_limit %}<p class="text-sm text-muted">Se muestran las {{ tab_limit }} más recientes de {{ tab_total }}. <a href="{% url 'detection:observations' %}?asset={{ asset.pk }}">Ver todas en Observaciones</a>.</p>{% endif %}
 {% elif tab == "identificadores" %}
 <div class="table-wrap">
   <table class="data-table">
@@ -231,7 +231,7 @@
     <tbody>
       {% for e in history %}
       <tr>
-        <td class="font-mono text-xs whitespace-nowrap">{{ e.record.history_date|fecha:True }}</td>
+        <td class="font-mono text-xs whitespace-nowrap">{{ e.record.history_date|momento }}</td>
         <td class="font-mono text-xs">{{ e.record.history_user.get_username|default:"sistema" }}</td>
         <td>{% if e.record.history_type == '+' %}<span class="badge-low">alta</span>{% elif e.record.history_type == '-' %}<span class="badge-critical">baja</span>{% else %}<span class="badge-neutral">cambio</span>{% endif %}</td>
         <td class="text-xs">{% for c in e.changes %}<div><span class="font-medium">{{ c.field }}</span>: <span class="text-muted line-through">{{ c.old|default:"—" }}</span> → {{ c.new|default:"—" }}</div>{% empty %}<span class="text-muted">—</span>{% endfor %}</td>

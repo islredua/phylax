@@ -71,6 +71,12 @@ Patrón **obligatorio para todo el proyecto**:
   inventario, así que sus pantallas (Rangos de red · Descubrimiento) son pestañas de
   **Inventario** y no una sección propia (cambio del 2026-11-05; antes existía la
   sección «Descubrimiento»).
+  Desde el 2026-11-17 (revisión del sistema, N1–N3) la barra lateral es **Inicio · Riesgos ·
+  Vulnerabilidades · Inventario · Operación · Administración**: los resultados (riesgos,
+  vulnerabilidades) tienen sección propia, la maquinaria que se vigila (Actividad, Cola de
+  aprobación) va en Operación y toda la configuración (Fuentes CTI, Automatización, Portada) en
+  Administración. Sobre las secciones va el **buscador global** (`/search/`), que no es un
+  enlace más: una sección con `placement="hidden"` le da título y migas sin aparecer en la barra.
 - Al abrir una sección se muestra su **primera pestaña** y sus subsecciones como
   **pestañas superiores** (p. ej. Administración → Resumen · Usuarios · Bitácora;
   Mi cuenta → Resumen · Perfil · Contraseña · Seguridad · Actividad). Una
@@ -102,6 +108,15 @@ barra lateral se convierte en una barra horizontal compacta.
 Componentes en `frontend/tailwind/input.css`: `card`, `data-table`, `toolbar`,
 `tabs`, `btn-primary` / `btn-secondary` / `btn-danger`, `badge-<severidad>`,
 `pill-*`, `alert-*`, `form-*`, `kv-*`, `stat-*`, `eyebrow`.
+
+### 4 bis. Fechas (2026-11-17)
+
+Una sola regla, escrita en `apps/core/templatetags/ui.py`: en **listas**, tiempo relativo
+(«hace 3 h», «ayer», «hace 7 días») con el momento exacto al pasar el cursor (`|hace`); en
+**fichas, bitácoras y líneas de tiempo**, el momento exacto `2026-11-09 10:14` (`|fecha`, o
+`|momento` cuando los segundos importan y van en el `title`); en **Inicio y reportes**, que son
+prosa, la forma larga (`fecha_corta`, `fecha_larga`). Los tiempos relativos no van en tipografía
+monoespaciada.
 
 ### 5. Modo claro único
 

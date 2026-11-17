@@ -7,8 +7,8 @@
 <section class="card">
   <dl class="kv-grid">
     <div><dt class="kv-label">Sobre</dt><dd class="kv-value">{% if event.asset %}<a href="{% url 'assets:detail' event.asset_id %}">{{ event.asset.name }}</a>{% endif %}{% if event.cve %} <a href="{% url 'detection:observations' %}?q={{ event.cve_id }}&amp;status=all" class="font-mono" title="Observaciones de este CVE en el inventario">{{ event.cve_id }}</a>{% if event.cve.cvss_score %} <span class="text-xs text-muted">CVSS {{ event.cve.cvss_score }}</span>{% endif %}{% if event.cve.kev_added_at %} <span class="badge-critical">KEV</span>{% endif %}{% endif %}{% if not event.asset and not event.cve %}—{% endif %}</dd></div>
-    <div><dt class="kv-label">Recibido</dt><dd class="kv-value font-mono text-xs">{{ event.created_at|fecha:True }}</dd></div>
-    <div><dt class="kv-label">Procesado</dt><dd class="kv-value font-mono text-xs">{{ event.processed_at|fecha:True }}</dd></div>
+    <div><dt class="kv-label">Recibido</dt><dd class="kv-value font-mono text-xs">{{ event.created_at|momento }}</dd></div>
+    <div><dt class="kv-label">Procesado</dt><dd class="kv-value font-mono text-xs">{{ event.processed_at|momento }}</dd></div>
     <div><dt class="kv-label">Filtro rápido</dt><dd class="kv-value">{{ event.triage_reason|default:"—" }}</dd></div>
     <div><dt class="kv-label">Lote</dt><dd class="kv-value">{% if event.batch %}{{ event.batch.get_source_display }} · {{ event.batch.size|pl:"evento,eventos" }}{% if event.batch.reference %} · <span class="font-mono text-xs">{{ event.batch.reference|truncatechars:24 }}</span>{% endif %}{% else %}—{% endif %}</dd></div>
     <div><dt class="kv-label">Pidió</dt><dd class="kv-value font-mono text-xs">{{ event.requested_by.get_username|default:"sistema" }}</dd></div>
@@ -32,7 +32,7 @@
   </div>
   <p class="text-ink-soft">{{ d.rationale|linebreaksbr }}</p>
   {% if d.evidence %}<ul class="flex flex-wrap gap-1">{% for e in d.evidence %}<li class="badge-neutral">{{ e }}</li>{% endfor %}</ul>{% endif %}
-  <p class="text-xs text-muted">{{ d.created_at|fecha:True }}{% if d.fallback %} · por regla{% else %} · modelo {{ d.model_requested|default:"—" }}{% if d.model_responded and d.model_responded != d.model_requested %} (respondió {{ d.model_responded }}){% endif %} · prompt {{ d.prompt_version }}{% endif %}{% if d.duration_ms %} · {{ d.duration_ms|duracion }}{% endif %}{% if d.category %} · plantillas: {{ d.category|category_label }}{% endif %}</p>
+  <p class="text-xs text-muted">{{ d.created_at|momento }}{% if d.fallback %} · por regla{% else %} · modelo {{ d.model_requested|default:"—" }}{% if d.model_responded and d.model_responded != d.model_requested %} (respondió {{ d.model_responded }}){% endif %} · prompt {{ d.prompt_version }}{% endif %}{% if d.duration_ms %} · {{ d.duration_ms|duracion }}{% endif %}{% if d.category %} · plantillas: {{ d.category|category_label }}{% endif %}</p>
   {% if d.input_payload %}<details class="fold"><summary>Entrada que recibió el modelo</summary><pre class="code-block mt-2 text-xs">{{ d.input_payload|pretty_json }}</pre></details>{% endif %}
   {% with planned=d.planned %}{% if planned %}<p class="text-sm"><a href="{% url 'detection:action' planned.pk %}">Ver la acción</a> {% action_status_badge planned.status %}</p>{% endif %}{% endwith %}
 </section>

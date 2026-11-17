@@ -15,6 +15,7 @@ from apps.cti import services as cti
 from apps.detection import components, consolidation, findings, matching, risks
 from apps.detection.models import (
     Risk,
+    RiskEvent,
     RiskEventKind,
     RiskLevel,
     RiskStatus,
@@ -362,7 +363,8 @@ def test_rule_risks_follow_the_formula_and_carry_description_and_recommendations
     assert "regla" not in risk.description.lower() and risk.impact_description
     assert "CVE-" not in risk.description and "api-pagos" in risk.description
     assert "CVE-" in risk.details and "Cadena de ataque:" in risk.details
-    assert risk.recommendations and risk.recommendations[-1].startswith("Verificar la corrección")
+    # Comprobar la corrección es un botón de la ficha (W5), no una recomendación (C2).
+    assert not any("escaneo" in r.lower() for r in risk.recommendations)
     assert "Compromiso del activo" not in risk.title and "Explotación de «" not in risk.title
 
 
@@ -390,7 +392,8 @@ def test_ai_risk_stores_description_impact_and_recommendations():
         "Descripción simulada del riesgo para la dirección"
     )
     assert "\n\n" in risk.description and risk.impact_description.startswith("Impacto simulado")
-    assert risk.impact_description and len(risk.recommendations) == 2
+    # De las dos que escribe el modelo simulado, «verificar con un nuevo escaneo» no se guarda.
+    assert risk.impact_description and len(risk.recommendations) == 1
     assert risk.details.startswith("Detalle técnico simulado")
 
 
@@ -1161,4 +1164,351 @@ def test_rule_risks_group_vulnerabilities_by_software():
     assert merged["vulnerabilities"] == [1, 2]
     assert merged["title"].endswith(
         "por vulnerabilidad en spring-web 6.1.13 y 1 vulnerabilidad más"
+    )
+
+
+# --------------------------------------------------------------------------
+# Títulos, recomendaciones y valoración estable (revisión del 2026-11-16, C2)
+# --------------------------------------------------------------------------
+
+
+def test_recommendations_do_not_ask_for_another_scan():
+    kept = [
+        "Aplicar el parche del fabricante.",
+        "Verificar si la versión de body-parser es 1.20.3 o anterior.",
+        "Restringir el acceso al panel desde Internet.",
+        "Bloquear el escaneo de puertos desde Internet en el cortafuegos.",
+    ]
+    dropped = [
+        "Verificar la corrección con un nuevo escaneo del activo.",
+        "Verificar con un nuevo escaneo.",
+        "Realizar un escaneo completo del sistema para identificar otros componentes vulnerables.",
+        "Volver a escanear el activo tras aplicar el parche.",
+        "Comprobar con un reescaneo que el parche quedó aplicado.",
+        "Implementar un escáner de seguridad web para verificar que las cabeceras estén configuradas.",
+    ]
+    assert risks.actionable_recommendations(kept + dropped) == kept
+    assert risks.actionable_recommendations(None) == []
+    # Lo que escribe el modelo pasa por la misma regla al guardarse.
+    asset = _asset_with_vulns()
+    risk = Risk.objects.filter(asset=asset, assessment_source=StatusSource.AI).first()
+    assert risk.recommendations == ["Aplicar el parche del fabricante."]
+
+
+def test_old_scan_recommendations_are_hidden_without_touching_the_data(client, as_role):
+    as_role(OPERATOR)
+    asset = _asset_with_vulns()
+    risk = Risk.objects.filter(asset=asset).first()
+    stored = [
+        "Actualizar nginx a 1.27.4.",
+        "Verificar la corrección con un nuevo escaneo del activo.",
+    ]
+    Risk.objects.filter(pk=risk.pk).update(recommendations=stored)
+    body = client.get(f"/detection/risks/{risk.pk}/").content.decode()
+    assert "Actualizar nginx a 1.27.4." in body and "nuevo escaneo del activo" not in body
+    # La verificación se señala por su sección, que ve todo el que abre la ficha (el botón
+    # solo lo tiene quien puede pedirla).
+    assert 'se hace en <a href="#comprobacion">«¿Ya se corrigió?»</a>' in body
+    for fmt in ("", "?format=md"):
+        report = client.get(f"/detection/risks/{risk.pk}/report/{fmt}").content.decode()
+        assert "Actualizar nginx a 1.27.4." in report and "nuevo escaneo del activo" not in report
+    risk.refresh_from_db()
+    assert risk.recommendations == stored
+
+
+def test_title_names_the_consequence_and_the_cause_does_not_repeat_the_asset():
+    fix = risks.fix_title
+    # «Compromiso del <activo>» no dice qué se pierde: encabeza la consecuencia de su campo.
+    assert fix(
+        "Compromiso del api-pagos por Log4Shell en log4j-core", "api-pagos", "CONFIDENTIALITY"
+    ) == ("Fuga de información en api-pagos por Log4Shell en log4j-core")
+    assert fix(
+        "Compromiso total del servidor api-pagos por recorrido de rutas en Apache httpd 2.4.49",
+        "api-pagos",
+        "INTEGRITY",
+    ) == (
+        "Alteración de datos o sistemas en api-pagos por recorrido de rutas en Apache httpd 2.4.49"
+    )
+    # Sin consecuencia en su campo no hay con qué sustituirla: se respeta.
+    untouched = "Compromiso del api-pagos por Log4Shell en log4j-core"
+    assert fix(untouched, "api-pagos") == untouched
+    # Un «compromiso» que sí dice de qué no es genérico.
+    specific = "Compromiso de datos restringidos en api-pagos por vulnerabilidades en pillow"
+    assert fix(specific, "api-pagos", "CONFIDENTIALITY") == specific
+    # La causa no repite el activo, que ya va en la cabeza.
+    assert (
+        fix(
+            "Fuga de información en portal-rh por falta de cabeceras de seguridad en el portal-rh",
+            "portal-rh",
+            "CONFIDENTIALITY",
+        )
+        == "Fuga de información en portal-rh por falta de cabeceras de seguridad"
+    )
+    assert (
+        fix(
+            "Fuga de información en agente-portal por vulnerabilidad de Express.js en agente-portal",
+            "agente-portal",
+            "CONFIDENTIALITY",
+        )
+        == "Fuga de información en agente-portal por vulnerabilidad de Express.js"
+    )
+    # Otro activo con nombre parecido no se toca.
+    keep = "Fuga de información en portal por fallo en portal-rh-legacy"
+    assert fix(keep, "portal-rh", "CONFIDENTIALITY").endswith("por fallo en portal-rh-legacy")
+
+
+def test_lists_lead_with_what_tells_risks_apart(client, as_role):
+    as_role(OPERATOR)
+    asset = AssetFactory(name="api-pagos")
+    now = timezone.now()
+
+    def risk(key, title):
+        return Risk.objects.create(
+            asset=asset,
+            key=key,
+            title=title,
+            scenario="s",
+            threat_source="EXTERNAL",
+            likelihood=3,
+            impact=3,
+            level="MODERATE",
+            first_identified_at=now,
+        )
+
+    cases = {
+        "Compromiso del api-pagos por Log4Shell en log4j-core": "Log4Shell en log4j-core",
+        "Fuga de información en api-pagos por falta de cabeceras de seguridad en el api-pagos": (
+            "Falta de cabeceras de seguridad"
+        ),
+        "Fuga de información en api-pagos por nginx 1.27.5": "nginx 1.27.5",
+        "Fuga de información en api-pagos por pillow": "pillow",
+        "Fuga de información en api-pagos por CVE-2024-38820 en spring-web 6.1.13": (
+            "CVE-2024-38820 en spring-web 6.1.13"
+        ),
+        "Fuga de información en api-pagos por vulnerabilidades en OpenSSH": (
+            "Vulnerabilidades en OpenSSH"
+        ),
+        "Riesgo sin causa": "Riesgo sin causa",
+    }
+    made = {title: risk(f"k{n}", title) for n, title in enumerate(cases)}
+    for title, subject in cases.items():
+        assert made[title].subject == subject, title
+    body = client.get("/detection/").content.decode()
+    first = made["Compromiso del api-pagos por Log4Shell en log4j-core"]
+    # El enlace de la fila es el software o la vía de ataque; la consecuencia va debajo.
+    link = f'<a href="/detection/risks/{first.pk}/" class="font-medium"'
+    row = body[body.index(link) :][:600]
+    assert ">Log4Shell en log4j-core</a>" in row and "Compromiso del api-pagos</p>" in row
+    page = client.get(f"/detection/risks/{first.pk}/").content.decode()
+    assert "<h2>Log4Shell en log4j-core</h2>" in page and "Compromiso del api-pagos</p>" in page
+    found = client.get("/search/", {"q": "log4shell"}).content.decode()
+    assert ">Log4Shell en log4j-core</a>" in found
+
+
+def test_same_evidence_keeps_the_previous_valuation(monkeypatch):
+    """El modelo, preguntado dos veces por lo mismo, movía la probabilidad un punto y el riesgo
+    cambiaba de nivel (lb-dmz: bajo → moderado con la misma evidencia). Ahora se conserva."""
+    from apps.llm import client as llm_client
+
+    def with_values(likelihood, impact):
+        def generator(payload):
+            data = risks.mock_risks(payload)
+            for r in data["risks"]:
+                r["likelihood"], r["impact"] = likelihood, impact
+            return data
+
+        return generator
+
+    monkeypatch.setitem(llm_client.MOCK_GENERATORS, "RISK_ASSESSMENT", with_values(2, 3))
+    asset = _asset_with_vulns(criticality="BAJO", exposure="INTERNA")
+    risk = Risk.objects.filter(asset=asset, assessment_source=StatusSource.AI).first()
+    assert (risk.likelihood, risk.impact) == (2, 3) and len(risk.evidence_fingerprint) == 64
+    fingerprint = risk.evidence_fingerprint
+    assessed = risk.events.filter(kind=RiskEventKind.ASSESSED).count()
+
+    # Misma evidencia, otra respuesta del modelo: la valoración no se mueve y queda dicho.
+    monkeypatch.setitem(llm_client.MOCK_GENERATORS, "RISK_ASSESSMENT", with_values(3, 3))
+    risks.derive_risks(asset.pk)
+    risk.refresh_from_db()
+    assert (risk.likelihood, risk.impact, risk.level) == (2, 3, RiskLevel.MODERATE)
+    assert risk.evidence_fingerprint == fingerprint
+    assert "se conserva la valoración anterior" in risk.rationale and "3 × 3" in risk.rationale
+    assert risk.events.filter(kind=RiskEventKind.ASSESSED).count() == assessed
+
+    # Cierra y vuelve con la misma evidencia: reabre con la valoración que tenía, y la línea de
+    # tiempo dice primero que volvió.
+    Risk.objects.filter(pk=risk.pk).update(status=RiskStatus.CLOSED, closed_at=timezone.now())
+    risks.derive_risks(asset.pk)
+    risk.refresh_from_db()
+    assert risk.status == RiskStatus.OPEN and (risk.likelihood, risk.impact) == (2, 3)
+    assert risk.events.filter(kind=RiskEventKind.REOPENED).count() == 1
+
+    # Cambia la evidencia (crece la probabilidad de explotación de una de sus vulnerabilidades):
+    # el modelo vuelve a valorar.
+    risk.vulnerabilities.update(epss_score=0.9)
+    risks.derive_risks(asset.pk)
+    risk.refresh_from_db()
+    assert (risk.likelihood, risk.impact) == (3, 3) and risk.evidence_fingerprint != fingerprint
+    assert "se conserva la valoración anterior" not in risk.rationale
+    last = risk.events.order_by("-occurred_at", "-id").first()
+    assert last.kind == RiskEventKind.ASSESSED
+
+    # El contexto del activo también es evidencia.
+    vulns = list(risk.vulnerabilities.all())
+    context = risks.assets_services.get_asset_context(asset.pk)
+    base = risks.evidence_fingerprint(vulns, context)
+    assert base == risks.evidence_fingerprint(list(reversed(vulns)), context)
+    asset.exposure = "DMZ"
+    asset.save()
+    assert base != risks.evidence_fingerprint(
+        vulns, risks.assets_services.get_asset_context(asset.pk)
+    )
+
+
+def test_reopening_is_told_before_the_new_valuation(make_user):
+    user = make_user(OPERATOR)
+    asset = _asset_with_vulns()
+    risk = Risk.objects.get(asset=asset)
+    vuln = risk.vulnerabilities.get()
+    consolidation.set_status(vuln.pk, user=user, status=VulnerabilityStatus.MITIGATED)
+    consolidation.consolidate_asset(asset.pk)
+    consolidation.release_to_ai(vuln.pk, user=user)
+    Risk.objects.filter(pk=risk.pk).update(likelihood=1, impact=1, level="LOW")
+    consolidation.consolidate_asset(asset.pk)
+    kinds = list(
+        risk.events.filter(kind__in=(RiskEventKind.REOPENED, RiskEventKind.ASSESSED))
+        .order_by("occurred_at", "id")
+        .values_list("kind", flat=True)
+    )
+    assert kinds[-2:] == [RiskEventKind.REOPENED, RiskEventKind.ASSESSED]
+
+
+def test_a_restated_risk_is_the_same_risk(monkeypatch, make_user):
+    """Con la misma evidencia el modelo cambia la fuente de amenaza o la consecuencia (api-pagos,
+    2026-11-17: «Compromiso… por Log4Shell», de malware, pasó a «Pérdida financiera…», de atacante
+    externo). Eso cerraba el riesgo como reemplazado y abría otro con el plazo en cero: ahora es
+    el mismo riesgo, con su fecha, su responsable y su valoración."""
+    from apps.detection import responsibles
+    from apps.llm import client as llm_client
+
+    asset = _asset_with_vulns()
+    week_ago = timezone.now() - datetime.timedelta(days=7)
+    Risk.objects.filter(asset=asset).update(first_identified_at=week_ago)
+    before = {r.pk: r for r in Risk.objects.filter(asset=asset, status=RiskStatus.OPEN)}
+    assert before
+    person = make_user(OPERATOR)
+    assert responsibles.assign(list(before), user=make_user(ADMIN), choice=str(person.pk))
+
+    def restated(payload):
+        data = risks.mock_risks(payload)
+        for r in data["risks"]:
+            r["consequence"], r["threat_source"], r["likelihood"] = "FINANCIAL", "SUPPLY_CHAIN", 2
+            r["title"] = "Pérdida financiera en api-pagos por " + r["title"].split(" por ", 1)[1]
+        return data
+
+    monkeypatch.setitem(llm_client.MOCK_GENERATORS, "RISK_ASSESSMENT", restated)
+    result = risks.derive_risks(asset.pk)
+    after = list(Risk.objects.filter(asset=asset))
+    assert {r.pk for r in after} == set(before) and result["closed"] == 0
+    for risk in after:
+        old = before[risk.pk]
+        assert risk.status == RiskStatus.OPEN and risk.key != old.key
+        assert risk.key.startswith("FINANCIAL:SUPPLY_CHAIN:")
+        assert risk.key.rsplit(":", 1)[1] == old.key.rsplit(":", 1)[1]
+        assert risk.consequence == "FINANCIAL" and risk.title.startswith("Pérdida financiera en")
+        assert risk.first_identified_at == week_ago and risk.assignee_id == person.pk
+        # Misma evidencia: tampoco se mueve la valoración.
+        assert (risk.likelihood, risk.impact) == (old.likelihood, old.impact)
+        note = risk.events.filter(kind=RiskEventKind.NOTE).get()
+        assert old.title in note.message and "Es el mismo riesgo" in note.message
+        assert not risk.events.filter(kind=RiskEventKind.CLOSED).exists()
+    # Otra vez igual: nada que contar.
+    risks.derive_risks(asset.pk)
+    assert RiskEvent.objects.filter(risk__asset=asset, kind=RiskEventKind.NOTE).count() == len(
+        before
+    )
+
+
+def test_regrouped_vulnerabilities_keep_their_clock(monkeypatch):
+    """El plazo cuenta desde que las vulnerabilidades entraron al registro: un riesgo que nace
+    porque la valoración las reagrupó no estrena plazo (portal-rh, 2026-11-17: tres fallas de un
+    riesgo crítico de hacía una semana salieron como riesgo nuevo, con siete días por delante)."""
+    from apps.detection import policy
+    from apps.llm import client as llm_client
+
+    asset = _asset_with_vulns()
+    week_ago = timezone.now() - datetime.timedelta(days=7)
+    Risk.objects.filter(asset=asset).update(first_identified_at=week_ago)
+    originals = {r.pk: r.key for r in Risk.objects.filter(asset=asset, status=RiskStatus.OPEN)}
+
+    def split(payload):
+        data = risks.mock_risks(payload)
+        extra = [
+            {
+                **r,
+                "consequence": "CONFIDENTIALITY",
+                "title": "Fuga de información en api-pagos por " + r["title"].split(" por ", 1)[1],
+            }
+            for r in data["risks"]
+        ]
+        # Primero los nuevos: no deben quedarse con el riesgo que su clave exacta va a encontrar.
+        return {"risks": extra + data["risks"]}
+
+    monkeypatch.setitem(llm_client.MOCK_GENERATORS, "RISK_ASSESSMENT", split)
+    risks.derive_risks(asset.pk)
+    assert {r.pk: r.key for r in Risk.objects.filter(pk__in=originals)} == originals
+    born = list(Risk.objects.filter(asset=asset).exclude(pk__in=originals))
+    assert len(born) == len(originals)
+    today = timezone.localdate()
+    for risk in born:
+        assert risk.first_identified_at == week_ago
+        identified = risk.events.get(kind=RiskEventKind.IDENTIFIED)
+        assert "ya estaban en otro riesgo del activo desde el" in identified.message
+        assert "el plazo cuenta desde entonces" in identified.message
+        twin = Risk.objects.get(pk__in=originals, vulnerabilities__in=risk.vulnerabilities.all())
+        if twin.level == risk.level:
+            assert policy.deadline(risk, today=today).date == policy.deadline(twin).date
+
+    # Un riesgo que ya tenía el plazo reiniciado lo recupera en la siguiente valoración, una vez.
+    late = born[0]
+    Risk.objects.filter(pk=late.pk).update(first_identified_at=timezone.now())
+    risks.derive_risks(asset.pk)
+    risks.derive_risks(asset.pk)
+    late.refresh_from_db()
+    assert late.first_identified_at == week_ago
+    note = late.events.filter(kind=RiskEventKind.NOTE).get()
+    assert note.message.startswith("Sus vulnerabilidades ya estaban en otro riesgo del activo")
+
+    # La valoración deja de producirlos: se cierran como reemplazados. Si vuelve a producirlos,
+    # la línea de tiempo no dice que «vuelven a tener vulnerabilidades» (nunca dejaron de tenerlas).
+    monkeypatch.setitem(llm_client.MOCK_GENERATORS, "RISK_ASSESSMENT", risks.mock_risks)
+    assert risks.derive_risks(asset.pk)["closed"] == len(born)
+    monkeypatch.setitem(llm_client.MOCK_GENERATORS, "RISK_ASSESSMENT", split)
+    risks.derive_risks(asset.pk)
+    late.refresh_from_db()
+    assert late.status == RiskStatus.OPEN
+    reopened = late.events.filter(kind=RiskEventKind.REOPENED).get()
+    assert reopened.message == "La valoración del activo vuelve a expresarlo"
+
+    # Entre uno abierto y uno cerrado con la misma vulnerabilidad principal, el mismo riesgo es
+    # el abierto.
+    monkeypatch.setitem(llm_client.MOCK_GENERATORS, "RISK_ASSESSMENT", risks.mock_risks)
+    risks.derive_risks(asset.pk)
+
+    def restated(payload):
+        data = risks.mock_risks(payload)
+        for r in data["risks"]:
+            r["consequence"], r["threat_source"] = "FINANCIAL", "SUPPLY_CHAIN"
+        return data
+
+    monkeypatch.setitem(llm_client.MOCK_GENERATORS, "RISK_ASSESSMENT", restated)
+    risks.derive_risks(asset.pk)
+    assert set(
+        Risk.objects.filter(asset=asset, status=RiskStatus.OPEN).values_list("pk", flat=True)
+    ) == set(originals)
+    assert all(
+        r.key.startswith("FINANCIAL:SUPPLY_CHAIN:") for r in Risk.objects.filter(pk__in=originals)
+    )
+    assert all(
+        r.status == RiskStatus.CLOSED for r in Risk.objects.filter(pk__in=[b.pk for b in born])
     )

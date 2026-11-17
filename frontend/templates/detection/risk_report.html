@@ -54,7 +54,7 @@
 <p><strong>{{ risk.asset.name }}</strong> ({{ asset.business_role|catalog:"BUSINESS_ROLE" }}, {{ asset.environment|catalog:"ENVIRONMENT" }}, exposición {{ asset.exposure|choice_label:"Exposure"|lower }}) tiene un riesgo de nivel <strong>{{ risk.get_level_display|lower }}</strong> de <strong>{{ risk.get_consequence_display|default:"compromiso"|lower }}</strong>, sustentado en {{ evidence|length|pl:"vulnerabilidad,vulnerabilidades" }}{% if intel.kev_count %}, {{ intel.kev_count }} de ellas con explotación activa conocida (KEV){% if intel.kev_overdue %} y plazo de remediación de CISA vencido{% endif %}{% endif %}.</p>
 <ul>
   <li><strong>Qué podría pasar:</strong> {{ risk.impact_description|default:risk.scenario }}</li>
-  <li><strong>Qué hacer primero:</strong> {% if risk.recommendations %}{{ risk.recommendations.0 }}{% else %}ver las acciones de cada vulnerabilidad ligada{% endif %}</li>
+  <li><strong>Qué hacer primero:</strong> {% with recs=risk.recommendations|actionable %}{% if recs %}{{ recs.0 }}{% else %}ver las acciones de cada vulnerabilidad ligada{% endif %}{% endwith %}</li>
   <li><strong>Decisión:</strong> {% if closure %}riesgo cerrado el {{ closure.at|fecha }} ({{ closure.message }}){% elif risk.treatment %}{{ risk.get_treatment_display }}{% if responsible %}, responsable {{ responsible.label }}{% if responsible.inherited %} (del activo){% endif %}{% endif %}, decidido por {{ risk.decided_by.get_username|default:"—" }} el {{ risk.decided_at|fecha }}{% else %}<em>pendiente: nadie ha decidido el tratamiento</em>{% endif %}</li>
 </ul>
 
@@ -102,7 +102,7 @@
 <p class="muted">Matriz 5×5: 1–4 bajo · 5–9 moderado · 10–14 alto · 15–19 muy alto · 20–25 crítico.</p>
 
 <h2>Recomendaciones</h2>
-{% if risk.recommendations %}<ol>{% for r in risk.recommendations %}<li>{{ r }}</li>{% endfor %}</ol>{% else %}<p class="muted">Ver las acciones de cada vulnerabilidad.</p>{% endif %}
+{% with recs=risk.recommendations|actionable %}{% if recs %}<ol>{% for r in recs %}<li>{{ r }}</li>{% endfor %}</ol>{% else %}<p class="muted">Ver las acciones de cada vulnerabilidad.</p>{% endif %}{% endwith %}
 
 <h2>Tratamiento</h2>
 {% if risk.treatment %}<p>{{ risk.get_treatment_display }}{% if responsible %} · responsable: {{ responsible.label }}{% if responsible.inherited %} (del activo){% endif %}{% endif %} · decidido por {{ risk.decided_by.get_username|default:"—" }} el {{ risk.decided_at|fecha }}.{% if risk.treatment_note %} «{{ risk.treatment_note }}»{% endif %}</p>{% if risk.residual_level %}<p>Riesgo residual: {{ risk.get_residual_level_display }} ({{ risk.residual_likelihood }} × {{ risk.residual_impact }}).</p>{% endif %}{% else %}<p class="muted">Sin tratamiento decidido todavía.</p>{% endif %}

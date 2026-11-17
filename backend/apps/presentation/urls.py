@@ -12,6 +12,7 @@ from .views import (
     HomeView,
     NarrativeRefreshView,
     ScannerDataUpdateView,
+    SearchView,
     SystemView,
 )
 
@@ -23,6 +24,8 @@ urlpatterns = [
     path("home/narrative/refresh/", NarrativeRefreshView.as_view(), name="home_narrative_refresh"),
     path("home/report/", HomeReportView.as_view(), name="home_report"),
     path("home/export/<str:kind>.csv", HomeExportView.as_view(), name="home_export"),
+    # Buscador global: activos, riesgos, vulnerabilidades y catálogo de CVE.
+    path("search/", SearchView.as_view(), name="search"),
     path("administration/", AdministrationView.as_view(), name="administration"),
     path("administration/system/", SystemView.as_view(), name="system"),
     path(

@@ -4,6 +4,8 @@ Las referencias al inventario son claves foráneas por etiqueta (``"assets.Asset
 de activos se hace siempre vía ``apps.assets.services`` (D6).
 """
 
+import re
+
 from django.conf import settings
 from django.db import models
 from django.utils import timezone
@@ -582,6 +584,12 @@ class Risk(UUIDModel):
     recommendations = models.JSONField(
         default=list, blank=True, help_text="Qué hacer para reducirlo, en orden."
     )
+    evidence_fingerprint = models.CharField(
+        max_length=64,
+        blank=True,
+        editable=False,
+        help_text="Huella de la evidencia con que se valoró: si no cambia, la valoración se conserva.",
+    )
     threat_source = models.CharField(
         max_length=14, choices=ThreatSource.choices, default=ThreatSource.EXTERNAL
     )
@@ -660,6 +668,25 @@ class Risk(UUIDModel):
     def cause(self):
         _, sep, cause = self.title.partition(" por ")
         return cause if sep else ""
+
+    @property
+    def subject(self):
+        """Lo que distingue a este riesgo de los demás: el software o la vía de ataque (la causa
+        del título), sin repetir el nombre del activo. Encabeza las listas, donde «Fuga de
+        información en…» o «Compromiso del…» se repetían fila tras fila."""
+        cause = self.cause
+        if not cause:
+            return self.title
+        name = re.escape(self.asset.name)
+        trimmed = re.sub(
+            rf"\s+(?:en|de|del)\s+(?:(?:el|la)\s+)?{name}(?![\w-])", "", cause, flags=re.IGNORECASE
+        ).strip()
+        cause = trimmed or cause
+        first, _, rest = cause.partition(" ")
+        # «nginx 1.27.5» o «pillow» son nombres de software: se dejan como se escriben.
+        if rest and not rest[0].isdigit() and first.isalpha() and first.islower():
+            cause = cause[0].upper() + cause[1:]
+        return cause
 
     @property
     def is_open(self):

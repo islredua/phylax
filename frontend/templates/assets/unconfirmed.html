@@ -18,7 +18,7 @@
         {% if perms.assets.change_asset %}<input type="checkbox" name="ids" value="{{ a.pk }}" form="confirm-bulk" class="checkbox" aria-label="Seleccionar {{ a.name }}">{% endif %}
         <a href="{% url 'assets:detail' a.pk %}" class="font-medium">{{ a.name }}</a>
       </div>
-      <span class="font-mono text-xs text-muted">visto {{ a.last_seen|fecha }}</span>
+      <span class="text-xs text-muted">visto {{ a.last_seen|hace }}</span>
     </div>
     <div class="flex flex-wrap gap-1">{% for i in a.identifiers.all %}<span class="badge-neutral">{{ i.get_kind_display }} {{ i.value }}</span>{% endfor %}</div>
     {% if a.os_guess %}<p class="text-xs text-ink-soft">SO estimado: {{ a.os_guess }}</p>{% endif %}

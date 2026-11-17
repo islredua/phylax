@@ -94,7 +94,12 @@ def review_facts(action):
 def severity_badge(value):
     if not value:
         return ""
-    return _badge(SEVERITY_STYLE.get(value, "badge-neutral"), FindingSeverity(value).label)
+    try:
+        label = FindingSeverity(value).label
+    except ValueError:
+        # El catálogo de CVE usa «NONE» para lo que aún no tiene severidad publicada.
+        return ""
+    return _badge(SEVERITY_STYLE.get(value, "badge-neutral"), label)
 
 
 @register.simple_tag
@@ -291,7 +296,7 @@ def status_source_badge(value):
 def score_badge(value, kind="contextual"):
     """Puntaje 0–10 coloreado por su severidad equivalente."""
     if value is None:
-        return format_html('<span class="text-xs text-muted">—</span>')
+        return mark_safe('<span class="text-xs text-muted">—</span>')  # noqa: S308 - literal
     from apps.scoring.services import severity_for
 
     style = SEVERITY_STYLE.get(severity_for(value), "badge-neutral")
@@ -445,6 +450,15 @@ def risk_level_label(value):
 @register.simple_tag
 def risk_status_badge(value):
     return _badge(RISK_STATUS_STYLE.get(value, "badge-neutral"), RiskStatus(value).label)
+
+
+@register.filter
+def actionable(recommendations):
+    """Recomendaciones sin las que solo piden volver a escanear (eso lo hace «Ya lo corregí:
+    comprobar»); cubre los riesgos valorados antes de la regla, sin tocar lo guardado."""
+    from apps.detection.risks import actionable_recommendations
+
+    return actionable_recommendations(recommendations)
 
 
 @register.filter

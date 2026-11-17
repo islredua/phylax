@@ -22,7 +22,7 @@
   <section class="card">
     <h3 class="card-title">Servidor</h3>
     <dl class="kv-grid">
-      <div><dt class="kv-label">Estado</dt><dd class="kv-value">{% if state.available %}<span class="badge-low">disponible</span>{% elif state.available is False %}<span class="badge-critical">no responde</span> <span class="text-xs text-muted">las sugerencias y consolidaciones fallarán hasta que vuelva</span>{% else %}<span class="badge-neutral">sin consultar</span>{% endif %}{% if state.checked_at %} <span class="font-mono text-xs text-muted">{{ state.checked_at|fecha:True }}</span>{% endif %}</dd></div>
+      <div><dt class="kv-label">Estado</dt><dd class="kv-value">{% if state.available %}<span class="badge-low">disponible</span>{% elif state.available is False %}<span class="badge-critical">no responde</span> <span class="text-xs text-muted">las sugerencias y consolidaciones fallarán hasta que vuelva</span>{% else %}<span class="badge-neutral">sin consultar</span>{% endif %}{% if state.checked_at %} <span class="text-xs text-muted">{{ state.checked_at|hace }}</span>{% endif %}</dd></div>
       <div><dt class="kv-label">Acelerador</dt><dd class="kv-value font-mono">{{ state.accelerator|upper|default:"—" }}</dd></div>
       <div><dt class="kv-label">Versión de Ollama</dt><dd class="kv-value font-mono text-xs">{{ state.version|default:"—" }}</dd></div>
       <div><dt class="kv-label">Timeout por inferencia</dt><dd class="kv-value font-mono text-xs">GPU {{ timeout_gpu }} s · CPU {{ timeout_cpu }} s</dd></div>
@@ -68,7 +68,7 @@
       <tbody>
         {% for log in recent %}
         <tr>
-          <td class="font-mono text-xs whitespace-nowrap">{{ log.created_at|fecha:True }}</td>
+          <td class="text-xs whitespace-nowrap">{{ log.created_at|hace }}</td>
           <td class="text-xs">{{ log.get_task_display }}</td>
           <td class="font-mono text-xs">{{ log.model }}</td>
           <td>{% if log.parsed_ok %}<span class="badge-low">válida</span>{% else %}<span class="badge-critical">error</span> <span class="text-xs text-critical" title="{{ log.error }}">{{ log.error|truncatechars:90 }}</span>{% endif %}</td>

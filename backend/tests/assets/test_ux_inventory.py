@@ -107,7 +107,7 @@ def test_detection_tabs_are_capped_with_link_to_detection(client, as_role, monke
             evidence_summary="visto",
         )
     body = client.get(f"/inventory/{asset.pk}/?tab=observaciones").content.decode()
-    assert "Se muestran las 1 más recientes de 2" in body and "Ver todas en Detección" in body
+    assert "Se muestran las 1 más recientes de 2" in body and "Ver todas en Observaciones" in body
     assert body.count("MANUAL:X") == 1
 
 
@@ -413,3 +413,143 @@ def test_profile_sector_is_plain_text_and_longer(as_role):
         fields={"name": "Aseguradora", "sector": "**Seguros** y " + "fianzas " * 20},
     )
     assert "**" not in saved.sector and len(saved.sector) > 120
+
+
+# --- Postura de cada activo en la lista (revisión del 2026-11-16, P9) -----------------
+
+
+def _risk(asset, level, key, status="OPEN"):
+    from django.utils import timezone
+
+    from apps.detection.models import Risk
+
+    return Risk.objects.create(
+        asset=asset,
+        key=key,
+        title=f"Riesgo {key}",
+        scenario="s",
+        threat_source="EXTERNAL",
+        likelihood=3,
+        impact=3,
+        level=level,
+        status=status,
+        first_identified_at=timezone.now(),
+    )
+
+
+def _names(response):
+    return [a.name for a in response.context["assets"]]
+
+
+def test_asset_list_shows_and_sorts_by_risk_posture(client, as_role):
+    as_role(OPERATOR)
+    worst = AssetFactory(name="b-critico")
+    busy = AssetFactory(name="c-altos")
+    quiet = AssetFactory(name="a-sin-riesgos")
+    closed_only = AssetFactory(name="d-cerrado")
+    _risk(worst, "CRITICAL", "k1")
+    _risk(worst, "LOW", "k2")
+    for n in range(3):
+        _risk(busy, "HIGH", f"h{n}", status="TREATED" if n else "OPEN")
+    # Un riesgo cerrado no cuenta en la postura.
+    _risk(closed_only, "CRITICAL", "c1", status="CLOSED")
+
+    response = client.get("/inventory/")
+    posture = {a.name: (a.risk_level, a.risk_count) for a in response.context["assets"]}
+    assert posture == {
+        "b-critico": ("CRITICAL", 2),
+        "c-altos": ("HIGH", 3),
+        "a-sin-riesgos": (None, 0),
+        "d-cerrado": (None, 0),
+    }
+    body = response.content.decode()
+    assert "Riesgo</a>" in body and "Último escaneo</a>" in body
+    assert f"/detection/?asset={worst.pk}" in body and 'data-posture="CRITICAL"' in body
+    assert "2 riesgos abiertos; el más alto es de nivel crítico" in body
+    assert body.count('data-posture="none"') == 2 and "Sin riesgos abiertos" in body
+    # El primer clic en «Riesgo» trae lo peor primero; el segundo invierte.
+    assert "?sort=-risk" in body
+    worst_first = client.get("/inventory/", {"sort": "-risk"})
+    assert _names(worst_first)[:2] == ["b-critico", "c-altos"]
+    assert "?sort=risk" in worst_first.content.decode()
+    assert 'aria-sort="descending"' in worst_first.content.decode()
+    assert _names(client.get("/inventory/", {"sort": "risk"}))[-2:] == ["c-altos", "b-critico"]
+    # A igual nivel, el que más riesgos tiene.
+    _risk(quiet, "HIGH", "q1")
+    assert _names(client.get("/inventory/", {"sort": "-risk"}))[:3] == [
+        "b-critico",
+        "c-altos",
+        "a-sin-riesgos",
+    ]
+    # La exportación usa el mismo filtro y no se rompe con la postura anotada.
+    assert client.get("/inventory/export.csv").status_code == 200
+
+
+def test_asset_list_shows_and_sorts_by_last_scan(client, as_role):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from apps.detection.models import AssetDetectionState
+
+    as_role(OPERATOR)
+    now = timezone.now()
+    recent = AssetFactory(name="reciente")
+    old = AssetFactory(name="viejo")
+    AssetFactory(name="nunca")
+    # El más reciente de los tres tipos de escaneo es el que cuenta.
+    AssetDetectionState.objects.create(
+        asset=recent,
+        last_service_scan_at=now - timedelta(days=9),
+        last_vuln_scan_at=now - timedelta(hours=3),
+    )
+    AssetDetectionState.objects.create(asset=old, last_sbom_scan_at=now - timedelta(days=12))
+
+    response = client.get("/inventory/", {"sort": "scan"})
+    body = response.content.decode()
+    # De menos a más reciente: primero el que nunca se revisó.
+    assert _names(response) == ["nunca", "viejo", "reciente"]
+    assert _names(client.get("/inventory/", {"sort": "-scan"})) == ["reciente", "viejo", "nunca"]
+    assert "hace 3 h" in body and "hace 12 días" in body
+    assert "Ninguna herramienta ha revisado este activo" in body and ">nunca<" in body
+
+
+def test_risk_column_follows_the_permission_of_the_register(client, make_user):
+    from django.contrib.auth.models import Permission
+
+    asset = AssetFactory(name="solo-inventario")
+    _risk(asset, "CRITICAL", "k1")
+    user = make_user()
+    user.user_permissions.add(Permission.objects.get(codename="view_asset"))
+    client.force_login(type(user).objects.get(pk=user.pk))
+    response = client.get("/inventory/")
+    body = response.content.decode()
+    assert response.status_code == 200 and "solo-inventario" in body
+    assert "data-posture" not in body and "Riesgo</a>" not in body
+    assert "Último escaneo</a>" in body
+    assert [c["key"] for c in response.context["columns"]].count("risk") == 0
+
+
+def test_a_tag_shared_by_every_row_is_said_once(client, as_role):
+    from tests.factories import TagFactory
+
+    as_role(OPERATOR)
+    shared = TagFactory(name="lab-aseguradora-norte")
+    own = TagFactory(name="dmz")
+    first, second = AssetFactory(name="uno"), AssetFactory(name="dos")
+    first.tags.add(shared, own)
+    second.tags.add(shared)
+    response = client.get("/inventory/")
+    body = response.content.decode()
+    assert response.context["common_tags"] == ["lab-aseguradora-norte"]
+    # (El filtro «Etiqueta» también las nombra: se cuentan solo las de la tabla.)
+    shared_badge, own_badge = 'badge-neutral">lab-aseguradora-norte<', 'badge-neutral">dmz<'
+    assert "data-common-tags" in body and body.count(shared_badge) == 1
+    assert body.count(own_badge) == 1
+    # Con un solo activo no hay nada «común»: la etiqueta va en su fila.
+    one = client.get("/inventory/", {"q": "uno"})
+    assert one.context["common_tags"] == [] and "data-common-tags" not in one.content.decode()
+    # En cuanto un activo no la lleva, vuelve a mostrarse en cada fila.
+    AssetFactory(name="tres")
+    body = client.get("/inventory/").content.decode()
+    assert "data-common-tags" not in body and body.count(shared_badge) == 2

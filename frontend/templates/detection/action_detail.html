@@ -35,8 +35,8 @@
       <div><dt class="kv-label">Modo al decidir</dt><dd class="kv-value text-xs">{{ action.mode_at_decision|mode_label }}</dd></div>
       <div><dt class="kv-label">Esperará hasta</dt><dd class="kv-value font-mono text-xs">{{ action.not_before|fecha }}</dd></div>
       <div><dt class="kv-label">{% if action.rejected_by %}Rechazó{% else %}Aprobó{% endif %}</dt><dd class="kv-value text-xs">{% if action.rejected_by %}<span class="font-mono">{{ action.rejected_by.get_username }}</span> el {{ action.rejected_at|fecha }}{% elif action.auto_approved %}el sistema (automático){% if action.approved_at %} el {{ action.approved_at|fecha }}{% endif %}{% elif action.approved_by %}<span class="font-mono">{{ action.approved_by.get_username }}</span> el {{ action.approved_at|fecha }}{% else %}—{% endif %}{% if action.review_note %}<p class="text-muted">«{{ action.review_note }}»</p>{% endif %}</dd></div>
-      <div><dt class="kv-label">En cola</dt><dd class="kv-value font-mono text-xs">{{ action.queued_at|fecha:True }}</dd></div>
-      <div><dt class="kv-label">Inicio · fin</dt><dd class="kv-value font-mono text-xs">{{ action.started_at|fecha:True }} · {{ action.finished_at|fecha:True }}</dd></div>
+      <div><dt class="kv-label">En cola</dt><dd class="kv-value font-mono text-xs">{{ action.queued_at|momento }}</dd></div>
+      <div><dt class="kv-label">Inicio · fin</dt><dd class="kv-value font-mono text-xs">{{ action.started_at|momento }} · {{ action.finished_at|momento }}</dd></div>
       <div class="sm:col-span-2"><dt class="kv-label">Resultado</dt><dd class="kv-value text-xs">{% if action.error %}<span class="text-critical">{{ action.error }}</span>{% elif action.result %}{% for key, value in action.result.items %}{% if key == 'execution' %}<a href="{% url 'detection:execution' value %}">ejecución de herramienta</a>{% elif key == 'watch' %}ítem de vigilancia creado{% else %}{{ key|reconciliation_label|lower }}: {{ value|human_value }}{% endif %}{% if not forloop.last %} · {% endif %}{% endfor %}{% else %}—{% endif %}</dd></div>
     </dl>
     {% if action.discovery_run %}<p class="mt-2 text-xs"><a href="{% url 'discovery:run_detail' action.discovery_run_id %}">Ver ejecución de descubrimiento</a></p>{% endif %}
@@ -54,6 +54,6 @@
 {% endif %}
 <section class="flex flex-col gap-2"><h3 class="eyebrow">Bitácora</h3>
 <div class="table-wrap"><table class="data-table"><thead><tr><th scope="col">Cuándo</th><th scope="col">Qué</th><th scope="col">Quién</th><th scope="col">Detalle</th></tr></thead><tbody>
-{% for l in log_entries %}<tr><td class="font-mono text-xs whitespace-nowrap">{{ l.timestamp|fecha:True }}</td><td>{{ l.get_kind_display }}</td><td class="font-mono text-xs">{{ l.user.get_username|default:"sistema" }}</td><td class="text-xs text-ink-soft">{{ l.message|legible }}</td></tr>{% empty %}<tr><td colspan="4" class="table-empty">Sin entradas.</td></tr>{% endfor %}
+{% for l in log_entries %}<tr><td class="font-mono text-xs whitespace-nowrap">{{ l.timestamp|momento }}</td><td>{{ l.get_kind_display }}</td><td class="font-mono text-xs">{{ l.user.get_username|default:"sistema" }}</td><td class="text-xs text-ink-soft">{{ l.message|legible }}</td></tr>{% empty %}<tr><td colspan="4" class="table-empty">Sin entradas.</td></tr>{% endfor %}
 </tbody></table></div></section>
 {% endblock %}

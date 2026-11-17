@@ -16,6 +16,7 @@ import re
 import unicodedata
 
 from django.db import transaction
+from django.db.models import Min
 from django.utils import timezone
 
 from apps.assets import catalogs
@@ -346,6 +347,23 @@ def replace_support(details, vulns):
     return f"{details}\n{support}" if details else support
 
 
+# «Verificar la corrección con un nuevo escaneo» era la recomendación más repetida y no es una
+# recomendación: es lo que hace el botón «Ya lo corregí: comprobar» de la ficha (W5). Tampoco
+# «realizar un escaneo completo»: de escanear se encarga la plataforma.
+_SCAN_RECOMMENDATION = re.compile(
+    r"^\W*(?:verificar|comprobar|confirmar|validar|realizar|ejecutar|hacer|repetir|programar|"
+    r"lanzar|volver\s+a|implementar|usar|utilizar|emplear|desplegar)\b.*"
+    r"\b(?:(?:re-?)?escane(?:o|os|ar)|esc[aá]ner(?:es)?)\b",
+    re.IGNORECASE,
+)
+
+
+def actionable_recommendations(texts):
+    """Las recomendaciones que piden hacer algo al activo; fuera las que solo piden volver a
+    escanear. Se aplica al guardar y al mostrar (los riesgos valorados antes de la regla)."""
+    return [t for t in (texts or []) if not _SCAN_RECOMMENDATION.search(str(t))]
+
+
 def _rule_recommendations(vulns):
     recommendations, seen = [], set()
     for v in vulns:
@@ -356,7 +374,7 @@ def _rule_recommendations(vulns):
             if norm and norm not in seen and looks_spanish(text):
                 seen.add(norm)
                 recommendations.append(text)
-    return recommendations[:5] + ["Verificar la corrección con un nuevo escaneo del activo."]
+    return recommendations[:5]
 
 
 def _rule_texts(vulns, context, asset_name, consequence):
@@ -839,6 +857,27 @@ def coherent_intelligence(text, vulns):
 
 
 _GENERIC_HEADS = ("compromiso del activo", "múltiples vulnerabilidades", "vulnerabilidades")
+# «Compromiso del api-pagos»: diez riesgos del laboratorio empezaban así. No dice qué se pierde;
+# la consecuencia viene en su campo y es la que encabeza.
+_COMPROMISE_HEAD = re.compile(
+    r"^compromiso(?:\s+(?:total|completo))?\s+(?:del|de|en|de\s+la|en\s+el|en\s+la)\s+"
+    r"(?:(?:servidor|sistema|activo|host|equipo|servicio)\s+)?(?P<name>.+)$",
+    re.IGNORECASE,
+)
+
+
+def _without_asset(cause, asset_name):
+    """La causa sin el nombre del activo, que ya va en la cabeza del título («…por falta de
+    cabeceras de seguridad en portal-rh»)."""
+    trimmed = re.sub(
+        rf"\s+(?:en|de|del)\s+(?:(?:el|la)\s+)?{re.escape(asset_name)}(?![\w-])",
+        "",
+        cause,
+        flags=re.IGNORECASE,
+    ).strip()
+    return trimmed or cause
+
+
 _CVE_ONLY_CAUSE = re.compile(
     r"^(?:la\s+vulnerabilidad\s+|el\s+)?(CVE-\d{4}-\d{4,})\.?$", re.IGNORECASE
 )
@@ -873,7 +912,13 @@ def fix_title(title, asset_name, consequence="", vulns=()):
     title = _clean(title, 160)
     label = CONSEQUENCE_LABEL.get(consequence or "", "")
     head, _, cause = title.partition(" por ")
-    generic = head.lower().startswith(_GENERIC_HEADS)
+    if cause and asset_name:
+        cause = _without_asset(cause, asset_name)
+        title = f"{head} por {cause}"
+    compromise = _COMPROMISE_HEAD.match(head.strip())
+    generic = head.lower().startswith(_GENERIC_HEADS) or bool(
+        label and compromise and compromise["name"].strip().lower() == asset_name.lower()
+    )
     # Una causa que no nombra nada («múltiples vulnerabilidades», «vulnerabilidades de
     # seguridad») se sustituye por la vulnerabilidad principal del riesgo.
     if cause and vulns and _GENERIC_CAUSE.match(cause.strip()):
@@ -1001,7 +1046,10 @@ def _key_for(item, vulns):
     """Clave estable del riesgo: consecuencia, fuente de amenaza y la vulnerabilidad principal.
 
     El título lo redacta el modelo y cambia de corrida en corrida; si la clave dependiera de él,
-    cada consolidación abriría riesgos nuevos y dejaría los viejos huérfanos.
+    cada consolidación abriría riesgos nuevos y dejaría los viejos huérfanos. La fuente y la
+    consecuencia también las elige el modelo: dos riesgos del activo pueden compartir
+    vulnerabilidad principal con consecuencias distintas (por eso siguen en la clave), pero uno
+    solo que cambia de fuente o de consecuencia sigue siendo el mismo (``_same_risk``).
     """
     lead = max(vulns, key=lambda v: (v.contextual_score or 0, v.key))
     return (
@@ -1048,7 +1096,89 @@ def anchors(item, vulns, context):
     return likelihood, impact, notes
 
 
-def _apply(asset_id, item, context, *, by_rule, log_obj, now):
+def evidence_fingerprint(vulns, context):
+    """Huella de lo que sustenta una valoración: qué vulnerabilidades, en qué estado, con qué
+    inteligencia (KEV, EPSS alto o no) y en qué contexto del activo. No entra lo que cambia sin
+    que cambie la evidencia: el EPSS de cada día, las fechas o la redacción."""
+    import hashlib
+    import json
+
+    from django.conf import settings
+
+    high = float(getattr(settings, "DETECTION_EPSS_HIGH", 0.1))
+    flaws = sorted(
+        (
+            v.key,
+            str(v.status),
+            bool(v.in_kev),
+            (getattr(v, "epss_score", None) or 0) >= high,
+            str(getattr(v, "severity", "") or ""),
+        )
+        for v in vulns
+    )
+    asset = (
+        context.criticality or "",
+        context.exposure or "",
+        context.environment or "",
+        context.business_role or "",
+        context.data_classification or "",
+        sorted(context.data_categories or ()),
+    )
+    payload = json.dumps([flaws, asset], ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _same_risk(asset_id, key, *, taken=(), planned=()):
+    """El riesgo del activo que ya expresa esto, o ``None``.
+
+    Con la misma evidencia el modelo cambia de una corrida a otra la fuente de amenaza o la
+    consecuencia («atacante externo» → «cadena de suministro», «fuga de información» → «pérdida
+    financiera»). Como las dos van en la clave, cada revaloración cerraba el riesgo como
+    reemplazado y abría otro: se perdían su dirección, su línea de tiempo y su responsable, y el
+    plazo volvía a empezar. La identidad la da lo que no depende de cómo lo redacte el modelo:
+    **la vulnerabilidad principal en ese activo**. Si la clave exacta no existe, es el mismo
+    riesgo el que tiene esa vulnerabilidad principal, salvo que esta valoración ya lo haya usado
+    (``taken``) o lo vaya a encontrar por su clave exacta (``planned``). Primero uno abierto (el
+    que tiene tratamiento decidido antes); si no, el que se cerró más recientemente.
+    """
+    exact = Risk.objects.filter(asset_id=asset_id, key=key).first()
+    if exact is not None:
+        return exact
+    lead = key.rsplit(":", 1)[-1]
+    candidates = [
+        r
+        for r in Risk.objects.filter(asset_id=asset_id, key__endswith=f":{lead}").exclude(
+            pk__in=list(taken)
+        )
+        if r.key not in planned
+    ]
+    if not candidates:
+        return None
+
+    def preference(risk):
+        if risk.status in RISK_OPEN_STATUSES:
+            return (0, 0 if risk.human_decided else 1, risk.first_identified_at.timestamp())
+        return (1, 0, -(risk.closed_at.timestamp() if risk.closed_at else 0.0))
+
+    return min(candidates, key=preference)
+
+
+def _known_since(asset_id, vulns, risk):
+    """Desde cuándo están en el registro las vulnerabilidades de este riesgo: la fecha del más
+    antiguo de los **otros** riesgos del activo que ya tenían alguna, si es anterior a la suya.
+
+    El plazo de la política cuenta desde que el riesgo se identificó. Si la valoración reagrupa
+    vulnerabilidades (parte un riesgo en dos, o expresa lo mismo con otra vulnerabilidad
+    principal), el riesgo que nace no es trabajo nuevo: su plazo no vuelve a empezar."""
+    first = (
+        Risk.objects.filter(asset_id=asset_id, vulnerabilities__in=vulns)
+        .exclude(pk=risk.pk)
+        .aggregate(first=Min("first_identified_at"))["first"]
+    )
+    return first if first and first < risk.first_identified_at else None
+
+
+def _apply(asset_id, item, context, *, by_rule, log_obj, now, taken=(), planned=()):
     vulns = list(
         Vulnerability.objects.filter(pk__in=item["vuln_pks"])
         .select_related("cve")
@@ -1056,22 +1186,38 @@ def _apply(asset_id, item, context, *, by_rule, log_obj, now):
     )
     if not vulns:
         return None
+    key = _key_for(item, vulns)
+    before = _same_risk(asset_id, key, taken=taken, planned=planned)
+    fingerprint = evidence_fingerprint(vulns, context)
+    kept = None
+    # Con la misma evidencia, la misma valoración: el modelo, preguntado dos veces por lo mismo,
+    # movía la probabilidad un punto y el riesgo cambiaba de nivel sin que nada hubiera cambiado.
+    # Si la huella es la de la valoración anterior, esa se conserva.
+    if (
+        not by_rule
+        and before is not None
+        and before.assessment_source == StatusSource.AI
+        and before.evidence_fingerprint == fingerprint
+        and (before.likelihood, before.impact) != (item["likelihood"], item["impact"])
+    ):
+        kept = (item["likelihood"], item["impact"])
+        item = {**item, "likelihood": before.likelihood, "impact": before.impact}
     likelihood, impact, notes = anchors(item, vulns, context)
+    if kept is not None:
+        notes.append(
+            f"se conserva la valoración anterior porque la evidencia no cambió (el modelo "
+            f"proponía {kept[0]} × {kept[1]})"
+        )
     level = risk_level_for(likelihood, impact)
-    risk, created = Risk.objects.get_or_create(
-        asset_id=asset_id,
-        key=_key_for(item, vulns),
-        defaults={
-            "title": item["title"][:200],
-            "scenario": item["scenario"],
-            "threat_source": item["threat_source"],
-            "likelihood": likelihood,
-            "impact": impact,
-            "level": level,
-            "first_identified_at": now,
-        },
-    )
+    created = before is None
+    risk = before or Risk(asset_id=asset_id, key=key, first_identified_at=now)
     previous = (risk.likelihood, risk.impact, risk.level)
+    # Mismo riesgo con otra fuente u otra consecuencia: conserva su fila y toma la clave nueva.
+    restated = None if created or risk.key == key else risk.title
+    risk.key = key
+    since = _known_since(asset_id, vulns, risk)
+    if since is not None:
+        risk.first_identified_at = since
     risk.title = fix_spanish(item["title"])[:200]
     risk.consequence = item.get("consequence", "")
     risk.description = fix_spanish(item.get("description", ""))
@@ -1086,7 +1232,9 @@ def _apply(asset_id, item, context, *, by_rule, log_obj, now):
     risk.intelligence_summary = humanize_sources(
         fix_spanish(item.get("intelligence_summary") or intelligence(vulns)["text"])
     )
-    risk.recommendations = _dedupe([fix_spanish(r) for r in (item.get("recommendations") or [])])
+    risk.recommendations = actionable_recommendations(
+        _dedupe([fix_spanish(r) for r in (item.get("recommendations") or [])])
+    )
     risk.threat_source = item["threat_source"]
     risk.likelihood, risk.impact, risk.level = likelihood, impact, level
     risk.rationale = humanize_sources(item.get("rationale", ""))
@@ -1111,20 +1259,46 @@ def _apply(asset_id, item, context, *, by_rule, log_obj, now):
     risk.prompt_version = "" if by_rule else PROMPT_VERSION
     risk.assessed_at = now
     risk.environment = context.environment or ""
+    risk.evidence_fingerprint = fingerprint
     reopened = False
     if risk.status == RiskStatus.CLOSED:
+        last = risk.events.filter(kind=RiskEventKind.CLOSED).order_by("-occurred_at", "-id").first()
         risk.status = RiskStatus.TREATED if risk.treatment else RiskStatus.OPEN
         risk.closed_at = None
-        reopened = True
+        # Uno que se cerró como reemplazado nunca dejó de tener vulnerabilidades abiertas.
+        reopened = (
+            "La valoración del activo vuelve a expresarlo"
+            if last and last.message.startswith("Reemplazado")
+            else "Vuelve a tener vulnerabilidades abiertas"
+        )
     risk.save()
     risk.vulnerabilities.set(vulns)
+    since_text = (
+        ""
+        if since is None
+        else f"sus vulnerabilidades ya estaban en otro riesgo del activo desde el "
+        f"{timezone.localtime(since).date().isoformat()}: el plazo cuenta desde entonces"
+    )
     if created:
         _event(
             risk,
             RiskEventKind.IDENTIFIED,
-            f"Identificado a partir de {cuantos(len(vulns), 'vulnerabilidad', 'vulnerabilidades')}",
+            f"Identificado a partir de {cuantos(len(vulns), 'vulnerabilidad', 'vulnerabilidades')}"
+            + (f"; {since_text}" if since_text else ""),
             vulnerabilities=[v.key for v in vulns],
             by_rule=by_rule,
+        )
+    elif since_text:
+        _event(risk, RiskEventKind.NOTE, since_text[0].upper() + since_text[1:])
+    # Primero que volvió, después cómo quedó valorado: así se lee la línea de tiempo.
+    if reopened:
+        _event(risk, RiskEventKind.REOPENED, reopened)
+    if restated and restated != risk.title:
+        _event(
+            risk,
+            RiskEventKind.NOTE,
+            f"La valoración lo expresa de otra forma; antes: «{restated}». Es el mismo riesgo: "
+            "su vulnerabilidad principal es la misma",
         )
     if created or previous != (risk.likelihood, risk.impact, risk.level):
         _event(
@@ -1137,8 +1311,6 @@ def _apply(asset_id, item, context, *, by_rule, log_obj, now):
             level=risk.level,
             anchors=notes,
         )
-    if reopened:
-        _event(risk, RiskEventKind.REOPENED, "Vuelve a tener vulnerabilidades abiertas")
     return risk
 
 
@@ -1147,9 +1319,10 @@ def _close_orphans(asset_id, touched, now, *, sustained_pks=frozenset()):
 
     Sin vulnerabilidades abiertas: cerrado. Sin ninguna vulnerabilidad sostenida (todas en duda o
     probables falsos positivos): cerrado. Si el activo se volvió a valorar y el riesgo no salió
-    (la IA agrupó distinto, o cambió la fuente o la consecuencia), se cierra como reemplazado. En
-    los dos últimos casos se respeta la decisión de una persona: un riesgo con tratamiento decidido
-    sigue abierto hasta que lo cierre quien decidió.
+    (la IA agrupó distinto: ninguno de los nuevos tiene su vulnerabilidad principal; un cambio de
+    fuente o de consecuencia ya no lo reemplaza, ver ``_same_risk``), se cierra como reemplazado.
+    En los dos últimos casos se respeta la decisión de una persona: un riesgo con tratamiento
+    decidido sigue abierto hasta que lo cierre quien decidió.
     """
     closed = 0
     for risk in Risk.objects.filter(asset_id=asset_id, status__in=RISK_OPEN_STATUSES).exclude(
@@ -1440,16 +1613,43 @@ def derive_risks(asset_id, *, requested_by=None, use_llm=True):
             rule_extra = rule_items(missing, context, index, asset_name) if missing else []
         else:
             items, rule_extra = [], rule_items(vulns, context, index, asset_name)
+        for item in rule_extra:
+            item["vuln_pks"] = [
+                next(pk for pk, i in index.items() if i == r) for r in item["vulnerabilities"]
+            ]
+        # Las claves que esta valoración va a producir: un riesgo que alguna de ellas encuentra
+        # tal cual no se le da a otra por parecido (``_same_risk``).
+        by_pk = {v.pk: v for v in vulns}
+        planned = set()
+        for item in [*items, *rule_extra]:
+            linked = [by_pk[pk] for pk in item["vuln_pks"] if pk in by_pk]
+            if linked:
+                planned.add(_key_for(item, linked))
         with transaction.atomic():
             for item in items:
-                risk = _apply(asset_id, item, context, by_rule=False, log_obj=log_obj, now=now)
+                risk = _apply(
+                    asset_id,
+                    item,
+                    context,
+                    by_rule=False,
+                    log_obj=log_obj,
+                    now=now,
+                    taken=touched,
+                    planned=planned,
+                )
                 if risk:
                     touched.append(risk.pk)
             for item in rule_extra:
-                item["vuln_pks"] = [
-                    next(pk for pk, i in index.items() if i == r) for r in item["vulnerabilities"]
-                ]
-                risk = _apply(asset_id, item, context, by_rule=True, log_obj=None, now=now)
+                risk = _apply(
+                    asset_id,
+                    item,
+                    context,
+                    by_rule=True,
+                    log_obj=None,
+                    now=now,
+                    taken=touched,
+                    planned=planned,
+                )
                 if risk:
                     touched.append(risk.pk)
                     by_rule_count += 1
@@ -1699,6 +1899,56 @@ def closure(risk):
         "label": closure_label(message),
         "replacements": replacements,
     }
+
+
+def details_without_support(details):
+    """«Detalles» sin su párrafo «Sustento:» (KEV, EPSS, observaciones): en la ficha eso lo dicen
+    el resumen, la sección de inteligencia y la evidencia. El reporte conserva el texto entero."""
+    return _SUPPORT_LINE.sub("", details or "").strip()
+
+
+# El mismo bloque que ``_SUPPORT_BLOCK`` junto con el salto de línea que lo precede.
+_SUPPORT_LINE = re.compile(rf"(?:^|\n)[ \t]*{_SUPPORT_BLOCK.pattern}", re.S)
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡«])")
+
+
+def _first_sentence(text, limit=280):
+    text = " ".join(str(text or "").split())
+    first = _SENTENCE_END.split(text, maxsplit=1)[0] if text else ""
+    return first if len(first) <= limit else first[: limit - 1].rstrip(" ,;:") + "…"
+
+
+def brief(risk, *, intel, deadline=None, closure=None, responsible=None):
+    """Las tres líneas con las que se entiende un riesgo sin desplazar su ficha (P3): qué puede
+    pasar, por qué tiene este nivel y qué sigue. Todo sale de datos ya calculados; la lectura
+    de inteligencia (explotación activa y probabilidad), que se repetía en cuatro secciones, se
+    dice aquí una vez."""
+    what = _first_sentence(risk.impact_description or risk.description or risk.scenario)
+    why = (
+        f"{risk.get_level_display()}: probabilidad {risk.likelihood} × impacto {risk.impact} = "
+        f"{risk.score}. {intel.get('text', '')}"
+    ).strip()
+    if closure is not None:
+        step = f"Nada que decidir: está cerrado ({closure['label']})."
+    elif not risk.treatment:
+        step = "Falta decidir el tratamiento"
+        if deadline is not None:
+            step += f": el plazo de la política {deadline.when} ({deadline.date:%Y-%m-%d})"
+        step += "."
+        first = actionable_recommendations(risk.recommendations)[:1]
+        if first:
+            step += f" Para empezar: {str(first[0]).rstrip('. ')}."
+    else:
+        step = f"Tratamiento decidido: {risk.get_treatment_display().lower()}"
+        if risk.target_date:
+            step += f", con fecha compromiso {risk.target_date:%Y-%m-%d}"
+            step += " (vencida)" if risk.target_overdue else ""
+        elif risk.review_at:
+            step += f", a revisar el {risk.review_at:%Y-%m-%d}"
+            step += " (revisión vencida)" if risk.review_overdue else ""
+        who = responsible.label if responsible else ""
+        step += f"; responsable: {who}." if who else "; sin responsable."
+    return [("Qué puede pasar", what), ("Por qué este nivel", why), ("Qué sigue", step)]
 
 
 def followup_overdue_filter(today=None):

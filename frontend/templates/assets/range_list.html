@@ -21,7 +21,7 @@
         <td class="col-md text-ink-soft">{{ r.environment|catalog:"ENVIRONMENT" }}</td>
         <td>{% if r.is_authorized %}<span class="badge-low" title="Vigente{% if r.authorization_expires_at %} hasta {{ r.authorization_expires_at|fecha }}{% endif %}">vigente</span>{% elif r.in_scope %}<span class="badge-critical" title="Caducó el {{ r.authorization_expires_at|fecha }}">caducada</span>{% else %}<span class="badge-neutral">fuera del alcance</span>{% endif %}</td>
         <td class="col-lg text-ink-soft">{{ r.get_discovery_schedule_display }}</td>
-        <td class="col-md font-mono text-xs">{{ r.last_discovery_at|fecha }}</td>
+        <td class="col-md text-xs">{{ r.last_discovery_at|hace }}</td>
         <td class="font-mono"><a href="{% url 'assets:list' %}?network_range={{ r.pk }}&amp;status=all">{{ r.asset_count }}</a></td>
         <td class="text-right">
           <div class="flex justify-end gap-1">

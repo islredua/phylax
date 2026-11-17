@@ -356,6 +356,12 @@ def test_register_orders_by_level_then_score_and_links_matrix_cells(client, as_r
     assert listed[0].pk == high.pk and listed[1].pk == low.pk  # alto antes que moderado con 5×1
     body = response.content.decode()
     assert "likelihood=3&amp;impact=4" in body  # celda de la matriz enlazada
+    # P10: de las 25 casillas solo dos tienen riesgos; las otras 23 van atenuadas.
+    matrix_html = body[body.index('aria-label="Matriz de riesgo 5 por 5"') :]
+    matrix_html = matrix_html[: matrix_html.index("</table>")]
+    assert matrix_html.count("<td") == 25 and matrix_html.count("matrix-cell-empty") == 23
+    occupied = matrix_html[matrix_html.index("likelihood=3&amp;impact=4") - 400 :]
+    assert "matrix-cell-empty" not in occupied[:400].rsplit("<td", 1)[1]
     assert "Pérdida de datos en api-oriente" in body and "por fallo X" in body
     assert client.get("/detection/?likelihood=3&impact=4").context["paginator"].count == 1
     assert "Plazo CISA vencido" in body and "Cerrados" in body
@@ -531,7 +537,7 @@ def test_rule_texts_use_catalog_labels_real_plurals_and_dedupe(as_role):
     assert "(es)" not in description and "una falla de seguridad conocida" in description
     assert "mail-01" in description and "regla" not in description.lower()
     assert details.startswith("Software afectado:") and "WEAKNESS:A — Fallo A" in details
-    assert recommendations.count("Actualizar nginx.") == 1 and len(recommendations) == 2
+    assert recommendations == ["Actualizar nginx."]
     assert risks.percentile_100(0.998) == "100" and risks.percentile_100(0.5) == "50"
 
 
@@ -587,3 +593,102 @@ def test_observation_can_be_registered_from_the_global_list(client, as_role):
     assert response.status_code == 200 and "Respaldo sin cifrar" in response.content.decode()
     body = client.get("/detection/observations/?q=zzzz").content.decode()
     assert "Sin coincidencias para estos filtros" in body
+
+
+# --- Ficha del riesgo corta y sin repeticiones (revisión del 2026-11-16, P3 y P11) -------
+
+
+def test_risk_page_opens_with_a_three_line_brief_and_folds_reference_sections(client, as_role):
+    as_role(OPERATOR)
+    asset = _nginx_asset()
+    consolidation.consolidate_asset(asset.pk, use_llm=False)
+    risk = Risk.objects.get(asset=asset)
+    response = client.get(f"/detection/risks/{risk.pk}/")
+    body = response.content.decode()
+
+    # Tres líneas: qué puede pasar, por qué este nivel y qué sigue.
+    labels = [label for label, _text in response.context["brief"]]
+    assert labels == ["Qué puede pasar", "Por qué este nivel", "Qué sigue"]
+    what, why, step = (text for _label, text in response.context["brief"])
+    assert what and what in body
+    intel_text = response.context["intel"]["text"]
+    assert why.startswith(f"{risk.get_level_display()}: probabilidad {risk.likelihood} × impacto")
+    assert intel_text in why
+    assert step.startswith("Falta decidir el tratamiento: el plazo de la política vence en ")
+    assert "data-risk-brief" in body and "Posición en la matriz" in body
+    # La lectura de inteligencia (explotación activa y probabilidad) se dice una vez, no cuatro:
+    # ni en «Detalles» ni en párrafos aparte de la sección de inteligencia.
+    assert "Sustento:" in risk.details
+    assert body.count(intel_text) == 1
+    assert "Sustento:" not in body and "Lectura de la IA" not in body
+    assert '<p class="kv-label mt-4">Detalle técnico</p>' not in body
+    # Las secciones de consulta van plegadas; descripción, recomendaciones y evidencia, a la vista.
+    folded = [
+        part.split(">", 1)[0] for part in body.split('<details class="card section-fold"')[1:]
+    ]
+    assert folded == [' id="detalles"', ' id="inteligencia"', ' id="valoracion"']
+    for visible in ('id="recomendaciones"', 'id="evidencia"', "Descripción"):
+        assert visible in body
+    # La matriz va reducida y la columna de decisión acompaña al desplazar.
+    assert "h-5 w-5 min-w-5" in body and 'class="sticky-col' in body
+    # En teléfono, el botón fijo lleva al formulario.
+    assert "data-sticky-action" in body and 'data-target="#tratamiento"' in body
+    assert "Decidir tratamiento" in body and "data-treatment-change" not in body
+
+    # Con el tratamiento decidido: el formulario se pliega y el botón fijo ya no hace falta.
+    client.post(
+        f"/detection/risks/{risk.pk}/treatment/",
+        {"treatment": "MITIGATE", "target_date": "2030-01-15", "owner": "Infraestructura"},
+    )
+    response = client.get(f"/detection/risks/{risk.pk}/")
+    body = response.content.decode()
+    step = response.context["brief"][2][1]
+    assert step == (
+        "Tratamiento decidido: mitigar, con fecha compromiso 2030-01-15; "
+        "responsable: Infraestructura."
+    )
+    assert "data-treatment-change" in body and "Cambiar el tratamiento" in body
+    assert "Actualizar tratamiento" in body and "data-sticky-action" not in body
+
+
+def test_risk_brief_for_closed_risks_and_readers(client, as_role):
+    as_role(AUDITOR)
+    asset = _nginx_asset()
+    consolidation.consolidate_asset(asset.pk, use_llm=False)
+    risk = Risk.objects.get(asset=asset)
+    body = client.get(f"/detection/risks/{risk.pk}/").content.decode()
+    # Quien solo lee no decide: sin botón fijo ni formulario.
+    assert "data-risk-brief" in body and "data-sticky-action" not in body
+    assert "Solo lectura" in body
+
+    closed = risks.brief(
+        risk,
+        intel={"text": ""},
+        closure={"label": "corregido", "message": "Corregido", "at": None},
+    )
+    assert closed[2] == ("Qué sigue", "Nada que decidir: está cerrado (corregido).")
+    # El resumen toma la primera frase, sin partir abreviaturas ni números.
+    assert risks._first_sentence("Pierde el 4.5 % de ventas. Además, hay multas.") == (
+        "Pierde el 4.5 % de ventas."
+    )
+    assert risks.details_without_support(
+        "Software afectado: nginx 1.27.3\nSustento: 1 de 2 en KEV.\nCondiciones: expuesto."
+    ) == ("Software afectado: nginx 1.27.3\nCondiciones: expuesto.")
+
+
+def test_list_filters_can_fold_on_phones(client, as_role):
+    """P11: diez campos de filtro ocupaban dos pantallas en teléfono. Cada lista marca su
+    formulario y atalaya.js lo deja tras un botón (sin JavaScript se ve entero)."""
+    as_role(ADMIN)
+    for path in (
+        "/detection/",
+        "/detection/vulnerabilities/",
+        "/detection/observations/",
+        "/inventory/",
+        "/discovery/runs/",
+    ):
+        body = client.get(path).content.decode()
+        assert body.count("data-filter-form") == 1 and 'id="filtros"' in body, path
+    script = (Path(__file__).resolve().parents[3] / "frontend/static/js/atalaya.js").read_text()
+    assert "initFilterFold" in script and "initStickyAction" in script
+    assert "form[data-filter-form]" in script and "(max-width: 639px)" in script

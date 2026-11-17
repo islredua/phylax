@@ -20,7 +20,7 @@
         <td class="text-ink-soft">{{ r.environment|catalog:"ENVIRONMENT" }}</td>
         <td class="font-mono text-xs">{{ r.username|default:"—" }}</td>
         <td>{% if r.token %}<span class="badge-neutral">configurado</span>{% else %}<span class="text-muted">—</span>{% endif %}</td>
-        <td>{% if r.last_check_at %}{% if r.last_check_ok %}<span class="badge-low">{{ r.last_check_detail }}</span>{% else %}<span class="badge-critical">{{ r.last_check_detail }}</span>{% endif %}<div class="font-mono text-[11px] text-muted">{{ r.last_check_at|fecha }}</div>{% else %}<span class="text-muted">sin probar</span>{% endif %}</td>
+        <td>{% if r.last_check_at %}{% if r.last_check_ok %}<span class="badge-low">{{ r.last_check_detail }}</span>{% else %}<span class="badge-critical">{{ r.last_check_detail }}</span>{% endif %}<div class="text-[11px] text-muted">{{ r.last_check_at|hace }}</div>{% else %}<span class="text-muted">sin probar</span>{% endif %}</td>
         <td class="text-right">
           <div class="flex justify-end gap-1">
             <form method="post" action="{% url 'assets:registry_test' r.pk %}">{% csrf_token %}<button class="btn-secondary btn-sm" type="submit">Probar conexión</button></form>

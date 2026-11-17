@@ -13,7 +13,7 @@
   <article class="card flex flex-col gap-3">
     <div class="flex flex-wrap items-center justify-between gap-2">
       <p><span class="badge-high">{{ c.get_identifier_kind_display }}</span> <span class="font-mono">{{ c.identifier_value }}</span></p>
-      <p class="font-mono text-xs text-muted">{{ c.get_source_display }} · {{ c.created_at|fecha }}{% if c.discovery_run %} · <a href="{% url 'discovery:run_detail' c.discovery_run_id %}">ejecución</a>{% endif %}</p>
+      <p class="font-mono text-xs text-muted">{{ c.get_source_display }} · {{ c.created_at|hace }}{% if c.discovery_run %} · <a href="{% url 'discovery:run_detail' c.discovery_run_id %}">ejecución</a>{% endif %}</p>
     </div>
     <div class="grid grid-cols-1 gap-2 md:grid-cols-2">
       {% for a in c.candidate_assets.all %}

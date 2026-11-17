@@ -3,7 +3,7 @@
 {% block toolbar %}
 <div class="toolbar">
   <div class="flex flex-wrap items-center gap-2">
-    <h2>Descubrimiento <span class="ml-1 font-mono text-xs font-normal text-muted">{{ paginator.count }}</span></h2>
+    <h2>Descubrimiento <span class="ml-1 font-mono text-xs font-normal text-muted" title="{{ total_runs|pl:'ejecución,ejecuciones' }} en {{ paginator.count|pl:'lanzamiento,lanzamientos' }}">{{ paginator.count }}</span></h2>
     <span class="text-xs text-muted">barridos y escaneos de servicios con nmap sobre los rangos autorizados</span>
   </div>
 </div>
@@ -28,13 +28,14 @@
 </section>
 {% endif %}
 
-<form method="get" class="card grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:items-end">
+<form method="get" id="filtros" data-filter-form class="card grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 lg:items-end">
   {% for field in filter_form %}
   <div><label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}</div>
   {% endfor %}
   <div class="flex gap-2"><button type="submit" class="btn-primary">Filtrar</button><a href="{% url 'discovery:runs' %}" class="btn-secondary">Limpiar</a></div>
 </form>
 
-{% include "discovery/_run_table.html" with runs=runs %}
+{% if total_runs > paginator.count %}<p class="text-xs text-muted" data-launch-note>{{ total_runs|pl:"ejecución,ejecuciones" }} en {{ paginator.count|pl:"lanzamiento,lanzamientos" }}: los escaneos de varios activos pedidos de una vez van en una sola fila, con cada ejecución dentro.</p>{% endif %}
+{% include "discovery/_launch_table.html" %}
 {% include "_pagination.html" %}
 {% endblock %}

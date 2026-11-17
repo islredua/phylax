@@ -10,7 +10,7 @@
 **{{ asset.name }}** ({{ asset.business_role|catalog:"BUSINESS_ROLE" }}, {{ asset.environment|catalog:"ENVIRONMENT" }}, exposición {{ asset.exposure|choice_label:"Exposure"|lower }}) tiene un riesgo de nivel **{{ risk.get_level_display|lower }}** de **{{ risk.get_consequence_display|default:"compromiso"|lower }}**, sustentado en {{ evidence|length|pl:"vulnerabilidad,vulnerabilidades" }}{% if intel.kev_count %}, {{ intel.kev_count }} de ellas con explotación activa conocida (KEV){% if intel.kev_overdue %} y plazo de remediación de CISA vencido{% endif %}{% endif %}.
 
 - **Qué podría pasar:** {{ risk.impact_description|default:risk.scenario }}
-- **Qué hacer primero:** {% if risk.recommendations %}{{ risk.recommendations.0 }}{% else %}ver las acciones de cada vulnerabilidad ligada{% endif %}
+- **Qué hacer primero:** {% with recs=risk.recommendations|actionable %}{% if recs %}{{ recs.0 }}{% else %}ver las acciones de cada vulnerabilidad ligada{% endif %}{% endwith %}
 - **Decisión:** {% if closure %}riesgo cerrado el {{ closure.at|fecha }} ({{ closure.message }}){% elif risk.treatment %}{{ risk.get_treatment_display }}{% if responsible %}, responsable {{ responsible.label }}{% if responsible.inherited %} (del activo){% endif %}{% endif %}, decidido por {{ risk.decided_by.get_username|default:"—" }} el {{ risk.decided_at|fecha }}{% else %}pendiente: nadie ha decidido el tratamiento{% endif %}
 
 ## Activo
@@ -54,7 +54,7 @@ Fuentes: espejo local de NVD, catálogo KEV de CISA y EPSS (FIRST).
 {{ risk.rationale }}
 {% endif %}
 ## Recomendaciones
-{% for r in risk.recommendations %}
+{% for r in risk.recommendations|actionable %}
 {{ forloop.counter }}. {{ r }}{% empty %}
 Ver las acciones de cada vulnerabilidad.{% endfor %}
 

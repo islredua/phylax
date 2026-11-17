@@ -6,7 +6,7 @@ from . import views
 app_name = "detection"
 
 urlpatterns = [
-    # La portada de Detección son los riesgos: lo que una persona decide. Las vulnerabilidades y
+    # La raíz de /detection/ son los riesgos: lo que una persona decide. Las vulnerabilidades y
     # las observaciones son las capas que los sustentan.
     path("", views.RiskRegisterView.as_view(), name="risks"),
     path("vulnerabilities/", views.PanelView.as_view(), name="panel"),

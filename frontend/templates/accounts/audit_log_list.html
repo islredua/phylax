@@ -7,7 +7,7 @@
 </div>
 {% endblock %}
 {% block content %}
-<form method="get" class="card grid grid-cols-1 gap-3 md:grid-cols-5 md:items-end">
+<form method="get" id="filtros" data-filter-form class="card grid grid-cols-1 gap-3 md:grid-cols-5 md:items-end">
   {% for field in filter_form %}
   <div>
     <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
@@ -29,7 +29,7 @@
     <tbody>
       {% for entry in entries %}
       <tr>
-        <td class="font-mono text-xs whitespace-nowrap text-ink-soft">{{ entry.timestamp|fecha:True }}</td>
+        <td class="font-mono text-xs whitespace-nowrap text-ink-soft">{{ entry.timestamp|momento }}</td>
         <td>{% include "accounts/_event_badge.html" %}</td>
         <td class="font-mono text-xs">{% if entry.user %}{{ entry.user.get_username }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
         <td class="col-md font-mono text-xs">{{ entry.ip_address|default:"—" }}</td>

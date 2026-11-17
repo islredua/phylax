@@ -208,6 +208,15 @@
   .sidebar-group {
     @apply flex flex-col gap-0.5;
   }
+  /* Buscador global: arriba de las secciones, a todo el ancho de la barra. */
+  .sidebar-search {
+    @apply px-0.5 pb-2 max-md:pt-1;
+  }
+  .sidebar-search-input {
+    @apply block w-full rounded border border-sidebar-line bg-surface px-2.5 py-1.5 text-[13px] text-ink
+      placeholder:text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/25
+      max-md:min-h-10;
+  }
   .brand {
     @apply flex items-center gap-2.5 px-2 text-brand-ink hover:no-underline md:pb-4;
   }
@@ -286,6 +295,10 @@
   }
   .data-table td {
     @apply border-b border-line-soft px-3 py-2 align-middle;
+  }
+  /* Fila cuyo contenido puede crecer (pasos desplegados): las celdas se alinean arriba. */
+  .data-table tr.row-top td {
+    @apply align-top;
   }
   .data-table tbody tr:last-child td {
     @apply border-b-0;
@@ -383,11 +396,16 @@
   }
 
   /* --- Pestañas (subnavegación de una sección) --- */
+  /* Matriz de riesgo: la casilla sin riesgos conserva su color de nivel, atenuado. */
+  .matrix-cell-empty {
+    @apply opacity-30;
+  }
+  /* Administración lleva 13 pestañas: con este espaciado caben en una fila a 1440 px. */
   .tabs {
-    @apply flex gap-1 overflow-x-auto border-b border-line max-md:flex-nowrap md:flex-wrap;
+    @apply flex gap-0.5 overflow-x-auto border-b border-line max-md:flex-nowrap md:flex-wrap;
   }
   .tab {
-    @apply -mb-px border-b-2 border-transparent px-3 py-2 text-[13px] whitespace-nowrap text-ink-soft
+    @apply -mb-px border-b-2 border-transparent px-2.5 py-2 text-[13px] whitespace-nowrap text-ink-soft
       hover:text-primary hover:no-underline;
   }
   .tab-active {
@@ -859,6 +877,49 @@
   }
   details.fold[open] > summary::before {
     content: "▾ ";
+  }
+  /* Sección plegable de una ficha: el título es el resumen y dice lo esencial sin abrirla. */
+  details.section-fold > summary {
+    @apply flex cursor-pointer list-none flex-wrap items-center gap-x-2 gap-y-1 text-[15px]
+      font-semibold text-ink select-none;
+  }
+  details.section-fold > summary::-webkit-details-marker {
+    display: none;
+  }
+  details.section-fold > summary::before {
+    content: "▸";
+    @apply w-3 text-xs text-muted;
+  }
+  details.section-fold[open] > summary::before {
+    content: "▾";
+  }
+  details.section-fold[open] > summary {
+    @apply mb-3;
+  }
+  .section-hint {
+    @apply text-xs font-normal text-muted;
+  }
+  /* Columna de decisión que acompaña al desplazar (ficha del riesgo). Si no cabe en la
+     ventana, se desplaza por dentro: nada queda fuera de alcance. */
+  .sticky-col {
+    @apply lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto;
+  }
+  /* Teléfono: botón que despliega los filtros de una lista (lo crea atalaya.js). */
+  .filter-toggle {
+    @apply flex min-h-10 w-full cursor-pointer items-center justify-between rounded border
+      border-line bg-surface px-3 text-sm font-medium text-ink sm:hidden;
+  }
+  .filter-toggle::after {
+    content: "▾";
+    @apply text-xs text-muted;
+  }
+  .filter-toggle[aria-expanded="true"]::after {
+    content: "▴";
+  }
+  /* Teléfono: acción principal fija al pie mientras su formulario no está a la vista. */
+  .sticky-action {
+    @apply fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface/95 px-4 py-2 shadow-lg
+      lg:hidden;
   }
   /* Menú desplegable de acciones secundarias (detalle del activo). */
   details.menu {
