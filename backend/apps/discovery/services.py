@@ -99,6 +99,27 @@ def _enqueue(run_id):
     DiscoveryRun.objects.filter(pk=run_id).update(celery_task_id=result.id or "")
 
 
+def close_interrupted(run, *, now=None) -> int:
+    """Cierra un descubrimiento «en ejecución» que ya no corre en ningún lado (el trabajador se
+    reinició a medias). Sin esto el rango no se volvería a descubrir: solo admite uno activo."""
+    now = now or timezone.now()
+    closed = DiscoveryRun.objects.filter(pk=run.pk, status=RunStatus.RUNNING).update(
+        status=RunStatus.FAILED,
+        error="Interrumpido: el trabajador se reinició antes de terminar. Se puede lanzar de nuevo.",
+        finished_at=now,
+        updated_at=now,
+    )
+    if closed:
+        logger.warning("Descubrimiento %s cerrado como interrumpido", run.pk)
+        run_finished.send(
+            sender=DiscoveryRun,
+            run_id=run.pk,
+            status=RunStatus.FAILED,
+            asset_id=run.target_asset_id,
+        )
+    return closed
+
+
 def cancel_run(run, *, user):
     """Cancela un run en cola o en ejecución; el runner termina el proceso nmap."""
     _require(user)

@@ -65,6 +65,7 @@ QUEUE_NAMES = tuple(q["name"] for q in QUEUES)
 
 # Cada tarea del proyecto con un nombre que se entiende (una prueba vigila que no falte ninguna).
 TASK_LABELS = {
+    "apps.accounts.tasks.purge_expired_sessions": "Depurar sesiones caducadas",
     "apps.alerts.tasks.dispatch_alerts": "Enviar avisos",
     "apps.assets.tasks.auto_suggest_criticality": "Sugerir la criticidad de un activo nuevo",
     "apps.assets.tasks.expire_import_previews": "Depurar importaciones sin confirmar",
@@ -91,7 +92,9 @@ TASK_LABELS = {
     "apps.discovery.tasks.run_discovery": "Descubrimiento de un rango",
     "apps.discovery.tasks.run_scheduled_discoveries": "Lanzar los descubrimientos programados",
     "apps.llm.tasks.refresh_llm_status": "Consultar el estado del modelo",
+    "apps.presentation.tasks.apply_retention": "Aplicar la retención de datos",
     "apps.presentation.tasks.generate_health_narrative": "Redactar la lectura de Inicio",
+    "apps.presentation.tasks.recover_lost_work": "Retomar el trabajo que se quedó sin cola",
     "apps.presentation.tasks.refresh_health_narrative": "Revisar si toca redactar la lectura",
     "apps.presentation.tasks.refresh_system_status": "Latido del sistema",
     "apps.presentation.tasks.snapshot_health": "Guardar la instantánea de Inicio",
@@ -315,7 +318,9 @@ def _broker(facts):
         )
     detail = f"Redis {facts['version']} · {megabytes(facts['memory'])} en memoria"
     detail += f" · en marcha desde hace {lapse(facts['uptime'])}"
-    if not facts["persistent"]:
+    if facts["persistent"]:
+        detail += " · guarda lo encolado en disco"
+    else:
         detail += " · no guarda en disco: un reinicio de Redis pierde lo encolado"
     return _row("redis", name, role, OK, detail)
 

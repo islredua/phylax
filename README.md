@@ -56,13 +56,29 @@ curl http://localhost:8000/health/
 | Servicio | Función | Puertos |
 |---|---|---|
 | `backend` | Django (UI y API) | 8000 |
-| `db` | PostgreSQL 16 | 5432 (solo desarrollo) |
-| `redis` | Broker de Celery y caché | — |
+| `db` | PostgreSQL 16 | 5432 en `127.0.0.1` (solo desarrollo) |
+| `redis` | Broker de Celery y caché; guarda la cola en disco | — |
 | `ollama` | LLM local (GPU opcional vía `docker-compose.gpu.yml`) | — |
 | `worker` | Tareas generales (`default`) | — |
 | `worker-llm` | Inferencia LLM (`llm`, concurrencia 1) | — |
 | `worker-discovery` | Descubrimiento nmap (`discovery`), usuario no root con `NET_RAW`/`NET_ADMIN` | — |
 | `beat` | Tareas programadas | — |
+| `proxy` | Solo en el perfil de producción: TLS y archivos estáticos (Caddy) | 80, 443 |
+
+### Producción y operación
+
+Lo anterior es el perfil de desarrollo. Para uso real:
+
+```bash
+ATALAYA_PROFILE=prod scripts/compose.sh up -d   # proxy con TLS, gunicorn, DEBUG apagado, sin puertos internos
+scripts/backup.sh                               # respaldo con el sistema en marcha
+scripts/restore.sh --verify backups/<carpeta>   # comprobar que el respaldo sirve, sin tocar nada
+scripts/verify-setup.sh                         # Docker, servicios, salud, colas y modelo
+```
+
+[`docs/operacion.md`](docs/operacion.md) explica el perfil de producción, qué hay que conservar
+(incluida la llave de cifrado, que no va en el respaldo), cómo restaurar, actualizar y
+diagnosticar, la retención de datos y qué pasa con el trabajo en cola tras un corte.
 
 ### Modelos LLM
 
@@ -122,7 +138,8 @@ atalaya/
 │   └── apps/          Un paquete por módulo del MVP
 ├── frontend/          Templates HTMX + Tailwind
 ├── docs/              Documentación técnica y ADRs
-├── scripts/           Scripts auxiliares (seed, descarga CTI)
+├── scripts/           Arranque, respaldo, restauración y verificación
+├── deploy/            Configuración del proxy del perfil de producción
 ├── experiments/       Validación empírica (scoring, LLMs, benchmarks)
 ├── datasets/          Datasets de evaluación
 └── docker-compose.yml Orquestación
@@ -134,6 +151,7 @@ atalaya/
 - [`docs/stride-threat-model.md`](docs/stride-threat-model.md) — Modelo de amenaza STRIDE
 - [`docs/adrs/`](docs/adrs/) — Architecture Decision Records
 - [`docs/modules/`](docs/modules/) — Especificación, contrato y modelo de amenaza por módulo
+- [`docs/operacion.md`](docs/operacion.md) — Producción, respaldo, restauración, actualización y diagnóstico
 - [`TASKS.md`](TASKS.md) — Plan maestro de desarrollo
 
 ## Estado del proyecto

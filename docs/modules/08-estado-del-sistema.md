@@ -8,6 +8,7 @@ cuándo son los datos de los escáneres y qué falta configurar. Nace de la revi
 |---|---|---|
 | Administración › Sistema | `/administration/system/` (`system`) | `llm.manage_llm` o `accounts.view_auditlogentry` (quien administra y quien audita) |
 | Pedir la actualización de los datos de escáner | `POST /administration/system/scanner-data/` (`scanner_data_update`) | `scanners.update_scanner_data` (solo quien administra) |
+| Cambiar la retención de datos | `POST /administration/system/retention/` (`retention_policy`) | `presentation.change_retentionpolicy` (solo quien administra; quien audita la lee) |
 | Cola del modelo | tarjeta en `/llm/` (`?fragment=queue` para refrescarla sola) | `llm.manage_llm` |
 | Puesta en marcha | tarjeta en `/administration/`; una línea en Inicio | Administración; en Inicio solo `accounts.view_user` |
 
@@ -104,12 +105,63 @@ Cada punto lleva a su pantalla si quien lo ve puede abrirla. Completa, la tarjet
 línea. Inicio recuerda solo lo **esencial** que falte, y solo a quien administra
 (`accounts.view_user`); la lista se recuerda un minuto en la caché para no repetir las consultas.
 
+## Retención de datos (`apps/presentation/retention.py`)
+
+Añadida en el bloque 6 de la revisión (O4). Una sola fila (`RetentionPolicy`) dice cuántos días
+se conservan tres registros que solo crecen; la sección «Retención de datos» de la pantalla
+muestra, por cada uno, el plazo, lo que ocupa su tabla, cuántas filas tiene y cuántas quitará la
+próxima depuración.
+
+| Registro | Por defecto | Qué se quita | Qué no |
+|---|---|---|---|
+| Señales descartadas (`DetectionEvent` en `FILTERED`) | 90 días | Las que el filtro descartó | Las que tienen decisión o acción |
+| Cambios de inteligencia (`CtiChange`) | 90 días | El registro de cambios por CVE | El catálogo de CVE y las sincronizaciones |
+| Inferencias (`InferenceLog`) | 180 días | Las que ya nada cita | Las que cita una vulnerabilidad, un riesgo, una decisión, una sugerencia, el perfil o una narrativa |
+
+Reglas acotadas:
+
+- `0` conserva siempre; el mínimo es 7 días y el máximo 3 650.
+- Las relaciones que protegen una fila se leen del esquema (`retention.citing_relations`): una
+  llave foránea nueva hacia `InferenceLog` queda protegida sin tocar la retención.
+- Lo que Inicio cuenta en su periodo (señales e inferencias) no se depura dentro de él: la
+  política no acepta menos días que ese periodo y, si el periodo se amplía después, manda el
+  periodo (la pantalla lo dice).
+- Cada pasada quita a lo sumo 200 000 filas, en lotes de 2 000: una primera depuración grande se
+  reparte en varias noches.
+- Solo un administrador la cambia; el cambio queda en la bitácora de automatización.
+
+A mano: `manage.py apply_retention [--dry-run]`.
+
+## Trabajo que se quedó sin cola (`apps/presentation/recovery.py`)
+
+Añadido en el bloque 6 (O2). Redis guarda la cola en disco y la fila de Redis en «Servicios» lo
+dice («guarda lo encolado en disco»). Para lo que aun así puede faltar, `recover_lost_work`
+compara cada 5 minutos lo que la base cree en curso con lo que espera en Redis (las listas de las
+tres colas y lo entregado a un trabajador que aún no confirma):
+
+| Estado en la base | Sin mensaje en Redis |
+|---|---|
+| Escaneo «en cola» | Se vuelve a encolar |
+| Descubrimiento «en cola» | Se vuelve a encolar |
+| Descubrimiento «en ejecución» | Se cierra como interrumpido y avisa a la acción que lo pidió |
+| Sugerencia de criticidad sin respuesta | Se vuelve a pedir |
+| Borrador del perfil «generando» | Se vuelve a pedir |
+| Importación «procesando» | Se cierra con la indicación de volver a cargar el archivo |
+| Producto del inventario sin CVE traídos de NVD | Se vuelve a pedir (una vez cada seis horas por producto) |
+
+Solo actúa sobre lo que lleva más de diez minutos pedido; si Redis no responde, o una cola tiene
+más de 5 000 mensajes, no toca nada. Volver a encolar no duplica: esas tareas reclaman su fila
+antes de trabajar. La tabla de todos los tipos de trabajo está en `docs/operacion.md` §8.
+
 ## Tareas de `beat`
 
 | Entrada | Tarea | Cuándo |
 |---|---|---|
 | `system-heartbeat` | `presentation.tasks.refresh_system_status` | cada 60 s |
 | `scanners-update-data` | `scanners.tasks.update_scanner_data_scheduled` | 04:30 |
+| `recover-lost-work` | `presentation.tasks.recover_lost_work` | cada 5 min |
+| `retention-apply` | `presentation.tasks.apply_retention` | 03:40 |
+| `accounts-purge-sessions` | `accounts.tasks.purge_expired_sessions` | minuto 50 de cada hora |
 
 ## Pruebas
 
@@ -120,5 +172,10 @@ línea. Inicio recuerda solo lo **esencial** que falte, y solo a quien administr
 - `tests/scanners/test_scanner_data.py`: antigüedad y estado desde archivos temporales, límite de 5
   días de Grype, carpeta temporal de descarga, actualización sin duplicados, registro de lo que
   cambió, tareas interrumpidas, y la orden frente a un actualizador de nuclei que no avisa.
+
+- `tests/presentation/test_retention.py`: qué se quita y qué no de cada registro, el cero, el
+  periodo de Inicio, el tope por pasada, la tarea y la orden, permisos y la pantalla.
+- `tests/presentation/test_recovery.py`: cada estado con y sin mensaje en una cola simulada, el
+  margen de lo recién pedido, la lectura de las colas y lo que pasa sin certeza.
 
 Ninguna toca Redis, trabajadores, Ollama, internet ni las herramientas.

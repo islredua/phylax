@@ -4,13 +4,30 @@ import os
 from pathlib import Path
 
 from celery.schedules import crontab
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # --- Seguridad ---
-SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "insecure-fallback-change-me")
+_FALLBACK_SECRET_KEY = "insecure-fallback-change-me"
+# Llaves que cualquiera conoce: la de respaldo y la que trae ``.env.example``.
+_PUBLIC_SECRET_KEYS = (_FALLBACK_SECRET_KEY, "change-me")
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "") or _FALLBACK_SECRET_KEY
 DEBUG = os.environ.get("DJANGO_DEBUG", "0") == "1"
-ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,backend").split(",")
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,backend").split(",")
+    if host.strip()
+]
+# La llave firma las sesiones y los enlaces de recuperación de contraseña: fuera de DEBUG una
+# llave pública (la de respaldo de este archivo o la de ejemplo de ``.env.example``) no es
+# aceptable y Atalaya no arranca con ella.
+if not DEBUG and SECRET_KEY.startswith(_PUBLIC_SECRET_KEYS):
+    raise ImproperlyConfigured(
+        "Falta DJANGO_SECRET_KEY: fuera de DJANGO_DEBUG=1 Atalaya no arranca con la llave de "
+        'respaldo ni con la de ejemplo. Genera una con: python -c "from django.core.management.utils import '
+        'get_random_secret_key; print(get_random_secret_key())"'
+    )
 
 # --- Aplicaciones ---
 INSTALLED_APPS = [
@@ -123,6 +140,40 @@ CSRF_COOKIE_SAMESITE = "Lax"
 _secure_cookies = os.environ.get("DJANGO_SECURE_COOKIES", "0" if DEBUG else "1") == "1"
 SESSION_COOKIE_SECURE = _secure_cookies
 CSRF_COOKIE_SECURE = _secure_cookies
+
+# --- Detrás de un proxy con TLS (perfil de producción: docker-compose.prod.yml) ---
+# ATALAYA_BEHIND_PROXY=1 dice que un proxy termina TLS delante del backend y anuncia el esquema
+# original en X-Forwarded-Proto. Solo vale cuando al backend no se llega sin pasar por él (en el
+# perfil de producción no publica puertos): si no, cualquiera podría fingir la cabecera.
+BEHIND_PROXY = os.environ.get("ATALAYA_BEHIND_PROXY", "0") == "1"
+if BEHIND_PROXY:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+# De quién se acepta X-Forwarded-For para saber la IP del cliente (bitácora, sesiones): redes
+# CIDR, direcciones o nombres de equipo separados por comas. Vacío: nadie, vale REMOTE_ADDR.
+TRUSTED_PROXIES = [
+    entry.strip()
+    for entry in os.environ.get("ATALAYA_TRUSTED_PROXIES", "").split(",")
+    if entry.strip()
+]
+# Todo por HTTPS y que el navegador lo recuerde un año. Por defecto, cuando hay proxy con TLS y
+# cookies seguras; /health/ queda fuera para las comprobaciones internas por HTTP.
+_https_only = BEHIND_PROXY and _secure_cookies
+SECURE_SSL_REDIRECT = os.environ.get("DJANGO_SSL_REDIRECT", "1" if _https_only else "0") == "1"
+SECURE_REDIRECT_EXEMPT = [r"^health/$"]
+SECURE_HSTS_SECONDS = int(
+    os.environ.get("DJANGO_HSTS_SECONDS", str(365 * 24 * 3600) if _https_only else "0")
+)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = os.environ.get("DJANGO_HSTS_SUBDOMAINS", "0") == "1"
+# Orígenes extra que pueden enviar formularios (https://atalaya.ejemplo.mx): solo hace falta si
+# el proxy cambia el nombre de equipo que ve el backend.
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",")
+    if origin.strip()
+]
+# `manage.py check --deploy` pide HSTS para subdominios y la lista de precarga de los navegadores:
+# no aplican a un nombre interno de la organización (se activan arriba si el despliegue lo quiere).
+SILENCED_SYSTEM_CHECKS = ["security.W005", "security.W021"]
 
 # --- Correo (password reset) ---
 # En desarrollo el correo se imprime en la consola del contenedor.
@@ -294,6 +345,21 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.presentation.tasks.refresh_system_status",
         "schedule": 60.0,
     },
+    # Lo que la base cree «en cola» y Redis ya no tiene (corte de luz, cola vaciada al restaurar).
+    "recover-lost-work": {
+        "task": "apps.presentation.tasks.recover_lost_work",
+        "schedule": crontab(minute="2-59/5"),
+    },
+    # Retención: señales descartadas, cambios de inteligencia e inferencias que ya nada cita.
+    "retention-apply": {
+        "task": "apps.presentation.tasks.apply_retention",
+        "schedule": crontab(hour=3, minute=40),
+    },
+    # Sesiones caducadas y sus registros: nadie las borraba salvo quien abría su cuenta.
+    "accounts-purge-sessions": {
+        "task": "apps.accounts.tasks.purge_expired_sessions",
+        "schedule": crontab(minute=50),
+    },
     # Avisos (F3): correo/webhook con los hechos nuevos que piden a una persona.
     "alerts-dispatch": {
         "task": "apps.alerts.tasks.dispatch_alerts",
@@ -307,7 +373,8 @@ MEDIA_ROOT = os.environ.get("ATALAYA_MEDIA_ROOT", "/data/media")
 
 # --- Archivos estáticos ---
 STATIC_URL = "static/"
-STATIC_ROOT = BASE_DIR / "staticfiles"
+# En el perfil de producción collectstatic los deja en un volumen que sirve el proxy.
+STATIC_ROOT = Path(os.environ.get("ATALAYA_STATIC_ROOT", "") or BASE_DIR / "staticfiles")
 STATICFILES_DIRS = [BASE_DIR.parent / "frontend" / "static"]
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

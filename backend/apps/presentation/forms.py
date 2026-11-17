@@ -3,6 +3,20 @@ from django import forms
 from apps.assets.forms import StyledMixin
 
 
+class RetentionPolicyForm(StyledMixin, forms.Form):
+    """Días que se conserva cada cosa (Administración → Sistema). 0 = conservar siempre."""
+
+    discarded_events_days = forms.IntegerField(
+        label="Señales descartadas", min_value=0, max_value=3650
+    )
+    cti_changes_days = forms.IntegerField(
+        label="Cambios de inteligencia", min_value=0, max_value=3650
+    )
+    inference_days = forms.IntegerField(
+        label="Inferencias que ya nada cita", min_value=0, max_value=3650
+    )
+
+
 class PresentationSettingsForm(StyledMixin, forms.Form):
     trend_days = forms.IntegerField(
         label="Ventana de tendencias (días)",

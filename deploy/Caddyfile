@@ -1,0 +1,30 @@
+# Proxy de Atalaya en el perfil de producción (docker-compose.prod.yml).
+# Termina TLS, sirve los estáticos que dejó collectstatic y pasa lo demás al backend.
+#
+#   ATALAYA_HOSTNAME   nombre con el que se entra (por defecto localhost)
+#   ATALAYA_TLS        «internal» (autoridad propia de Caddy) o «/certs/x.crt /certs/x.key»
+
+{$ATALAYA_HOSTNAME:localhost} {
+	tls {$ATALAYA_TLS:internal}
+	encode zstd gzip
+
+	handle /static/* {
+		root * /srv
+		file_server
+		header Cache-Control "public, max-age=3600"
+	}
+
+	handle {
+		reverse_proxy backend:8000
+	}
+
+	header {
+		# El backend ya manda HSTS, nosniff y X-Frame-Options; aquí solo se quita la firma.
+		-Server
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

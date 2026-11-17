@@ -13,6 +13,22 @@ def snapshot_health():
     return {"day": str(snap.day)}
 
 
+@shared_task(soft_time_limit=120, time_limit=150)
+def recover_lost_work():
+    """``beat`` (cada 5 min): retoma lo que la base cree en cola y Redis ya no tiene."""
+    from . import recovery
+
+    return recovery.run()
+
+
+@shared_task(acks_late=True, soft_time_limit=1500, time_limit=1800)
+def apply_retention():
+    """``beat`` (03:40): depura lo que la política de retención ya no conserva."""
+    from . import retention
+
+    return retention.apply()
+
+
 @shared_task
 def refresh_health_narrative():
     """``beat`` (cada 10 min): encola la narrativa si toca y el modelo no tiene trabajo prioritario."""

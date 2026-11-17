@@ -1,4 +1,5 @@
-# Multi-stage build para imagen de desarrollo
+# Una sola imagen para desarrollo (runserver, el CMD) y para el perfil de producción
+# (docker-compose.prod.yml la arranca con gunicorn).
 FROM python:3.12-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -46,9 +47,10 @@ RUN pip install -r requirements.txt
 COPY . .
 
 # Usuario sin privilegios (uid 1000, coincide con el usuario típico de WSL/Linux para
-# los bind mounts). Los volúmenes de datos se crean con su propiedad.
+# los bind mounts). Los volúmenes de datos se crean con su propiedad; /data/static recibe los
+# estáticos de collectstatic en el perfil de producción.
 RUN useradd --uid 1000 --create-home --shell /usr/sbin/nologin atalaya \
-    && mkdir -p /data/media /data/scan-results /data/cti-cache \
+    && mkdir -p /data/media /data/scan-results /data/cti-cache /data/static \
     && chown -R atalaya:atalaya /data
 USER atalaya
 

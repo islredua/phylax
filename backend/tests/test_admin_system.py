@@ -133,6 +133,10 @@ def test_report_is_green_when_everything_answers(stack):
     assert all(row["state"] == system.OK for row in rows.values())
     assert rows["db"]["detail"].startswith("PostgreSQL ")
     assert "no guarda en disco" in rows["redis"]["detail"]
+    # Con persistencia (O2) la pantalla lo dice en positivo.
+    stack["broker"]["persistent"] = True
+    assert "guarda lo encolado en disco" in _rows(system.report())["redis"]["detail"]
+    stack["broker"]["persistent"] = False
     assert "GPU" in rows["ollama"]["detail"]
     assert "2 procesos" in rows["worker-default"]["detail"]
     assert "sin tareas ahora" in rows["worker-llm"]["detail"]

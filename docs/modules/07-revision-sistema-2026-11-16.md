@@ -29,7 +29,7 @@ modelo real y sin herramientas) y se comprueba en el navegador con los datos del
 | 3 · Que quien administra vea el sistema | G1, G2, G3, W7 | Corregido el 2026-11-17 | Ver abajo y `docs/modules/08-estado-del-sistema.md`. Pruebas: `tests/test_admin_system.py`, `tests/scanners/test_scanner_data.py`. |
 | 4 · Cerrar el ciclo y repartir el trabajo | W4, W5, W6, N4, N5 | Corregido el 2026-11-17 | Ver abajo y «Cerrar el ciclo y repartir el trabajo» en `docs/modules/03-deteccion-continua.md`. Pruebas: `tests/detection/test_closing_the_loop.py`, `tests/scanners/test_unreported.py`, `tests/alerts/test_personal_notice.py`, `tests/presentation/test_tab_counters.py`. |
 | 5 · Estructura y lectura | N1, N2, N3, P3, P4, P7–P11, C2 | Corregido el 2026-11-17 | Ver abajo y «Estructura y lectura» en `docs/modules/03-deteccion-continua.md`. Pruebas: `tests/presentation/test_search.py`, `tests/test_presentation.py`, `tests/core/test_ui_shell.py`, `tests/assets/test_ux_inventory.py`, `tests/discovery/test_discovery.py`, `tests/detection/test_detection_views.py`, `tests/detection/test_ux_detection.py`, `tests/detection/test_risks.py`. |
-| 6 · Si sale del laboratorio | O1–O4, R1, R2 | Pendiente | |
+| 6 · Si sale del laboratorio | O1–O4, R1, R2 | Corregido el 2026-11-17 | Ver abajo y `docs/operacion.md`. Pruebas: `tests/test_deployment.py`, `tests/presentation/test_retention.py`, `tests/presentation/test_recovery.py`, `tests/accounts/test_user_sessions.py`, `tests/detection/test_detection_views.py`. |
 
 ### Bloque 1 (2026-11-17)
 
@@ -337,6 +337,93 @@ pendiente. Las vistas de teléfono se revisaron con capturas a 390 px en Chrome 
 en un dispositivo. El buscador se probó con los datos del laboratorio (20 activos, unas mil
 vulnerabilidades), no con inventarios grandes. En Actividad no había acciones en curso ni en
 espera de aprobación al capturar: esos estados quedan cubiertos por las pruebas.
+
+### Bloque 6 (2026-11-17)
+
+- **O1 · Perfil de producción.** `ATALAYA_PROFILE=prod scripts/compose.sh up -d` añade
+  `docker-compose.prod.yml`: un proxy (Caddy) termina TLS y sirve los estáticos, la aplicación
+  corre con gunicorn y `DEBUG` apagado, el código va montado de solo lectura y ni PostgreSQL ni
+  la aplicación publican puertos. Fuera de `DEBUG` hay redirección a HTTPS (salvo `/health/`),
+  HSTS de un año y cookies `Secure`, y la aplicación **no arranca** con una llave que cualquiera
+  conoce (la de respaldo o la de `.env.example`). La bitácora guarda la IP del cliente:
+  `X-Forwarded-For` solo se acepta del proxy (`ATALAYA_TRUSTED_PROXIES`). En desarrollo,
+  PostgreSQL deja de publicarse en todas las interfaces: solo en `127.0.0.1`.
+- **O2 · La cola sobrevive a un reinicio, y lo que se pierde se retoma.** Redis guarda la cola
+  en disco (`appendonly`, cada segundo, volumen `redis_data`); Administración › Sistema lo
+  dice. Para lo que aun así puede faltar (el último segundo antes de un corte, la cola entera al
+  restaurar) se revisó cada tipo de trabajo: la mayoría ya tenía quien lo retomara; para los
+  que no, `recover_lost_work` (cada 5 minutos) compara lo que la base cree en curso con lo que
+  de verdad espera en Redis y lo vuelve a encolar o lo cierra como interrumpido. La tabla
+  completa está en `docs/operacion.md` §8.
+- **O3 · Guía de operación y guiones.** `docs/operacion.md`: perfiles, qué hay que conservar,
+  respaldar, comprobar, restaurar, actualizar, diagnosticar, retención y llave de cifrado.
+  `scripts/backup.sh` respalda con el sistema en marcha (base, archivos y resultados de
+  escaneo, con sumas y cuentas por tabla; el `.env` queda fuera a propósito).
+  `scripts/restore.sh --verify` carga el respaldo en una base aparte y lo compara sin tocar
+  nada; `scripts/restore.sh` restaura cargando primero en una base nueva y cambiándola por la
+  que está en uso solo si coincide. `scripts/verify-setup.sh`, que nombraba contenedores que ya
+  no existen, se reescribió.
+- **O4 · Retención configurable.** Administración › Sistema › Retención de datos: días que se
+  conservan las señales descartadas (90), los cambios de inteligencia (90) y las inferencias
+  que ya nada cita (180); `0` conserva siempre. Se aplica cada día a las 03:40 y con
+  `manage.py apply_retention [--dry-run]`. **Nunca** se quita una señal con decisión o acción,
+  ni una inferencia que alguna vulnerabilidad, riesgo, decisión, sugerencia o narrativa siga
+  citando (las relaciones se leen del esquema: una nueva queda protegida sola), ni nada dentro
+  del periodo que muestra Inicio. Solo un administrador la cambia y queda en la bitácora.
+- **R1 · Las sesiones se leen en dos consultas y leer no borra.** Inicio, Mi cuenta y Seguridad
+  ya no preguntan una vez por sesión; las sesiones caducadas y sus registros los quita una
+  tarea cada hora.
+- **R2 · Observaciones trae «Consolidada en» junto con la fila**, y el orden por prioridad se
+  resuelve en la base en vez de en memoria.
+
+**Lo que destapó la revisión con los datos reales**
+
+- *Sesiones caducadas contadas como abiertas.* La lista de «sesiones abiertas» mostraba 79
+  cuando 76 ya habían caducado: se comprobaba que la sesión existiera, no que siguiera vigente.
+  La primera pasada de la tarea quitó esas 76.
+- *Estados que se quedaban para siempre.* Un escaneo o un descubrimiento «en cola» cuyo mensaje
+  se perdía no tenía quien lo retomara, y el rango quedaba sin poder descubrirse otra vez; un
+  descubrimiento «en ejecución» interrumpido por un reinicio tampoco se cerraba; un borrador
+  del perfil «generando» no dejaba pedir otro. Ahora los retoma o los cierra el barrido.
+- *Un producto sin CVE en el espejo.* El barrido encontró en el laboratorio un par
+  producto/proveedor (nginx con proveedor «nginx») que nunca se había pedido a NVD: al llegar
+  un producto ya conocido con otro proveedor no se pedía su cobertura. Se pidió: llegaron dos
+  CVE de 2009 que el filtro descartó («versiones del inventario no afectadas»); ninguna
+  observación nueva.
+- *El guion de restauración, ensayado.* La comparación de filas daba por buena una carpeta sin
+  cuentas (ahora es un fallo), y el paso de archivos reconstruía la imagen (ahora usa la del
+  contenedor que ya existe).
+- *La llave de ejemplo.* Solo se rechazaba la llave de respaldo del código; con el `.env` copiado
+  tal cual de `.env.example`, producción habría arrancado con una llave pública.
+
+**Comprobado en el flujo real (laboratorio)**
+
+| Qué | Cómo | Resultado |
+|---|---|---|
+| Perfil de producción | Levantado sobre los datos del laboratorio en los puertos 8080/8443 | `/health/` 200 por HTTPS; HTTP responde 308 a HTTPS; HSTS de un año, `nosniff`, `X-Frame-Options: DENY` y cookie `Secure` en el inicio de sesión; hoja de estilos, guiones y estáticos del panel servidos por el proxy; puertos 8000 y 5432 cerrados desde el equipo; Inicio, Riesgos, Observaciones, Sistema y el buscador responden con sesión; una página inexistente da 404 sin detalles de depuración; los tres trabajadores contestan. |
+| IP del cliente | Inicio de sesión fallido a través del proxy | El formulario pasa la comprobación CSRF y la bitácora guarda la dirección de quien se conecta, no la del contenedor del proxy. |
+| Vuelta a desarrollo | `up -d --remove-orphans` | Mismas cifras que antes: 20 activos, 76 riesgos (36 abiertos), 1 053 vulnerabilidades, 1 101 observaciones. |
+| La cola sobrevive | Trabajadores detenidos, 3 tareas encoladas, reinicio de Redis | Las 3 seguían en la cola y se ejecutaron al volver los trabajadores. |
+| Mensaje perdido | Descubrimiento de `lb-dmz` encolado con el trabajador detenido; se borró su mensaje de Redis | Recién pedido, el barrido no lo toca; pasados los diez minutos de margen lo vuelve a encolar; una segunda pasada no lo duplica; al volver el trabajador terminó bien en 18 s. |
+| Respaldo | `scripts/backup.sh` con el sistema en marcha | 12 s, 82 MB (base 49 MB, archivos 33 MB). |
+| Comprobación del respaldo | `scripts/restore.sh --verify` | 16 s: sumas correctas, 72 tablas y 642 573 filas coinciden; la base de comprobación se borra. |
+| Cambio de base | Las funciones del guion sobre dos bases de ensayo | La nueva toma el nombre de la que estaba en uso y la anterior queda aparte; una base a la que se le vació una tabla no pasa la comparación («0 filas; el respaldo tenía 85»). |
+| Archivos | Extracción en una carpeta de ensayo | 328 archivos y 411 MB, igual que los reales; lo que no estaba en el respaldo desaparece. |
+| Retención | Sobre una copia restaurada del laboratorio | Con los plazos por defecto no hay nada que quitar (el laboratorio tiene 30 días). Con 30 días para señales y 7 para cambios: 42 575 señales y 91 482 cambios en 9 s; decisiones, acciones, riesgos, vulnerabilidades, CVE y sincronizaciones sin cambio; las cifras de Inicio, idénticas. Con 7 días para todo: 3 485 de las 3 522 inferencias de más de una semana; las 37 que quedan están citadas, y las 1 080 citas siguen resolviendo. Tras compactar, las tres tablas pasan de 52, 53 y 24 MB a 5, 3 y 8 MB, y la base de 409 a 245 MB. |
+| Sesiones | La tarea programada, a su hora | Quitó 76 sesiones caducadas y sus 76 registros; quedan las 5 vigentes. |
+| Consultas | Medidas con los datos del laboratorio | Observaciones: de 34 consultas y 374 ms a 10 y 61 ms. Inicio: de 115 a 37 consultas. Mi cuenta: de 86 a 8. Seguridad: de 85 a 7. |
+| Pantalla de retención | Capturas a 1440 px y 390 px | Una fila por registro con lo que se conserva, lo que ocupa y lo que toca depurar; en teléfono cada registro se apila. |
+
+*Qué no se comprobó:* **la restauración completa sobre la base en uso del laboratorio no se
+ejecutó** (reemplaza los datos): se probaron la carga, la comparación, el cambio de base y la
+extracción de archivos por separado y sin tocar lo real. El perfil de producción se levantó en
+el mismo equipo, con el certificado que emite el propio proxy y puertos alternos: no con un
+certificado de la organización, un nombre público ni un navegador que confíe en él; tampoco se
+midió gunicorn con carga. El cierre de un descubrimiento «en ejecución» interrumpido queda
+cubierto por pruebas: en real, si el trabajador muere de golpe, Redis tarda hasta una hora en
+volver a entregar su mensaje y el cierre llega después. La depuración por retención se ejecutó
+sobre una copia; en el laboratorio corre cada noche pero aún no tiene nada con más de 90 días.
+El envío de correo en producción (SMTP) no se probó.
 
 ## 1. Flujo de trabajo
 

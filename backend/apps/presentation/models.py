@@ -41,6 +41,34 @@ class PresentationSettings(models.Model):
         return f"Inicio: {self.trend_days} días, narrativa cada {self.narrative_every_minutes} min"
 
 
+class RetentionPolicy(models.Model):
+    """Cuánto se conserva de lo que solo crece (una sola fila; ``presentation.retention``).
+
+    Cero significa «conservar siempre». Lo que otra fila sigue citando no se depura nunca, sea
+    cual sea el plazo. Solo administradores la cambian.
+    """
+
+    discarded_events_days = models.PositiveIntegerField("señales descartadas (días)", default=90)
+    cti_changes_days = models.PositiveIntegerField("cambios de inteligencia (días)", default=90)
+    inference_days = models.PositiveIntegerField("inferencias que ya nada cita (días)", default=180)
+    updated_by = models.ForeignKey(
+        USER, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+    last_run_at = models.DateTimeField(null=True, blank=True, editable=False)
+    last_result = models.JSONField(default=dict, blank=True, editable=False)
+
+    class Meta:
+        verbose_name = "retención de datos"
+        verbose_name_plural = "retención de datos"
+
+    def __str__(self):
+        return (
+            f"Retención: señales {self.discarded_events_days} d, cambios "
+            f"{self.cti_changes_days} d, inferencias {self.inference_days} d"
+        )
+
+
 class HealthSnapshot(models.Model):
     day = models.DateField(unique=True, db_index=True)
     data = models.JSONField(default=dict, blank=True)

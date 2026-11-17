@@ -140,4 +140,33 @@
     </div>
   </section>
 </div>
+
+<section class="flex flex-col gap-2" id="retencion" aria-labelledby="sys-retention">
+  <h3 class="eyebrow" id="sys-retention">Retención de datos</h3>
+  <form method="post" action="{% url 'retention_policy' %}" class="card flex flex-col gap-3" novalidate>{% csrf_token %}
+    <p class="text-sm text-ink-soft">Tres registros solo crecen. Aquí se decide cuántos días se conserva cada uno; lo más antiguo se quita cada día a las {{ retention_schedule }}. <strong class="font-medium">Nunca se quita</strong> lo que algo vigente sigue citando, ni las decisiones, las acciones, las líneas de tiempo o la bitácora.</p>
+    {% if retention_form.non_field_errors %}<div class="alert-error text-sm" role="alert">{% for e in retention_form.non_field_errors %}{{ e }} {% endfor %}</div>{% endif %}
+    {# Lista, no tabla: en teléfono cada registro se apila (qué es, cuánto se conserva, cuánto ocupa). #}
+    <ul class="flex flex-col divide-y divide-line-soft rounded border border-line">
+      <li class="hidden gap-x-4 px-4 py-2 text-xs text-muted md:grid md:grid-cols-[minmax(0,1fr)_9rem_8rem_6rem]" aria-hidden="true"><span>Qué</span><span>Conservar (días)</span><span class="text-right">Ocupa hoy</span><span class="text-right" title="Filas que quitará la próxima depuración">Por depurar</span></li>
+      {% for row in retention.rows %}
+      <li class="grid grid-cols-2 gap-x-4 gap-y-2 px-4 py-3 md:grid-cols-[minmax(0,1fr)_9rem_8rem_6rem]" data-retention="{{ row.key }}" data-pending="{{ row.pending }}">
+        <div class="col-span-2 md:col-span-1"><label for="{{ row.field.id_for_label }}" class="text-sm font-medium">{{ row.label }}</label><p class="text-xs text-muted">{{ row.what }}</p></div>
+        <div class="col-span-2 md:col-span-1">
+          <p class="mb-1 text-xs text-muted md:sr-only">Conservar (días)</p>
+          {% if can_manage_retention %}<div class="w-28">{{ row.field }}</div>{% for e in row.field.errors %}<p class="form-error">{{ e }}</p>{% endfor %}
+          {% elif row.days %}<span class="font-mono text-sm">{{ row.days }}</span>{% else %}<span class="text-sm">Siempre</span>{% endif %}
+          {% if row.raised %}<p class="mt-0.5 text-xs text-muted">Se conservan {{ row.effective_days }}: es el periodo que muestra Inicio.</p>{% elif not row.days and can_manage_retention %}<p class="mt-0.5 text-xs text-muted">0: se conserva siempre.</p>{% endif %}
+        </div>
+        <div class="md:text-right"><p class="text-xs text-muted md:sr-only">Ocupa hoy</p>{% if row.size %}<p class="font-mono text-sm">{{ row.size }}</p>{% endif %}<p class="text-xs whitespace-nowrap text-muted">{{ row.rows|miles }} {{ row.rows|pl:"-fila,filas" }}</p></div>
+        <div class="text-right"><p class="text-xs text-muted md:sr-only">Por depurar</p><p class="font-mono text-sm">{{ row.pending|miles }}</p></div>
+      </li>
+      {% endfor %}
+    </ul>
+    <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+      {% if can_manage_retention %}<button class="btn-primary" type="submit">Guardar retención</button>{% else %}<p class="text-xs text-muted">Solo un administrador cambia la retención.</p>{% endif %}
+      <p class="text-xs text-muted">{% if retention.last_run_at %}Última depuración <span title="{{ retention.last_run_at|fecha }}">hace {{ retention.last_age }}</span>: {% for label, count in retention.last_removed %}{{ count|miles }} de «{{ label|lower }}»{% if not forloop.last %}, {% endif %}{% empty %}no había nada que quitar{% endfor %}{% if retention.last_capped %} · alcanzó el tope de la pasada; la siguiente continúa{% endif %}.{% else %}Todavía no ha corrido ninguna depuración.{% endif %} De 7 a 3650 días, o 0 para conservar siempre.</p>
+    </div>
+  </form>
+</section>
 {% endblock %}

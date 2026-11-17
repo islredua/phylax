@@ -3,6 +3,7 @@ from datetime import timedelta
 from django.contrib import messages
 from django.contrib.auth import get_user_model
 from django.contrib.auth.mixins import PermissionRequiredMixin
+from django.core.exceptions import ValidationError
 from django.db.models import Exists, OuterRef
 from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import render
@@ -15,7 +16,7 @@ from django.views.generic import TemplateView
 from apps.accounts import mfa, user_sessions
 from apps.accounts.models import AUDIT_EVENT_SEVERITY, AuditEvent, AuditLogEntry, MFADevice
 
-from .forms import PresentationSettingsForm
+from .forms import PresentationSettingsForm, RetentionPolicyForm
 
 # Módulos del MVP (docs/architecture.md) y si ya tienen interfaz.
 HOME_PERMS = {
@@ -848,22 +849,61 @@ class SystemView(PermissionRequiredMixin, TemplateView):
         return any(self.request.user.has_perm(p) for p in self.permission_required)
 
     def get_context_data(self, **kwargs):
-        from apps.scanners.models import ScannerDataRun
-
-        from . import system
-
         context = super().get_context_data(**kwargs)
-        user = self.request.user
-        context.update(
-            report=system.report(),
-            model_queue=system.model_queue(),
-            data_runs=ScannerDataRun.objects.select_related("requested_by")[:8],
-            data_schedule="04:30",
-            can_update_data=user.has_perm("scanners.update_scanner_data"),
-            can_see_llm=user.has_perm("llm.manage_llm"),
-            can_see_sources=user.has_perm("cti.view_ctisource"),
-        )
+        context.update(system_context(self.request.user))
         return context
+
+
+def system_context(user, retention_form=None) -> dict:
+    """Lo que pinta Administración › Sistema (también al devolver el formulario con errores)."""
+    from apps.scanners.models import ScannerDataRun
+
+    from . import retention, system
+
+    kept = retention.overview()
+    form = retention_form or RetentionPolicyForm(
+        initial={name: getattr(kept["policy"], name) for name in retention.EDITABLE_FIELDS}
+    )
+    for row in kept["rows"]:
+        row["field"] = form[next(k["field"] for k in retention._kinds() if k["key"] == row["key"])]
+    return {
+        "report": system.report(),
+        "model_queue": system.model_queue(),
+        "data_runs": ScannerDataRun.objects.select_related("requested_by")[:8],
+        "data_schedule": "04:30",
+        "can_update_data": user.has_perm("scanners.update_scanner_data"),
+        "can_see_llm": user.has_perm("llm.manage_llm"),
+        "can_see_sources": user.has_perm("cti.view_ctisource"),
+        "retention": kept,
+        "retention_form": form,
+        "retention_schedule": "03:40",
+        "can_manage_retention": user.has_perm("presentation.change_retentionpolicy"),
+    }
+
+
+class RetentionPolicyView(PermissionRequiredMixin, View):
+    """Administración › Sistema: cuántos días se conserva lo que solo crece."""
+
+    permission_required = "presentation.change_retentionpolicy"
+    raise_exception = True
+
+    def post(self, request):
+        from . import retention
+
+        form = RetentionPolicyForm(request.POST)
+        if form.is_valid():
+            try:
+                retention.update(user=request.user, fields=form.cleaned_data)
+            except ValidationError as error:
+                form.add_error(None, error)
+            else:
+                messages.success(
+                    request,
+                    "Retención guardada. Se aplica en la depuración de cada día; lo que algo "
+                    "vigente sigue citando no se quita.",
+                )
+                return HttpResponseRedirect(reverse("system") + "#retencion")
+        return render(request, SystemView.template_name, system_context(request.user, form))
 
 
 class ScannerDataUpdateView(PermissionRequiredMixin, View):

@@ -11,6 +11,7 @@ from .views import (
     HomeSettingsView,
     HomeView,
     NarrativeRefreshView,
+    RetentionPolicyView,
     ScannerDataUpdateView,
     SearchView,
     SystemView,
@@ -32,6 +33,11 @@ urlpatterns = [
         "administration/system/scanner-data/",
         ScannerDataUpdateView.as_view(),
         name="scanner_data_update",
+    ),
+    path(
+        "administration/system/retention/",
+        RetentionPolicyView.as_view(),
+        name="retention_policy",
     ),
     path("administration/home/", HomeSettingsView.as_view(), name="home_settings"),
     # Perfil de la organización: contexto de toda la plataforma (lo edita el administrador).

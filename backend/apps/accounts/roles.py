@@ -70,6 +70,8 @@ ADMIN_MANAGED_MODELS = {
     ("detection", "treatmentpolicy"),
     # Módulo 5: ventana de tendencias y cadencia de la narrativa de Inicio.
     ("presentation", "presentationsettings"),
+    # Cuánto se conservan señales descartadas, cambios de inteligencia e inferencias.
+    ("presentation", "retentionpolicy"),
 }
 # (app_label, model) con secretos: ningún rol recibe permisos sobre ellos.
 SECRET_MODELS = {

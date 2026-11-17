@@ -46,17 +46,52 @@ def forget(session_key):
         UserSession.objects.filter(session_key=session_key).delete()
 
 
-def active_sessions(user):
-    """Sesiones del usuario que siguen vivas; descarta las expiradas."""
-    sessions = list(UserSession.objects.filter(user=user))
+def _alive_keys(keys, now=None):
+    """De estas llaves, las de sesiones que siguen vivas. Con las sesiones en la base (el motor
+    por defecto) es **una** consulta y cuenta la caducidad; ``exists()`` por llave costaba una
+    consulta por sesión y daba por viva una sesión caducada que nadie había borrado."""
+    keys = list(keys)
+    if not keys:
+        return set()
+    if settings.SESSION_ENGINE.endswith((".db", ".cached_db")):
+        from django.contrib.sessions.models import Session
+
+        return set(
+            Session.objects.filter(
+                session_key__in=keys, expire_date__gt=now or timezone.now()
+            ).values_list("session_key", flat=True)
+        )
     store = _session_store()
-    alive = []
-    for session in sessions:
-        if store.exists(session.session_key):
-            alive.append(session)
-        else:
-            session.delete()
-    return alive
+    return {key for key in keys if store.exists(key)}
+
+
+def active_sessions(user):
+    """Sesiones del usuario que siguen vivas. Solo lee: dos consultas sin importar cuántas
+    tenga. Los registros de sesiones caducadas los retira ``purge_expired`` (tarea de beat),
+    no la petición de quien abre una página."""
+    sessions = list(UserSession.objects.filter(user=user))
+    alive = _alive_keys(s.session_key for s in sessions)
+    return [s for s in sessions if s.session_key in alive]
+
+
+def purge_expired(now=None) -> dict:
+    """Retira los registros de sesiones que ya no existen o caducaron y borra las sesiones
+    caducadas de Django (lo que hace ``clearsessions``). Devuelve cuántos quitó de cada cosa."""
+    now = now or timezone.now()
+    keys = list(UserSession.objects.values_list("session_key", flat=True))
+    alive = _alive_keys(keys, now)
+    dead = [key for key in keys if key not in alive]
+    records = 0
+    for start in range(0, len(dead), 500):
+        records += UserSession.objects.filter(session_key__in=dead[start : start + 500]).delete()[0]
+    expired = 0
+    if settings.SESSION_ENGINE.endswith((".db", ".cached_db")):
+        from django.contrib.sessions.models import Session
+
+        expired = Session.objects.filter(expire_date__lt=now).delete()[0]
+    else:
+        _session_store().clear_expired()
+    return {"records": records, "expired": expired}
 
 
 def revoke(user, session_ids=None, except_key=None):

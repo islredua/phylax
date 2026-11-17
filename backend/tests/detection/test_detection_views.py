@@ -141,6 +141,55 @@ def test_operator_cannot_manage_but_can_work(client, as_role):
 # --- Panel y detalle ----------------------------------------------------------------
 
 
+def test_observations_list_does_not_query_once_per_row(client, as_role):
+    """Revisión del 2026-11-16, R2: «Consolidada en» costaba una consulta por fila (25 de 35) y
+    la lista traía todas las observaciones para ordenar en memoria las 25 que muestra."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    from apps.detection import consolidation
+    from apps.detection.views import SEVERITY_ORDER
+
+    as_role(OPERATOR)
+    asset = _finding().asset
+
+    def queries():
+        with CaptureQueriesContext(connection) as captured:
+            response = client.get("/detection/observations/")
+        return len(captured), response
+
+    queries()
+    few, _ = queries()
+    for n in range(12):
+        findings.upsert_finding(
+            asset_id=asset.pk,
+            vulnerability_id=f"CVE-2024-10{n:02d}",
+            source="NUCLEI",
+            title=f"Falla {n} en nginx",
+            severity=("CRITICAL", "HIGH", "MEDIUM", "LOW")[n % 4],
+            evidence_summary="plantilla",
+        )
+    consolidation.consolidate_asset(asset.pk)
+    assert Finding.objects.filter(asset=asset, consolidated__isnull=False).count() >= 12
+    many, response = queries()
+    assert many == few
+    # El orden que antes se hacía en memoria lo hace ahora la base, igual.
+    listed = list(response.context["findings"])
+    assert len(listed) == Finding.objects.filter(asset=asset).count()
+
+    def priority(f):
+        return (
+            f.priority_score if f.priority_score is not None else -1,
+            int(f.in_kev),
+            SEVERITY_ORDER.get(f.severity, 0),
+            f.epss_score or 0,
+            f.first_detected_at,
+        )
+
+    assert [f.pk for f in listed] == [f.pk for f in sorted(listed, key=priority, reverse=True)]
+    assert "Falla 3 en nginx" in response.content.decode()
+
+
 def test_observations_list_and_filters(client, as_role):
     as_role(OPERATOR)
     finding = _finding()

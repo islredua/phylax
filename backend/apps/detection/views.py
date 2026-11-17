@@ -3,7 +3,8 @@
 from django.contrib import messages
 from django.contrib.auth.mixins import PermissionRequiredMixin
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db.models import Count, Max, Q
+from django.db.models import Case, Count, FloatField, IntegerField, Max, Q, Value, When
+from django.db.models.functions import Coalesce
 from django.http import HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -112,7 +113,9 @@ def _safe_next(request, default):
 
 
 def filter_findings(params):
-    qs = Finding.objects.select_related("asset", "cve", "component")
+    # ``consolidated`` va con la observación: la columna «Consolidada en» costaba una consulta
+    # por fila (revisión del 2026-11-16, R2).
+    qs = Finding.objects.select_related("asset", "cve", "component", "consolidated")
     form = FindingFilterForm(params or None)
     status = ""
     if form.is_valid():
@@ -147,19 +150,22 @@ SEVERITY_ORDER = {s: i for i, s in enumerate(reversed(FindingSeverity.values))}
 
 
 def order_findings(qs):
-    """Prioridad del motor de scoring si existe; si no, provisional: KEV, severidad, EPSS."""
-    items = list(qs)
-    items.sort(
-        key=lambda f: (
-            f.priority_score if f.priority_score is not None else -1,
-            int(f.in_kev),
-            SEVERITY_ORDER.get(f.severity, 0),
-            f.epss_score or 0,
-            f.first_detected_at,
-        ),
-        reverse=True,
+    """Prioridad del motor de scoring si existe; si no, provisional: KEV, severidad, EPSS.
+
+    Ordena la base y devuelve la consulta: antes se traían todas las observaciones (más de mil
+    en el laboratorio) para ordenarlas en memoria y mostrar 25 (revisión del 2026-11-16, R2)."""
+    severity = Case(
+        *[When(severity=value, then=Value(rank)) for value, rank in SEVERITY_ORDER.items()],
+        default=Value(0),
+        output_field=IntegerField(),
     )
-    return items
+    return qs.annotate(
+        order_priority=Coalesce("priority_score", Value(-1.0), output_field=FloatField()),
+        order_severity=severity,
+        order_epss=Coalesce("epss_score", Value(0.0), output_field=FloatField()),
+    ).order_by(
+        "-order_priority", "-in_kev", "-order_severity", "-order_epss", "-first_detected_at", "-pk"
+    )
 
 
 # Las pestañas del activo muestran lo más urgente; el resto se ve en Riesgos y Vulnerabilidades con filtros (A1).
@@ -196,8 +202,8 @@ def asset_tab_context(asset, tab):
         ctx["describing"] = descriptions.pending_ids([v.pk for v in listed])
     elif tab == "observaciones":
         ordered = order_findings(filter_findings(params)[0])
-        ctx["tab_total"] = len(ordered)
-        ctx["findings"] = ordered[:ASSET_TAB_LIMIT]
+        ctx["tab_total"] = ordered.count()
+        ctx["findings"] = list(ordered[:ASSET_TAB_LIMIT])
     return ctx
 
 
