@@ -240,7 +240,7 @@ def test_bulk_triage_sets_status_for_marked_vulnerabilities(client, as_role):
     asset = _nginx_asset()
     consolidation.consolidate_asset(asset.pk)
     vuln = Vulnerability.objects.get(asset=asset)
-    body = client.get("/detection/vulnerabilities/").content.decode()
+    body = client.get("/detection/vulnerabilities/?view=list").content.decode()
     assert 'name="ids"' in body and "Estado para las marcadas" in body
     # Aceptar el riesgo sin nota no se aplica; con nota sí, a nombre de la persona.
     response = client.post(

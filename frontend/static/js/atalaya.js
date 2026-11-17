@@ -15,16 +15,28 @@
     var all = form.querySelector("[data-bulk-all]");
     var params = bar.querySelectorAll("[data-bulk-param]");
 
+    // Nombres de las casillas que cuenta la barra: «ids» y, donde una fila representa a varias
+    // (un software con todas sus vulnerabilidades), también el que diga data-bulk-names.
+    var names = (bar.getAttribute("data-bulk-names") || "ids").split(",");
+    function isBox(el) {
+      return el.type === "checkbox" && names.indexOf(el.name) !== -1;
+    }
     function boxes() {
       // Casillas dentro del formulario o asociadas a él con form="id" (tarjetas sueltas).
-      var inside = Array.prototype.slice.call(form.querySelectorAll('input[name="ids"]'));
+      var inside = Array.prototype.slice.call(form.querySelectorAll('input[type="checkbox"]'));
       if (form.id) {
-        var outside = document.querySelectorAll('input[name="ids"][form="' + form.id + '"]');
+        var outside = document.querySelectorAll('input[type="checkbox"][form="' + form.id + '"]');
         inside = inside.concat(Array.prototype.slice.call(outside));
       }
-      return inside;
+      return inside.filter(isBox);
     }
     function selected() {
+      // Una casilla pesa lo que diga data-bulk-weight (las filas que agrupan varias); si no, 1.
+      return boxes().reduce(function (sum, b) {
+        return sum + (b.checked ? (parseInt(b.getAttribute("data-bulk-weight"), 10) || 1) : 0);
+      }, 0);
+    }
+    function marked() {
       return boxes().filter(function (b) { return b.checked; }).length;
     }
     function current() {
@@ -41,6 +53,11 @@
           f.required = on;
         });
       });
+      // Campos que solo exige la acción elegida (data-require="id1,id2" en su <option>).
+      var need = (current().getAttribute("data-require") || "").split(",");
+      bar.querySelectorAll("[data-bulk-optional]").forEach(function (f) {
+        f.required = need.indexOf(f.id) !== -1;
+      });
       var n = selected();
       count.textContent = String(n);
       submit.disabled = n === 0 || !action.value;
@@ -51,8 +68,9 @@
         : !action.value ? (bar.getAttribute("data-bulk-hint-action") || "Elige la acción a aplicar.") : "";
       if (all) {
         var total = boxes().length;
-        all.checked = total > 0 && n === total;
-        all.indeterminate = n > 0 && n < total;
+        var on = marked();
+        all.checked = total > 0 && on === total;
+        all.indeterminate = on > 0 && on < total;
       }
     }
 
@@ -61,7 +79,7 @@
       if (e.target === all) {
         boxes().forEach(function (b) { b.checked = all.checked; });
       }
-      if (e.target === all || e.target.name === "ids" || form.contains(e.target)) {
+      if (e.target === all || isBox(e.target) || form.contains(e.target)) {
         refresh();
       }
     });

@@ -1443,8 +1443,9 @@ def derive_risks(asset_id, *, requested_by=None, use_llm=True):
 # --------------------------------------------------------------------------
 
 
-# Al aceptar un riesgo sin fecha de revisión, se revisa en este plazo (ISO/IEC 27005: la
-# aceptación no es definitiva).
+# Al aceptar un riesgo sin fecha de revisión, se revisa en el plazo de la política de la
+# organización (``policy.accept_review_days``, 180 días por defecto; ISO/IEC 27005: la aceptación
+# no es definitiva).
 ACCEPT_REVIEW_DAYS = 180
 
 
@@ -1479,7 +1480,11 @@ def set_treatment(  # noqa: PLR0913 - decisión humana con todos sus datos
         if target_date < today:
             raise ValueError("La fecha compromiso no puede estar en el pasado.")
     if treatment == RiskTreatment.ACCEPT:
-        review_at = review_at or today + datetime.timedelta(days=ACCEPT_REVIEW_DAYS)
+        from . import policy
+
+        review_at = review_at or today + datetime.timedelta(
+            days=policy.current().accept_review_days
+        )
         if review_at <= today:
             raise ValueError("La fecha de revisión debe ser posterior a hoy.")
         target_date = None
@@ -1583,6 +1588,8 @@ def kev_overdue_filter(today=None):
 def summary(asset_id=None):
     from datetime import timedelta
 
+    from . import policy
+
     qs = Risk.objects.filter(status__in=RISK_OPEN_STATUSES)
     closed = Risk.objects.filter(status=RiskStatus.CLOSED)
     if asset_id:
@@ -1597,6 +1604,7 @@ def summary(asset_id=None):
         "accepted": qs.filter(status=RiskStatus.ACCEPTED).count(),
         "kev_overdue": qs.filter(kev_overdue_filter()).distinct().count(),
         "overdue": qs.filter(followup_overdue_filter()).count(),
+        "policy_overdue": qs.filter(policy.overdue_filter()).count(),
         "closed": closed.count(),
         "closed_week": closed.filter(closed_at__gte=timezone.now() - timedelta(days=7)).count(),
     }
@@ -1686,6 +1694,7 @@ def today(asset_id=None):
 
     from apps.assets.models import Asset
 
+    from . import policy
     from .views import risk_queue
 
     suffix = f"&asset={asset_id}" if asset_id else ""
@@ -1728,6 +1737,14 @@ def today(asset_id=None):
         "riesgo con plazo de remediación de CISA vencido",
         "riesgos con plazo de remediación de CISA vencido",
         query="kev_overdue=1",
+        work="Atender uno a uno",
+    )
+    add(
+        "critical",
+        open_qs.filter(policy.overdue_filter()).count(),
+        "riesgo fuera del plazo que fija la política de la organización",
+        "riesgos fuera del plazo que fija la política de la organización",
+        query="policy_overdue=1",
         work="Atender uno a uno",
     )
     add(

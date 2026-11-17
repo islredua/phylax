@@ -261,6 +261,20 @@ class VulnerabilityFilterForm(StyledMixin, forms.Form):
         help_text="Para revisar primero lo que más daño haría si fuera real.",
     )
     asset = forms.UUIDField(required=False, widget=forms.HiddenInput())
+    # Software elegido desde la vista agrupada (id del componente, o «none» = sin software).
+    comp = forms.CharField(required=False, max_length=36, widget=forms.HiddenInput())
+    view = forms.CharField(required=False, max_length=10, widget=forms.HiddenInput())
+
+    def clean_comp(self):
+        import uuid
+
+        value = (self.cleaned_data.get("comp") or "").strip()
+        if not value or value == "none":
+            return value
+        try:
+            return str(uuid.UUID(value))
+        except ValueError:
+            return ""
 
 
 class VulnerabilityStatusForm(forms.Form):
@@ -328,6 +342,7 @@ class RiskFilterForm(StyledMixin, forms.Form):
         widget=forms.TextInput(attrs={"placeholder": "Equipo o persona"}),
     )
     overdue = forms.BooleanField(label="Fecha compromiso o revisión vencida", required=False)
+    policy_overdue = forms.BooleanField(label="Fuera del plazo de la política", required=False)
     likelihood = forms.IntegerField(
         required=False, min_value=1, max_value=5, widget=forms.HiddenInput()
     )
@@ -348,4 +363,35 @@ class RiskTreatmentForm(forms.Form):
     )
     residual_impact = forms.TypedChoiceField(
         required=False, choices=[("", "—"), *SCALE], coerce=int, empty_value=None
+    )
+
+
+class RiskBulkForm(forms.Form):
+    """La misma decisión para varios riesgos. La fecha vacía significa «el plazo de la política
+    de cada riesgo»; el responsable vacío conserva el que cada uno ya tenía."""
+
+    treatment = forms.ChoiceField(choices=RiskTreatment.choices)
+    owner = forms.CharField(required=False, max_length=120)
+    target_date = forms.DateField(required=False)
+    review_at = forms.DateField(required=False)
+    note = forms.CharField(required=False, max_length=2000)
+
+
+class TreatmentPolicyForm(StyledMixin, forms.Form):
+    """Plazos por nivel de riesgo (Administración → Plazos)."""
+
+    critical_days = forms.IntegerField(label="Crítico", min_value=1, max_value=1825)
+    very_high_days = forms.IntegerField(label="Muy alto", min_value=1, max_value=1825)
+    high_days = forms.IntegerField(label="Alto", min_value=1, max_value=1825)
+    moderate_days = forms.IntegerField(label="Moderado", min_value=1, max_value=1825)
+    low_days = forms.IntegerField(label="Bajo", min_value=1, max_value=1825)
+    accept_review_days = forms.IntegerField(
+        label="Revisar un riesgo aceptado cada",
+        min_value=1,
+        max_value=1825,
+        help_text="Días hasta volver a revisar una aceptación que no fijó su propia fecha.",
+    )
+    use_cisa_deadline = forms.BooleanField(
+        label="Si CISA fijó un plazo de remediación más corto, manda el de CISA",
+        required=False,
     )

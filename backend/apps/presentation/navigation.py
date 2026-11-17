@@ -214,6 +214,15 @@ SECTIONS = (
                 "home_settings",
                 ("presentation.change_presentationsettings",),
             ),
+            # Plazos para tratar un riesgo según su nivel: los fija el administrador y los
+            # consulta el Lector. El Analista llega a la pantalla desde Riesgos, no desde aquí
+            # (no ve Administración, ADR-004).
+            Tab(
+                "policy",
+                "Plazos",
+                "detection:policy",
+                ("detection.change_treatmentpolicy", "accounts.view_auditlogentry"),
+            ),
             Tab(
                 "catalogs",
                 "Catálogos",

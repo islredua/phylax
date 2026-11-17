@@ -28,7 +28,9 @@ from . import (
     descriptions,
     events,
     findings,
+    grouping,
     planner,
+    policy,
     profile,
     risks,
 )
@@ -43,9 +45,11 @@ from .forms import (
     ProfileForm,
     RejectForm,
     ReviewForm,
+    RiskBulkForm,
     RiskFilterForm,
     RiskTreatmentForm,
     SourceForm,
+    TreatmentPolicyForm,
     VulnerabilityBulkForm,
     VulnerabilityFilterForm,
     VulnerabilityStatusForm,
@@ -67,7 +71,7 @@ from .models import (
 
 # Parámetros que no son filtros: con cualquier otro presente, la lista está filtrada y un
 # resultado vacío significa «sin coincidencias», no «falta consolidar».
-NON_FILTER_PARAMS = {"asset", "page", "per_page", "tab"}
+NON_FILTER_PARAMS = {"asset", "page", "per_page", "tab", "view"}
 
 
 def filters_active(params):
@@ -168,7 +172,7 @@ def asset_tab_context(asset, tab):
         "tab_limit": ASSET_TAB_LIMIT,
     }
     if tab == "riesgos":
-        listed = list(risks.triage_order(filter_risks(params)[0]))
+        listed = policy.attach(list(risks.triage_order(filter_risks(params)[0])))
         ctx.update(risks=listed, matrix=risks.matrix(listed))
     elif tab == "vulnerabilidades":
         from . import descriptions
@@ -226,6 +230,10 @@ def filter_vulnerabilities(params):
             qs = qs.filter(Q(status_at__gte=cutoff) | Q(resolved_at__gte=cutoff))
         if data["asset"]:
             qs = qs.filter(asset_id=data["asset"])
+        if data["comp"] == grouping.NO_COMPONENT:
+            qs = qs.filter(component__isnull=True)
+        elif data["comp"]:
+            qs = qs.filter(component_id=data["comp"])
     if status == "all":
         pass
     elif status == "resolved":
@@ -238,7 +246,12 @@ def filter_vulnerabilities(params):
 
 
 class PanelView(Perm, PaginationMixin, ListView):
-    """Panel = vulnerabilidades consolidadas, ordenadas por puntaje contextual."""
+    """Vulnerabilidades consolidadas, vistas por lo que hay que corregir o una por una.
+
+    «Por software» (lo normal) da una fila por activo + software: es la unidad de trabajo de quien
+    remedia. «Una por una» es la lista de siempre, ordenada por puntaje contextual. Las dos salen
+    de la misma consulta filtrada, así que filtros y cifras coinciden.
+    """
 
     permission_required = "detection.view_vulnerability"
     template_name = "detection/panel.html"
@@ -246,14 +259,37 @@ class PanelView(Perm, PaginationMixin, ListView):
     paginate_by = 25
 
     def get_queryset(self):
-        qs, self.filter_form = filter_vulnerabilities(self.request.GET)
-        return qs
+        self.flat, self.filter_form = filter_vulnerabilities(self.request.GET)
+        self.mode = grouping.view_mode(self.request.GET)
+        return grouping.groups(self.flat) if self.mode == "software" else self.flat
+
+    def get_paginate_by(self, queryset):
+        size = super().get_paginate_by(queryset)
+        return max(size, grouping.PAGE_SIZE) if self.mode == "software" else size
+
+    def _view_url(self, mode):
+        """La misma lista en la otra vista. Al volver a «por software» se suelta el software
+        elegido (y el activo que vino con él) para ver de nuevo todos los grupos."""
+        params = self.request.GET.copy()
+        params.pop("page", None)
+        params["view"] = mode
+        if mode == "software" and params.get("comp"):
+            params.pop("comp", None)
+            params.pop("asset", None)
+        return f"?{params.urlencode()}"
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        asset_id = (
-            self.filter_form.cleaned_data.get("asset") if self.filter_form.is_valid() else None
-        )
+        data = self.filter_form.cleaned_data if self.filter_form.is_valid() else {}
+        asset_id = data.get("asset")
+        software = self.mode == "software"
+        listed = [] if software else list(context["vulnerabilities"])
+        comp = data.get("comp") or ""
+        component = None
+        if comp and comp != grouping.NO_COMPONENT:
+            from .models import SoftwareComponent
+
+            component = SoftwareComponent.objects.filter(pk=comp).first()
         context.update(
             filter_form=self.filter_form,
             summary=consolidation.summary(asset_id),
@@ -266,8 +302,23 @@ class PanelView(Perm, PaginationMixin, ListView):
             queue_size=actions.approval_queue().count(),
             automation=automation.summary(),
             filters_active=filters_active(self.request.GET),
-            describing=descriptions.pending_ids([v.pk for v in context["vulnerabilities"]]),
+            describing=descriptions.pending_ids([v.pk for v in listed]),
             bulk_statuses=list(HUMAN_STATUS_LABELS.items()),
+            view=self.mode,
+            vulnerabilities=listed,
+            groups=grouping.decorate(context["vulnerabilities"], self.flat, self.request.GET)
+            if software
+            else [],
+            total_vulnerabilities=self.flat.count() if software else context["paginator"].count,
+            total_groups=context["paginator"].count
+            if software
+            else grouping.groups(self.flat).count(),
+            software_url=self._view_url("software"),
+            list_url=self._view_url("list"),
+            software_label=component.label
+            if component
+            else (grouping.NO_COMPONENT_LABEL if comp else ""),
+            query=self.request.GET.urlencode(),
         )
         return context
 
@@ -278,11 +329,18 @@ class VulnerabilityBulkView(Perm, View):
     permission_required = "detection.work_findings"
 
     def post(self, request):
+        from django.http import QueryDict
+
         back = _safe_next(request, reverse("detection:panel"))
         ids = request.POST.getlist("ids")
+        group_keys = request.POST.getlist("groups")
+        if group_keys:
+            # Un grupo marcado son sus vulnerabilidades dentro de los filtros con los que se veía.
+            listed, _form = filter_vulnerabilities(QueryDict(request.POST.get("query", "")[:2000]))
+            ids = [*ids, *(str(pk) for pk in grouping.members(listed, group_keys))]
         form = VulnerabilityBulkForm(request.POST)
         if not ids:
-            messages.error(request, "Marca al menos una vulnerabilidad.")
+            messages.error(request, "Marca al menos una vulnerabilidad o un software.")
             return HttpResponseRedirect(back)
         if not form.is_valid():
             messages.error(request, "Elige el estado que quieres fijar.")
@@ -301,9 +359,14 @@ class VulnerabilityBulkView(Perm, View):
                 failed.append(str(error))
         label = HUMAN_STATUS_LABELS[form.cleaned_data["status"]].lower()
         if done:
+            scope = (
+                f" de {len(group_keys)} software"
+                if group_keys and not request.POST.getlist("ids")
+                else ""
+            )
             messages.success(
                 request,
-                f"{done} vulnerabilidad{'es' if done != 1 else ''} → {label}, fijado por ti.",
+                f"{done} vulnerabilidad{'es' if done != 1 else ''}{scope} → {label}, fijado por ti.",
             )
         if failed:
             messages.error(request, f"{len(failed)} no se cambiaron: {failed[0]}")
@@ -729,6 +792,8 @@ def filter_risks(params):
             qs = qs.filter(owner__icontains=data["owner"].strip())
         if data["overdue"]:
             qs = qs.filter(risks.followup_overdue_filter())
+        if data["policy_overdue"]:
+            qs = qs.filter(policy.overdue_filter())
         if data["likelihood"]:
             qs = qs.filter(likelihood=data["likelihood"])
         if data["impact"]:
@@ -750,11 +815,12 @@ def filter_risks(params):
             .values("message")[:1]
         )
     )
-    return qs, form
+    return policy.with_kev_due(qs), form
 
 
 QUEUE_LIMIT = 500
 QUEUE_LABELS = (
+    ("policy_overdue", "riesgos fuera del plazo de la política"),
     ("kev_overdue", "riesgos con plazo de CISA vencido"),
     ("overdue", "riesgos con seguimiento vencido"),
     ("treatment", "riesgos sin tratamiento decidido"),
@@ -818,7 +884,11 @@ class RiskRegisterView(Perm, PaginationMixin, ListView):
             self.filter_form.cleaned_data.get("asset") if self.filter_form.is_valid() else None
         )
         listed = list(self.object_list)
+        rules = policy.current()
+        context["risks"] = policy.attach(list(context["risks"]), rules)
         context.update(
+            policy=rules,
+            bulk_treatments=list(Risk._meta.get_field("treatment").choices),
             filter_form=self.filter_form,
             summary=risks.summary(asset_id),
             matrix=risks.matrix(listed),
@@ -845,7 +915,13 @@ class RiskDetailView(Perm, TemplateView):
         risk = get_object_or_404(
             Risk.objects.select_related("asset", "decided_by"), pk=kwargs["pk"]
         )
+        rules = policy.current()
+        due = policy.deadline(risk, rules)
         context.update(
+            policy=rules,
+            deadline=due,
+            # Fecha compromiso propuesta: el plazo de la política mientras se pueda cumplir.
+            suggested_target=risk.target_date or (due.date if due and not due.overdue else None),
             risk=risk,
             evidence=risks.evidence(risk),
             intel=risks.intelligence(risk.vulnerabilities.select_related("cve")),
@@ -959,6 +1035,118 @@ class RiskTreatmentView(Perm, View):
             messages.success(request, f"Cola terminada: no quedan {queue['label']}.")
             return HttpResponseRedirect(queue["list_url"])
         return HttpResponseRedirect(back)
+
+
+class RiskBulkView(Perm, View):
+    """La misma decisión de tratamiento para todos los riesgos marcados.
+
+    Sin fecha, cada riesgo recibe el plazo de la política de la organización (su nivel o CISA);
+    si ese plazo ya venció no se inventa una fecha: el riesgo se deja como está y se dice por qué.
+    """
+
+    permission_required = "detection.work_findings"
+
+    def post(self, request):
+        back = _safe_next(request, reverse("detection:risks"))
+        ids = request.POST.getlist("ids")
+        form = RiskBulkForm(request.POST)
+        if not ids:
+            messages.error(request, "Marca al menos un riesgo.")
+            return HttpResponseRedirect(back)
+        if not form.is_valid():
+            messages.error(request, "Elige el tratamiento y revisa las fechas.")
+            return HttpResponseRedirect(back)
+        data = form.cleaned_data
+        rules = policy.current()
+        needs_date = data["treatment"] in ("MITIGATE", "TRANSFER")
+        done, failed = 0, {}
+        for risk in Risk.objects.filter(pk__in=ids):
+            try:
+                if risk.status == "CLOSED":
+                    raise ValueError("está cerrado y no admite tratamiento")
+                target = data["target_date"]
+                if not target and data["treatment"] != "ACCEPT":
+                    # Evitar no exige fecha: si el plazo ya venció se registra sin ella.
+                    target = policy.suggested_target(risk, rules)
+                    if not target and needs_date:
+                        raise ValueError(
+                            "su plazo según la política ya venció: fija una fecha compromiso"
+                        )
+                risks.set_treatment(
+                    risk.pk,
+                    user=request.user,
+                    treatment=data["treatment"],
+                    owner=data["owner"] or risk.owner,
+                    note=data["note"],
+                    target_date=target,
+                    review_at=data["review_at"],
+                )
+                done += 1
+            except ValueError as error:
+                failed.setdefault(str(error).rstrip("."), []).append(risk)
+        label = dict(Risk._meta.get_field("treatment").choices)[data["treatment"]].lower()
+        if done:
+            extra = f" · responsable {data['owner']}" if data["owner"] else ""
+            if data["treatment"] != "ACCEPT":
+                extra += (
+                    f" · compromiso {data['target_date']:%Y-%m-%d}"
+                    if data["target_date"]
+                    else " · compromiso según el plazo de la política"
+                )
+            messages.success(
+                request,
+                f"{done} riesgo{'s' if done != 1 else ''} → {label}{extra}, decidido por ti.",
+            )
+        for reason, group in failed.items():
+            messages.error(
+                request,
+                f"{len(group)} no se {'cambiaron' if len(group) != 1 else 'cambió'}: {reason}.",
+            )
+        return HttpResponseRedirect(back)
+
+
+class TreatmentPolicyView(Perm, View):
+    """Administración → Plazos: cuántos días tiene la organización para tratar cada nivel."""
+
+    permission_required = "detection.view_treatmentpolicy"
+    template_name = "detection/policy.html"
+
+    def has_permission(self):
+        # La consulta quien trabaja los riesgos y quien audita (la pestaña de Administración la
+        # ve el Lector por su permiso de bitácora).
+        user = self.request.user
+        return user.has_perm(self.permission_required) or user.has_perm(
+            "accounts.view_auditlogentry"
+        )
+
+    def _context(self, form=None):
+        rules = policy.current()
+        return {
+            "policy": rules,
+            "overview": policy.overview(rules),
+            "form": form
+            or TreatmentPolicyForm(
+                initial={name: getattr(rules, name) for name in policy.EDITABLE_FIELDS}
+            ),
+            "can_manage": self.request.user.has_perm("detection.change_treatmentpolicy"),
+        }
+
+    def get(self, request):
+        return render(request, self.template_name, self._context())
+
+    def post(self, request):
+        if not request.user.has_perm("detection.change_treatmentpolicy"):
+            raise PermissionDenied
+        form = TreatmentPolicyForm(request.POST)
+        if form.is_valid():
+            try:
+                policy.update(user=request.user, fields=form.cleaned_data)
+            except ValidationError as error:
+                form.add_error(None, error)
+            else:
+                messages.success(request, "Plazos de tratamiento guardados.")
+                return redirect("detection:policy")
+        return render(request, self.template_name, self._context(form))
 
 
 class RiskNoteView(Perm, View):

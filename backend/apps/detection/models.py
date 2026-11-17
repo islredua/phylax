@@ -670,6 +670,45 @@ class Risk(UUIDModel):
         return self.decided_by_id is not None or bool(self.treatment)
 
 
+class TreatmentPolicy(models.Model):
+    """Plazos de la organización para tratar un riesgo según su nivel (una sola fila).
+
+    El plazo corre desde que el riesgo se identificó. Sirve para proponer la fecha compromiso al
+    decidir un tratamiento y para medir qué riesgos están fuera de plazo; no decide nada por la
+    persona. Solo administradores la cambian.
+    """
+
+    critical_days = models.PositiveSmallIntegerField("riesgo crítico (días)", default=7)
+    very_high_days = models.PositiveSmallIntegerField("riesgo muy alto (días)", default=15)
+    high_days = models.PositiveSmallIntegerField("riesgo alto (días)", default=30)
+    moderate_days = models.PositiveSmallIntegerField("riesgo moderado (días)", default=90)
+    low_days = models.PositiveSmallIntegerField("riesgo bajo (días)", default=180)
+    accept_review_days = models.PositiveSmallIntegerField(
+        "revisión de un riesgo aceptado (días)",
+        default=180,
+        help_text="Un riesgo aceptado sin fecha de revisión se vuelve a revisar en este plazo.",
+    )
+    use_cisa_deadline = models.BooleanField(
+        "respetar el plazo de CISA",
+        default=True,
+        help_text=(
+            "Si una vulnerabilidad del riesgo tiene un plazo de remediación de CISA que vence "
+            "antes que el del nivel, manda el de CISA."
+        ),
+    )
+    updated_by = models.ForeignKey(
+        USER, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "política de plazos de tratamiento"
+        verbose_name_plural = "política de plazos de tratamiento"
+
+    def __str__(self):
+        return f"Plazos: crítico {self.critical_days} d · alto {self.high_days} d"
+
+
 class RiskEventKind(models.TextChoices):
     IDENTIFIED = "IDENTIFIED", "Identificado"
     ASSESSED = "ASSESSED", "Valorado"

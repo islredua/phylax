@@ -49,6 +49,7 @@ def test_sidebar_shows_sections_not_subsections(client, admin_user):
         "audit",
         "llm",
         "home_settings",
+        "policy",
         "catalogs",
         "registries",
         "alerts",
@@ -99,8 +100,20 @@ def test_administration_hidden_for_operator(client, make_user):
 def test_auditor_sees_administration_tabs(client, auditor_user):
     client.force_login(auditor_user)
     nav = client.get("/administration/").context["nav"]
-    # El Lector consulta también los avisos configurados (solo lectura).
-    assert [t.key for t in nav.tabs] == ["overview", "organization", "users", "audit", "alerts"]
+    # El Lector consulta también los plazos de tratamiento y los avisos (solo lectura).
+    assert [t.key for t in nav.tabs] == [
+        "overview",
+        "organization",
+        "users",
+        "audit",
+        "policy",
+        "alerts",
+    ]
+    page = client.get("/detection/risks/policy/")
+    assert (
+        page.status_code == 200
+        and "Solo un administrador cambia los plazos" in page.content.decode()
+    )
 
 
 def test_tabs_are_filtered_by_permission(make_user):
@@ -113,7 +126,7 @@ def test_tabs_are_filtered_by_permission(make_user):
     user = type(user).objects.get(pk=user.pk)  # limpia la caché de permisos
     nav = build_navigation(user, "accounts:audit_log")
     assert nav.section.key == "administration"
-    assert [t.key for t in nav.tabs] == ["overview", "organization", "audit", "alerts"]
+    assert [t.key for t in nav.tabs] == ["overview", "organization", "audit", "policy", "alerts"]
 
 
 def test_anonymous_navigation_is_empty():

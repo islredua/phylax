@@ -64,6 +64,8 @@ ADMIN_MANAGED_MODELS = {
     ("cti", "ctisource"),
     ("detection", "automationsettings"),
     ("detection", "organizationprofile"),
+    # Plazos para tratar un riesgo según su nivel.
+    ("detection", "treatmentpolicy"),
     # Módulo 5: ventana de tendencias y cadencia de la narrativa de Inicio.
     ("presentation", "presentationsettings"),
 }

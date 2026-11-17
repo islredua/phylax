@@ -517,11 +517,50 @@ Permisos: `alerts.view_notificationchannel` para consultar (Analista y Lector),
 `alerts.manage_alerts` (solo administrador) para crear, editar, probar y eliminar canales. El
 correo usa `DJANGO_EMAIL_BACKEND` (consola en desarrollo).
 
+## Trabajo por lotes y plazos (revisión del 2026-11-16, bloque 1)
+
+**Por software a corregir** (`detection/grouping.py`, `PanelView`). `/detection/vulnerabilities/`
+abre agrupada (`?view=software`): una fila por activo + software (`Vulnerability.asset`,
+`Vulnerability.component`; las que no tienen componente forman el grupo «Sin software
+identificado» del activo). `grouping.groups` cuenta fallas, confirmadas, por verificar, en KEV y
+con plazo de CISA vencido, y ordena por el mayor puntaje contextual. `grouping.fix_versions`
+calcula la versión a la que hay que actualizar **sin modelo**: primero la evidencia de Grype
+(`data.fix` = «fixed X, Y»: la versión corregida más cercana por encima de la instalada); si no
+hay, `CveProduct.version_end_excluding` del rango de NVD que contiene la versión instalada (no se
+usa para paquetes de distribución, cuyas versiones no son comparables con las de NVD). La versión
+del grupo es la mayor de las de sus fallas, y la fila dice cuántas corrige y de cuántas no se
+conoce corrección. «Una por una» (`?view=list`) es la lista anterior; una búsqueda de texto o el
+filtro `comp=<id del componente|none>` (al abrir un grupo) llevan a ella. El lote
+(`/detection/vulnerabilities/bulk/`) acepta `groups` (claves `activo:componente`) además de `ids`
+y aplica el estado a las vulnerabilidades del grupo **dentro de los filtros con los que se veía**
+(campo oculto `query`).
+
+**Plazos de tratamiento** (`detection/policy.py`, modelo `TreatmentPolicy`, una sola fila). Días
+por nivel (`critical_days` 7, `very_high_days` 15, `high_days` 30, `moderate_days` 90, `low_days`
+180), `accept_review_days` (180) y `use_cisa_deadline`. `policy.deadline(risk)` da el plazo de un
+riesgo sin decidir o en tratamiento: fecha en que se identificó + días de su nivel; si una de sus
+vulnerabilidades tiene un plazo de CISA que seguía vigente al identificarse y vence antes, manda
+ese. Un riesgo aceptado o cerrado no tiene plazo. `policy.overdue_filter()` es la misma regla como
+filtro de base (`?policy_overdue=1`, tarjeta «Fuera de plazo», pendiente en «Hoy» con cola
+`policy_overdue`). `policy.update` valida 1–1825 días y que los plazos no se inviertan (crítico ≤
+muy alto ≤ alto ≤ moderado ≤ bajo) y deja el cambio en la bitácora de automatización. Pantalla:
+Administración → Plazos (`/detection/risks/policy/`). La cambia quien tiene
+`detection.change_treatmentpolicy` (el administrador). La pestaña la ven el administrador y el
+Lector; el Analista no ve Administración (ADR-004) y llega a la pantalla, en solo lectura, por el
+enlace «política de la organización» del registro de riesgos.
+
+**Tratamiento en lote** (`RiskBulkView`, `/detection/risks/bulk/`, permiso
+`detection.work_findings`). Aplica `risks.set_treatment` a cada riesgo marcado, a nombre de quien
+lo pide. Fecha vacía = `policy.suggested_target(risk)` (el plazo de la política mientras se pueda
+cumplir); si ya venció, mitigar y transferir no se aplican a ese riesgo y el aviso lo dice.
+Responsable vacío = el que cada riesgo ya tenía. Los cerrados no se tocan.
+
 ## Seguimiento del tratamiento (F4)
 
 `Risk.target_date` (fecha compromiso) y `Risk.review_at` (revisar el). `risks.set_treatment` exige
 fecha compromiso futura al **mitigar** o **transferir**; al **aceptar** fija `review_at` (la dada o
-180 días, `ACCEPT_REVIEW_DAYS`) porque la aceptación no es definitiva; evitar no lleva fechas. El
+los días de la política, `TreatmentPolicy.accept_review_days`, 180 por defecto) porque la
+aceptación no es definitiva; evitar no lleva fechas. El
 registro muestra la fecha bajo el tratamiento (en rojo si venció), ofrece el filtro «Fecha
 compromiso o revisión vencida» (`?overdue=1`) y el filtro por responsable (`?owner=`), la tarjeta
 «Seguimiento vencido» y la tabla plegable **Por responsable** (riesgos abiertos, críticos y
