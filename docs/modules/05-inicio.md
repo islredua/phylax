@@ -200,9 +200,13 @@ el `PROMPT_VERSION` de cada módulo). Quedan fuera, sin borrar nada del registro
 - las llamadas con una versión de instrucciones anterior (ya corregida);
 - las corridas de diagnóstico o evaluación: llevan otra versión (por convención `probe`) o una
   referencia `eval:…` (`eval_criticality`);
-- la redacción de la lectura del estado (`EXEC_NARRATIVE`): es trabajo de la propia pantalla y a
-  quien la mira no le dice nada cuántas lecturas se aceptaron. La tarjeta de la lectura sigue
-  diciendo quién la redactó.
+- las tareas de redacción de `HIDDEN_AI_TASKS`, cuyo resultado ya se muestra donde corresponde y
+  cuyo número de llamadas no le dice nada a quien mira la pantalla: la lectura del estado
+  (`EXEC_NARRATIVE`; la tarjeta sigue diciendo quién la redactó) y la explicación de cada
+  vulnerabilidad (`VULN_DESCRIBE`; la etapa «Vulnerabilidades» dice cuántas tienen explicación y
+  acciones redactadas por IA). Al salir `VULN_DESCRIBE`, que era el 81 % de las llamadas, el total
+  del laboratorio pasó de 4,514 inferencias y 7.0 h a 837 y 2.7 h: son las de decisión y
+  valoración, y el panel lo dice.
 
 Una tarea que el módulo aún no conoce se cuenta entera. El porcentaje nunca redondea a 100 % si
 hubo algún rechazo. Para validar un prompt con el modelo real sin ensuciar los indicadores, basta

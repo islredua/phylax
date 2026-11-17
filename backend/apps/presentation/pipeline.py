@@ -47,14 +47,17 @@ AI_TASKS = (
     ("DETECTION_PLANNER", "Decidir qué hacer ante cada señal", "decisions"),
     ("ASSET_CRITICALITY", "Sugerir la criticidad de cada activo", ""),
     ("VULN_ASSESSMENT", "Valorar si cada vulnerabilidad aplica de verdad", "vulnerabilities"),
-    ("VULN_DESCRIBE", "Explicar cada vulnerabilidad y cómo corregirla", "vulnerabilities"),
     ("RISK_ASSESSMENT", "Agrupar vulnerabilidades en riesgos y valorarlos", "risks"),
     ("RISK_NARRATIVE", "Redactar cada riesgo para la dirección", "risks"),
     ("ORG_PROFILE_DRAFT", "Proponer el perfil de la organización", ""),
 )
-# La lectura del estado es trabajo de la propia pantalla de Inicio: a quien la mira le dice poco
-# cuántas veces se redactó, así que no entra en las cifras de la IA local.
-HIDDEN_AI_TASKS = ("EXEC_NARRATIVE",)
+# Tareas de redacción que no entran en las cifras de la IA local de Inicio. A quien mira la
+# pantalla le importa el resultado, que ya se muestra donde corresponde, no cuántas llamadas
+# costó ni cuántas se aceptaron:
+# - la lectura del estado es trabajo de la propia pantalla;
+# - la explicación de cada vulnerabilidad se ve en la etapa «Vulnerabilidades» («con explicación
+#   y acciones redactadas por IA»).
+HIDDEN_AI_TASKS = ("EXEC_NARRATIVE", "VULN_DESCRIBE")
 # Corridas de evaluación (``eval_criticality``): quedan en el registro, no en los indicadores.
 EVALUATION_REF_PREFIX = "eval:"
 SOURCE_ORDER = ("CTI_MATCH", "NUCLEI", "GRYPE", "MANUAL")
@@ -334,13 +337,12 @@ def observations() -> dict:
 def prompt_versions() -> dict:
     """La versión de las instrucciones que cada tarea del modelo usa hoy (la del código)."""
     from apps.assets import services as assets
-    from apps.detection import consolidation, descriptions, planner, profile, risks
+    from apps.detection import consolidation, planner, profile, risks
 
     return {
         "DETECTION_PLANNER": planner.PROMPT_VERSION,
         "ASSET_CRITICALITY": assets.PROMPT_VERSION,
         "VULN_ASSESSMENT": consolidation.PROMPT_VERSION,
-        "VULN_DESCRIBE": descriptions.PROMPT_VERSION,
         "RISK_ASSESSMENT": risks.PROMPT_VERSION,
         "RISK_NARRATIVE": risks.NARRATIVE_PROMPT_VERSION,
         "ORG_PROFILE_DRAFT": profile.PROMPT_VERSION,

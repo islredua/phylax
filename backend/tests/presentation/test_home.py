@@ -640,14 +640,16 @@ def test_pipeline_counts_each_stage_once_and_agrees_with_the_indicators():
 
 def test_ai_figures_count_only_calls_made_with_the_instructions_in_force():
     """Los indicadores de la IA local dicen cómo responde el modelo hoy: no cuentan las llamadas
-    con instrucciones ya corregidas, las corridas de prueba o evaluación ni la lectura de Inicio
-    (trabajo de la propia pantalla). Nada se borra del registro."""
+    con instrucciones ya corregidas, las corridas de prueba o evaluación ni las tareas de
+    redacción cuyo resultado ya se muestra en otra parte (la lectura de Inicio y la explicación de
+    cada vulnerabilidad). Nada se borra del registro."""
     from apps.llm.models import InferenceLog
     from apps.presentation import pipeline
 
     versions = pipeline.prompt_versions()
     assert set(versions) == {key for key, _what, _stage in pipeline.AI_TASKS}
-    assert "EXEC_NARRATIVE" not in versions
+    assert not set(pipeline.HIDDEN_AI_TASKS) & set(versions)
+    assert set(pipeline.HIDDEN_AI_TASKS) == {"EXEC_NARRATIVE", "VULN_DESCRIBE"}
 
     def log(task, version, ok=True, ref="assets.Asset:1", ms=60_000):
         return InferenceLog.objects.create(
@@ -667,8 +669,11 @@ def test_ai_figures_count_only_calls_made_with_the_instructions_in_force():
     log("VULN_ASSESSMENT", "probe", ok=False, ref="probe")  # corrida de diagnóstico
     log("ASSET_CRITICALITY", versions["ASSET_CRITICALITY"], ref="eval:caso-7")  # evaluación
     log("EXEC_NARRATIVE", "v2", ok=False, ref="presentation.HealthNarrative")
+    log(
+        "VULN_DESCRIBE", "v1", ok=False, ref="detection.Vulnerability:1"
+    )  # redacción: no se muestra
     log("CTI_EXTRACTION", "v9")  # tarea que el módulo aún no conoce: se cuenta entera
-    assert InferenceLog.objects.count() == 9
+    assert InferenceLog.objects.count() == 10
 
     ai = indicators.compute()["pipeline"]["ai"]
     rows = {t["key"]: t for t in ai["tasks"]}
@@ -686,13 +691,25 @@ def test_ai_figures_count_only_calls_made_with_the_instructions_in_force():
     assert pipeline._share(1, 900) == 1 and pipeline._share(0, 900) == 0 == pipeline._share(0, 0)
 
 
-def test_home_does_not_show_how_many_readings_were_accepted(client, as_role):
+def test_home_does_not_show_how_many_readings_or_explanations_were_accepted(client, as_role):
+    from apps.detection import descriptions
+    from apps.detection.models import Vulnerability
+
     as_role(OPERATOR)
-    _asset_with_risk()
+    asset = _asset_with_risk()
     narrative.generate()
+    descriptions.describe_vulnerability(Vulnerability.objects.filter(asset=asset).first().pk)
+    indicators.invalidate()
     html = client.get("/home/block/stage/?etapa=ai").content.decode()
-    assert "lectura del estado" not in html.lower()
+    assert "Redactar la lectura" not in html and "Explicar cada vulnerabilidad" not in html
     assert "instrucciones vigentes" in html
+    tasks = {t["key"] for t in indicators.current()["pipeline"]["ai"]["tasks"]}
+    assert tasks and not tasks & {"EXEC_NARRATIVE", "VULN_DESCRIBE"}
+    # El resultado de esa redacción sigue a la vista donde corresponde.
+    assert (
+        "redactadas por IA"
+        in client.get("/home/block/stage/?etapa=vulnerabilities").content.decode()
+    )
     # La lectura sigue en su tarjeta, con quién la redactó.
     assert "Redactado por IA" in client.get("/").content.decode()
 
