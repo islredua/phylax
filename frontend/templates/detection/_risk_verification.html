@@ -32,7 +32,7 @@ refresca sola.
     {% if verification.listed %}
     {% with result=verification.latest.result %}
     {% if result.still %}<p class="text-xs text-ink-soft">{{ result.still|length|pl:"-Sigue observándose,Siguen observándose" }} ({{ result.still|length }}): {% for v in result.still|slice:":6" %}<a href="{% url 'detection:vulnerability' v.pk %}" target="_blank" rel="noopener" class="font-mono">{{ v.key }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}{% if result.still|length > 6 %} y {{ result.still|length|add:"-6" }} más{% endif %}.</p>{% endif %}
-    {% if result.unchecked %}<p class="text-xs text-ink-soft">Sin comprobar ({{ result.unchecked|length }}): {% for v in result.unchecked|slice:":6" %}<a href="{% url 'detection:vulnerability' v.pk %}" target="_blank" rel="noopener" class="font-mono">{{ v.key }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}{% if result.unchecked|length > 6 %} y {{ result.unchecked|length|add:"-6" }} más{% endif %}. La pasada no pudo revisarlas; el motivo está en la línea de tiempo de cada observación.</p>{% endif %}
+    {% if result.unchecked %}<p class="text-xs text-ink-soft">Sin comprobar ({{ result.unchecked|length }}): {% for v in result.unchecked|slice:":6" %}<a href="{% url 'detection:vulnerability' v.pk %}" target="_blank" rel="noopener" class="font-mono">{{ v.key }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}{% if result.unchecked|length > 6 %} y {{ result.unchecked|length|add:"-6" }} más{% endif %}. La pasada no pudo revisarlas; el motivo está en la línea de tiempo de cada reporte.</p>{% endif %}
     {% endwith %}
     {% endif %}
   </div>

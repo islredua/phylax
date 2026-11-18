@@ -109,7 +109,7 @@
               <td class="whitespace-nowrap">{% score_badge row.vuln.contextual_score %} <span class="font-mono text-xs text-muted">{{ row.vuln.technical_score|default_if_none:"—" }}</span><p class="text-xs text-muted">CVSS {{ row.vuln.cvss_score|default_if_none:"—" }} · EPSS {{ row.vuln.epss_score|epss_pct }}</p></td>
               <td>{% vuln_status_badge row.vuln.status %} {% status_source_badge row.vuln.status_source %}<p class="text-xs text-muted">plausibilidad {{ row.vuln.plausibility|pct }}</p></td>
               <td class="col-md text-xs text-ink-soft">{{ row.intel }}</td>
-              <td class="col-lg text-xs">{{ row.observations|pl:"observación,observaciones" }}: {% for s in row.sources %}<span class="badge-neutral">{{ s|source_label }}</span> {% endfor %}{% if row.templates %}<p class="font-mono text-muted">{{ row.templates|join:", "|truncatechars:80 }}</p>{% endif %}{% if row.matched %}<p class="font-mono text-muted">{{ row.matched|join:" · "|truncatechars:80 }}</p>{% endif %}</td>
+              <td class="col-lg text-xs">{{ row.observations|pl:"reporte,reportes" }}: {% for s in row.sources %}<span class="badge-neutral">{{ s|source_label }}</span> {% endfor %}{% if row.templates %}<p class="font-mono text-muted">{{ row.templates|join:", "|truncatechars:80 }}</p>{% endif %}{% if row.matched %}<p class="font-mono text-muted">{{ row.matched|join:" · "|truncatechars:80 }}</p>{% endif %}</td>
             </tr>
             {% empty %}<tr><td colspan="5" class="table-empty">Ninguna vulnerabilidad ligada.</td></tr>{% endfor %}
           </tbody>

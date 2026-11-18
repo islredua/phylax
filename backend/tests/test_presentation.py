@@ -308,7 +308,7 @@ def test_audit_log_renders_severity_badges(client, auditor_user):
         # Una sola pestaña, o una que se llama como su sección: la miga no se repite.
         ("/detection/", ["Inicio", "Riesgos"]),
         ("/detection/vulnerabilities/", ["Inicio", "Vulnerabilidades"]),
-        ("/detection/observations/", ["Inicio", "Vulnerabilidades", "Observaciones"]),
+        ("/detection/observations/", ["Inicio", "Vulnerabilidades", "Evidencia"]),
         ("/detection/activity/", ["Inicio", "Operación", "Actividad"]),
         ("/detection/automation/", ["Inicio", "Administración", "Automatización"]),
         ("/detection/sources/", ["Inicio", "Administración", "Fuentes CTI"]),

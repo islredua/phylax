@@ -6,7 +6,7 @@
 {% block content %}
 <section class="card">
   <dl class="kv-grid">
-    <div><dt class="kv-label">Sobre</dt><dd class="kv-value">{% if event.asset %}<a href="{% url 'assets:detail' event.asset_id %}">{{ event.asset.name }}</a>{% endif %}{% if event.cve %} <a href="{% url 'detection:observations' %}?q={{ event.cve_id }}&amp;status=all" class="font-mono" title="Observaciones de este CVE en el inventario">{{ event.cve_id }}</a>{% if event.cve.cvss_score %} <span class="text-xs text-muted">CVSS {{ event.cve.cvss_score }}</span>{% endif %}{% if event.cve.kev_added_at %} <span class="badge-critical">KEV</span>{% endif %}{% endif %}{% if not event.asset and not event.cve %}—{% endif %}</dd></div>
+    <div><dt class="kv-label">Sobre</dt><dd class="kv-value">{% if event.asset %}<a href="{% url 'assets:detail' event.asset_id %}">{{ event.asset.name }}</a>{% endif %}{% if event.cve %} <a href="{% url 'detection:observations' %}?q={{ event.cve_id }}&amp;status=all" class="font-mono" title="Evidencia de este CVE en el inventario">{{ event.cve_id }}</a>{% if event.cve.cvss_score %} <span class="text-xs text-muted">CVSS {{ event.cve.cvss_score }}</span>{% endif %}{% if event.cve.kev_added_at %} <span class="badge-critical">KEV</span>{% endif %}{% endif %}{% if not event.asset and not event.cve %}—{% endif %}</dd></div>
     <div><dt class="kv-label">Recibido</dt><dd class="kv-value font-mono text-xs">{{ event.created_at|momento }}</dd></div>
     <div><dt class="kv-label">Procesado</dt><dd class="kv-value font-mono text-xs">{{ event.processed_at|momento }}</dd></div>
     <div><dt class="kv-label">Filtro rápido</dt><dd class="kv-value">{{ event.triage_reason|default:"—" }}</dd></div>
@@ -19,7 +19,7 @@
   <details class="fold mt-2"><summary>Datos crudos</summary><pre class="code-block mt-2 text-xs">{{ event.reconciliation|pretty_json }}</pre></details>
   {% endif %}
   {% if related_findings %}
-  <p class="kv-label mt-3">Observaciones relacionadas</p>
+  <p class="kv-label mt-3">Reportes relacionados</p>
   <ul class="mt-1 flex flex-col gap-1 text-sm">{% for f in related_findings %}<li><a href="{% url 'detection:finding' f.pk %}" class="font-mono text-xs">{{ f.vulnerability_id }}</a>{% if not event.asset %} en <a href="{% url 'assets:detail' f.asset_id %}">{{ f.asset.name }}</a>{% endif %} · {{ f.title|truncatechars:70 }} {% finding_status_badge f.status %}{% if f.consolidated_id %} · <a href="{% url 'detection:vulnerability' f.consolidated_id %}">vulnerabilidad</a>{% endif %}</li>{% endfor %}</ul>
   {% endif %}
 </section>

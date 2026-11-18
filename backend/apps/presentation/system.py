@@ -77,7 +77,7 @@ TASK_LABELS = {
     "apps.cti.tasks.pull_product_coverage": "Traer los CVE de un producto del inventario",
     "apps.cti.tasks.sync_cti_source": "Sincronizar una fuente de inteligencia",
     "apps.cti.tasks.sync_cti_sources": "Sincronizar las fuentes de inteligencia",
-    "apps.detection.tasks.consolidate_asset": "Consolidar las observaciones de un activo",
+    "apps.detection.tasks.consolidate_asset": "Consolidar los reportes de un activo",
     "apps.detection.tasks.describe_pending_vulnerabilities": "Encolar explicaciones pendientes",
     "apps.detection.tasks.describe_software": "Explicar qué es un software",
     "apps.detection.tasks.describe_vulnerability": "Redactar la explicación de una vulnerabilidad",

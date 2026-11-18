@@ -591,7 +591,7 @@ def add_manual_observation(
     _require(user)
     vulnerability_id = (vulnerability_id or "").strip().upper()
     if not vulnerability_id or not (title or "").strip():
-        raise ValidationError("La observación necesita identificador y título.")
+        raise ValidationError("El reporte necesita identificador y título.")
     cve = get_cve(vulnerability_id) if vulnerability_id.startswith("CVE-") else None
     outcome = upsert_finding(
         asset_id=asset_id,
@@ -602,11 +602,11 @@ def add_manual_observation(
         severity=severity,
         cve=cve,
         confidence="HIGH",
-        evidence_summary=f"Observación manual de {user.get_username()}: {evidence.strip()}"[:255],
+        evidence_summary=f"Reporte manual de {user.get_username()}: {evidence.strip()}"[:255],
         evidence_data={"recorded_by": user.get_username(), "evidence": evidence.strip()},
     )
     request_scoring([outcome.finding.pk])
-    consolidation.request_consolidation(asset_id, reason="observación manual", requested_by=user)
+    consolidation.request_consolidation(asset_id, reason="reporte manual", requested_by=user)
     return outcome.finding
 
 

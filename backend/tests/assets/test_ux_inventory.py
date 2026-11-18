@@ -107,7 +107,7 @@ def test_detection_tabs_are_capped_with_link_to_detection(client, as_role, monke
             evidence_summary="visto",
         )
     body = client.get(f"/inventory/{asset.pk}/?tab=observaciones").content.decode()
-    assert "Se muestran las 1 más recientes de 2" in body and "Ver todas en Observaciones" in body
+    assert "Se muestran los 1 más recientes de 2" in body and "Ver todos en Evidencia" in body
     assert body.count("MANUAL:X") == 1
 
 

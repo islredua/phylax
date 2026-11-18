@@ -433,7 +433,7 @@ def _consolidation_step(asset_id, evaluation, scan_active):
     open_obs = findings.open_findings(asset_id).count()
     if consolidation.is_pending(asset_id):
         return PipelineStep(
-            "consolidation", label, "active", "la IA consolida las observaciones del activo…", url
+            "consolidation", label, "active", "la IA consolida los reportes del activo…", url
         )
     if scan_active or evaluation["in_flight"]:
         return PipelineStep(
@@ -456,7 +456,7 @@ def _consolidation_step(asset_id, evaluation, scan_active):
         open_risks = Risk.objects.filter(asset_id=asset_id, status__in=RISK_OPEN_STATUSES).count()
         detail = (
             f"{plural(open_vulns, 'abierta', 'abiertas')} de "
-            f"{plural(open_obs, 'observación', 'observaciones')} · "
+            f"{plural(open_obs, 'reporte', 'reportes')} · "
             f"{plural(open_risks, 'riesgo', 'riesgos')}"
         )
         if last:
@@ -475,12 +475,12 @@ def _consolidation_step(asset_id, evaluation, scan_active):
             "consolidation",
             label,
             "pending",
-            f"{cuantos(open_obs, 'observación espera', 'observaciones esperan')} consolidarse",
+            f"{cuantos(open_obs, 'reporte espera', 'reportes esperan')} consolidarse",
             f"{reverse('detection:observations')}?asset={asset_id}",
             "consolidate",
             "Consolidar con IA",
         )
-    return PipelineStep("consolidation", label, "pending", "sin observaciones que consolidar")
+    return PipelineStep("consolidation", label, "pending", "sin reportes que consolidar")
 
 
 def asset_pipeline(asset_id):

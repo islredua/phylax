@@ -250,11 +250,11 @@ sección. Migas de pan en todas las pantallas (ADR-007). Las correcciones de la 
   (`?criticality=llm_auto`): activos cuya criticidad la aplicó la IA sin que nadie la revise. La
   barra de acciones en lote se pliega a una pista hasta que se marca algo (`bulk-idle`). Estado
   vacío distinto con y sin filtros, con enlaces a Descubrimiento e Importar.
-- **Detalle del activo.** Nueve pestañas: Resumen, Riesgos, Vulnerabilidades, Observaciones,
+- **Detalle del activo.** Nueve pestañas: Resumen, Riesgos, Vulnerabilidades, Evidencia (`?tab=observaciones`),
   **Servicios y escaneos** (servicios + las ejecuciones que lo tocaron; `?tab=descubrimientos`
   sigue abriendo aquí), Identificadores, SBOM, **Criticidad (IA)** y Historial. Las listas de
-  riesgos, vulnerabilidades y observaciones muestran las 20 más recientes con «Ver todas en
-  Vulnerabilidades» / «Ver todas en Observaciones». Cabecera con una sola
+  riesgos, vulnerabilidades y reportes de evidencia muestran los 20 más recientes con «Ver todas en
+  Vulnerabilidades» / «Ver todos en Evidencia». Cabecera con una sola
   marca de criticidad («Alto · por IA, sin revisar»); Ignorar/Restaurar/Retirar en el menú
   «Más acciones», cada uno con su consecuencia. «Autorizado para escaneo» (alcance) y
   «Conectividad desde Atalaya» (sondeo) son dos filas distintas; el botón es «Comprobar

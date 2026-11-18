@@ -204,7 +204,7 @@ def test_observations_list_and_filters(client, as_role):
     assert response.context["paginator"].count == 1
     # W6: la lista dice la situación (lo único que cambia), no un «estado» que nadie decide.
     assert "Situación" in body and "vigente" in body and ">Nuevo<" not in body
-    assert "Ya no se observan" in body and "Reaparecidas" in body
+    assert "Ya no se observan" in body and "Reaparecidos" in body
     findings.mark_unreported(
         [finding.pk], "CTI_MATCH", reason="El software afectado ya no se observa en el activo."
     )

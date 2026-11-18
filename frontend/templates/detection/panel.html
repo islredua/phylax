@@ -7,27 +7,27 @@
     <h2>Vulnerabilidades <span class="ml-1 font-mono text-xs font-normal text-muted">{{ total_vulnerabilities|miles }}{% if view == 'correccion' and total_groups %} en {{ total_groups|miles }} {{ total_groups|pl:"-corrección,correcciones" }}{% endif %}</span></h2>
     {% if automation.paused %}<span class="badge-critical" title="Ningún escaneo ni decisión corre mientras dure la pausa">automatización en pausa</span>{% elif automation.mode == 'MANUAL' %}<span class="badge-medium">modo manual</span>{% else %}<span class="badge-low">modo automático</span>{% endif %}
     {% if queue_size %}<a href="{% url 'detection:queue' %}" class="badge-high hover:no-underline">{{ queue_size }} por aprobar</a>{% endif %}
-    {% if consolidation_pending %}<span class="badge-primary" title="La IA está consolidando las observaciones de este activo">consolidación en curso</span>{% endif %}
+    {% if consolidation_pending %}<span class="badge-primary" title="La IA está consolidando los reportes de este activo">consolidación en curso</span>{% endif %}
   </div>
   <div class="page-actions">
     {% if total_vulnerabilities %}<a href="{{ export_url }}" class="btn-secondary btn-sm" data-export title="Descarga en CSV las {{ total_vulnerabilities|miles }} vulnerabilidades de esta lista, una por fila, con los filtros puestos">Exportar {% if filters_active %}lo filtrado{% else %}la lista{% endif %}</a>{% endif %}
     {% if asset_id %}
-      {% if perms.detection.request_evaluation %}<form method="post" action="{% url 'detection:asset_consolidate' asset_id %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn-secondary btn-sm" type="submit" title="Vuelve a pasar las observaciones del activo por la IA">Reevaluar con IA</button></form>{% endif %}
+      {% if perms.detection.request_evaluation %}<form method="post" action="{% url 'detection:asset_consolidate' asset_id %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn-secondary btn-sm" type="submit" title="Vuelve a pasar los reportes del activo por la IA">Reevaluar con IA</button></form>{% endif %}
       <a href="{% url 'assets:detail' asset_id %}" class="btn-secondary btn-sm">← Activo</a>
     {% else %}<a href="{% url 'detection:activity' %}" class="btn-secondary btn-sm">Actividad</a>{% endif %}
   </div>
 </div>
 {% endblock %}
 {% block content %}
-<div class="grid grid-cols-2 gap-3 sm:grid-cols-4 xl:grid-cols-7">
+<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
   <a href="?status={% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Abiertas</p><p class="stat-value">{{ summary.open|miles }}</p></a>
   <a href="?status=CONFIRMED{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Confirmadas</p><p class="stat-value {% if summary.confirmed %}text-critical{% endif %}">{{ summary.confirmed|miles }}</p></a>
   <a href="?severity=CRITICAL{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Críticas</p><p class="stat-value {% if summary.critical %}text-critical{% endif %}">{{ summary.critical|miles }}</p></a>
   <a href="?in_kev=1{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Explotación activa (KEV)</p><p class="stat-value {% if summary.in_kev %}text-critical{% endif %}">{{ summary.in_kev|miles }}</p></a>
   <a href="?status=NEEDS_VERIFICATION{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Requieren verificación</p><p class="stat-value {% if summary.needs_verification %}text-medium{% endif %}">{{ summary.needs_verification|miles }}</p></a>
   <a href="?status=resolved&amp;days=7{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline" title="Mitigadas, falsos positivos y riesgos aceptados en los últimos siete días, con quién lo decidió y por qué"><p class="stat-label">Resueltas esta semana</p><p class="stat-value">{{ summary.resolved_week|miles }}</p></a>
-  <a href="{% url 'detection:observations' %}{% if asset_id %}?asset={{ asset_id }}{% endif %}" class="card hover:no-underline" title="Capa cruda: lo que reportó cada herramienta"><p class="stat-label">Observaciones abiertas</p><p class="stat-value">{{ observations_open|miles }}{% if unconsolidated %} <span class="text-xs font-normal text-muted">{{ unconsolidated|miles }} sin consolidar</span>{% endif %}</p></a>
 </div>
+<p class="text-xs text-muted" data-evidence-link><a href="{% url 'detection:observations' %}{% if asset_id %}?asset={{ asset_id }}{% endif %}" class="font-medium" title="Abre la evidencia: cada reporte tal como llegó, con la salida de la herramienta">Evidencia: {{ observations_open|miles }} {{ observations_open|pl:"-reporte abierto,reportes abiertos" }}</a> · lo que dijo cada herramienta, la inteligencia de amenazas o una persona; la IA lo consolida en estas vulnerabilidades{% if unconsolidated %} · <strong class="text-medium">{{ unconsolidated|miles }} sin consolidar</strong>{% endif %}.</p>
 
 <form method="get" id="filtros" data-filter-form class="card grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6 lg:items-end">
   {% for field in filter_form %}{% if field.widget_type == 'hidden' %}{{ field }}{% elif field.widget_type == 'checkbox' %}

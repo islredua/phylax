@@ -67,7 +67,7 @@
   <div class="kpi"><div class="l">Explotación activa (KEV)</div><div class="v">{{ data.vulnerabilities.in_kev|miles }}</div><div class="muted">{{ data.vulnerabilities.kev_overdue }} con plazo CISA vencido</div></div>
   <div class="kpi"><div class="l">Activos</div><div class="v">{{ data.assets.total|miles }}</div><div class="muted">{{ data.assets.with_criticality }} con criticidad · {{ data.assets.scanned_window }} escaneados</div></div>
   <div class="kpi"><div class="l">Acciones por aprobar</div><div class="v">{{ data.actions.pending_approval }}</div><div class="muted">{{ data.actions.done_window }} ejecutadas en la ventana</div></div>
-  <div class="kpi"><div class="l">Observaciones</div><div class="v">{{ data.observations.total|miles }}</div><div class="muted">{{ data.observations.multi_source|miles }} con más de una fuente</div></div>
+  <div class="kpi"><div class="l">Reportes de evidencia</div><div class="v">{{ data.observations.total|miles }}</div><div class="muted">{{ data.observations.multi_source|miles }} con más de una fuente</div></div>
   <div class="kpi"><div class="l">Sin tratamiento</div><div class="v">{{ data.risks.untreated }}</div><div class="muted">riesgos abiertos sin decisión</div></div>
   <div class="kpi"><div class="l">Detección → valoración</div><div class="v">{% if data.timing.detect_to_assess_hours is not None %}{{ data.timing.detect_to_assess_hours }} h{% else %}—{% endif %}</div><div class="muted">tiempo medio</div></div>
 </div>
@@ -103,7 +103,7 @@
 </table>
 <ul>
   <li>De {{ data.pipeline.signals.total|miles }} señales, {{ data.pipeline.match.filtered|miles }} ({{ data.pipeline.match.filtered_pct|floatformat:1 }} %) se descartaron por regla al no tocar el inventario, sin gastar una sola llamada al modelo; {{ data.pipeline.match.reconciled|miles }} se resolvieron sin escanear.</li>
-  <li>{{ data.pipeline.observations.intel_only_pct|floatformat:0 }} % de las observaciones se encontró cruzando inteligencia con inventario, sin tocar el activo; {{ data.pipeline.observations.multi_source|miles }} las confirmaron dos fuentes a la vez.</li>
+  <li>{{ data.pipeline.observations.intel_only_pct|floatformat:0 }} % de los reportes se encontró cruzando inteligencia con inventario, sin tocar el activo; {{ data.pipeline.observations.multi_source|miles }} las confirmaron dos fuentes a la vez.</li>
   <li>IA local ({{ data.pipeline.ai.model }}{% if data.pipeline.ai.local %}, en este equipo{% endif %}): {{ data.pipeline.ai.calls|miles }} inferencias de decisión, valoración y redacción de riesgos (sin contar la redacción de explicaciones ni la lectura del estado), {{ data.pipeline.ai.ok_pct|floatformat:0 }} % aceptadas por el validador, {{ data.pipeline.ai.hours }} h de cómputo. Lo que el validador rechaza lo resuelve una regla y queda marcado.</li>
   <li>{{ data.automation.vulns_consolidated_window|miles }} vulnerabilidades valoradas, {{ data.automation.vulns_described_window|miles }} descripciones redactadas y {{ data.automation.risks_assessed_window|miles }} riesgos valorados conforme a ISO/IEC 27005; {{ data.automation.cti_syncs_window|miles }} sincronizaciones de inteligencia (NVD, KEV, EPSS).</li>
 </ul>

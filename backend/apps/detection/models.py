@@ -518,7 +518,7 @@ class VulnerabilityEventKind(models.TextChoices):
     ASSESSED = "ASSESSED", "Evaluada"
     STATUS_AI = "STATUS_AI", "Estado puesto por IA"
     STATUS_HUMAN = "STATUS_HUMAN", "Estado corregido por una persona"
-    OBSERVATIONS = "OBSERVATIONS", "Observaciones ligadas"
+    OBSERVATIONS = "OBSERVATIONS", "Reportes ligados"
     SCORE = "SCORE", "Puntajes recalculados"
     DESCRIBED = "DESCRIBED", "Redactada"
     RESOLVED = "RESOLVED", "Resuelta"

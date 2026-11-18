@@ -471,7 +471,9 @@ def rule_item(group, index):
     if lead.component and lead.component.version:
         actions.append(f"Actualizar {lead.component.label} a una versión corregida.")
     if not actions:
-        actions.append("Verificar la observación en el activo y aplicar el parche del fabricante.")
+        actions.append(
+            "Comprobar en el activo lo que se reportó y aplicar el parche del fabricante."
+        )
     if low:
         plausibility, status = group.plausibility_cap, "LIKELY_FALSE_POSITIVE"
     elif group.exact_evidence and not group.status_cap:
@@ -863,7 +865,7 @@ def _apply_item(asset_id, item, group, context, *, by_rule, log_obj, now, kept=N
         _event(
             vuln,
             VulnerabilityEventKind.CREATED,
-            f"Consolidada a partir de {cuantos(len(findings), 'observación', 'observaciones')}",
+            f"Consolidada a partir de {cuantos(len(findings), 'reporte', 'reportes')}",
             observations=[f.vulnerability_id for f in findings],
             by_rule=by_rule,
         )

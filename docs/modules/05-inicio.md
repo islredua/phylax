@@ -158,7 +158,7 @@ estaciones que siguen el lazo completo, cada una con su cifra, quién actúa y e
 | Tocan al inventario | las que el cruce no descartó (resueltas por reconciliación + enviadas al planificador + pendientes) | Regla | ventana |
 | Decisiones | `PlannerDecision` (modelo o regla de respaldo) y sus aprobaciones | IA local | ventana |
 | Escaneos | nmap (`DiscoveryRun`), nuclei y Grype (`ToolExecution`), completados o fallidos | Automatización | ventana |
-| Observaciones | `Finding` vigentes y su combinación de fuentes | Regla | hoy |
+| Evidencia | `Finding` vigentes (reportes) y su combinación de fuentes | Regla | hoy |
 | Vulnerabilidades | sostenidas, estado puesto por IA o regla, prioridad contextual | IA local | hoy |
 | Riesgos abiertos | por nivel, valorados por IA o regla, con o sin tratamiento | IA + persona | hoy |
 
@@ -185,8 +185,8 @@ con el panel abierto. Los paneles explican **cómo** trabaja cada etapa:
 - *Decisiones*: del modelo o de la regla de respaldo, qué acción eligió, las tres últimas con su
   motivo y los límites que acotan la automatización (modo, ventana de trabajo pesado, topes por hora).
 - *Escaneos*: ejecuciones por herramienta (completadas y fallidas), duración media y cobertura.
-- *Observaciones*: matriz de combinaciones de fuentes (una fila por combinación exacta, así cada
-  observación cuenta una vez): cuánto se encontró solo cruzando inteligencia con inventario, cuánto
+- *Evidencia*: matriz de combinaciones de fuentes (una fila por combinación exacta, así cada
+  reporte cuenta una vez): cuánto se encontró solo cruzando inteligencia con inventario, cuánto
   confirmaron dos fuentes y cuánto solo podía ver un escaneo.
 - *Vulnerabilidades*: qué tan firme es cada una, cuántas valoró la IA y cuántas la regla, y
   severidad teórica (CVSS) frente a prioridad real.

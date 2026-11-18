@@ -257,7 +257,7 @@ restaurar un respaldo. Para eso cada tipo de trabajo tiene quien lo retome:
 | Lectura de Inicio | Aviso «la IA está redactando» | Caduca solo; se revisa cada 10 min |
 | Sincronización de una fuente | — | La programada de cada hora |
 | CVE de un producto del inventario | El producto no tiene CVE en el espejo: el activo parece limpio porque nadie preguntó | **`recover_lost_work`** los vuelve a pedir a NVD (a lo sumo una vez cada seis horas por producto) |
-| Consolidación de un activo | Observaciones sin consolidar | El siguiente escaneo o cambio de inteligencia del activo, o «Reevaluar con IA» en su ficha |
+| Consolidación de un activo | Reportes de evidencia sin consolidar | El siguiente escaneo o cambio de inteligencia del activo, o «Reevaluar con IA» en su ficha |
 
 `recover_lost_work` (cada 5 minutos) compara lo que la base cree en curso con lo que de verdad
 espera en Redis, en una cola o entregado a un trabajador. Solo actúa sobre lo que lleva más de

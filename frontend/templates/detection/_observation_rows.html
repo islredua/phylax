@@ -1,7 +1,7 @@
 {% load detection_tags inventory %}
 <div class="table-wrap">
   <table class="data-table">
-    <thead><tr><th scope="col">Observación</th><th scope="col">Activo</th><th scope="col">Severidad</th><th scope="col" class="col-lg">EPSS</th><th scope="col" title="Si las fuentes que la reportaron la siguen viendo">Situación</th><th scope="col" class="col-md">Fuentes</th><th scope="col">Consolidada en</th><th scope="col" class="col-lg">Detectada</th><th scope="col" class="col-md">Vista</th></tr></thead>
+    <thead><tr><th scope="col">Reporte</th><th scope="col">Activo</th><th scope="col">Severidad</th><th scope="col" class="col-lg">EPSS</th><th scope="col" title="Si las fuentes que lo reportaron lo siguen viendo">Situación</th><th scope="col" class="col-md">Fuentes</th><th scope="col">Consolidado en</th><th scope="col" class="col-lg">Detectado</th><th scope="col" class="col-md">Visto</th></tr></thead>
     <tbody>
       {% for f in findings %}
       <tr>
@@ -11,11 +11,11 @@
         <td class="col-lg font-mono text-xs">{{ f.epss_score|epss_pct }}</td>
         <td>{% finding_situation f %}{% if f.reopened_count %}<p class="text-xs text-muted">×{{ f.reopened_count }}</p>{% endif %}</td>
         <td class="col-md text-xs">{% for s in f.sources %}<span class="badge-neutral">{{ s|source_label }}</span> {% endfor %}</td>
-        <td class="text-xs">{% if f.consolidated_id %}<a href="{% url 'detection:vulnerability' f.consolidated_id %}">{{ f.consolidated.title|truncatechars:50 }}</a>{% elif f.is_informational %}<span class="text-muted" title="Detección de tecnología o versión: es contexto para la IA, no una vulnerabilidad">informativa, no se consolida</span>{% else %}<span class="text-muted">sin consolidar aún</span>{% endif %}</td>
+        <td class="text-xs">{% if f.consolidated_id %}<a href="{% url 'detection:vulnerability' f.consolidated_id %}">{{ f.consolidated.title|truncatechars:50 }}</a>{% elif f.is_informational %}<span class="text-muted" title="Detección de tecnología o versión: es contexto para la IA, no una vulnerabilidad">informativo, no se consolida</span>{% else %}<span class="text-muted">sin consolidar aún</span>{% endif %}</td>
         <td class="col-lg text-xs whitespace-nowrap text-ink-soft">{{ f.first_detected_at|hace }}</td>
         <td class="col-md text-xs whitespace-nowrap text-ink-soft">{{ f.last_seen_at|hace }}</td>
       </tr>
-      {% empty %}<tr><td colspan="9" class="table-empty">{% if filters_active %}Sin coincidencias para estos filtros. <a href="{% url 'detection:observations' %}{% if asset_id %}?asset={{ asset_id }}{% endif %}">Limpiar filtros</a>{% else %}Sin observaciones{% if asset_id %} en este activo{% endif %}. Nacen cuando llega inteligencia que afecta al software inventariado, cuando una herramienta las reporta o cuando una persona las registra.{% endif %}</td></tr>{% endfor %}
+      {% empty %}<tr><td colspan="9" class="table-empty">{% if filters_active %}Sin coincidencias para estos filtros. <a href="{% url 'detection:observations' %}{% if asset_id %}?asset={{ asset_id }}{% endif %}">Limpiar filtros</a>{% else %}Sin reportes{% if asset_id %} en este activo{% endif %}. Nacen cuando llega inteligencia que afecta al software inventariado, cuando una herramienta los reporta o cuando una persona los registra.{% endif %}</td></tr>{% endfor %}
     </tbody>
   </table>
 </div>

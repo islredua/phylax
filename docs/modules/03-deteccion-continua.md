@@ -160,7 +160,26 @@ vigente y en alcance; objetivos válidos; ejecuciones simultáneas; escaneos por
 con acceso a las redes escaneadas. nmap sigue en el descubrimiento. Si falta el binario, la
 ejecución falla con un mensaje claro.
 
-## H. Observaciones (capa cruda)
+## H. Evidencia (capa cruda)
+
+> **Nombre en pantalla (2026-11-18).** Esta capa se llamaba «Observaciones» y ahora se llama
+> **Evidencia**; cada elemento es un **reporte** (lo que dijo una herramienta, la inteligencia o
+> una persona). Cambió el nombre y el lugar desde donde se llega, no los datos: el modelo sigue
+> siendo `Finding`, las rutas siguen en `/detection/observations/` y `/detection/findings/<id>/`,
+> la pestaña del activo sigue siendo `?tab=observaciones`, y el código, los prompts y este
+> documento dicen «observación» donde hablan del modelo. Lo ya guardado (eventos «Consolidada a
+> partir de N observaciones», el «Sustento» de un riesgo ya valorado) conserva su redacción; lo
+> que se escriba desde ahora dice «reportes». En la página de un reporte, la sección que se
+> llamaba «Evidencia» (lo que devolvió cada fuente) es «Salida de la herramienta». En
+> Vulnerabilidades, la tarjeta «Observaciones abiertas» es ahora la línea «Evidencia: N reportes
+> abiertos», que lleva a la lista. Los 47 reportes informativos, el registro manual («Registrar
+> evidencia») y el flujo de consolidación no cambian. El nombre del modelo en el panel de
+> administración de Django (`verbose_name`) y el de sus permisos no se tocaron.
+>
+> Desde la página de una corrección se llega a los reportes de ese software
+> (`/detection/observations/?asset=…&comp=…&status=all`): son los que nombran al componente y los
+> de sus vulnerabilidades (el reporte de Grype no lleva el componente; lo liga la vulnerabilidad
+> que lo consolida). La lista dice de qué software es y cómo volver a todos los del activo.
 
 `Finding` es una **observación**: lo que una herramienta, la reconciliación CTI o una persona
 reportó sobre un activo. Única por `(activo, identificador)`; cada fuente añade `FindingEvidence`
@@ -170,7 +189,7 @@ no se observa, reapareció), y cambia sola cuando **todas** las fuentes que la r
 verla (ver «Cerrar el ciclo y repartir el trabajo»). No hay estado que alguien cambie a mano: la
 ruta `findings/<id>/transition/` y `findings.transition` se retiraron (W6); confirmar, descartar
 como falso positivo o aceptar se decide en la vulnerabilidad. `FindingEvent` es solo de inserción. El analista puede
-registrar una observación manual (`Observaciones › Registrar observación`, fuente `MANUAL`) y
+registrar una observación manual (`Evidencia › Registrar evidencia`, fuente `MANUAL`) y
 anotar contexto; los estados que importan a la organización no se deciden aquí sino en la
 vulnerabilidad consolidada. Cada observación muestra a qué vulnerabilidad pertenece (o «sin
 consolidar aún»). `apps.scoring.score_findings` le da una prioridad para ordenar la capa cruda.
@@ -360,8 +379,8 @@ pantallas se reparten por lo que la persona viene a hacer. Las rutas (`/detectio
 riesgo» de la organización con su mapa función × consecuencia y «por escenario» con la matriz 5×5
 y los filtros por nivel, estado y tratamiento; ver «El riesgo de la organización») · **Vulnerabilidades**
 (`/detection/vulnerabilities/`: consolidadas, ordenadas por puntaje contextual, con resumen y
-filtros; su segunda pestaña es Observaciones, la capa cruda con filtros, enlace a su vulnerabilidad
-y «Registrar observación») · **Operación** (Actividad, el flujo en vivo con una fila por acción y
+filtros; su segunda pestaña es Evidencia (antes «Observaciones»), la capa cruda con filtros, enlace a su vulnerabilidad
+y «Registrar evidencia») · **Operación** (Actividad, el flujo en vivo con una fila por acción y
 sus pasos plegados, y Cola de aprobación) · y, en **Administración**, la configuración: Fuentes
 CTI, Automatización y el perfil de la organización (**Administración › Organización**). Detalle de riesgo: descripción a alto nivel con consecuencia y fuente de amenaza,
 escenario, posible impacto, recomendaciones, valoración (probabilidad × impacto = nivel, por qué),
@@ -425,10 +444,10 @@ la criticidad dice que se calcula al terminar y la evaluación que arranca sola.
 solo aparece pasados `DETECTION_REEVALUATE_MINUTES`; antes se lee «evaluada hace N min». La última
 evaluación contada como pasos queda desplegable. La tarjeta se refresca sola cada 5 s mientras algo
 corre y cada 20 s mientras espera a una persona. Las pestañas **Riesgos · Vulnerabilidades ·
-Observaciones** del activo (tras Resumen, con conteos, solo con el permiso de cada capa) muestran
+Evidencia** del activo (tras Resumen, con conteos, solo con el permiso de cada capa) muestran
 las listas **dentro de la página del activo** (`detection.views.asset_tab_context`, mismas filas
-que las listas generales), con «Reevaluar con IA» / «Registrar observación» y un enlace
-«Abrir en Riesgos» / «Abrir en Vulnerabilidades» / «Abrir en Observaciones» para ver lo mismo con
+que las listas generales), con «Reevaluar con IA» / «Registrar evidencia» y un enlace
+«Abrir en Riesgos» / «Abrir en Vulnerabilidades» / «Abrir en Evidencia» para ver lo mismo con
 filtros y frente al resto de activos. El detalle de un
 riesgo, una vulnerabilidad o una observación sigue siendo una sola pantalla (la del módulo, su
 URL canónica), pero con miga y «Volver» hacia la pestaña del activo: no hay dos pantallas para el

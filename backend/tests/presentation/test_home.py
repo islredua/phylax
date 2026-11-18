@@ -806,7 +806,7 @@ def test_stage_panels_explain_how_the_platform_works(client, as_role):
         "match": ("Así se cruza la inteligencia con el inventario", "Por qué se descartaron"),
         "decisions": ("Límites que acotan la automatización", "Qué decidió"),
         "scans": ("Ejecuciones en", "activos escaneados"),
-        "observations": ("Qué combinación de fuentes vio cada observación", "combo-dot"),
+        "observations": ("Qué combinación de fuentes dio cada reporte", "combo-dot"),
         "vulnerabilities": (
             "Severidad teórica frente a prioridad real",
             "Qué tan firme es cada una",
@@ -903,7 +903,7 @@ def test_stage_links_follow_the_permissions_of_the_role(client, make_user):
         ("signals", "Abrir las fuentes de inteligencia"),
         ("decisions", "Controles de automatización"),
         ("scans", "Ver las ejecuciones"),
-        ("observations", "Ver las observaciones"),
+        ("observations", "Ver la evidencia"),
         ("vulnerabilities", "Ver las vulnerabilidades"),
         ("ai", "Abrir la configuración del modelo"),
     ):

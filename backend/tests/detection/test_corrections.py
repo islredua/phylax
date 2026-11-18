@@ -72,8 +72,11 @@ def _software(asset, name="log4j-core", version="2.14.1", **extra):
     )
 
 
-def _vuln(asset, key, title, component=None, *, fix=None, **extra):
-    """Una vulnerabilidad con su reporte; ``fix`` es lo que dijo Grype («fixed 2.15.0»)."""
+def _vuln(asset, key, title, component=None, *, fix=None, report_names_software=False, **extra):
+    """Una vulnerabilidad con su reporte; ``fix`` es lo que dijo Grype («fixed 2.15.0»).
+
+    Como en el laboratorio, el reporte de Grype no lleva el componente: el software lo liga la
+    vulnerabilidad. ``report_names_software`` es el otro caso (el cruce con NVD sí lo lleva)."""
     now = timezone.now()
     vuln = Vulnerability.objects.create(
         asset=asset,
@@ -96,7 +99,7 @@ def _vuln(asset, key, title, component=None, *, fix=None, **extra):
         asset=asset,
         vulnerability_id=key,
         title=key,
-        component=component,
+        component=component if report_names_software else None,
         sources=[FindingSource.GRYPE if component else FindingSource.NUCLEI],
         first_detected_at=now,
         last_seen_at=now,
@@ -151,6 +154,7 @@ def _payments():
             fix="fixed 2.17.1",
             severity="MEDIUM",
             contextual_score=6.3,
+            report_names_software=True,
         ),
         "headers": _vuln(
             asset,
@@ -312,11 +316,17 @@ def test_the_correction_page_says_what_to_do_what_it_is_why_and_what_it_feeds(cl
     assert [item["scenario"].pk for item in card["feeds"]] == [scenario.pk]
     assert "Fuga de información en Pagos" in body
     assert reverse("detection:risk", args=[scenario.pk]) in body
-    # Evidencia: quién lo reportó, y a un clic lo que dijo cada herramienta.
+    # Evidencia: quién lo reportó, y a un clic lo que dijo cada herramienta. La lista trae los
+    # reportes de sus vulnerabilidades aunque el reporte no nombre al software, y también los que
+    # ya no se observan (la página los cuenta todos).
+    Finding.objects.filter(vulnerability_id="CVE-2021-45046").update(status="MITIGATED")
     assert card["evidence"]["reports"] == 3 and card["evidence"]["sources"] == [("GRYPE", 3)]
     assert "Ver los 3 reportes de las herramientas" in body
     listed = client.get(card["evidence"]["url"])
     assert listed.status_code == 200 and listed.context["paginator"].count == 3
+    evidence = " ".join(listed.content.decode().split())
+    assert "Solo los reportes de <strong>log4j-core 2.14.1</strong> en api-pagos" in evidence
+    assert ">Comp<" not in evidence  # el filtro va oculto, sin etiqueta suelta en el formulario
     # Quien solo lee no ve el formulario de estado ni el de la descripción.
     assert 'name="groups"' not in body and "Corregir la descripción" not in body
 

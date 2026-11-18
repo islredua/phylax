@@ -1095,7 +1095,7 @@ def test_replace_support_is_deterministic():
     assert "0.99999" not in out and "desde 2021-12-10" not in out
     assert "Sustento: Ninguna de sus vulnerabilidades aparece en el catálogo" in out
     assert (
-        "1 observación de cruce del software inventariado con el espejo de NVD, Grype sobre el SBOM."
+        "1 reporte de cruce del software inventariado con el espejo de NVD, Grype sobre el SBOM."
         in out
     )
     assert out.endswith("Condiciones: expuesto en la DMZ.")

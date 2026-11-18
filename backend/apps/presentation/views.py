@@ -124,7 +124,7 @@ STAGE_TITLES = {
     "match": "Cruce con el inventario",
     "decisions": "Decisiones del planificador",
     "scans": "Escaneos ejecutados",
-    "observations": "Observaciones: cómo se cruzan las fuentes",
+    "observations": "Evidencia: cómo se cruzan las fuentes",
     "vulnerabilities": "Vulnerabilidades valoradas",
     "risks": "Riesgos abiertos",
     "ai": "IA local: qué hace y qué tan bien",
@@ -216,9 +216,9 @@ def hero_payload(data):
         },
         {
             "key": "observations",
-            "label": "Observaciones",
+            "label": "Evidencia",
             "value": obs["total"],
-            "sub": f"{obs['multi_source']:,} confirmadas por dos fuentes",
+            "sub": f"{obs['multi_source']:,} reportes confirmados por dos fuentes",
             "actor": "Regla",
             "kind": "rule",
             "scope": "vigentes hoy",
@@ -388,7 +388,7 @@ def stage_context(stage, data, user):
             ctx["links"].append(("Ver las ejecuciones", f"{activity_url}?kind=execution"))
     elif stage == "observations":
         if user.has_perm("detection.view_finding"):
-            ctx["links"].append(("Ver las observaciones", reverse("detection:observations")))
+            ctx["links"].append(("Ver la evidencia", reverse("detection:observations")))
     elif stage == "vulnerabilities":
         v = flow["vulnerabilities"]
         ctx["statuses"] = _bars(

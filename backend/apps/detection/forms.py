@@ -33,15 +33,15 @@ class FindingFilterForm(StyledMixin, forms.Form):
         required=False,
         choices=[
             ("", "Vigentes"),
-            (FindingStatus.REOPENED.value, "Reaparecidas"),
+            (FindingStatus.REOPENED.value, "Reaparecidos"),
             (FindingStatus.MITIGATED.value, "Ya no se observan"),
-            ("all", "Todas"),
+            ("all", "Todos"),
         ],
     )
     in_kev = forms.ChoiceField(
         label="KEV",
         required=False,
-        choices=[("", "Todas"), ("1", "Solo en KEV"), ("0", "Fuera de KEV")],
+        choices=[("", "Todos"), ("1", "Solo en KEV"), ("0", "Fuera de KEV")],
     )
     environment = forms.ChoiceField(
         label="Entorno", required=False, choices=catalog_choices(catalogs.ENVIRONMENT, "Todos")

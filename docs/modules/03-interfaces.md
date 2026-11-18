@@ -59,7 +59,7 @@ la fecha de detección). Mientras `is_available()` sea `False`, el panel ordena 
 
 - `apps.detection.risks.summary(asset_id=None)` / `risks.matrix(risks)` — riesgos abiertos por nivel y celdas de la matriz 5×5 (ISO/IEC 27005).
 - `apps.detection.risks.evidence(risk)` — evidencia técnica determinista del riesgo (vulnerabilidades ligadas con puntajes, estado, fuentes, plantillas, dónde se observó); la usan el detalle y el reporte (`detection:risk_report`, HTML o `?format=md`).
-- `apps.detection.views.asset_tab_context(asset, tab)` — filas de Riesgos / Vulnerabilidades / Observaciones para las pestañas de la página del activo.
+- `apps.detection.views.asset_tab_context(asset, tab)` — filas de Riesgos / Vulnerabilidades / Evidencia para las pestañas de la página del activo.
 - `apps.detection.risks.fix_title(title, asset_name, consequence="", vulns=())` / `lead_cause(vulns)` — garantizan la fórmula del título del riesgo en código (nombre real del activo, consecuencia, causa que nombra a la vulnerabilidad principal).
 - `apps.detection.descriptions.queue_missing_everywhere(limit=None)` — lote global de descripciones pendientes; la llama la tarea periódica `apps.detection.tasks.describe_pending_vulnerabilities`.
 - `apps.detection.risks.intelligence(vulns, today=None)` — resumen determinista de inteligencia de amenazas (KEV, plazo CISA, ransomware, EPSS máximo, fuentes) con `text` en español; `risks.vuln_intel_line(vuln)` la versión de una línea por vulnerabilidad.

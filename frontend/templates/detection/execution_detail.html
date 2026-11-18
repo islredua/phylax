@@ -26,7 +26,7 @@
 </section>
 {% if findings %}
 <section class="flex flex-col gap-2"><h3 class="eyebrow">Hallazgos con evidencia de esta ejecución</h3>
-<div class="table-wrap"><table class="data-table"><thead><tr><th scope="col">Observación</th><th scope="col">Severidad</th><th scope="col">Estado</th></tr></thead><tbody>
+<div class="table-wrap"><table class="data-table"><thead><tr><th scope="col">Reporte</th><th scope="col">Severidad</th><th scope="col">Estado</th></tr></thead><tbody>
 {% for f in findings %}<tr><td><a href="{% url 'detection:finding' f.pk %}" class="font-mono text-xs">{{ f.vulnerability_id }}</a> {{ f.title|truncatechars:70 }}</td><td>{% severity_badge f.severity %}</td><td>{% finding_status_badge f.status %}</td></tr>{% endfor %}
 </tbody></table></div></section>
 {% endif %}

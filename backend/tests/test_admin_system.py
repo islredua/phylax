@@ -355,11 +355,11 @@ def test_model_queue_counts_estimates_and_says_when_to_restart(stack):
     describe = rows["Redactar la explicación de una vulnerabilidad"]
     assert describe["count"] == 10 and describe["each"] == 4.0 and describe["seconds"] == 40.0
     assert describe["total"] == "40 s"  # sin precisión falsa: lo mismo que el total de la cola
-    consolidate = rows["Consolidar las observaciones de un activo"]
+    consolidate = rows["Consolidar los reportes de un activo"]
     assert consolidate["each"] == 24.0  # mediana de 28 s y 20 s
     assert rows["rara"]["each"] is None and rows["rara"]["seconds"] == system.DEFAULT_TASK_SECONDS
     assert queue["seconds"] == 40.0 + 48.0 + 10.0 and queue["eta"] == "2 min"
-    assert queue["running"][0]["label"] == "Consolidar las observaciones de un activo"
+    assert queue["running"][0]["label"] == "Consolidar los reportes de un activo"
     assert queue["running"][0]["lapse"] in ("30 s", "31 s")
     assert queue["safe_to_restart"] is False
 

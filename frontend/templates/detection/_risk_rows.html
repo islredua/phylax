@@ -24,7 +24,7 @@ el tratamiento: una columna más no cabe a 1440 px.
         <td class="col-lg font-mono text-xs">{{ r.vulnerabilities.count }}</td>
         <td class="col-lg text-xs whitespace-nowrap text-ink-soft">{{ r.assessed_at|hace }}</td>
       </tr>
-      {% empty %}<tr><td colspan="{% if bulk %}9{% else %}8{% endif %}" class="table-empty">{% if filters_active %}Sin coincidencias para estos filtros. <a href="{% url 'detection:risks' %}{% if asset_id %}?asset={{ asset_id }}{% else %}?view=escenario{% endif %}">Limpiar filtros</a>{% else %}Sin escenarios de riesgo{% if asset_id %} en este activo{% endif %}. Los escenarios se derivan solos de las vulnerabilidades consolidadas de cada activo{% if asset_id %}; si el activo aún no tiene vulnerabilidades consolidadas, primero verás sus observaciones{% endif %}.{% endif %}</td></tr>{% endfor %}
+      {% empty %}<tr><td colspan="{% if bulk %}9{% else %}8{% endif %}" class="table-empty">{% if filters_active %}Sin coincidencias para estos filtros. <a href="{% url 'detection:risks' %}{% if asset_id %}?asset={{ asset_id }}{% else %}?view=escenario{% endif %}">Limpiar filtros</a>{% else %}Sin escenarios de riesgo{% if asset_id %} en este activo{% endif %}. Los escenarios se derivan solos de las vulnerabilidades consolidadas de cada activo{% if asset_id %}; si el activo aún no tiene vulnerabilidades consolidadas, primero verás su evidencia{% endif %}.{% endif %}</td></tr>{% endfor %}
     </tbody>
   </table>
 </div>

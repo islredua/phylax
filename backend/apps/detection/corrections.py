@@ -230,7 +230,10 @@ def _evidence(asset, component, vuln_ids):
         "reports": reports.count(),
         "first": seen["first"],
         "last": seen["last"],
-        "url": f"{reverse('detection:observations')}?asset={asset.pk}&comp={component.pk}",
+        # Todos, también los que ya no se observan: es la cuenta que da la página.
+        "url": (
+            f"{reverse('detection:observations')}?asset={asset.pk}&comp={component.pk}&status=all"
+        ),
     }
 
 

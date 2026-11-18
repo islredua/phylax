@@ -398,11 +398,11 @@ def support_paragraph(vulns):
         for f in obs:
             sources.update(f.sources or [])
     evidence = (
-        f"{observations} {_plural(observations, 'observación', 'observaciones')} de "
+        f"{observations} {_plural(observations, 'reporte', 'reportes')} de "
         + ", ".join(_SOURCE_LABELS.get(x, x.lower()) for x in sorted(sources))
         + "."
         if sources
-        else "sin observaciones ligadas."
+        else "sin reportes ligados."
     )
     return f"Sustento: {intelligence(vulns)['text']} {evidence}"
 

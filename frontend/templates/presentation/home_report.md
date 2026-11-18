@@ -31,7 +31,7 @@ Siguientes pasos:
 | Explotación activa (KEV) | {{ data.vulnerabilities.in_kev }} | {{ data.vulnerabilities.kev_overdue }} con plazo CISA vencido |
 | Activos | {{ data.assets.total }} | {{ data.assets.with_criticality }} con criticidad · {{ data.assets.scanned_window }} escaneados en la ventana |
 | Acciones por aprobar | {{ data.actions.pending_approval }} | {{ data.actions.done_window }} ejecutadas en la ventana |
-| Observaciones | {{ data.observations.total }} | {{ data.observations.multi_source }} con más de una fuente |
+| Reportes de evidencia | {{ data.observations.total }} | {{ data.observations.multi_source }} con más de una fuente |
 {% if deltas.available %}
 Frente al {{ deltas.since|fecha_corta }}: {% if deltas.risks_comparable %}riesgos abiertos {{ deltas.risks_open|stringformat:"+d" }}, críticos {{ deltas.risks_critical|stringformat:"+d" }}, {% endif %}vulnerabilidades sostenidas {{ deltas.vulns_sustained|stringformat:"+d" }}, en KEV {{ deltas.vulns_kev|stringformat:"+d" }}.{% if not deltas.risks_comparable %} Los riesgos no se comparan con los de esa fecha: entonces se contaba el riesgo de cada activo y ahora el de la organización.{% endif %}
 {% endif %}
@@ -58,7 +58,7 @@ Las cuatro primeras etapas cuentan los últimos {{ data.window_days }} días; la
 {% for st in hero.flow %}| {{ st.label }} | {{ st.value }} | {{ st.actor }} | {{ st.sub }} | {{ st.scope }} |
 {% endfor %}
 - De {{ data.pipeline.signals.total }} señales, {{ data.pipeline.match.filtered }} ({{ data.pipeline.match.filtered_pct|floatformat:1 }} %) se descartaron por regla al no tocar el inventario; {{ data.pipeline.match.reconciled }} se resolvieron sin escanear.
-- {{ data.pipeline.observations.intel_only_pct|floatformat:0 }} % de las observaciones se encontró cruzando inteligencia con inventario, sin tocar el activo; {{ data.pipeline.observations.multi_source }} las confirmaron dos fuentes a la vez.
+- {{ data.pipeline.observations.intel_only_pct|floatformat:0 }} % de los reportes se encontró cruzando inteligencia con inventario, sin tocar el activo; {{ data.pipeline.observations.multi_source }} las confirmaron dos fuentes a la vez.
 - IA local ({{ data.pipeline.ai.model }}{% if data.pipeline.ai.local %}, en este equipo{% endif %}): {{ data.pipeline.ai.calls }} inferencias de decisión, valoración y redacción de riesgos (sin contar la redacción de explicaciones ni la lectura del estado), {{ data.pipeline.ai.ok_pct|floatformat:0 }} % aceptadas por el validador, {{ data.pipeline.ai.hours }} h de cómputo.
 - {{ data.automation.vulns_consolidated_window }} vulnerabilidades valoradas, {{ data.automation.vulns_described_window }} descripciones redactadas y {{ data.automation.risks_assessed_window }} riesgos valorados conforme a ISO/IEC 27005; {{ data.automation.cti_syncs_window }} sincronizaciones de inteligencia.
 

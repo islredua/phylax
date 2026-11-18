@@ -105,7 +105,7 @@ SECTIONS = (
             ),
             Tab(
                 "observations",
-                "Observaciones",
+                "Evidencia",
                 "detection:observations",
                 ("detection.view_finding",),
                 (

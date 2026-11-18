@@ -146,7 +146,11 @@ def filter_findings(params):
         if data["asset"]:
             qs = qs.filter(asset_id=data["asset"])
         if data["comp"]:
-            qs = qs.filter(component_id=data["comp"])
+            # Los reportes de un software: los que lo nombran y los de sus vulnerabilidades (el de
+            # Grype no lleva el componente; lo liga la vulnerabilidad que lo consolida).
+            qs = qs.filter(
+                Q(component_id=data["comp"]) | Q(consolidated__component_id=data["comp"])
+            )
     if status == "all":
         pass
     elif status:
@@ -879,7 +883,7 @@ class ConsolidateAssetView(Perm, View):
                 request, "Consolidación con IA en cola; la página se actualizará sola."
             )
         else:
-            messages.info(request, "El activo no tiene observaciones que consolidar.")
+            messages.info(request, "El activo no tiene reportes que consolidar.")
         return HttpResponseRedirect(back)
 
 
@@ -1591,12 +1595,20 @@ class ObservationsView(Perm, PaginationMixin, ListView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        from .models import SoftwareComponent
+
+        cleaned = self.filter_form.cleaned_data if self.filter_form.is_valid() else {}
+        # Desde la página de una corrección se llega con «comp»: la lista dice de qué software es.
+        component = (
+            SoftwareComponent.objects.select_related("asset").filter(pk=cleaned["comp"]).first()
+            if cleaned.get("comp")
+            else None
+        )
         context.update(
             filter_form=self.filter_form,
             summary=findings.summary(),
-            asset_id=self.filter_form.cleaned_data.get("asset")
-            if self.filter_form.is_valid()
-            else None,
+            asset_id=cleaned.get("asset"),
+            component=component,
             filters_active=filters_active(self.request.GET),
         )
         return context
@@ -1636,7 +1648,7 @@ class ObservationCreateView(Perm, TemplateView):
         asset = self._asset(request, required=False)
         form = ObservationForm(request.POST)
         if asset is None:
-            messages.error(request, "Elige el activo donde viste la observación.")
+            messages.error(request, "Elige el activo donde lo viste.")
             return render(
                 request,
                 self.template_name,
@@ -1652,7 +1664,7 @@ class ObservationCreateView(Perm, TemplateView):
             else:
                 messages.success(
                     request,
-                    "Observación registrada; la consolidación con IA la tomará en cuenta en breve.",
+                    "Evidencia registrada; la consolidación con IA la tomará en cuenta en breve.",
                 )
                 return redirect("detection:finding", pk=finding.pk)
         return render(request, self.template_name, {"asset": asset, "form": form, "assets": None})

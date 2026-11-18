@@ -572,14 +572,14 @@ def test_action_and_event_pages_use_labels_and_links(client, as_role):
     cve = CveRecord.objects.get(pk="CVE-2025-23419")
     event, _ = events.emit(EventKind.CTI_CVE_MODIFIED, cve_id=cve.pk)
     event_body = client.get(f"/detection/events/{event.pk}/").content.decode()
-    assert f"q={cve.pk}" in event_body and "Observaciones relacionadas" in event_body
+    assert f"q={cve.pk}" in event_body and "Reportes relacionados" in event_body
 
 
 def test_observation_can_be_registered_from_the_global_list(client, as_role):
     as_role(OPERATOR)
     asset = _nginx_asset()
     body = client.get("/detection/observations/").content.decode()
-    assert "Registrar observación" in body
+    assert "Registrar evidencia" in body
     form = client.get("/detection/observations/new/").content.decode()
     assert 'name="asset"' in form and asset.name in form
     response = client.post(

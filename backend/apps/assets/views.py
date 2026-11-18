@@ -51,7 +51,7 @@ DETAIL_TABS = (
     ("resumen", "Resumen"),
     ("riesgos", "Riesgos"),
     ("vulnerabilidades", "Vulnerabilidades"),
-    ("observaciones", "Observaciones"),
+    ("observaciones", "Evidencia"),
     ("servicios", "Servicios y escaneos"),
     ("identificadores", "Identificadores"),
     ("sbom", "SBOM"),
