@@ -577,7 +577,8 @@ _RISK_LOSS_SAID = {
         re.compile(
             r"\b(?:caer|cae|caen|caig\w+|caid\w+|dej\w+ de|dej\w+ sin|interrump\w+|interrup\w+|"
             r"no pued\w+|no podr\w+|sin servicio|fuera de servicio|qued\w+ sin|deten\w+|"
-            r"paraliz\w+|indisponib\w+|no disponib\w+|respond\w+)\b"
+            r"paraliz\w+|indisponib\w+|no disponib\w+|respond\w+|inaccesib\w+|inoperativ\w+|"
+            r"inoperante\w*)\b"
         ),
         "que algo cae o deja de funcionar",
     ),
@@ -642,6 +643,16 @@ def _without_stray_accents(text, known) -> str:
     return _STRAY_ACCENT.sub(fix, text)
 
 
+# «Fotos y identificaciones», «cotizaciones y información» (2 de unas 300 frases del laboratorio,
+# 2026-11-18): la «y» ante i- es «e», y es otra letra que se corrige por código. No ante diptongo
+# («agua y hielo»).
+_Y_BEFORE_I = re.compile(r"\by(?= h?i(?![aeoáéó])\w)", re.IGNORECASE)
+
+
+def _y_before_i(text) -> str:
+    return _Y_BEFORE_I.sub(lambda found: "E" if found.group(0) == "Y" else "e", str(text or ""))
+
+
 # La consecuencia que el modelo le añade a la frase después de la pérdida: «…, dejando a los
 # desarrolladores sin acceso para pruebas», «…, causando retrasos», «…, lo que afectaría…» (sobre
 # el texto sin acentos). Ahí es donde inventa, y no hay regla que separe la inventada de la que
@@ -679,7 +690,7 @@ def _said_beyond_data(found, text, from_data) -> list:
 
 
 def business_risk_validator(
-    *, known_text, systems=(), about=None, general="", organization="", loss=""
+    *, known_text, systems=(), about=None, general="", organization="", loss="", from_examples=()
 ):
     """Validador de la frase «qué puede pasar» de un riesgo de la organización, atada a lo que se
     le envió.
@@ -696,6 +707,8 @@ def business_risk_validator(
     consecuencia: habla de esa pérdida y no usa las palabras de otra, salvo las que traen los
     datos. ``known_text``, todo lo que el modelo recibió: ni sistemas ni cifras de fuera.
     ``organization``, su nombre, que no cuenta como palabra de una descripción.
+    ``from_examples``, las palabras que solo existen en los ejemplos del prompt (otra
+    organización): la frase no las trae si no vienen también en los datos.
     """
     names = [n for n in dict.fromkeys(systems) if n]
     about = {name: text for name, text in (about or {}).items() if text}
@@ -713,6 +726,13 @@ def business_risk_validator(
     clues = {name: found for name, found in clues.items() if found}
     told = set().union(*clues.values())
     from_data = _stems(" ".join(about.values()))
+    # Del ejemplo y no de los datos: «cajas» no puede salir en una aseguradora que no tiene cajas.
+    known_run = _name_run(known_text)
+    only_in_examples = [
+        word
+        for word in dict.fromkeys(_name_run(w) for w in from_examples)
+        if word and not re.search(rf"\b{re.escape(word)}", known_run)
+    ]
 
     def hint(name):
         # La primera frase de su descripción, entera: con diez palabras se cortaba antes de lo
@@ -731,7 +751,7 @@ def business_risk_validator(
         def _grounded(cls, value):
             from apps.llm.language import looks_spanish
 
-            text = _without_stray_accents(_clean_paragraph(value), known)
+            text = _y_before_i(_without_stray_accents(_clean_paragraph(value), known))
             if len(text) < BUSINESS_RISK_MIN:
                 raise ValueError(
                     "summary debe decir en una frase qué se perdería en este riesgo: qué "
@@ -789,6 +809,15 @@ def business_risk_validator(
                     "quita " + ", ".join(dict.fromkeys(levels))
                 )
             problems += _not_in_data(text, known, known_numbers)
+            run = _name_run(text)
+            borrowed = [w for w in only_in_examples if re.search(rf"\b{re.escape(w)}", run)]
+            if borrowed:
+                problems.append(
+                    "summary copia del ejemplo, que es de otra organización: quita «"
+                    + "», «".join(borrowed)
+                    + "» y di lo que guardan o hacen los sistemas de ESTE riesgo, con palabras "
+                    "de su what_it_is"
+                )
             if problems:
                 # Se probó añadir «conserva lo que ya está bien: …»: con el modelo del laboratorio
                 # dejó de corregir lo que faltaba. Los avisos dicen solo lo que falla.

@@ -1165,11 +1165,18 @@ que se envió). Rechaza una frase que:
   organización en general no cuenta: el aviso cita la primera frase de la descripción de un
   sistema;
 - no diga **la pérdida de este riesgo** con sus palabras (en una fuga algo «sale» o «queda a la
-  vista»; en una alteración «se cambia» o «se falsea»; en una interrupción «deja de funcionar» o
-  alguien «se queda sin»), o use las de otra. No cuentan las palabras que traen los datos (un
+  vista»; en una alteración «se cambia» o «se falsea»; en una interrupción «deja de funcionar»,
+  «queda inaccesible» o alguien «se queda sin»), o use las de otra. No cuentan las palabras que traen los datos (un
   proxy que hace «filtrado de contenido» no habla de una fuga) ni «caer en manos ajenas»;
 - hable de **debilidades, fallas o ataques**: eso va en las filas, por código. Tampoco cuenta lo
   que traen los datos (un «escáner de vulnerabilidades» puede nombrarlas);
+- traiga una **palabra que solo existe en los ejemplos del prompt** (`EXAMPLE_WORDS`: los
+  ejemplos son de una cadena de farmacias). El modelo copia de ellos de vez en cuando, sobre todo
+  cuando el riesgo se titula igual que el del ejemplo: «que las cajas y los equipos de los agentes
+  se queden sin conexión», «una página que no tenga uso en las sucursales» (entre 0 y 3
+  respuestas por cada pasada de los 23 riesgos, con v5 y con v6). Si la palabra viene en los
+  datos de esta organización, es suya y se admite. Una prueba comprueba que la lista sigue
+  hablando de los ejemplos del prompt en uso;
 - copie seis palabras seguidas del significado general, diga el nivel o la probabilidad, nombre
   un sistema o una cifra que no estén en los datos, quede a media frase, no esté en español o
   tenga menos de 60 o más de 340 caracteres.
@@ -1191,7 +1198,9 @@ salir de los datos. No se rechaza ni se recorta nada; solo se prefiere.
 **La tilde de más** (`_without_stray_accents`). El modelo escribe a veces el subjuntivo con tilde
 («que el servidor dejé de funcionar»). Avisárselo no sirvió: repitió la misma frase, con la misma
 tilde, los cuatro intentos. La quita el código, salvo en «esté», en las palabras que acaban así
-sin ser verbos («comité») y en las que vienen de los datos.
+sin ser verbos («comité») y en las que vienen de los datos. Lo mismo con la «y» ante i- («fotos y
+identificaciones», «cotizaciones y información»: 2 de unas 300 frases): la cambia a «e» el código
+(`_y_before_i`), salvo ante diptongo («agua y hielo»).
 
 **Cuando ningún intento vale** (cuatro, `MAX_ATTEMPTS`) no se guarda nada: la página sigue con el
 significado general y lo dice (las filas por código están siempre), y el riesgo se vuelve a
@@ -1214,7 +1223,8 @@ vuelve a escribirla la IA.
 | Párrafo, prompt v2 | 21 de 23 | Copiaban la descripción entera de cada sistema (uno llegó al tope y quedó a media frase). Los dos riesgos de un solo sistema fallaron los cuatro intentos. |
 | Párrafo, prompt v3, reglas finales | 23 de 23 | 11 al primer intento, 6 al segundo, 4 al tercero y 2 al cuarto; los 23 en 67 a 82 s. El riesgo de cinco sistemas iba justo: agotó cinco intentos cuando dos peticiones se cruzaron. |
 | Frase y filas por código, prompt v4 | 23 de 23 | 17 al primer intento y 6 al segundo; los 23 en 18 s. Con la temperatura del reintento (0,4) y otras tres semillas, sin guardar: 69 de 69 válidos y ninguno pasó del tercer intento. Al leerlas contra sus datos, 9 con algún defecto claro: 4 copiaban la clasificación de los datos, una tilde de más, consecuencias añadidas que no decían nada («dejándola diferente a como debería estar»). |
-| **Prompt v5, sin la clasificación, con segunda versión y la tilde por código** | **23 de 23** | **41 preguntas (23 más 18 de segunda versión), todas válidas; los 23 en 33 s. De 10 frases con consecuencia añadida quedaron 6: las 4 que cambiaron eran las inventadas o vacías. Al leerlas, 3 con algún defecto claro.** |
+| Prompt v5, sin la clasificación, con segunda versión y la tilde por código | 23 de 23 | 41 preguntas (23 más 18 de segunda versión), todas válidas; los 23 en 33 s. De 10 frases con consecuencia añadida quedaron 6: las 4 que cambiaron eran las inventadas o vacías. Al leerlas, 3 con algún defecto claro. |
+| **Prompt v6, con un ejemplo del caso «la descripción no dice qué guarda», y la regla de las palabras del ejemplo** | **23 de 23** | **34 respuestas, 33 válidas: 22 riesgos en 30 s y uno que agotó sus cuatro intentos y salió al pedirlo otra vez con otra tirada. Al leerlas: las dos frases que se buscaba corregir quedaron bien («lo que pasa por el proxy de salida» en vez de «los registros del proxy»; «que los agentes externos se queden sin recibir notificaciones»), sigue la del portal y dos que estaban bien salieron más torpes. De 6 frases con consecuencia añadida quedaron 4.** |
 
 La lectura contra los datos es de quien lo implementó, frase por frase; no es una medida
 automática.
@@ -1255,16 +1265,49 @@ Con la frase, para las consecuencias añadidas (todo medido el 2026-11-18, sin g
   solo si hay consecuencia añadida, y se prefiere la que no la trae.
 - **No enviarle las clases de datos**: se las inventó y un riesgo agotó los intentos.
 
+Con la frase, para lo que el modelo supone cuando la descripción no dice qué guarda el sistema
+(«los registros del proxy»). Todo medido el 2026-11-18 sin guardar, con el flujo entero (las
+tres versiones, los reintentos y las reglas) y dos o tres tiradas de los 23 riesgos por variante:
+
+- **Una instrucción** («si `what_it_is` no dice qué guarda, no lo supongas ni pongas las clases
+  de datos: di lo que pasa por el sistema») junto con un ejemplo: corrigió el caso y la expresión
+  se coló donde no tocaba («que alguien falsee lo que pasa por una página de diagnóstico»). De
+  23 frases, 5 mejores y 3 o 4 peores.
+- **Que cite antes trozos literales de la descripción** y escriba solo con ellos (un campo
+  `from_what_it_is` antes de `summary`): 40 de 53 trozos eran literales y el resto, suyos; la
+  frase del proxy pasó a «las configuraciones o credenciales del proxy» y un riesgo se quedó sin
+  texto.
+- **Solo el ejemplo del caso exacto, largo** («…lo que pasa por la red wifi de las sucursales,
+  por la que se conectan las cajas y los lectores de recetas»): corrigió las dos frases, pero
+  copió «cajas» más veces y un reintento salió con una palabra que no existe («dejese de
+  funcionar»).
+- **Solo el ejemplo, corto** (lo que quedó en v6): corrigió la frase del proxy y la del correo
+  en sus 3 tiradas, sin esos efectos. Con el ejemplo en cualquiera de sus tres formas, la del
+  proxy salió bien en 10 tiradas de 10.
+
+En todas las variantes, v5 incluida, cada tirada de 23 trae entre 2 y 5 frases flojas, y no son
+las mismas de una tirada a otra: cambiar las instrucciones mueve cuáles salen mal más de lo que
+baja cuántas. Lo estable fue lo que cambió el ejemplo del caso exacto. El modelo de 7B sigue los
+ejemplos mucho más que las instrucciones, y por eso mismo copia de ellos.
+
 **Lo que las reglas no evitan:**
 
-- **Frases torpes o imprecisas.** En el laboratorio quedan tres: «que las notificaciones… a los
-  agentes externos se queden sin servicio», «los registros del proxy» (la descripción no habla
-  de registros) y una fuga dicha con las clases de datos en vez de con lo que guarda el portal.
-  También una consecuencia añadida que el modelo repite en todas las versiones. Con este modelo
-  no hay regla ni revisión automática que las atrape: por eso la frase va marcada «por IA», dice
-  que puede equivocarse y se puede corregir.
+- **Frases torpes o imprecisas.** En el laboratorio, con v6, quedan tres: una fuga dicha con las
+  clases de datos en vez de con lo que guarda el portal, y dos torpes («que los equipos de la
+  red de agentes se queden sin conexión a Internet para controlar la navegación y filtrar el
+  contenido», «que queden alterados los servicios públicos del portal y la navegación de los
+  agentes»). También una consecuencia añadida que el modelo repite en todas las versiones. Con
+  este modelo no hay regla ni revisión automática que las atrape: por eso la frase va marcada
+  «por IA», dice que puede equivocarse y se puede corregir.
 - **Vale lo que valgan los datos.** Sin descripción de los activos no hay de dónde decir qué se
-  perdería (la fila lo avisa), y la causa es la del título del escenario.
+  perdería (la fila lo avisa), y la causa es la del título del escenario. Y cada pérdida pide
+  una parte distinta de la descripción: una fuga o una alteración, **qué guarda el sistema o qué
+  pasa por él**; una interrupción, **quién lo usa y para qué**. La fuga del portal de agentes
+  sale con las clases de datos porque su descripción dice qué hacen los agentes y no qué queda
+  guardado. Ensayo sin guardar (2026-11-18): con tres descripciones de ejemplo que sí lo decían,
+  las tres frases con defecto de entonces salieron bien; y como cada activo entra en hasta tres
+  riesgos, también cambiaron dos frases que estaban bien (una a peor, otra tardó cuatro
+  intentos). Una sola descripción en texto libre sirve a tres preguntas distintas.
 - **Palabras en inglés en las causas.** Vienen del título de la vulnerabilidad. Medido en el
   laboratorio: 20 de 1 010 títulos distintos traen alguna («buffer overflow», «infinite loop»,
   «cookies nameless»), y 2 de las 36 causas de escenario. Los términos que en español se usan

@@ -495,6 +495,73 @@ def test_a_stray_accent_on_the_verb_is_removed_by_the_code():
     assert with_data.model_validate({"summary": named}).summary == named
 
 
+def test_an_interruption_can_be_said_as_inaccessible_and_the_y_before_i_is_fixed_by_the_code():
+    from apps.llm.schemas import _y_before_i, business_risk_validator
+
+    about = (
+        "Los ajustadores suben aquí la evidencia de cada reclamación: facturas médicas, fotos "
+        "e identificaciones."
+    )
+    validator = business_risk_validator(
+        known_text=f"app-siniestros {about}",
+        systems=["app-siniestros"],
+        about={"app-siniestros": about},
+        loss="AVAILABILITY",
+    )
+    # «Quede inaccesible» se rechazaba doce veces seguidas por no decir «cae» ni «deja de».
+    said = "Que la evidencia de cada reclamación que suben los ajustadores quede inaccesible."
+    assert validator.model_validate({"summary": said}).summary == said
+    slip = (
+        "Que los ajustadores se queden sin subir la evidencia de cada reclamación: facturas "
+        "médicas, fotos y identificaciones."
+    )
+    assert validator.model_validate({"summary": slip}).summary == slip.replace(
+        "fotos y identificaciones", "fotos e identificaciones"
+    )
+    assert _y_before_i("cotizaciones y información") == "cotizaciones e información"
+    assert (
+        _y_before_i("el correo y Internet, padres y hijos")
+        == "el correo e Internet, padres e hijos"
+    )
+    assert (
+        _y_before_i("agua y hielo, cobre y hierro, hoy y ayer")
+        == "agua y hielo, cobre y hierro, hoy y ayer"
+    )
+
+
+def test_a_word_that_only_exists_in_the_examples_of_the_prompt_is_not_accepted():
+    """«Que las cajas y los equipos de la fuerza de ventas se queden sin conexión»: las cajas son
+    de la cadena de farmacias del ejemplo, no de esta organización."""
+    from apps.llm.prompts import load_prompt
+    from apps.llm.schemas import business_risk_validator
+
+    _api_leak()
+    validator = business_risk_texts._validator(business_risk_texts.build_payload(_risk()), LEAK)
+    copied = (
+        "Que la evidencia de las reclamaciones, con facturas médicas, de las cajas de las "
+        "sucursales quede a la vista de quien no debe."
+    )
+    with pytest.raises(ValidationError) as error:
+        validator.model_validate({"summary": copied})
+    assert "copia del ejemplo, que es de otra organización: quita «sucursal», «cajas»" in str(
+        error.value
+    )
+    # Si la organización sí tiene sucursales y lo dicen sus datos, la palabra es suya.
+    about = "Punto de venta de las sucursales: las cajas registran aquí cada cobro del día."
+    own = "Que los cobros del día que registran las cajas de las sucursales queden a la vista."
+    with_data = business_risk_validator(
+        known_text=f"punto-venta {about}",
+        systems=["punto-venta"],
+        about={"punto-venta": about},
+        loss=LEAK,
+        from_examples=business_risk_texts.EXAMPLE_WORDS,
+    )
+    assert with_data.model_validate({"summary": own}).summary == own
+    # La lista habla de los ejemplos que el modelo recibe: si cambian, cambia con ellos.
+    examples = load_prompt("org_risk_describe", business_risk_texts.PROMPT_VERSION).lower()
+    assert [word for word in business_risk_texts.EXAMPLE_WORDS if word not in examples] == []
+
+
 def test_a_sentence_with_an_added_consequence_gets_another_draw(monkeypatch, settings):
     """La consecuencia que el modelo añade al final es donde inventa («…, dejando a los
     desarrolladores sin acceso para pruebas»): se le piden otras versiones y se prefiere la que

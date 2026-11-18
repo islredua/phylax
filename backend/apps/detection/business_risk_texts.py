@@ -51,9 +51,24 @@ from .models import BusinessRiskDescription
 
 log = logging.getLogger(__name__)
 TASK = "ORG_RISK_DESCRIBE"
-PROMPT_VERSION = "v5"
+PROMPT_VERSION = "v6"
+# Lo que solo existe en los ejemplos del prompt (una cadena de farmacias). El modelo lo copia de
+# vez en cuando («que las cajas y los equipos de la fuerza de ventas se queden sin conexión», «una
+# página que no tenga uso en las sucursales»: entre 0 y 3 respuestas por cada pasada de los 23
+# riesgos del laboratorio, 2026-11-18): la frase no puede traerlo si no está en los datos.
+EXAMPLE_WORDS = (
+    "farmacia",
+    "receta",
+    "paciente",
+    "sucursal",
+    "existencias",
+    "wifi",
+    "cajas",
+    "lectores",
+    "proveedor",
+)
 # Sube cuando el validador exige más: los textos escritos con reglas más laxas se vuelven a pedir.
-RULES_VERSION = 7
+RULES_VERSION = 8
 AI, HUMAN = "AI", "HUMAN"
 MAX_SYSTEMS = 8  # los que se le describen al modelo, del escenario más grave al menos
 MAX_ATTEMPTS = 4
@@ -236,6 +251,7 @@ def _validator(payload, loss=""):
         general=payload["risk"]["general_meaning"] or "",
         organization=payload["organization"]["name"] or "",
         loss=loss,
+        from_examples=EXAMPLE_WORDS,
     )
 
 
