@@ -347,8 +347,8 @@ def role_card(role, user=None) -> dict:
 
 
 def describe(risk) -> list[tuple[str, str]]:
-    """El riesgo en tres líneas, sin modelo de por medio: qué puede pasar, dónde y por qué tiene
-    ese nivel."""
+    """Dónde está el riesgo y por qué tiene ese nivel, en dos líneas sin modelo de por medio. Qué
+    puede pasar lo dice ``business_risk_texts``, con los sistemas del riesgo."""
     names = [a.name for a in risk.assets]
     listed = ", ".join(names[:4]) + (f" y {len(names) - 4} más" if len(names) > 4 else "")
     one = len(names) == 1
@@ -357,7 +357,6 @@ def describe(risk) -> list[tuple[str, str]]:
         f"{'sin función de negocio definida' if not risk.role else f'con la función «{risk.role_label}»'}"
         f": {listed}."
     )
-    what = risks.CONSEQUENCE_PLAIN.get(risk.consequence)
     worst = risk.worst
     why = (
         f"{risk.level_label}: es el de su peor escenario, {worst.asset.name} "
@@ -367,7 +366,4 @@ def describe(risk) -> list[tuple[str, str]]:
         levels = Counter(LEVEL_LABEL.get(s.level, s.level).lower() for s in risk.scenarios[1:])
         rest = ", ".join(f"{n} en nivel {label}" for label, n in levels.items())
         why += f" Los demás: {rest}."
-    lines = [("Dónde", where), ("Nivel", why)]
-    if what:
-        lines.insert(0, ("Qué puede pasar", what[0].upper() + what[1:] + "."))
-    return lines
+    return [("Dónde", where), ("Nivel", why)]

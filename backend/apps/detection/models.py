@@ -141,6 +141,46 @@ class BusinessRoleDescription(UUIDModel):
         return self.role
 
 
+class BusinessRiskDescription(UUIDModel):
+    """Qué puede pasar en un riesgo de la organización, dicho con sus sistemas («Fuga de
+    información en API»: qué información, de qué sistemas y por dónde), para la página del riesgo.
+
+    El riesgo de la organización no tiene tabla (``business_risks``); su texto sí, por su
+    consecuencia y su función (``role`` vacío = activos sin función). Lo escribe la IA con la
+    descripción de los activos del riesgo y la causa de cada escenario (``ORG_RISK_DESCRIBE``);
+    ``fingerprint`` es la huella de esos datos y solo se vuelve a preguntar cuando cambian. Una
+    persona puede corregirlo y desde entonces la IA no lo toca.
+    """
+
+    consequence = models.CharField(max_length=16)
+    role = models.CharField(max_length=30, blank=True)
+    summary = models.TextField(blank=True)
+    source = models.CharField(max_length=8, choices=[("AI", "IA"), ("HUMAN", "Persona")])
+    fingerprint = models.CharField(max_length=64, blank=True)
+    inference = models.ForeignKey(
+        "llm.InferenceLog", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    model = models.CharField(max_length=100, blank=True)
+    prompt_version = models.CharField(max_length=20, blank=True)
+    described_at = models.DateTimeField(null=True, blank=True)
+    edited_by = models.ForeignKey(
+        USER, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
+    class Meta:
+        ordering = ["consequence", "role"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["consequence", "role"], name="uniq_business_risk_description"
+            )
+        ]
+        verbose_name = "descripción de riesgo de la organización"
+        verbose_name_plural = "descripciones de riesgos de la organización"
+
+    def __str__(self):
+        return f"{self.consequence}:{self.role or '-'}"
+
+
 # --------------------------------------------------------------------------
 # Hallazgos (etapa 3)
 # --------------------------------------------------------------------------

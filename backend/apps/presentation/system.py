@@ -81,6 +81,7 @@ TASK_LABELS = {
     "apps.detection.tasks.describe_pending_vulnerabilities": "Encolar explicaciones pendientes",
     "apps.detection.tasks.describe_software": "Explicar qué es un software",
     "apps.detection.tasks.describe_business_role": "Explicar una función de negocio",
+    "apps.detection.tasks.describe_business_risk": "Explicar qué puede pasar en un riesgo",
     "apps.detection.tasks.describe_vulnerability": "Redactar la explicación de una vulnerabilidad",
     "apps.detection.tasks.dispatch_actions": "Enviar acciones aprobadas a las herramientas",
     "apps.detection.tasks.draft_org_profile": "Redactar el perfil de la organización",
@@ -113,6 +114,7 @@ TASK_INFERENCES = {
     "apps.detection.tasks.describe_vulnerability": ("VULN_DESCRIBE",),
     "apps.detection.tasks.describe_software": ("SOFTWARE_DESCRIBE",),
     "apps.detection.tasks.describe_business_role": ("ROLE_DESCRIBE",),
+    "apps.detection.tasks.describe_business_risk": ("ORG_RISK_DESCRIBE",),
     "apps.detection.tasks.consolidate_asset": (
         "VULN_ASSESSMENT",
         "RISK_ASSESSMENT",

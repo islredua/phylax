@@ -702,6 +702,7 @@ def test_ai_figures_count_only_calls_made_with_the_instructions_in_force():
         "VULN_DESCRIBE",
         "SOFTWARE_DESCRIBE",
         "ROLE_DESCRIBE",
+        "ORG_RISK_DESCRIBE",
     }
 
     def log(task, version, ok=True, ref="assets.Asset:1", ms=60_000):

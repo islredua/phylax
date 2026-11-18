@@ -58,6 +58,11 @@ urlpatterns = [
         name="business_role_context",
     ),
     path(
+        "risks/business/<str:consequence>/<str:role>/text/",
+        views.BusinessRiskTextView.as_view(),
+        name="business_risk_text",
+    ),
+    path(
         "risks/business/<str:consequence>/<str:role>/",
         views.BusinessRiskView.as_view(),
         name="business_risk",

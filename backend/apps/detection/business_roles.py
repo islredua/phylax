@@ -87,7 +87,7 @@ CATEGORY_ORDER = [code for code, _label in DataCategory.choices]
 _MARKDOWN = re.compile(r"\*\*|__|`|^\s*[-#>]+\s*", re.MULTILINE)
 
 
-def _plain(text, limit) -> str:
+def plain(text, limit) -> str:
     """Texto libre del perfil o de un activo sin las marcas de Markdown, en una línea."""
     return clean(_MARKDOWN.sub(" ", str(text or "")), limit)
 
@@ -113,7 +113,7 @@ def _categories(asset) -> list:
     return [code for code in CATEGORY_ORDER if code in wanted]
 
 
-def _data_phrase(asset) -> str:
+def data_phrase(asset) -> str:
     """«información restringida, la más sensible: datos personales, financieros» para el modelo."""
     labels = [DataCategory(code).label.lower() for code in _categories(asset)]
     grade = CLASSIFICATION_FOR_MODEL.get(asset.data_classification or "", "")
@@ -172,18 +172,23 @@ def facts(assets) -> list[tuple[str, str]]:
     return rows
 
 
+def organization_payload() -> dict:
+    """Quién es la organización, dicho para el modelo (del perfil, sin marcas de Markdown)."""
+    org = profile.get_profile()
+    return {
+        "name": (org.name or "").strip() or None,
+        "sector": plain(org.sector, 300) or None,
+        "what_it_does": plain(org.description, 1500) or None,
+    }
+
+
 def build_payload(role, assets=None) -> dict:
     """Lo que recibe el modelo: quién es la organización, qué significa la función en general y
     qué es cada activo que la cumple."""
     assets = ordered(assets) if assets is not None else assets_of(role)
     entry = catalogs.get(catalogs.BUSINESS_ROLE, role) or {}
-    org = profile.get_profile()
     return {
-        "organization": {
-            "name": (org.name or "").strip() or None,
-            "sector": _plain(org.sector, 300) or None,
-            "what_it_does": _plain(org.description, 1500) or None,
-        },
+        "organization": organization_payload(),
         "business_function": {
             "name": entry.get("label") or role,
             "general_meaning": entry.get("description") or None,
@@ -192,7 +197,7 @@ def build_payload(role, assets=None) -> dict:
         "assets_with_this_function": [
             {
                 "name": asset.name,
-                "what_it_is": _plain(asset.description, 500) or None,
+                "what_it_is": plain(asset.description, 500) or None,
                 "criticality": asset.get_criticality_display().lower() or None
                 if asset.criticality
                 else None,
@@ -200,7 +205,7 @@ def build_payload(role, assets=None) -> dict:
                 "environment": (catalogs.label(catalogs.ENVIRONMENT, asset.environment) or "")
                 if asset.environment
                 else None,
-                "data": _data_phrase(asset) or None,
+                "data": data_phrase(asset) or None,
             }
             for asset in assets[:MAX_ASSETS]
         ],

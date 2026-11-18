@@ -26,6 +26,7 @@ from . import (
     actions,
     activity,
     automation,
+    business_risk_texts,
     business_risks,
     business_roles,
     consolidation,
@@ -1243,6 +1244,43 @@ class BusinessRoleContextView(Perm, View):
         return HttpResponseRedirect(back)
 
 
+class BusinessRiskTextView(Perm, View):
+    """«Qué puede pasar» de un riesgo de la organización: el bloque que se consulta mientras la IA
+    lo escribe (GET) y la corrección de una persona (POST; con el texto vacío vuelve a escribirlo
+    la IA)."""
+
+    permission_required = "detection.view_risk"
+
+    def _risk(self, consequence, role):
+        known = consequence in RiskConsequence.values or consequence == business_risks.NO_ROLE
+        risk = business_risks.get(consequence, role) if known else None
+        if risk is None:
+            raise Http404("Ese riesgo no existe o ya no tiene escenarios abiertos.")
+        return risk
+
+    def get(self, request, consequence, role):
+        risk = self._risk(consequence, role)
+        what = business_risk_texts.context_of(risk, user=request.user)
+        return render(request, "detection/_business_risk_what.html", {"what": what})
+
+    def post(self, request, consequence, role):
+        if not request.user.has_perm("detection.work_findings"):
+            raise PermissionDenied
+        risk = self._risk(consequence, role)
+        found = business_risk_texts.set_by_person(
+            risk, request.POST.get("summary", ""), request.user
+        )
+        if found is None:
+            messages.success(
+                request, f"Texto de «{risk.title}» borrado: la IA lo volverá a escribir."
+            )
+        else:
+            messages.success(
+                request, f"Texto de «{risk.title}» guardado a tu nombre; la IA ya no lo cambia."
+            )
+        return HttpResponseRedirect(_safe_next(request, risk.url))
+
+
 class BusinessRiskView(Perm, TemplateView):
     """Un riesgo de la organización: una consecuencia sobre una función de negocio, con sus
     escenarios (uno por activo). Aquí se decide el tratamiento de todos a la vez; cada decisión
@@ -1278,6 +1316,7 @@ class BusinessRiskView(Perm, TemplateView):
         context.update(
             risk=self.risk,
             risks=self.risk.scenarios,
+            what=business_risk_texts.context_of(self.risk, user=self.request.user),
             brief=business_risks.describe(self.risk),
             role_card=business_risks.role_card(self.risk.role, self.request.user),
             policy=self.rules,

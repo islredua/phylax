@@ -884,8 +884,14 @@ def test_beat_drains_missing_descriptions_across_assets(lab_cti, monkeypatch):
     monkeypatch.setattr(tasks.describe_vulnerability, "apply_async", lambda **kw: queued.append(kw))
     # Dos vulnerabilidades por redactar y, de paso, una sola pregunta por «qué es nginx» aunque
     # esté en dos activos.
-    # Además de las vulnerabilidades: el «qué es» de un software y el de una función de negocio.
-    assert tasks.describe_pending_vulnerabilities() == {"queued": 2, "software": 1, "functions": 1}
+    # Además de las vulnerabilidades: el «qué es» de un software, el de una función de negocio y
+    # el «qué puede pasar» de un riesgo de la organización.
+    assert tasks.describe_pending_vulnerabilities() == {
+        "queued": 2,
+        "software": 1,
+        "functions": 1,
+        "risks": 1,
+    }
     assert {q["args"][0] for q in queued} == {str(pk) for pk in pks}
     # Lo que ya está en cola (clave pendiente en caché) no se vuelve a pedir.
     assert tasks.describe_pending_vulnerabilities() == {"queued": 0} and len(queued) == 2

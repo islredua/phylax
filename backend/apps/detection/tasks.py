@@ -116,6 +116,13 @@ def describe_pending_vulnerabilities():
     functions = business_roles.queue_missing()
     if functions:
         result["functions"] = functions
+    # Y qué puede pasar en cada riesgo de la organización: los nuevos y los que cambiaron de
+    # activos o de causa, unos pocos por pasada.
+    from . import business_risk_texts
+
+    described_risks = business_risk_texts.queue_missing()
+    if described_risks:
+        result["risks"] = described_risks
     # Repaso de los títulos ya guardados con las reglas vigentes: una vez por versión de las
     # reglas (y de nuevo si la caché se vacía; es barato y no cambia lo que ya está bien).
     if cache.add(f"detection:titles:reviewed:v{titles.RULES_VERSION}", True, 24 * 3600):
@@ -159,6 +166,19 @@ def describe_business_role(role, user_id=None):
 
     user = get_user_model().objects.filter(pk=user_id).first() if user_id else None
     log_obj = business_roles.describe(role, requested_by=user)
+    return {"ok": bool(log_obj and log_obj.parsed_ok)}
+
+
+@shared_task(acks_late=True, soft_time_limit=600, time_limit=660)
+def describe_business_risk(consequence, role, user_id=None):
+    """Pregunta al modelo qué puede pasar en un riesgo de la organización (una consecuencia sobre
+    una función de negocio), para su página (cola ``llm``)."""
+    from django.contrib.auth import get_user_model
+
+    from . import business_risk_texts
+
+    user = get_user_model().objects.filter(pk=user_id).first() if user_id else None
+    log_obj = business_risk_texts.describe(consequence, role, requested_by=user)
     return {"ok": bool(log_obj and log_obj.parsed_ok)}
 
 

@@ -72,6 +72,7 @@ SECTIONS = (
                 (
                     "detection:business_risk",
                     "detection:business_role_context",
+                    "detection:business_risk_text",
                     "detection:risk",
                     "detection:risk_report",
                     "detection:risk_treatment",

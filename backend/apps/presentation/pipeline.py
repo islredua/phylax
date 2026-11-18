@@ -62,6 +62,7 @@ HIDDEN_AI_TASKS = (
     "VULN_DESCRIBE",
     "SOFTWARE_DESCRIBE",
     "ROLE_DESCRIBE",
+    "ORG_RISK_DESCRIBE",
 )
 # Corridas de evaluación (``eval_criticality``): quedan en el registro, no en los indicadores.
 EVALUATION_REF_PREFIX = "eval:"
