@@ -1122,9 +1122,13 @@ modelo le queda una frase con cuatro reglas.
 **Qué recibe el modelo** (`build_payload`): el perfil de la organización
 (`business_roles.organization_payload`); el nombre del riesgo, qué se pierde, su significado
 general y la función de negocio; y hasta ocho sistemas (`MAX_SYSTEMS`), del escenario más grave
-al menos, cada uno con `what_it_is` (la descripción del activo, hasta 400 caracteres) y `data`
-(los datos que maneja, con su clasificación). Dónde está cada uno y la causa de su escenario
-**no** se le envían.
+al menos, cada uno con `what_it_is` (la descripción del activo, hasta 400 caracteres) y
+`kinds_of_data` (las clases de datos que maneja: «datos personales, financieros»). Dónde está
+cada uno y la causa de su escenario **no** se le envían. Tampoco la clasificación de sus datos
+(«información pública», «de uso interno, no sensible»): con ella el modelo la copiaba en vez de
+decir qué es («que información de uso interno, no sensible del proxy quede a la vista»), en 4 de
+las 23 frases del laboratorio. Las clases de datos sí: sin ellas se las inventaba («datos
+clínicos» en el portal de agentes, que no los tiene).
 
 **La causa de cada fila** (`cause_of`) sale del título del escenario, que compone el código. Sin
 los conteos que se mueven con cada escaneo («y 24 vulnerabilidades más») ni el puerto
@@ -1166,6 +1170,21 @@ Todos los problemas de una respuesta se dicen **juntos** en el reintento y cada 
 hacer y cita lo que sobra («este riesgo no es una interrupción: quita «pueda caer»»). Con «quita
 «caer»» a secas el modelo repitió la misma frase todos los intentos.
 
+**La consecuencia añadida al final** (`_ending_at_the_loss`, `llm.schemas.added_consequence`).
+El modelo tiende a rematar la frase con una consecuencia: «…, dejando a los desarrolladores sin
+acceso para pruebas», «…, causando retrasos en la cobranza». Unas salen de los datos («…,
+impidiendo que reciban notificaciones de pólizas») y otras son inventadas, y en el laboratorio
+ninguna regla las separó (ver «Lo que se probó y se retiró»). Así que cuando la frase válida trae
+una (una coma seguida de un gerundio, «lo que» o «sin que»), se le piden hasta dos versiones más
+(`OTHER_DRAWS`), con temperatura 0,4 y otra semilla, y se guarda la primera que termine en la
+pérdida. Si todas la traen, se queda la primera: lo que el modelo repite en cada versión suele
+salir de los datos. No se rechaza ni se recorta nada; solo se prefiere.
+
+**La tilde de más** (`_without_stray_accents`). El modelo escribe a veces el subjuntivo con tilde
+(«que el servidor dejé de funcionar»). Avisárselo no sirvió: repitió la misma frase, con la misma
+tilde, los cuatro intentos. La quita el código, salvo en «esté», en las palabras que acaban así
+sin ser verbos («comité») y en las que vienen de los datos.
+
 **Cuando ningún intento vale** (cuatro, `MAX_ATTEMPTS`) no se guarda nada: la página sigue con el
 significado general y lo dice (las filas por código están siempre), y el riesgo se vuelve a
 pedir con espera creciente, de 30 minutos a un día. Ese reintento va con temperatura 0,4 y otra
@@ -1186,16 +1205,17 @@ vuelve a escribirla la IA.
 | Párrafo, prompt v1 | 23 de 23 | Al leerlos: causas cortadas a media palabra, una debilidad atribuida a otro sistema, el sistema de la DMZ sin nombrar, tipos de datos en vez de qué guarda cada sistema, «puede caer» en una fuga y «no tiene debilidades conocidas». |
 | Párrafo, prompt v2 | 21 de 23 | Copiaban la descripción entera de cada sistema (uno llegó al tope y quedó a media frase). Los dos riesgos de un solo sistema fallaron los cuatro intentos. |
 | Párrafo, prompt v3, reglas finales | 23 de 23 | 11 al primer intento, 6 al segundo, 4 al tercero y 2 al cuarto; los 23 en 67 a 82 s. El riesgo de cinco sistemas iba justo: agotó cinco intentos cuando dos peticiones se cruzaron. |
-| **Frase y filas por código, prompt v4** | **23 de 23** | **17 al primer intento y 6 al segundo; los 23 en 18 s.** |
+| Frase y filas por código, prompt v4 | 23 de 23 | 17 al primer intento y 6 al segundo; los 23 en 18 s. Con la temperatura del reintento (0,4) y otras tres semillas, sin guardar: 69 de 69 válidos y ninguno pasó del tercer intento. Al leerlas contra sus datos, 9 con algún defecto claro: 4 copiaban la clasificación de los datos, una tilde de más, consecuencias añadidas que no decían nada («dejándola diferente a como debería estar»). |
+| **Prompt v5, sin la clasificación, con segunda versión y la tilde por código** | **23 de 23** | **41 preguntas (23 más 18 de segunda versión), todas válidas; los 23 en 33 s. De 10 frases con consecuencia añadida quedaron 6: las 4 que cambiaron eran las inventadas o vacías. Al leerlas, 3 con algún defecto claro.** |
 
-Con la temperatura del reintento (0,4) y otras tres semillas, sin guardar: 69 de 69 válidos y
-ninguno pasó del tercer intento.
+La lectura contra los datos es de quien lo implementó, frase por frase; no es una medida
+automática.
 
 Ejemplo, «Fuga de información en API»:
 
 - antes: «Que información que la organización debe proteger acabe en manos ajenas.»
-- ahora, la frase: «Que los expedientes clínicos y financieros de asegurados, así como sus datos
-  personales, queden a la vista de quien no debe.»
+- ahora, la frase: «Que expedientes clínicos y financieros de asegurados, facturas médicas y
+  datos personales de empleados queden a la vista de quien no debe.»
 - y debajo, por código: «app-siniestros · Crítico · Explotación activa. Aplicación interna de
   gestión de siniestros de vida y gastos médicos: los ajustadores suben y procesan evidencia
   (facturas médicas, fotos, identificaciones) adjunta a… En la red interna · por ejecución remota
@@ -1211,12 +1231,30 @@ mismo riesgo y obligaba a mencionar un servicio de pruebas (2 de 23 sin texto). 
 palabras del nombre de la organización por sus cinco letras: «Aseguradora» se llevaba
 «asegurados».
 
+Con la frase, para las consecuencias añadidas (todo medido el 2026-11-18, sin guardar):
+
+- **Pedirle que no las añada** (una regla en el prompt con ejemplos de lo que no escribir): las
+  añadió más, y copió «sucursales» de los ejemplos. Nombrar lo que no se quiere se lo recuerda.
+- **Que el propio modelo las revise** (sí o no: ¿la parte añadida sale de la descripción de los
+  sistemas?): de 10 inventadas dio por buenas 8. No sirve de juez.
+- **Una regla por palabras** (cuántas de la coletilla no están en las descripciones): las
+  inventadas traían 0 o 1 palabras de fuera («dejando a los desarrolladores sin acceso para
+  pruebas») y las buenas, de 0 a 4. No las separa.
+- **Recortarlas siempre por código**: quita las inventadas y también las que dicen justo lo que
+  se pierde («…, impidiendo que reciban notificaciones de pólizas»).
+- **Tres versiones y elegir la que más palabras toma de las descripciones**: de 9 cambios, 7 a
+  mejor y 2 a peor (premia la frase que más copia). Se quedó la variante simple: otra versión
+  solo si hay consecuencia añadida, y se prefiere la que no la trae.
+- **No enviarle las clases de datos**: se las inventó y un riesgo agotó los intentos.
+
 **Lo que las reglas no evitan:**
 
-- **Faltas y frases flojas.** Una frase salió con «dejé de funcionar» por «deje», y de un
-  sistema que apenas guarda nada el modelo dice poco («que alguien cambie la información en una
-  página heredada»). Por eso va marcada «por IA», dice que puede equivocarse y se puede
-  corregir.
+- **Frases torpes o imprecisas.** En el laboratorio quedan tres: «que las notificaciones… a los
+  agentes externos se queden sin servicio», «los registros del proxy» (la descripción no habla
+  de registros) y una fuga dicha con las clases de datos en vez de con lo que guarda el portal.
+  También una consecuencia añadida que el modelo repite en todas las versiones. Con este modelo
+  no hay regla ni revisión automática que las atrape: por eso la frase va marcada «por IA», dice
+  que puede equivocarse y se puede corregir.
 - **Vale lo que valgan los datos.** Sin descripción de los activos no hay de dónde decir qué se
   perdería (la fila lo avisa), y la causa es la del título del escenario.
 - **Palabras en inglés en las causas.** Vienen del título de la vulnerabilidad. Medido en el

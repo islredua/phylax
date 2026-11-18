@@ -20,6 +20,8 @@ información, de quién y por dónde ya está en los datos. Se reparte así:
 - El validador ata la frase a los datos: dice la pérdida de ese riesgo con lo que cuentan las
   descripciones, sin debilidades, sin sistemas ni cifras de fuera, sin copiar el significado
   general y sin el nivel.
+- Si la frase trae una consecuencia añadida al final, que es donde el modelo inventa, se le
+  piden otras versiones y se prefiere la que termina en la pérdida (``_ending_at_the_loss``).
 - Va marcada «por IA»; una persona puede corregirla y desde entonces la IA no la toca.
 - Mientras no hay frase, o no hay con qué escribirla, la página dice el significado general; lo
   que escribe el código está siempre.
@@ -40,7 +42,7 @@ from django.utils import timezone
 
 from apps.llm.client import options_after, register_mock, run_structured
 from apps.llm.prompts import load_prompt
-from apps.llm.schemas import BUSINESS_RISK_SCHEMA, business_risk_validator
+from apps.llm.schemas import BUSINESS_RISK_SCHEMA, added_consequence, business_risk_validator
 from apps.llm.status import active_model, active_model_ready
 
 from . import business_risks, business_roles, risks
@@ -49,12 +51,14 @@ from .models import BusinessRiskDescription
 
 log = logging.getLogger(__name__)
 TASK = "ORG_RISK_DESCRIBE"
-PROMPT_VERSION = "v4"
+PROMPT_VERSION = "v5"
 # Sube cuando el validador exige más: los textos escritos con reglas más laxas se vuelven a pedir.
-RULES_VERSION = 6
+RULES_VERSION = 7
 AI, HUMAN = "AI", "HUMAN"
 MAX_SYSTEMS = 8  # los que se le describen al modelo, del escenario más grave al menos
 MAX_ATTEMPTS = 4
+# Cuántas versiones más se piden cuando la frase trae una consecuencia añadida al final.
+OTHER_DRAWS = 2
 SHOWN_SYSTEMS = 3  # los que la página lista a la vista; los demás, plegados
 WHAT_MAX = 170  # cuánto de la descripción de cada sistema cabe en su fila
 BATCH = 10  # por pasada del drenaje: no deben adelantarse a las vulnerabilidades
@@ -103,13 +107,15 @@ def _whole_cause(scenario, cause) -> str:
 
 def build_payload(risk) -> dict:
     """Lo que recibe el modelo: quién es la organización, qué se pierde y, de cada sistema del
-    riesgo (del más grave al menos), qué es y qué datos maneja. Dónde está y por qué debilidad
-    puede ocurrir no se le envían: eso lo escribe ``systems_of``."""
+    riesgo (del más grave al menos), qué es y qué clases de datos maneja. Dónde está y por qué
+    debilidad puede ocurrir no se le envían: eso lo escribe ``systems_of``. Tampoco la
+    clasificación de sus datos («información pública», «de uso interno, no sensible»): el modelo
+    la copiaba en lugar de decir qué es (4 de 23 frases del laboratorio, 2026-11-18)."""
     systems = [
         {
             "name": scenario.asset.name,
             "what_it_is": business_roles.plain(scenario.asset.description, 400) or None,
-            "data": business_roles.data_phrase(scenario.asset) or None,
+            "kinds_of_data": business_roles.data_kinds(scenario.asset) or None,
         }
         for scenario in risk.scenarios[:MAX_SYSTEMS]
     ]
@@ -257,6 +263,22 @@ def mock_description(request_payload):
     }
 
 
+def _ending_at_the_loss(first, ask):
+    """La frase termina en la pérdida. Cuando el modelo le añade una consecuencia («…, dejando a
+    los desarrolladores sin acceso para pruebas») es donde inventa, y no hay regla ni revisión del
+    propio modelo que separe la inventada de la que sale de los datos (laboratorio, 2026-11-18:
+    dio por buenas 8 de 10 inventadas). Así que se le piden hasta ``OTHER_DRAWS`` versiones más,
+    con otra tirada, y se prefiere la primera que termine en la pérdida. Si todas la traen, se
+    queda la primera: lo que el modelo repite en cada versión suele salir de los datos."""
+    if not added_consequence(first.parsed["summary"]):
+        return first
+    for draw in range(1, OTHER_DRAWS + 1):
+        other = ask(draw)
+        if other.parsed_ok and not added_consequence(other.parsed["summary"]):
+            return other
+    return first
+
+
 def describe(consequence, role, *, requested_by=None):
     """Pregunta al modelo qué puede pasar en este riesgo y lo guarda. Devuelve el ``InferenceLog``
     o ``None`` si no aplica (el riesgo ya no tiene escenarios abiertos, lo escribió una persona,
@@ -275,29 +297,35 @@ def describe(consequence, role, *, requested_by=None):
             return None
         if not (getattr(settings, "LLM_MOCK_MODE", False) or active_model_ready()):
             return None
-        log_obj = run_structured(
-            task=TASK,
-            messages=[
-                {"role": "system", "content": load_prompt("org_risk_describe", PROMPT_VERSION)},
-                {"role": "user", "content": render_user_message(payload)},
-            ],
-            schema=BUSINESS_RISK_SCHEMA,
-            validator=_validator(payload, risk.consequence),
-            model=active_model(),
-            prompt_version=PROMPT_VERSION,
-            request_payload=payload,
-            object_ref=f"detection.BusinessRisk:{key}"[:100],
-            requested_by=requested_by,
-            options=options_after(failures_of(key)),
-            # Las reglas atan el texto a los datos: más intentos que el estándar; cada uno es de
-            # pocos segundos.
-            max_attempts=MAX_ATTEMPTS,
-        )
+        failures = failures_of(key)
+
+        def ask(draw):
+            return run_structured(
+                task=TASK,
+                messages=[
+                    {"role": "system", "content": load_prompt("org_risk_describe", PROMPT_VERSION)},
+                    {"role": "user", "content": render_user_message(payload)},
+                ],
+                schema=BUSINESS_RISK_SCHEMA,
+                validator=_validator(payload, risk.consequence),
+                model=active_model(),
+                prompt_version=PROMPT_VERSION,
+                request_payload=payload,
+                object_ref=f"detection.BusinessRisk:{key}"[:100],
+                requested_by=requested_by,
+                options=options_after(failures + draw),
+                # Las reglas atan el texto a los datos: más intentos que el estándar; cada uno es
+                # de pocos segundos.
+                max_attempts=MAX_ATTEMPTS,
+            )
+
+        log_obj = ask(0)
         if not log_obj.parsed_ok:
             wait = note_failure(key)
             log.info("Riesgo %s: el modelo no dio un texto válido; espera %d min", key, wait // 60)
             return log_obj
         cache.delete(_retry_key(key))
+        log_obj = _ending_at_the_loss(log_obj, ask)
         BusinessRiskDescription.objects.update_or_create(
             consequence=risk.consequence,
             role=risk.role,

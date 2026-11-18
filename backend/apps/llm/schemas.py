@@ -617,6 +617,52 @@ _RISK_WEAKNESS_SAID = re.compile(
 )
 
 
+# El modelo escribe a veces el subjuntivo con tilde («que el servidor dejé de funcionar»): es la
+# primera persona del pasado, que no cabe en una frase sobre lo que podría pasar. Avisárselo no
+# sirve: repitió la misma frase, con la misma tilde, los cuatro intentos (laboratorio,
+# 2026-11-18). La quita el código. No cuentan «esté», las palabras que acaban así sin ser verbos
+# ni las que traen los datos.
+_STRAY_ACCENT = re.compile(r"\b[a-záéíóúüñ]{3,}é\b", re.IGNORECASE)
+_ENDS_IN_ACCENTED_E = frozenset(
+    "esté porqué café comité bebé puré carné chalé bufé cliché canapé consomé paté josé".split()
+)
+
+
+def _without_stray_accents(text, known) -> str:
+    """El texto sin esa tilde de más («dejé de funcionar» → «deje de funcionar»). ``known`` es
+    lo que recibió el modelo, en minúsculas: una palabra que viene de ahí se deja como está."""
+
+    def fix(match):
+        word = match.group(0)
+        kept = word.lower() in _ENDS_IN_ACCENTED_E or re.search(
+            rf"\b{re.escape(word.lower())}\b", known
+        )
+        return word if kept else word[:-1] + "e"
+
+    return _STRAY_ACCENT.sub(fix, text)
+
+
+# La consecuencia que el modelo le añade a la frase después de la pérdida: «…, dejando a los
+# desarrolladores sin acceso para pruebas», «…, causando retrasos», «…, lo que afectaría…» (sobre
+# el texto sin acentos). Ahí es donde inventa, y no hay regla que separe la inventada de la que
+# sí sale de los datos (laboratorio, 2026-11-18): se usa solo para preferir otra versión.
+_RISK_ADDED_CONSEQUENCE = re.compile(
+    r",\s+(?:(?:por |con )?lo que|sin que|"
+    r"(?!cuando\b)[a-z]{2,}(?:ando|iendo|yendo)(?:l[oa]s?|les?|se|nos)?)\b"
+)
+
+
+def added_consequence(text) -> str:
+    """La consecuencia que la frase añade después de la pérdida, o ``""`` si termina en ella."""
+    import unicodedata
+
+    text = str(text or "")
+    # Sin acentos y letra por letra, para que las posiciones sean las del texto.
+    plain = "".join(unicodedata.normalize("NFKD", c)[:1] or c for c in text.lower())
+    found = _RISK_ADDED_CONSEQUENCE.search(plain) if len(plain) == len(text) else None
+    return text[found.start() :].strip(" ,.") if found else ""
+
+
 def _said_beyond_data(found, text, from_data) -> list:
     """Lo que ``found`` (una expresión) encuentra en el texto, con la palabra de antes («puede
     caer»), sin contar lo que viene de los datos de los sistemas: un proxy que hace «filtrado de
@@ -685,7 +731,7 @@ def business_risk_validator(
         def _grounded(cls, value):
             from apps.llm.language import looks_spanish
 
-            text = _clean_paragraph(value)
+            text = _without_stray_accents(_clean_paragraph(value), known)
             if len(text) < BUSINESS_RISK_MIN:
                 raise ValueError(
                     "summary debe decir en una frase qué se perdería en este riesgo: qué "

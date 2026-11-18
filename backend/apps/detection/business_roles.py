@@ -113,13 +113,18 @@ def _categories(asset) -> list:
     return [code for code in CATEGORY_ORDER if code in wanted]
 
 
+def data_kinds(asset) -> str:
+    """«datos personales, financieros»: las clases de datos que maneja, sin su clasificación."""
+    return ", ".join(DataCategory(code).label.lower() for code in _categories(asset))
+
+
 def data_phrase(asset) -> str:
     """«información restringida, la más sensible: datos personales, financieros» para el modelo."""
-    labels = [DataCategory(code).label.lower() for code in _categories(asset)]
+    labels = data_kinds(asset)
     grade = CLASSIFICATION_FOR_MODEL.get(asset.data_classification or "", "")
     if grade and labels:
-        return f"{grade}: {', '.join(labels)}"
-    return grade or ", ".join(labels)
+        return f"{grade}: {labels}"
+    return grade or labels
 
 
 def facts(assets) -> list[tuple[str, str]]:

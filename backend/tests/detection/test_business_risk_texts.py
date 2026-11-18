@@ -196,18 +196,19 @@ def test_the_model_gets_what_each_system_is_and_nothing_that_moves_with_every_sc
     }
     assert payload["organization"]["name"] == "Aseguradora Norte"
     assert payload["how_many_systems"] == 2
-    # Del más grave al menos, cada uno con lo que es y sus datos. Dónde está y por qué debilidad
-    # puede ocurrir no se le envían: lo escribe el código.
+    # Del más grave al menos, cada uno con lo que es y las clases de datos que maneja. Dónde
+    # está y por qué debilidad puede ocurrir no se le envían: lo escribe el código. Tampoco la
+    # clasificación de sus datos («información confidencial»): la copiaba en vez de decir qué es.
     assert payload["systems_from_most_to_least_serious"] == [
         {
             "name": "app-siniestros",
             "what_it_is": "Los ajustadores suben la evidencia de cada reclamación: facturas médicas.",
-            "data": "información restringida, la más sensible: datos personales, clínicos",
+            "kinds_of_data": "datos personales, clínicos",
         },
         {
             "name": "portal-rh",
             "what_it_is": "Los empleados consultan sus recibos de nómina y piden vacaciones.",
-            "data": "información confidencial: datos personales, financieros",
+            "kinds_of_data": "datos personales, financieros",
         },
     ]
     before = business_risk_texts.fingerprint(payload)
@@ -462,6 +463,95 @@ def test_the_sentence_must_say_what_would_be_lost_from_the_data():
         "300",
     ):
         assert part in str(error.value), part
+
+
+def test_a_stray_accent_on_the_verb_is_removed_by_the_code():
+    """«Que el servidor dejé de funcionar»: avisárselo al modelo no sirvió (repitió la misma
+    frase los cuatro intentos), así que la tilde la quita el código."""
+    from apps.llm.schemas import business_risk_validator
+
+    _api_leak()
+    validator = business_risk_texts._validator(business_risk_texts.build_payload(_risk()), LEAK)
+    slip = (
+        "Que la evidencia de las reclamaciones, con facturas médicas, y cada recibo de nómina de "
+        "los empleados acabé en manos ajenas."
+    )
+    assert validator.model_validate({"summary": slip}).summary == slip.replace("acabé", "acabe")
+    # «Esté» sí la lleva, y las palabras que acaban así sin ser verbos.
+    kept = (
+        "Que la evidencia de las reclamaciones, con facturas médicas, esté a la vista de quien "
+        "no debe, igual que los recibos de nómina del comité."
+    )
+    assert validator.model_validate({"summary": kept}).summary == kept
+    # Una palabra que viene de los datos se deja como está.
+    about = "Bitácora de guardias que lleva Salomé: guarda los reportes de cada revisión."
+    named = "Que los reportes de cada revisión de la bitácora de Salomé queden a la vista de otros."
+    with_data = business_risk_validator(
+        known_text=f"bitacora-01 {about}",
+        systems=["bitacora-01"],
+        about={"bitacora-01": about},
+        loss=LEAK,
+    )
+    assert with_data.model_validate({"summary": named}).summary == named
+
+
+def test_a_sentence_with_an_added_consequence_gets_another_draw(monkeypatch, settings):
+    """La consecuencia que el modelo añade al final es donde inventa («…, dejando a los
+    desarrolladores sin acceso para pruebas»): se le piden otras versiones y se prefiere la que
+    termina en la pérdida."""
+    from apps.llm.schemas import added_consequence
+
+    for text, tail in (
+        ("Que el correo deje de funcionar, dejando a los agentes sin avisos.", "dejando a los"),
+        ("Que el proxy se altere, cambiándolo sin que nadie lo note.", "cambiándolo sin que"),
+        ("Que los recibos queden a la vista, lo que afectaría a los empleados.", "lo que afect"),
+        ("Que los recibos queden a la vista, sin que nadie lo sepa.", "sin que nadie"),
+        ("Que el correo, cuando falle el respaldo, deje de funcionar.", ""),
+        ("Que las recetas, con los datos de los pacientes, queden a la vista de otros.", ""),
+    ):
+        assert added_consequence(text).startswith(tail) and bool(added_consequence(text)) == bool(
+            tail
+        ), text
+
+    _api_leak()
+    clean = (
+        "Que la evidencia de las reclamaciones, con facturas médicas, y los recibos de nómina de "
+        "los empleados queden a la vista de quien no debe."
+    )
+    tails = [
+        clean[:-1] + ", dejando a la aseguradora sin la confianza de sus empleados.",
+        clean[:-1] + ", causando la desconfianza de sus empleados.",
+        clean[:-1] + ", lo que molestaría a sus empleados.",
+    ]
+
+    def answering(*answers):
+        left = list(answers)
+        monkeypatch.setitem(
+            llm_client.MOCK_GENERATORS,
+            business_risk_texts.TASK,
+            lambda _payload: {"summary": left.pop(0)},
+        )
+        InferenceLog.objects.all().delete()
+        BusinessRiskDescription.objects.all().delete()
+        business_risk_texts.describe(LEAK, "API")
+        assert not left
+        logs = InferenceLog.objects.filter(task="ORG_RISK_DESCRIBE").order_by("created_at")
+        options = [(log.options["temperature"], log.options["seed"]) for log in logs]
+        return BusinessRiskDescription.objects.get(), options
+
+    again = (llm_client.RETRY_TEMPERATURE, settings.LLM_SEED + 1)
+    usual = (settings.LLM_TEMPERATURE, settings.LLM_SEED)
+    # Termina en la pérdida: una sola pregunta.
+    found, options = answering(clean)
+    assert found.summary == clean and options == [usual]
+    # Trae una consecuencia añadida: otra tirada, y se queda la que termina en la pérdida.
+    found, options = answering(tails[0], clean)
+    assert found.summary == clean and options == [usual, again]
+    assert found.inference.options["seed"] == settings.LLM_SEED + 1
+    # Si todas la traen, se queda la primera: lo que repite suele salir de los datos.
+    found, options = answering(*tails)
+    assert found.summary == tails[0]
+    assert options == [usual, again, (llm_client.RETRY_TEMPERATURE, settings.LLM_SEED + 2)]
 
 
 def test_words_of_another_loss_or_of_weaknesses_are_allowed_when_the_data_brings_them():
