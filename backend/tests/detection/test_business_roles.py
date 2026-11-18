@@ -369,6 +369,24 @@ def test_while_the_model_writes_the_open_card_checks_by_itself(client, as_role, 
     assert BusinessRoleDescription.objects.get().summary in fragment and "hx-get" not in fragment
 
 
+def test_after_a_failure_the_function_is_asked_again_with_another_draw(settings):
+    """Con temperatura 0 el modelo responde lo mismo a la misma pregunta."""
+    from apps.llm import client as llm_client
+
+    _payments()
+
+    def last_options():
+        options = InferenceLog.objects.order_by("-created_at").first().options
+        return options["temperature"], options["seed"]
+
+    business_roles.describe("PAGOS")
+    assert last_options() == (settings.LLM_TEMPERATURE, settings.LLM_SEED)
+    business_roles.note_failure("PAGOS")
+    business_roles.describe("PAGOS")
+    assert last_options() == (llm_client.RETRY_TEMPERATURE, settings.LLM_SEED + 1)
+    assert business_roles.failures_of("PAGOS") == 0
+
+
 def test_the_page_of_a_risk_carries_the_same_card(client, as_role):
     as_role(AUDITOR)
     _payments()

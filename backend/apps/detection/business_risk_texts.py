@@ -4,21 +4,25 @@
 La página de un riesgo («Fuga de información en API») decía «Qué puede pasar» con el significado
 general de la consecuencia, el mismo para cualquier riesgo de cualquier organización («que
 información que la organización debe proteger acabe en manos ajenas»): corto y ambiguo. Qué
-información, de quién y por dónde ya está en los datos: la descripción de los activos del riesgo,
-los datos que manejan, dónde están y la causa de cada escenario. El modelo lo junta en dos o tres
-frases.
+información, de quién y por dónde ya está en los datos. Se reparte así:
+
+- **El modelo escribe una frase**: qué se perdería en concreto, con lo que guardan y hacen los
+  sistemas del riesgo (``describe``). Es lo único que pide redactar.
+- **El código escribe lo demás** (``systems_of``): de cada sistema, qué es (su descripción del
+  inventario), dónde está, la causa de su escenario y si ya se explota. Son datos: dichos por el
+  modelo salían mal (la debilidad de un sistema atribuida a otro) y le costaban los intentos.
 
 - Una pregunta por riesgo (consecuencia × función), y de nuevo solo cuando cambia lo que se le
-  envía (``fingerprint``): otro activo, otra causa principal, otra descripción. Los conteos que se
-  mueven con cada escaneo («y 24 vulnerabilidades más») no entran.
+  envía (``fingerprint``): otro activo, otra descripción, otro perfil. La causa de un escenario
+  ya no entra: la muestra el código, siempre al día.
 - Lo piden la página del riesgo al abrirse y el drenaje periódico (``queue_missing``): un riesgo
-  nuevo tiene su texto a los pocos minutos sin que nadie lo abra ni lo escriba.
-- El validador ata la respuesta a los datos: nombra los sistemas (siempre el más grave y el
-  alcanzable desde fuera), dice qué guardan o qué hacen y por dónde, cada debilidad con su
-  sistema, sin sistemas ni cifras de fuera, sin copiar el significado general y sin decir el
-  nivel, que pone el código al lado.
-- Va marcado «por IA»; una persona puede corregirlo y desde entonces la IA no lo toca.
-- Mientras no hay texto, o no hay con qué escribirlo, la página dice el significado general.
+  nuevo tiene su frase a los pocos minutos sin que nadie lo abra ni la escriba.
+- El validador ata la frase a los datos: dice la pérdida de ese riesgo con lo que cuentan las
+  descripciones, sin debilidades, sin sistemas ni cifras de fuera, sin copiar el significado
+  general y sin el nivel.
+- Va marcada «por IA»; una persona puede corregirla y desde entonces la IA no la toca.
+- Mientras no hay frase, o no hay con qué escribirla, la página dice el significado general; lo
+  que escribe el código está siempre.
 """
 
 from __future__ import annotations
@@ -34,7 +38,7 @@ from django.core.cache import cache
 from django.urls import reverse
 from django.utils import timezone
 
-from apps.llm.client import default_options, register_mock, run_structured
+from apps.llm.client import options_after, register_mock, run_structured
 from apps.llm.prompts import load_prompt
 from apps.llm.schemas import BUSINESS_RISK_SCHEMA, business_risk_validator
 from apps.llm.status import active_model, active_model_ready
@@ -45,13 +49,14 @@ from .models import BusinessRiskDescription
 
 log = logging.getLogger(__name__)
 TASK = "ORG_RISK_DESCRIBE"
-PROMPT_VERSION = "v3"
+PROMPT_VERSION = "v4"
 # Sube cuando el validador exige más: los textos escritos con reglas más laxas se vuelven a pedir.
-RULES_VERSION = 5
+RULES_VERSION = 6
 AI, HUMAN = "AI", "HUMAN"
 MAX_SYSTEMS = 8  # los que se le describen al modelo, del escenario más grave al menos
-MAX_ATTEMPTS = 5  # en el laboratorio 2 de 23 necesitaron el cuarto: uno de margen
-RETRY_TEMPERATURE = 0.4  # la del reintento tras un fallo (ver ``options_for``)
+MAX_ATTEMPTS = 4
+SHOWN_SYSTEMS = 3  # los que la página lista a la vista; los demás, plegados
+WHAT_MAX = 170  # cuánto de la descripción de cada sistema cabe en su fila
 BATCH = 10  # por pasada del drenaje: no deben adelantarse a las vulnerabilidades
 RETRY_BASE_MINUTES = 30
 RETRY_MAX_HOURS = 24
@@ -66,7 +71,6 @@ _PORT = re.compile(r"\s*·\s*\d+/(?:tcp|udp)\b", re.IGNORECASE)
 CAUSE_CUT = 78
 TITLE_CUT = 158
 CAUSE_MAX = 160
-OUTSIDE = ("INTERNET", "DMZ")
 
 
 def cause_of(scenario) -> str:
@@ -99,23 +103,16 @@ def _whole_cause(scenario, cause) -> str:
 
 def build_payload(risk) -> dict:
     """Lo que recibe el modelo: quién es la organización, qué se pierde y, de cada sistema del
-    riesgo (del más grave al menos), qué es, dónde está, qué datos maneja y por dónde falla."""
-    systems = []
-    for scenario in risk.scenarios[:MAX_SYSTEMS]:
-        asset = scenario.asset
-        system = {
-            "name": asset.name,
-            "what_it_is": business_roles.plain(asset.description, 400) or None,
-            "where": business_roles.EXPOSURE_WHERE.get(asset.exposure or ""),
-            "reachable_from_outside": asset.exposure in OUTSIDE,
-            "data": business_roles.data_phrase(asset) or None,
-            "main_weakness": cause_of(scenario) or None,
+    riesgo (del más grave al menos), qué es y qué datos maneja. Dónde está y por qué debilidad
+    puede ocurrir no se le envían: eso lo escribe ``systems_of``."""
+    systems = [
+        {
+            "name": scenario.asset.name,
+            "what_it_is": business_roles.plain(scenario.asset.description, 400) or None,
+            "data": business_roles.data_phrase(scenario.asset) or None,
         }
-        # Solo cuando es cierto: con un «false» delante, el modelo escribía que el sistema «no
-        # tiene debilidades conocidas» (laboratorio, 2026-11-18).
-        if getattr(scenario, "kev_count", 0):
-            system["has_weaknesses_already_used_in_real_attacks"] = True
-        systems.append(system)
+        for scenario in risk.scenarios[:MAX_SYSTEMS]
+    ]
     return {
         "organization": business_roles.organization_payload(),
         "risk": {
@@ -127,6 +124,36 @@ def build_payload(risk) -> dict:
         "how_many_systems": len(risk.scenarios),
         "systems_from_most_to_least_serious": systems,
     }
+
+
+def _short(text, limit=WHAT_MAX) -> str:
+    """Un texto libre en una línea y sin marcas, cortado en un espacio y no a media palabra."""
+    text = business_roles.plain(text, 2000)
+    if len(text) <= limit:
+        return text
+    return text[:limit].rsplit(" ", 1)[0].rstrip(" ,;:(") + "…"
+
+
+def systems_of(risk) -> dict:
+    """Dónde y por dónde puede ocurrir, sistema por sistema y sin modelo de por medio: el activo
+    y qué es (su descripción del inventario), su escenario, dónde está y la causa del escenario.
+    ``shown`` son los que la página lista a la vista (los más graves) y ``more`` los que deja
+    plegados."""
+    rows = []
+    for scenario in risk.scenarios:
+        where = business_roles.EXPOSURE_WHERE.get(scenario.asset.exposure or "") or ""
+        cause = cause_of(scenario)
+        rows.append(
+            {
+                "asset": scenario.asset,
+                "scenario": scenario,
+                "what": _short(scenario.asset.description),
+                "how": " · ".join(
+                    part for part in (where, f"por {cause}" if cause else "") if part
+                ),
+            }
+        )
+    return {"shown": rows[:SHOWN_SYSTEMS], "more": rows[SHOWN_SYSTEMS:]}
 
 
 def has_context(payload) -> bool:
@@ -180,19 +207,6 @@ def failures_of(key) -> int:
     return int((cache.get(_retry_key(key)) or {}).get("failures", 0))
 
 
-def options_for(key) -> dict:
-    """Las opciones del modelo para este riesgo. Con temperatura 0 responde lo mismo a la misma
-    pregunta: tras un fallo repetiría los mismos intentos y el mismo fallo cada vez que se le
-    volviera a preguntar. Por eso el reintento va con algo de temperatura y otra semilla (la
-    semilla sola no cambia nada con temperatura 0: medido en el laboratorio, 2026-11-18)."""
-    options = default_options()
-    failures = failures_of(key)
-    if failures:
-        options["temperature"] = max(float(options.get("temperature") or 0), RETRY_TEMPERATURE)
-        options["seed"] = int(options.get("seed") or 0) + failures
-    return options
-
-
 def note_failure(key) -> int:
     """Anota un intento fallido: 30 min, 1 h, 2 h… hasta un día. Devuelve la espera en segundos."""
     state = cache.get(_retry_key(key)) or {}
@@ -207,18 +221,13 @@ def note_failure(key) -> int:
 
 
 def _validator(payload, loss=""):
-    """``loss`` es el código de la consecuencia del riesgo: el texto habla de esa pérdida."""
+    """``loss`` es el código de la consecuencia del riesgo: la frase habla de esa pérdida."""
     systems = payload["systems_from_most_to_least_serious"]
     return business_risk_validator(
-        systems=[s["name"] for s in systems],
         known_text=json.dumps(payload, ensure_ascii=False),
-        general=payload["risk"]["general_meaning"] or "",
+        systems=[s["name"] for s in systems],
         about={s["name"]: s["what_it_is"] for s in systems if s["what_it_is"]},
-        causes={s["name"]: s["main_weakness"] for s in systems if s["main_weakness"]},
-        outside=[s["name"] for s in systems if s["reachable_from_outside"]],
-        attacked=[
-            s["name"] for s in systems if s.get("has_weaknesses_already_used_in_real_attacks")
-        ],
+        general=payload["risk"]["general_meaning"] or "",
         organization=payload["organization"]["name"] or "",
         loss=loss,
     )
@@ -226,35 +235,25 @@ def _validator(payload, loss=""):
 
 @register_mock(TASK)
 def mock_description(request_payload):
-    """``LLM_MOCK_MODE=1``: respuesta determinista en español, con los sistemas del riesgo."""
-    systems = request_payload["systems_from_most_to_least_serious"]
-    # El primero siempre; después, los que tienen descripción o causa (el validador pide ambas).
-    rest = sorted(
-        systems[1:], key=lambda s: (not s["what_it_is"], not s["main_weakness"], s["name"])
-    )
-    chosen = [*systems[:1], *rest[:2]]
-    # Y el más grave de los alcanzables desde fuera, que el validador pide nombrar.
-    outside = next((s for s in systems if s["reachable_from_outside"]), None)
-    if outside is not None and outside not in chosen:
-        chosen[-1] = outside
-    parts = []
-    for system in chosen:
-        # En pocas palabras: el validador rechaza la descripción copiada entera.
-        what = " ".join((system["what_it_is"] or "").split()[:7]).rstrip(".,;:")
-        piece = system["name"]
-        if what:
-            piece += f" ({what[:1].lower()}{what[1:]})"
-        if system["reachable_from_outside"]:
-            piece += ", alcanzable desde fuera"
-        if system["main_weakness"]:
-            piece += f", por {system['main_weakness'][:90]}"
-        parts.append(piece)
+    """``LLM_MOCK_MODE=1``: respuesta determinista en español, con lo que cuentan las
+    descripciones de los dos sistemas más graves (el validador pide el primero y alguno más)."""
+    described = [
+        s["what_it_is"]
+        for s in request_payload["systems_from_most_to_least_serious"]
+        if s["what_it_is"]
+    ]
+    pieces = []
+    for what in described[:2]:
+        piece = " ".join(what.split()[:9]).rstrip(".,;:")[:90]
+        pieces.append(f"«{piece[:1].lower()}{piece[1:]}»")
+    if not pieces:
+        does = (request_payload["organization"].get("what_it_does") or "").rstrip(".")[:120]
+        pieces.append(f"«{does[:1].lower()}{does[1:]}»")
     lost = request_payload["risk"]["what_is_lost"].lower()
     return {
-        "summary": (
-            f"Respuesta simulada: que haya {lost} en lo que guardan o hacen {'; '.join(parts)}"
-            ", que usan las personas de la organización."
-        )
+        "summary": f"Respuesta simulada: que haya {lost} en lo que dicen sus sistemas: "
+        + " y ".join(pieces)
+        + "."
     }
 
 
@@ -289,7 +288,7 @@ def describe(consequence, role, *, requested_by=None):
             request_payload=payload,
             object_ref=f"detection.BusinessRisk:{key}"[:100],
             requested_by=requested_by,
-            options=options_for(key),
+            options=options_after(failures_of(key)),
             # Las reglas atan el texto a los datos: más intentos que el estándar; cada uno es de
             # pocos segundos.
             max_attempts=MAX_ATTEMPTS,

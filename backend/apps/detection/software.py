@@ -21,7 +21,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
-from apps.llm.client import register_mock, run_structured
+from apps.llm.client import options_after, register_mock, run_structured
 from apps.llm.prompts import load_prompt
 from apps.llm.schemas import SOFTWARE_DESCRIBE_SCHEMA, SoftwareDescribeOutput
 from apps.llm.status import active_model, active_model_ready
@@ -104,6 +104,11 @@ def is_pending(key) -> bool:
 def cooling_down(key) -> bool:
     """¿Falló hace poco y todavía no toca reintentar?"""
     return (cache.get(_retry_key(key)) or {}).get("until", 0) > time.time()
+
+
+def failures_of(key) -> int:
+    """Cuántas veces seguidas se quedó este software sin una explicación válida."""
+    return int((cache.get(_retry_key(key)) or {}).get("failures", 0))
 
 
 def note_failure(key) -> int:
@@ -202,6 +207,7 @@ def describe(component_id, *, requested_by=None):
             request_payload=data,
             object_ref=f"detection.Software:{key}"[:100],
             requested_by=requested_by,
+            options=options_after(failures_of(key)),
         )
         if not log_obj.parsed_ok:
             wait = note_failure(key)

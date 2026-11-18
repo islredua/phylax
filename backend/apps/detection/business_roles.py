@@ -31,7 +31,7 @@ from django.utils import timezone
 from apps.assets import catalogs
 from apps.assets.models import Asset, AssetStatus, DataCategory, DataClassification
 from apps.core.text import cuantos
-from apps.llm.client import register_mock, run_structured
+from apps.llm.client import options_after, register_mock, run_structured
 from apps.llm.prompts import load_prompt
 from apps.llm.schemas import BUSINESS_ROLE_SCHEMA, business_role_validator
 from apps.llm.status import active_model, active_model_ready
@@ -256,6 +256,11 @@ def cooling_down(role) -> bool:
     return (cache.get(_retry_key(role)) or {}).get("until", 0) > time.time()
 
 
+def failures_of(role) -> int:
+    """Cuántas veces seguidas se quedó esta función sin un párrafo válido."""
+    return int((cache.get(_retry_key(role)) or {}).get("failures", 0))
+
+
 def note_failure(role) -> int:
     """Anota un intento fallido: 30 min, 1 h, 2 h… hasta un día. Devuelve la espera en segundos."""
     state = cache.get(_retry_key(role)) or {}
@@ -330,6 +335,7 @@ def describe(role, *, requested_by=None):
             request_payload=payload,
             object_ref=f"detection.BusinessRole:{role}"[:100],
             requested_by=requested_by,
+            options=options_after(failures_of(role)),
             # Las reglas atan el texto a los datos (nombrar cada activo y decir qué hace, nada
             # inventado): más intentos que el estándar; cada uno es de uno o dos segundos.
             max_attempts=MAX_ATTEMPTS,

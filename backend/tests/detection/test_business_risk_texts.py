@@ -2,14 +2,17 @@
 
 La página de un riesgo decía solo el significado general de la consecuencia («Fuga de información
 en API: que información que la organización debe proteger acabe en manos ajenas»): corto y
-ambiguo. Ahora lo dice el sistema para cada riesgo, también para los que aparezcan después: dos o
-tres frases que la IA arma con la descripción de los activos del riesgo, sus datos y la causa de
-cada escenario, atadas a esos datos por un validador.
+ambiguo. Ahora lo dice el sistema para cada riesgo, también para los que aparezcan después:
+
+- una frase que la IA arma con la descripción de los activos del riesgo y que dice qué se
+  perdería, atada a esos datos por un validador;
+- y, por código, cada sistema con su descripción, dónde está y la causa de su escenario.
 
 Sin red, sin LLM real (modo simulado) y sin herramientas.
 """
 
 import json
+import re
 
 import pytest
 from django.core.cache import cache
@@ -28,6 +31,7 @@ from apps.detection.models import (
     Vulnerability,
     risk_level_for,
 )
+from apps.llm import client as llm_client
 from apps.llm.models import InferenceLog
 from tests.factories import AssetFactory
 
@@ -126,30 +130,54 @@ def _what(body):
     return " ".join(body.split('id="riesgo-que-puede-pasar"')[1].split("</dd>")[0].split())
 
 
+def _systems(body):
+    """Las filas «dónde y por dónde» de la página: (nombre del sistema, texto de la fila)."""
+    rows = []
+    for part in body.split("<li data-risk-system>")[1:]:
+        text = " ".join(re.sub(r"<[^>]+>", " ", part.split("</li>")[0]).split())
+        rows.append((text.split(" ")[0], text))
+    return rows
+
+
 # --------------------------------------------------------------------------
 # La página del riesgo
 # --------------------------------------------------------------------------
 
 
-def test_the_risk_page_says_what_can_happen_with_its_own_systems(client, as_role):
+def test_the_risk_page_says_what_would_be_lost_and_lists_each_system_by_code(client, as_role):
     as_role(AUDITOR)
     _api_leak()
     page = reverse("detection:business_risk", args=[LEAK, "API"])
     body = client.get(page).content.decode()
     what = _what(body)
 
-    # Lo escribe el sistema al abrir la página: nadie lo redactó a mano.
+    # La frase la escribe el sistema al abrir la página: nadie la redactó a mano.
     found = BusinessRiskDescription.objects.get()
     assert (found.consequence, found.role, found.source) == (LEAK, "API", "AI")
     assert found.prompt_version == business_risk_texts.PROMPT_VERSION
-    # Dice qué se pierde, en qué sistemas (el más grave primero) y por dónde.
-    for part in ("app-siniestros", "ajustadores suben la evidencia", "pillow 8.1.0", "portal-rh"):
+    # Dice qué se perdería con lo que cuentan las descripciones de sus sistemas, y no habla de
+    # debilidades: eso va debajo, por código.
+    for part in ("ajustadores suben la evidencia", "empleados consultan sus recibos"):
         assert part in found.summary, part
+    assert "pillow" not in found.summary and "Apache" not in found.summary
     assert found.summary in what and "por IA" in what and "Puede equivocarse" in what
     # El significado general, que antes era todo, queda de referencia debajo.
     assert f"En general: {GENERAL}." in what and what.index(found.summary) < what.index(GENERAL)
-    # Dónde y por qué ese nivel siguen saliendo del código.
-    assert "Qué puede pasar" in body and "con la función «API»" in body
+
+    # Dónde y por dónde: cada sistema con su descripción, dónde está y la causa de su escenario,
+    # el más grave primero. Lo escribe el código con los datos de siempre.
+    assert "Dónde y por dónde" in body and "En 2 activos con la función «API»." in body
+    (first_name, first), (second_name, second) = _systems(body)
+    assert (first_name, second_name) == ("app-siniestros", "portal-rh")
+    assert "Los ajustadores suben la evidencia de cada reclamación: facturas médicas." in first
+    assert "En la red interna · por ejecución remota de código en pillow 8.1.0." in first
+    assert "Crítico" in first and "Explotación activa" in first
+    assert "Los empleados consultan sus recibos de nómina y piden vacaciones." in second
+    assert (
+        "En la DMZ (la zona que da la cara a Internet) · por recorrido de rutas en Apache httpd "
+        "2.4.49." in second
+    )
+    assert "Explotación activa" not in second
     assert "es el de su peor escenario, app-siniestros" in body
     assert "Corregir el texto" not in what  # quien solo lee no lo corrige
     # Abrir la página otra vez no vuelve a preguntar.
@@ -157,8 +185,8 @@ def test_the_risk_page_says_what_can_happen_with_its_own_systems(client, as_role
     assert InferenceLog.objects.filter(task="ORG_RISK_DESCRIBE").count() == 1
 
 
-def test_the_model_gets_each_system_and_its_cause_without_the_counts_that_move():
-    worst, _other = _api_leak()
+def test_the_model_gets_what_each_system_is_and_nothing_that_moves_with_every_scan():
+    worst, other = _api_leak()
     payload = business_risk_texts.build_payload(_risk())
     assert payload["risk"] == {
         "name": "Fuga de información en API",
@@ -168,34 +196,40 @@ def test_the_model_gets_each_system_and_its_cause_without_the_counts_that_move()
     }
     assert payload["organization"]["name"] == "Aseguradora Norte"
     assert payload["how_many_systems"] == 2
-    # Del más grave al menos, cada uno con lo que es, dónde está, sus datos y su causa.
+    # Del más grave al menos, cada uno con lo que es y sus datos. Dónde está y por qué debilidad
+    # puede ocurrir no se le envían: lo escribe el código.
     assert payload["systems_from_most_to_least_serious"] == [
         {
             "name": "app-siniestros",
             "what_it_is": "Los ajustadores suben la evidencia de cada reclamación: facturas médicas.",
-            "where": "en la red interna",
-            "reachable_from_outside": False,
             "data": "información restringida, la más sensible: datos personales, clínicos",
-            "main_weakness": "ejecución remota de código en pillow 8.1.0",
-            "has_weaknesses_already_used_in_real_attacks": True,
         },
         {
             "name": "portal-rh",
             "what_it_is": "Los empleados consultan sus recibos de nómina y piden vacaciones.",
-            "where": "en la DMZ (la zona que da la cara a Internet)",
-            "reachable_from_outside": True,
             "data": "información confidencial: datos personales, financieros",
-            "main_weakness": "recorrido de rutas en Apache httpd 2.4.49",
-            # Sin la bandera cuando no aplica: con un «false» el modelo decía que el sistema
-            # «no tiene debilidades conocidas».
         },
     ]
     before = business_risk_texts.fingerprint(payload)
-    # Un escaneo que solo cambia cuántas vulnerabilidades hay no cambia lo que puede pasar…
-    worst.title = worst.title.replace("24 vulnerabilidades", "31 vulnerabilidades")
+    # Ni los conteos de un escaneo ni otra causa cambian lo que se perdería: no se pregunta.
+    worst.title = "Fuga de información en app-siniestros por contraseña por defecto en el panel"
     worst.save(update_fields=["title"])
     assert business_risk_texts.fingerprint(business_risk_texts.build_payload(_risk())) == before
-    # …ni un título que se cortó a media frase, ni el conteo de debilidades de configuración.
+    # Otra descripción sí.
+    other.asset.description = "Los empleados descargan sus constancias de retención."
+    other.asset.save(update_fields=["description"])
+    assert business_risk_texts.fingerprint(business_risk_texts.build_payload(_risk())) != before
+
+
+def test_each_system_row_gives_the_whole_cause_without_the_counts_that_move():
+    worst, _other = _api_leak()
+    rows = business_risk_texts.systems_of(_risk())
+    assert [row["asset"].name for row in rows["shown"]] == ["app-siniestros", "portal-rh"]
+    assert rows["more"] == []
+    # Sin «y 24 vulnerabilidades más»: es un conteo que se mueve, no la causa.
+    assert rows["shown"][0]["how"] == (
+        "en la red interna · por ejecución remota de código en pillow 8.1.0"
+    )
     for title, cause in (
         (
             "por inyección de comandos en nginx 1.27.3 y 209 vulnerabilid",
@@ -205,6 +239,10 @@ def test_the_model_gets_each_system_and_its_cause_without_the_counts_that_move()
         (
             "por 5 debilidades de configuración del servicio",
             "debilidades de configuración del servicio",
+        ),
+        (
+            "por cookies sin nombre en Werkzeug httpd 2.0.3 · 5000/tcp",
+            "cookies sin nombre en Werkzeug httpd 2.0.3",
         ),
         ("sin la fórmula del título", ""),
     ):
@@ -233,10 +271,21 @@ def test_the_model_gets_each_system_and_its_cause_without_the_counts_that_move()
     # …y si esa vulnerabilidad ya no está, se queda sin la palabra cortada.
     worst.title = worst.title.replace("inyección de salida", "inyección de entrada")
     assert business_risk_texts.cause_of(worst).endswith("Apache HTTP Server 2.4.59 y")
-    # Otra causa principal sí.
-    worst.title = "Fuga de información en app-siniestros por contraseña por defecto en el panel"
+    # La descripción de cada fila va en una línea, sin marcas y cortada en un espacio.
+    worst.asset.description = "**Aplicación** de siniestros: " + "evidencia adjunta " * 12
+    worst.asset.save(update_fields=["description"])
+    what = business_risk_texts.systems_of(_risk())["shown"][0]["what"]
+    assert what.startswith("Aplicación de siniestros: evidencia adjunta")
+    assert what.endswith(("evidencia…", "adjunta…")) and len(what) <= business_risk_texts.WHAT_MAX
+    # Un activo sin ubicación ni causa reconocible no tiene esa línea.
+    worst.title = "Un título escrito de otra manera"
     worst.save(update_fields=["title"])
-    assert business_risk_texts.fingerprint(business_risk_texts.build_payload(_risk())) != before
+    worst.asset.exposure = ""
+    worst.asset.save(update_fields=["exposure"])
+    hows = {
+        row["asset"].name: row["how"] for row in business_risk_texts.systems_of(_risk())["shown"]
+    }
+    assert hows["app-siniestros"] == ""
 
 
 # --------------------------------------------------------------------------
@@ -248,21 +297,27 @@ def test_a_new_risk_gets_its_text_from_the_periodic_drain_and_is_rewritten_when_
     worst, other = _api_leak()
     assert tasks.describe_pending_vulnerabilities()["risks"] == 1
     first = BusinessRiskDescription.objects.get()
-    assert "app-siniestros" in first.summary and "pillow" in first.summary
+    assert "fuga de información" in first.summary and "ajustadores suben" in first.summary
     assert "risks" not in tasks.describe_pending_vulnerabilities()  # al día: no se pregunta
 
     # Aparece un riesgo que no existía (otra consecuencia sobre la misma función).
     _scenario(other.asset, DOWN, 4, 4, "denegación de servicio en Apache httpd 2.4.49")
     assert tasks.describe_pending_vulnerabilities()["risks"] == 1
     down = BusinessRiskDescription.objects.get(consequence=DOWN)
-    assert down.role == "API" and "portal-rh" in down.summary and "denegación" in down.summary
+    assert down.role == "API" and "interrupción del servicio" in down.summary
+    assert "recibos de nómina" in down.summary
 
-    # Cambia la causa principal de un escenario: su riesgo se vuelve a escribir, el otro no.
+    # Otra causa en un escenario no cambia lo que se perdería: la muestra el código, al día.
     worst.title = "Fuga de información en app-siniestros por contraseña por defecto en el panel"
     worst.save(update_fields=["title"])
-    assert business_risk_texts.queue_missing() == 1
-    assert "contraseña por defecto" in BusinessRiskDescription.objects.get(consequence=LEAK).summary
-    assert InferenceLog.objects.filter(task="ORG_RISK_DESCRIBE").count() == 3
+    assert business_risk_texts.queue_missing() == 0
+    # Cambia la descripción de un activo: se vuelven a escribir los riesgos en que está.
+    other.asset.description = "Los empleados descargan sus constancias de retención."
+    other.asset.save(update_fields=["description"])
+    assert business_risk_texts.queue_missing() == 2
+    for found in BusinessRiskDescription.objects.all():
+        assert "constancias de retención" in found.summary
+    assert InferenceLog.objects.filter(task="ORG_RISK_DESCRIBE").count() == 4
 
     # Un riesgo que se queda sin escenarios abiertos ya no se pregunta.
     Risk.objects.filter(consequence=DOWN).update(status=RiskStatus.CLOSED)
@@ -297,7 +352,7 @@ def test_after_a_failure_the_model_is_asked_again_with_another_draw(settings):
     business_risk_texts.note_failure(key)
     business_risk_texts.note_failure(key)
     business_risk_texts.describe(LEAK, "API")
-    assert last_options() == (business_risk_texts.RETRY_TEMPERATURE, settings.LLM_SEED + 2)
+    assert last_options() == (llm_client.RETRY_TEMPERATURE, settings.LLM_SEED + 2)
     # Un texto válido borra la cuenta: la siguiente pregunta vuelve a ser la de siempre.
     assert business_risk_texts.failures_of(key) == 0
     business_risk_texts.describe(LEAK, "API")
@@ -316,6 +371,9 @@ def test_without_anything_to_go_on_the_page_keeps_the_general_meaning(client, as
     assert business_risk_texts.queue_missing() == 0
     assert GENERAL.capitalize() + "." in what and "Es el significado general" in what
     assert "falta la descripción de los activos del riesgo" in what
+    # La fila del sistema lo dice también, con el enlace para escribirla.
+    ((name, row),) = _systems(client.get(page).content.decode())
+    assert name == "caja-01" and "Sin descripción en el inventario: escríbela" in row
     # En cuanto alguien describe el activo, hay con qué.
     bare.description = "Terminal de cobro de la sucursal centro."
     bare.save(update_fields=["description"])
@@ -328,14 +386,12 @@ def test_without_anything_to_go_on_the_page_keeps_the_general_meaning(client, as
 # --------------------------------------------------------------------------
 
 
-def test_the_answer_must_say_what_where_and_how_from_the_data():
+def test_the_sentence_must_say_what_would_be_lost_from_the_data():
     _api_leak()
     validator = business_risk_texts._validator(business_risk_texts.build_payload(_risk()), LEAK)
     good = (
-        "Que la evidencia de las reclamaciones, con facturas médicas, salga de app-siniestros por "
-        "una falla de ejecución remota de código en pillow 8.1.0, de las que ya se usan en ataques "
-        "reales. También quedarían a la vista los recibos de nómina de los empleados en portal-rh, "
-        "que está en la DMZ."
+        "Que la evidencia de las reclamaciones, con facturas médicas, y los recibos de nómina de "
+        "los empleados queden a la vista de quien no debe."
     )
     assert validator.model_validate({"summary": f"**{good}**"}).summary == good
     for bad, why in (
@@ -344,75 +400,46 @@ def test_the_answer_must_say_what_where_and_how_from_the_data():
             good + " Es decir, que información que la organización debe proteger acabe fuera.",
             "quita «que información que la organización debe proteger acabe»",
         ),
-        # Siempre el sistema del escenario más grave, y con dos sistemas, los dos.
-        (
-            "Que los recibos de nómina de los empleados salgan de portal-rh por un recorrido de "
-            "rutas en Apache httpd 2.4.49, alcanzable desde la DMZ de la organización.",
-            "faltan: app-siniestros",
-        ),
-        # Nombrarlos no basta: «información» a secas es lo que no decía nada.
+        # «Información» a secas es lo que no decía nada.
         (
             "Que la información confidencial de la organización salga de app-siniestros y de "
-            "portal-rh por una falla de ejecución remota de código que alguien de fuera aproveche.",
-            "falta decirlo de: app-siniestros (es «Los ajustadores suben la evidencia de cada reclamación:…»), "
-            "portal-rh (es «Los empleados consultan sus recibos de nómina y…»)",
+            "portal-rh hacia terceros que no deben verla.",
+            "con palabras de su what_it_is: ni «información» o «el servicio» a secas, ni lo que "
+            "hace la organización en general. Por ejemplo, app-siniestros es «Los ajustadores "
+            "suben la evidencia de cada reclamación: facturas médicas»",
         ),
-        # Por dónde: la clase de debilidad de al menos un sistema.
+        # Las debilidades y los ataques los escribe el código debajo, sistema por sistema.
         (
-            "Que la evidencia de las reclamaciones, con facturas médicas, salga de app-siniestros "
-            "y que los recibos de nómina de los empleados salgan de portal-rh hacia terceros.",
-            "debe decir por dónde",
+            good[:-1] + " por una falla de ejecución remota de código.",
+            "no habla de debilidades, fallas ni ataques (la plataforma los muestra debajo, "
+            "sistema por sistema): quita «una falla de»",
         ),
-        # Cada debilidad con su sistema: el recorrido de rutas es de portal-rh.
-        (
-            "Que la evidencia de las reclamaciones, con facturas médicas, salga de app-siniestros "
-            "por un recorrido de rutas en Apache httpd 2.4.49. También quedarían a la vista los "
-            "recibos de nómina de los empleados en portal-rh, que está en la DMZ.",
-            "le atribuye a app-siniestros la debilidad de portal-rh («recorrido de rutas en Apache "
-            "httpd 2.4.49»); la de app-siniestros es «ejecución remota de código en pillow 8.1.0»",
-        ),
-        # «Ya se usa en ataques reales» solo del sistema del que los datos lo dicen.
-        (
-            good + " Las fallas de portal-rh ya se usan en ataques reales.",
-            "no dice de portal-rh que sus debilidades ya se usan en ataques reales",
-        ),
-        # El sistema alcanzable desde fuera se nombra y se dice: es lo que lo hace más probable.
-        (
-            good.replace(", que está en la DMZ", ""),
-            "debe nombrar portal-rh y decir que es alcanzable",
-        ),
+        (good + " Ya se usa en ataques reales.", "quita «en ataques reales»"),
         # La pérdida de este riesgo y no otra: en una fuga algo sale o queda a la vista.
         (
-            "Que la evidencia de las reclamaciones, con facturas médicas, se falsee en "
-            "app-siniestros por una falla de ejecución remota de código en pillow 8.1.0, y los "
-            "recibos de nómina de los empleados en portal-rh, que está en la DMZ.",
+            "Que la evidencia de las reclamaciones, con facturas médicas, y los recibos de nómina "
+            "de los empleados se cambien sin que nadie lo note.",
             "debe decir la pérdida de este riesgo: que algo sale o queda a la vista",
         ),
-        # Ni las palabras de otra pérdida: un sistema que «puede caer» es una interrupción.
         (
-            good.replace("salga de app-siniestros", "salga de app-siniestros, que puede caer,"),
-            "habla de otra pérdida (este riesgo no es una interrupción): quita «puede caer». Aquí de "
-            "un sistema di que «tiene» la debilidad, no que «cae»; di solo que algo sale",
+            good[:-1] + ", y que el portal pueda caer.",
+            "habla de otra pérdida (este riesgo no es una interrupción): quita «pueda caer». "
+            "Aquí nada «cae» ni «deja de funcionar»; di solo que algo sale",
         ),
-        # El software solo no dice por dónde: hace falta la clase de debilidad.
-        (
-            "Que la evidencia de las reclamaciones, con facturas médicas, salga de app-siniestros "
-            "por una debilidad en pillow 8.1.0. También quedarían a la vista los recibos de "
-            "nómina de los empleados en portal-rh, que está en la DMZ, por otra en Apache httpd.",
-            "no basta el nombre del software); la de app-siniestros es «ejecución remota de código»",
-        ),
-        # Una respuesta que llegó al tope y quedó a media frase.
-        (good[:-14], "quedó a media frase"),
+        # Una frase que no termina.
+        (good[:-1], "quedó a media frase"),
         # El nivel lo pone el código al lado.
         (good + " Por eso el riesgo es crítico.", "quita riesgo es crítico"),
         (good + " También afecta a srv-nominas y a 4500 personas.", "srv-nominas"),
         (good + " También afecta a srv-nominas y a 4500 personas.", "4500"),
         (
-            "The claims evidence could leak from app-siniestros and portal-rh through a remote code "
-            "execution flaw in pillow 8.1.0 that is already used in real attacks.",
+            "The claims evidence and the payroll receipts of the employees could leak to people "
+            "outside the company.",
             "español",
         ),
-        ("Que salga información de app-siniestros.", "dos o tres frases"),
+        ("Que salga información de app-siniestros.", "en una frase qué se perdería"),
+        # Una frase, dos como mucho: los sistemas se listan aparte.
+        (good + " " + " ".join([good] * 2), "no pasa de 340 caracteres"),
     ):
         with pytest.raises(ValidationError) as error:
             validator.model_validate({"summary": bad})
@@ -421,93 +448,68 @@ def test_the_answer_must_say_what_where_and_how_from_the_data():
     with pytest.raises(ValidationError) as error:
         validator.model_validate(
             {
-                "summary": "Que la información de la organización salga de portal-rh hacia "
-                "terceros, con un riesgo muy alto para sus 300 clientes y para sus agentes."
+                "summary": "Que la información de la organización se altere por una "
+                "vulnerabilidad, con un riesgo muy alto para sus 300 clientes"
             }
         )
     for part in (
-        "faltan: app-siniestros",
-        "falta decirlo de",
-        "por dónde",
-        "alcanzable desde fuera",
+        "quedó a media frase",
+        "debe decir la pérdida de este riesgo",
+        "(este riesgo no es una alteración): quita «se altere»",
+        "quita «una vulnerabilidad»",
+        "con palabras de su what_it_is",
         "riesgo muy alto",
         "300",
     ):
         assert part in str(error.value), part
 
 
-def test_it_summarizes_each_system_instead_of_copying_its_description():
-    from apps.llm.schemas import business_risk_validator
-
-    long = (
-        "Aplicación interna donde los ajustadores suben y procesan la evidencia de cada "
-        "reclamación de gastos médicos de los asegurados."
-    )
-    cause = "ejecución remota de código en pillow 8.1.0"
-    validator = business_risk_validator(
-        systems=["app-siniestros"],
-        known_text=f"app-siniestros {cause}",
-        about={"app-siniestros": long},
-        causes={"app-siniestros": cause},
-        loss=LEAK,
-    )
-    validator.model_validate(
-        {
-            "summary": "Que la evidencia de las reclamaciones de gastos médicos salga de "
-            f"app-siniestros por una falla de {cause}."
-        }
-    )
-    with pytest.raises(ValidationError) as error:
-        validator.model_validate(
-            {
-                "summary": f"Que salga lo de app-siniestros, una {long.lower()[:-1]}, por una "
-                f"falla de {cause}."
-            }
-        )
-    assert "no copia la descripción de app-siniestros" in str(error.value)
-    assert "di en pocas palabras" in str(error.value)
-
-
-def test_the_words_of_another_loss_are_allowed_only_when_the_data_brings_them():
+def test_words_of_another_loss_or_of_weaknesses_are_allowed_when_the_data_brings_them():
     from apps.llm.schemas import business_risk_validator
 
     about = "Proxy de salida para los equipos de las sucursales: control y filtrado de contenido."
-    cause = "denegación de servicio mediante ICP en Squid http proxy 6.13"
-    validator = business_risk_validator(
-        systems=["proxy-saliente"],
-        known_text=f"proxy-saliente {cause}",
-        about={"proxy-saliente": about},
-        causes={"proxy-saliente": cause},
-        loss="AVAILABILITY",
-    )
-    good = (
-        "Que los equipos de las sucursales se queden sin salida: proxy-saliente, que hace el "
-        "filtrado de contenido, puede caer por una denegación de servicio mediante ICP en Squid."
-    )
+
+    def validator(loss):
+        return business_risk_validator(
+            known_text=f"proxy-saliente {about}",
+            systems=["proxy-saliente"],
+            about={"proxy-saliente": about},
+            loss=loss,
+        )
+
+    good = "Que los equipos de las sucursales se queden sin salida ni filtrado de contenido."
     # «Filtrado» es de la descripción del proxy: no habla de una fuga.
-    validator.model_validate({"summary": good})
+    validator("AVAILABILITY").model_validate({"summary": good})
     with pytest.raises(ValidationError) as error:
-        validator.model_validate({"summary": good[:-1] + ", y sus registros quedarían a la vista."})
+        validator("AVAILABILITY").model_validate(
+            {"summary": good[:-1] + ", y sus registros quedarían a la vista."}
+        )
     assert "(este riesgo no es una fuga): quita «quedarian a la vista»" in str(error.value)
     assert "que algo cae o deja de funcionar" in str(error.value)
     # «Caer en manos ajenas» es una fuga, no una interrupción.
-    leak = business_risk_validator(
-        systems=["proxy-saliente"],
-        known_text=f"proxy-saliente {cause}",
-        about={"proxy-saliente": about},
-        causes={"proxy-saliente": cause},
-        loss=LEAK,
-    )
-    leak.model_validate(
+    validator(LEAK).model_validate(
         {
-            "summary": "Que el control de contenido de los equipos de las sucursales pueda "
-            "caer en manos ajenas: proxy-saliente tiene una falla de denegación de servicio "
-            "mediante ICP en Squid."
+            "summary": "Que el control de contenido de los equipos de las sucursales pueda caer "
+            "en manos ajenas."
+        }
+    )
+    # Un sistema que trata de vulnerabilidades puede nombrarlas.
+    scanner = "Escáner de vulnerabilidades de la red: guarda los reportes de cada revisión."
+    business_risk_validator(
+        known_text=f"escaner-01 {scanner}",
+        systems=["escaner-01"],
+        about={"escaner-01": scanner},
+        loss=LEAK,
+    ).model_validate(
+        {
+            "summary": "Que los reportes de vulnerabilidades de cada revisión salgan del escáner "
+            "y lleguen a quien no debe."
         }
     )
 
 
-def test_with_many_systems_it_names_three_and_always_the_most_serious():
+def test_with_many_systems_the_page_lists_the_most_serious_and_folds_the_rest(client, as_role):
+    as_role(AUDITOR)
     _organization()
     names = []
     for index in range(5):
@@ -521,18 +523,47 @@ def test_with_many_systems_it_names_three_and_always_the_most_serious():
     payload = business_risk_texts.build_payload(_risk())
     assert [s["name"] for s in payload["systems_from_most_to_least_serious"]] == names
     validator = business_risk_texts._validator(payload, LEAK)
-    text = (
-        "Que los contratos de los distritos salgan de {} por la contraseña por defecto de su "
-        "panel, que cualquiera que llegue a ellos puede probar sin esfuerzo alguno."
+    validator.model_validate(
+        {
+            "summary": "Que los contratos del distrito aaaaaa y los del distrito cccccc queden a "
+            "la vista de quien no debe."
+        }
     )
-    validator.model_validate({"summary": text.format("nodo-0, nodo-3 y nodo-4")})
-    with pytest.raises(ValidationError) as error:
-        validator.model_validate({"summary": text.format("nodo-1, nodo-2 y nodo-3")})
-    assert "siempre el primero (nodo-0)" in str(error.value)
-    assert "faltan: nodo-0" in str(error.value)
+    # El nombre de la organización no cuenta como «lo que guarda» un sistema, pero sus letras no
+    # se llevan otras palabras: «asegurados» no es «Aseguradora Norte».
+    from apps.llm.schemas import business_risk_validator
+
+    files = "Guarda los expedientes de los asegurados."
+    by_name = business_risk_validator(
+        known_text=f"archivo-01 {files} Aseguradora Norte",
+        systems=["archivo-01"],
+        about={"archivo-01": files},
+        organization="Aseguradora Norte",
+        loss=LEAK,
+    )
+    by_name.model_validate(
+        {"summary": "Que los expedientes de los asegurados queden a la vista de quien no debe."}
+    )
+    with pytest.raises(ValidationError):
+        by_name.model_validate(
+            {"summary": "Que los expedientes de Aseguradora Norte queden a la vista de otros."}
+        )
+    # Vale también si habla de lo que guarda otro sistema del riesgo: todos se listan debajo.
+    validator.model_validate(
+        {"summary": "Que los contratos del distrito dddddd queden a la vista de quien no debe."}
+    )
     # La respuesta simulada cumple las mismas reglas que la del modelo.
     mock = business_risk_texts.mock_description(payload)
-    assert validator.model_validate(mock).summary.count("nodo-") == 3
+    assert "aaaaaa" in validator.model_validate(mock).summary
+    # La página lista los tres más graves y pliega los demás.
+    body = client.get(reverse("detection:business_risk", args=[LEAK, "API"])).content.decode()
+    assert [name for name, _row in _systems(body)] == names
+    assert "<summary>y 2 más</summary>" in body
+    assert (
+        body.index("nodo-2</a>")
+        < body.index("<summary>y 2 más</summary>")
+        < body.index("nodo-3</a>")
+    )
 
 
 # --------------------------------------------------------------------------
@@ -584,8 +615,8 @@ def test_a_person_can_correct_it_and_is_told_when_the_risk_changed_afterwards(cl
     what = _what(response.content.decode())
     assert text in what and "por una persona" in what and "Desde entonces" not in what
     # Lo que escribió una persona la IA no lo toca, cambie lo que cambie; la página avisa.
-    worst.title = "Fuga de información en app-siniestros por contraseña por defecto en el panel"
-    worst.save(update_fields=["title"])
+    worst.asset.description = "Los ajustadores suben fotos de cada siniestro."
+    worst.asset.save(update_fields=["description"])
     assert business_risk_texts.describe(LEAK, "API") is None
     assert business_risk_texts.queue_missing() == 0
     assert BusinessRiskDescription.objects.get().summary == text
@@ -609,6 +640,9 @@ def test_assets_without_a_function_have_their_text_too(client, as_role):
     what = _what(client.get(page).content.decode())
     found = BusinessRiskDescription.objects.get()
     assert (found.consequence, found.role) == (DOWN, "")
-    assert found.summary in what and "suelto-01" in found.summary
+    assert found.summary in what and "equipo de pruebas del área" in found.summary
+    body = client.get(page).content.decode()
+    assert "En un activo sin función de negocio definida." in body
+    assert [name for name, _row in _systems(body)] == ["suelto-01"]
     payload = json.dumps(business_risk_texts.build_payload(_risk(DOWN, business_risks.NO_ROLE)))
     assert '"business_function": null' in payload

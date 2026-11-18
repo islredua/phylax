@@ -974,10 +974,12 @@ activo.
   columnas `funcion_de_negocio` y `riesgo_de_la_organizacion`.
 
 La página del riesgo (`/detection/risks/business/<consecuencia>/<función>/`) lo resume en tres
-líneas: **qué puede pasar**, que escribe el sistema para cada riesgo con sus propios sistemas
-(ver «Qué puede pasar en cada riesgo», más abajo), y **dónde** y **por qué tiene ese nivel**,
-escritas por código (`business_risks.describe`). Lista sus escenarios con enlace al **software a
-corregir** de cada activo y lleva la decisión conjunta. La ficha de cada escenario dice a qué
+bloques: **qué puede pasar**, una frase que escribe el sistema para cada riesgo con lo que
+guardan sus propios sistemas; **dónde y por dónde**, cada sistema con su descripción, dónde está
+y la causa de su escenario; y **por qué tiene ese nivel** (ver «Qué puede pasar en cada riesgo»,
+más abajo; los dos últimos por código, `business_risks.describe` y
+`business_risk_texts.systems_of`). Lista sus escenarios con enlace al **software a corregir** de
+cada activo y lleva la decisión conjunta. La ficha de cada escenario dice a qué
 riesgo pertenece. Si un riesgo se queda sin escenarios abiertos, su dirección devuelve al
 registro con un aviso.
 
@@ -1061,7 +1063,8 @@ qué tramo se copió. Con un solo aviso cada vez, el modelo arreglaba una cosa y
 el laboratorio quitaba «fundamentales» y con ello un activo, y al reintento siguiente al revés.
 La tarea admite cuatro intentos (`MAX_ATTEMPTS`); si ninguno vale, la función se queda sin
 párrafo (el resto del cuadro sirve igual) y se reintenta con espera creciente, de 30 minutos a un
-día.
+día. Ese reintento va con temperatura 0,4 y otra semilla (`llm.client.options_after`): con
+temperatura 0 el modelo responde lo mismo a la misma pregunta y repetiría el fallo.
 
 **Una persona puede corregirlo** («Corregir la explicación», permiso `detection.work_findings`;
 `BusinessRoleContextView`, `/detection/risks/functions/<función>/context/`). Queda a su nombre,
@@ -1094,125 +1097,133 @@ información que la organización debe proteger acabe en manos ajenas»): corto 
 información, de quién y por dónde ya estaba en los datos, repartido entre la descripción de los
 activos del riesgo, los datos que manejan, dónde están y la causa de cada escenario.
 
-Ahora lo escribe **el sistema, para cada riesgo**: dos o tres frases del modelo local
-(`BusinessRiskDescription`, una fila por consecuencia y función), marcadas «por IA». Nadie
-redacta ni retoca textos a mano: un riesgo que aparezca mañana (otra función, otro activo, otra
-causa) recibe el suyo por el mismo camino. El significado general queda debajo, como «En
-general».
+Ahora lo dice **el sistema, para cada riesgo**, también para los que aparezcan mañana (otra
+función, otro activo, otra causa). Nadie redacta ni retoca textos a mano. El trabajo se reparte:
+
+1. **Qué puede pasar: una frase del modelo local** (`BusinessRiskDescription`, una fila por
+   consecuencia y función), marcada «por IA». Dice qué se perdería en concreto, con lo que
+   guardan y hacen los sistemas del riesgo. Es lo único que pide redactar. Debajo queda el
+   significado general, como «En general».
+2. **Dónde y por dónde: por código** (`systems_of`, `_business_risk_systems.html`). Cuántos
+   activos y de qué función, y una fila por sistema, del escenario más grave al menos: el nombre
+   (enlace a su escenario), el nivel del escenario y «Explotación activa» si la hay, qué es (su
+   descripción del inventario, hasta 170 caracteres y cortada en un espacio), dónde está y la
+   causa del escenario. Los tres más graves a la vista; el resto, plegado («y 2 más»). Un activo
+   sin descripción lo dice, con el enlace para escribirla.
+
+**Por qué se reparte así.** La primera versión le pedía al modelo un párrafo que nombrara los
+sistemas, dijera qué guarda cada uno, por qué debilidad, cuál se alcanza desde fuera y cuál ya se
+explota. Eran demasiadas cosas a la vez para un modelo de 7B: menos de la mitad salía al primer
+intento, al corregir una deshacía otra (el reintento solo ve la última respuesta y sus avisos) y
+los errores de hecho estaban justo en lo que el sistema ya sabía: la debilidad de un sistema
+atribuida a otro, «ataques reales» de más. Lo que es un dato lo dice el código, siempre bien; al
+modelo le queda una frase con cuatro reglas.
 
 **Qué recibe el modelo** (`build_payload`): el perfil de la organización
 (`business_roles.organization_payload`); el nombre del riesgo, qué se pierde, su significado
 general y la función de negocio; y hasta ocho sistemas (`MAX_SYSTEMS`), del escenario más grave
-al menos, cada uno con:
+al menos, cada uno con `what_it_is` (la descripción del activo, hasta 400 caracteres) y `data`
+(los datos que maneja, con su clasificación). Dónde está cada uno y la causa de su escenario
+**no** se le envían.
 
-- `what_it_is`: la descripción del activo en el inventario (hasta 400 caracteres);
-- `where` y `reachable_from_outside`: dónde está y si se llega desde fuera (Internet o DMZ);
-- `data`: los datos que maneja, con su clasificación;
-- `main_weakness`: la causa de su escenario, tomada del título que compone el código
-  (`cause_of`). Sin los conteos que se mueven con cada escaneo («y 24 vulnerabilidades más») ni
-  el puerto («· 22/tcp»), y **entera**: el título corta la causa a 80 o 100 caracteres y dejaba
-  «… Apache HTTP Server 2.4.59 y ver»; se completa con el título de la vulnerabilidad del
-  escenario que empieza así (`_whole_cause`);
-- `has_weaknesses_already_used_in_real_attacks`: solo cuando es cierto (`kev_count`). Con un
-  `false` delante el modelo escribía que el sistema «no tiene debilidades conocidas».
+**La causa de cada fila** (`cause_of`) sale del título del escenario, que compone el código. Sin
+los conteos que se mueven con cada escaneo («y 24 vulnerabilidades más») ni el puerto
+(«· 22/tcp»), y **entera**: el título corta la causa a 80 o 100 caracteres y dejaba «… Apache HTTP
+Server 2.4.59 y ver»; se completa con el título de la vulnerabilidad del escenario que empieza
+así (`_whole_cause`).
 
 **Cuándo se pregunta.** Una vez por riesgo, y de nuevo solo cuando cambia lo que se le envía
 (`fingerprint`: SHA-256 de la versión del prompt, `RULES_VERSION` y los datos): entra o sale un
-activo, cambia la causa principal de un escenario, alguien edita una descripción o el perfil. Lo
-piden la página al abrirse (`context_of`) y el drenaje periódico
-(`describe_pending_vulnerabilities` → `queue_missing`, clave `risks` del resultado, hasta diez
-por pasada y del riesgo más grave al menos); la tarea `describe_business_risk` va por la cola
-`llm`. Mientras se escribe, la página muestra el significado general, lo dice y se consulta sola
-cada 5 s (`BusinessRiskTextView`, `…/<consecuencia>/<función>/text/`). Sin nada con qué
-escribirlo (ningún activo descrito y un perfil que no dice a qué se dedica la organización) no
-se pregunta: la página dice qué falta escribir.
+activo, alguien edita una descripción o el perfil. Que cambie la causa de un escenario ya no
+vuelve a preguntar: la fila la muestra al día. Lo piden la página al abrirse (`context_of`) y el
+drenaje periódico (`describe_pending_vulnerabilities` → `queue_missing`, clave `risks` del
+resultado, hasta diez por pasada y del riesgo más grave al menos); la tarea
+`describe_business_risk` va por la cola `llm`. Mientras se escribe, la página muestra el
+significado general, lo dice y se consulta sola cada 5 s (`BusinessRiskTextView`,
+`…/<consecuencia>/<función>/text/`). Sin nada con qué escribirla (ningún activo descrito y un
+perfil que no dice a qué se dedica la organización) no se pregunta: la página dice qué falta
+escribir.
 
-**El validador ata el texto a los datos** (`llm.schemas.business_risk_validator`, armado con lo
-que se envió). Rechaza un texto que:
+**El validador ata la frase a los datos** (`llm.schemas.business_risk_validator`, armado con lo
+que se envió). Rechaza una frase que:
 
-- no nombre los sistemas tal como vienen: todos si son tres o menos; si son más, al menos tres y
-  siempre el del escenario más grave;
-- los nombre sin decir qué guardan o qué hacen: de dos sistemas descritos (o de todos, si son
-  menos) usa dos palabras de su descripción, fuera del propio nombre («clientes» sola no basta;
-  comparación por las cinco primeras letras, sin comodines);
-- copie catorce palabras seguidas de la descripción de un sistema, o seis del significado
-  general;
+- no diga **qué se perdería en concreto**: usa dos palabras de las descripciones de los sistemas
+  del riesgo, fuera de sus nombres y del nombre de la organización (comparación por las cinco
+  primeras letras, sin comodines como «información», «datos» o «servicio»). Lo que hace la
+  organización en general no cuenta: el aviso cita la primera frase de la descripción de un
+  sistema;
 - no diga **la pérdida de este riesgo** con sus palabras (en una fuga algo «sale» o «queda a la
-  vista»; en una alteración «se cambia» o «se falsea»; en una interrupción «cae» o «deja de
-  funcionar»), o use las de otra: una fuga en la que el servicio «puede caer» habla de una
-  interrupción. No cuentan las palabras que traen los datos (un proxy que hace «filtrado de
-  contenido» no habla de una fuga) ni «caer en manos ajenas»;
-- no diga **por dónde**: la clase de debilidad de al menos un sistema («cabeceras de seguridad
-  ausentes»), no solo el software («una debilidad en nginx 1.27.5»);
-- le atribuya a un sistema la debilidad de otro, o diga «ya se usa en ataques reales» de un
-  sistema del que los datos no lo dicen (se mira cada tramo que nombra un solo sistema);
-- calle el sistema alcanzable desde fuera más grave, o no diga que lo es;
-- diga el nivel o la probabilidad (los pone el código al lado), nombre un sistema o una cifra
-  que no estén en los datos, quede a media frase, no esté en español o tenga menos de 100 o más
-  de 750 caracteres.
+  vista»; en una alteración «se cambia» o «se falsea»; en una interrupción «deja de funcionar» o
+  alguien «se queda sin»), o use las de otra. No cuentan las palabras que traen los datos (un
+  proxy que hace «filtrado de contenido» no habla de una fuga) ni «caer en manos ajenas»;
+- hable de **debilidades, fallas o ataques**: eso va en las filas, por código. Tampoco cuenta lo
+  que traen los datos (un «escáner de vulnerabilidades» puede nombrarlas);
+- copie seis palabras seguidas del significado general, diga el nivel o la probabilidad, nombre
+  un sistema o una cifra que no estén en los datos, quede a media frase, no esté en español o
+  tenga menos de 60 o más de 340 caracteres.
 
 Todos los problemas de una respuesta se dicen **juntos** en el reintento y cada aviso dice qué
-hacer: el de la descripción recuerda las primeras palabras de la del activo; el de la otra
-pérdida cita la frase y dice qué poner («este riesgo no es una interrupción: quita «puede caer».
-Aquí de un sistema di que «tiene» la debilidad»). Con «quita «caer»» a secas el modelo repitió
-la misma frase los cinco intentos.
+hacer y cita lo que sobra («este riesgo no es una interrupción: quita «pueda caer»»). Con «quita
+«caer»» a secas el modelo repitió la misma frase todos los intentos.
 
-**Cuando ningún intento vale** (cinco, `MAX_ATTEMPTS`) no se guarda nada: la página sigue con el
-significado general y lo dice, y el riesgo se vuelve a pedir con espera creciente, de 30 minutos
-a un día. Ese reintento va con temperatura 0,4 y otra semilla (`options_for`): con temperatura 0
-el modelo responde lo mismo a la misma pregunta y repetiría el fallo. La semilla sola no cambia
-nada con temperatura 0 (tres semillas dieron las mismas 23 respuestas, intento por intento).
+**Cuando ningún intento vale** (cuatro, `MAX_ATTEMPTS`) no se guarda nada: la página sigue con el
+significado general y lo dice (las filas por código están siempre), y el riesgo se vuelve a
+pedir con espera creciente, de 30 minutos a un día. Ese reintento va con temperatura 0,4 y otra
+semilla (`llm.client.options_after`, que usan también el párrafo de la función y «qué es» un
+software): con temperatura 0 el modelo responde lo mismo a la misma pregunta y repetiría el
+fallo. La semilla sola no cambia nada con temperatura 0 (tres semillas dieron las mismas 23
+respuestas, intento por intento).
 
-**Una persona puede corregirlo** («Corregir el texto», permiso `detection.work_findings`). Queda
-a su nombre, marcado «por una persona», y la IA ya no lo toca; si después cambian los activos o
-las causas del riesgo, la página avisa de que conviene revisarlo. Con el texto vacío vuelve a
-escribirlo la IA.
+**Una persona puede corregirla** («Corregir el texto», permiso `detection.work_findings`). Queda
+a su nombre, marcada «por una persona», y la IA ya no la toca; si después cambian los activos
+del riesgo o sus descripciones, la página avisa de que conviene revisarla. Con el texto vacío
+vuelve a escribirla la IA.
 
 **En el laboratorio (2026-11-18, modelo real, por la cola real, 23 riesgos):**
 
 | Versión | Válidos | Qué pasó |
 |---|---|---|
-| Prompt v1, reglas 1 | 23 de 23 | Al leerlos: causas cortadas a media palabra, una debilidad atribuida a otro sistema, el sistema de la DMZ sin nombrar, tipos de datos en vez de qué guarda cada sistema, «puede caer» en una fuga y «no tiene debilidades conocidas». |
-| Prompt v2, reglas 2 | 21 de 23 | Ya dicen qué guarda cada sistema, pero copiando su descripción entera (uno llegó al tope y quedó a media frase). Los dos riesgos de un solo sistema fallaron los cuatro intentos: la regla descartaba las palabras del perfil y no dejaba con qué decir qué hace el sistema. |
-| Prompt v3, reglas 3 | 19 de 23 | La regla de «qué hace» no contaba «el portal web para agentes» junto a `agente-portal`, y el aviso no decía qué decir. |
-| Prompt v3, reglas 4 | 23 de 23 | 13 al primer intento, 6 al segundo, 2 al tercero y 2 al cuarto. Quedaban tres textos con palabras de otra pérdida y uno sin la clase de debilidad. |
-| Prompt v3, reglas 5 (finales) | 23 de 23 | 11 al primer intento, 6 al segundo, 4 al tercero y 2 al cuarto. Los 23, entre 67 y 82 s (unos 3 s por riesgo con sus reintentos). |
+| Párrafo, prompt v1 | 23 de 23 | Al leerlos: causas cortadas a media palabra, una debilidad atribuida a otro sistema, el sistema de la DMZ sin nombrar, tipos de datos en vez de qué guarda cada sistema, «puede caer» en una fuga y «no tiene debilidades conocidas». |
+| Párrafo, prompt v2 | 21 de 23 | Copiaban la descripción entera de cada sistema (uno llegó al tope y quedó a media frase). Los dos riesgos de un solo sistema fallaron los cuatro intentos. |
+| Párrafo, prompt v3, reglas finales | 23 de 23 | 11 al primer intento, 6 al segundo, 4 al tercero y 2 al cuarto; los 23 en 67 a 82 s. El riesgo de cinco sistemas iba justo: agotó cinco intentos cuando dos peticiones se cruzaron. |
+| **Frase y filas por código, prompt v4** | **23 de 23** | **17 al primer intento y 6 al segundo; los 23 en 18 s.** |
 
-Con temperatura 0 la medida se repitió igual en cuatro pasadas a solas. No es una garantía: una
-vez que dos peticiones del mismo riesgo se cruzaron (la página abierta y un ensayo a la vez), el
-riesgo con más sistemas («Fuga de información en API», cinco, que a solas necesita el cuarto
-intento) agotó los cinco en las dos. Con la temperatura del reintento (0,4) y otras dos
-semillas, sin guardar: 23 de 23 y 22 de 23; el que falló es ese mismo riesgo.
+Con la temperatura del reintento (0,4) y otras tres semillas, sin guardar: 69 de 69 válidos y
+ninguno pasó del tercer intento.
 
-Ejemplo, el mismo riesgo antes y después:
+Ejemplo, «Fuga de información en API»:
 
 - antes: «Que información que la organización debe proteger acabe en manos ajenas.»
-- ahora: «Que los expedientes clínicos y financieros de asegurados salgan de app-siniestros: es
-  la aplicación interna de gestión de siniestros con fallas de ejecución remota de código en
-  pillow 8.1.0, de las que ya se usan en ataques reales. También podrían filtrarse datos
-  personales del portal-expuesto-apache: es una aplicación interna accesible desde la DMZ por una
-  falla de recorrido de rutas en Apache httpd 2.4.49; y de crm-legacy, que permite dar
-  seguimiento a prospectos y clientes; y de portal-rh, donde los empleados consultan recibos de
-  nómina; y de erp-interno, usado por finanzas y recursos humanos.»
+- ahora, la frase: «Que los expedientes clínicos y financieros de asegurados, así como sus datos
+  personales, queden a la vista de quien no debe.»
+- y debajo, por código: «app-siniestros · Crítico · Explotación activa. Aplicación interna de
+  gestión de siniestros de vida y gastos médicos: los ajustadores suben y procesan evidencia
+  (facturas médicas, fotos, identificaciones) adjunta a… En la red interna · por ejecución remota
+  de código en pillow 8.1.0.», y así crm-legacy, portal-expuesto-apache («En la DMZ (la zona que
+  da la cara a Internet) · por recorrido de rutas en Apache httpd 2.4.49») y dos más plegados.
 
-**Lo que no se consiguió o las reglas no evitan:**
+**Lo que se probó y se retiró.** Con el párrafo, añadir a los avisos «conserva lo que ya está
+bien: …» (2 de 23 dejaron de dar texto válido: el modelo no añadía el sistema que faltaba) y
+pedir «más corto sin quitar sistemas» (el riesgo de cinco sistemas falló todos los intentos).
+Con la frase, exigir dos palabras de la descripción del sistema **más grave** y alguna de
+**otro** sistema: rechazaba frases concretas que hablaban de lo que guarda otro sistema del
+mismo riesgo y obligaba a mencionar un servicio de pruebas (2 de 23 sin texto). Y quitar las
+palabras del nombre de la organización por sus cinco letras: «Aseguradora» se llevaba
+«asegurados».
 
-- **Menos de la mitad sale al primer intento** (11 de 23). Cada intento son uno o dos segundos,
-  pero un riesgo con muchos sistemas puede agotar los cinco (el de cinco sistemas del
-  laboratorio va justo); entonces se queda con el significado general hasta el reintento.
-- **Dos retoques a los avisos se probaron y se retiraron** porque empeoraban la medida: añadir
-  «conserva lo que ya está bien: …» (2 de 23 dejaron de dar texto válido: el modelo no añadía el
-  sistema que faltaba) y pedir «más corto sin quitar sistemas» (el riesgo de cinco sistemas
-  falló los cinco intentos). El reintento solo ve la última respuesta y sus avisos, y el modelo
-  arregla una cosa deshaciendo otra; no se encontró un aviso que lo evite siempre.
-- **Redacción torpe dentro de lo que sí recibió**: «portal-rh puede ser truncado de
-  encabezados», «información pública, como hashes NTLM», o palabras en inglés heredadas del
-  título de la vulnerabilidad («bypass», «cookies nameless»). Por eso va marcado «por IA», dice
-  que puede equivocarse y se puede corregir.
-- **Vale lo que valgan los datos**: sin descripción de los activos el texto no tiene de dónde
-  decir qué guardan, y la causa es la del título del escenario.
-- El párrafo de la función de negocio (`business_roles`) no tiene todavía el reintento con
-  temperatura: tras un fallo vuelve a preguntar igual.
+**Lo que las reglas no evitan:**
+
+- **Faltas y frases flojas.** Una frase salió con «dejé de funcionar» por «deje», y de un
+  sistema que apenas guarda nada el modelo dice poco («que alguien cambie la información en una
+  página heredada»). Por eso va marcada «por IA», dice que puede equivocarse y se puede
+  corregir.
+- **Vale lo que valgan los datos.** Sin descripción de los activos no hay de dónde decir qué se
+  perdería (la fila lo avisa), y la causa es la del título del escenario.
+- **Palabras en inglés en las causas.** Vienen del título de la vulnerabilidad. Medido en el
+  laboratorio: 20 de 1 010 títulos distintos traen alguna («buffer overflow», «infinite loop»,
+  «cookies nameless»), y 2 de las 36 causas de escenario. Los términos que en español se usan
+  igual («bypass», «cookies», «buffer overflow») se dejan como están por decisión del usuario
+  (2026-11-18): no hay glosario que los traduzca ni regla que los rechace.
 
 ### Actividad por acción (`activity.threads`, P7)
 
@@ -1277,8 +1288,9 @@ que la IA no lo reconoció en lugar de inventar.
 
 Se pide al abrir la página de la corrección (`software.request`) y por el drenaje periódico
 (`software.queue_missing`, 5 por pasada dentro de `describe_pending_vulnerabilities`; tarea
-`describe_software` en la cola `llm`). Tras un fallo espera 30 min, 1 h, 2 h… hasta un día; una
-persona que abre la página no espera. Quien tiene `detection.work_findings` puede corregir el
+`describe_software` en la cola `llm`). Tras un fallo espera 30 min, 1 h, 2 h… hasta un día, y
+vuelve a preguntar con temperatura 0,4 y otra semilla (`llm.client.options_after`); una persona
+que abre la página no espera. Quien tiene `detection.work_findings` puede corregir el
 texto (`SoftwareDescriptionView`, `software.set_by_person`): queda «por una persona» y la IA ya no
 lo toca; con el texto vacío vuelve a escribirlo la IA.
 

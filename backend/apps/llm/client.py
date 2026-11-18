@@ -42,6 +42,23 @@ def default_options():
     }
 
 
+RETRY_TEMPERATURE = 0.4  # la de una pregunta que ya falló (ver ``options_after``)
+
+
+def options_after(failures) -> dict:
+    """Las opciones para volver a preguntar algo que ya se quedó ``failures`` veces sin respuesta
+    válida. Con temperatura 0 el modelo responde lo mismo a la misma pregunta: repetiría los
+    mismos intentos y el mismo fallo cada vez. Por eso el reintento va con algo de temperatura y
+    otra semilla (la semilla sola no cambia nada con temperatura 0: medido en el laboratorio,
+    2026-11-18). Sin fallos, las opciones de siempre."""
+    options = default_options()
+    failures = int(failures or 0)
+    if failures:
+        options["temperature"] = max(float(options.get("temperature") or 0), RETRY_TEMPERATURE)
+        options["seed"] = int(options.get("seed") or 0) + failures
+    return options
+
+
 class OllamaClient:
     def __init__(self, base_url=None, timeout=None):
         self.base_url = (base_url or settings.OLLAMA_BASE_URL).rstrip("/")

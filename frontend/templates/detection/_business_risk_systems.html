@@ -1,0 +1,16 @@
+{% comment %}
+Dónde y por dónde puede ocurrir un riesgo de la organización, sistema por sistema
+(`business_risk_texts.systems_of`). Todo sale del inventario y del escenario de cada activo, sin
+modelo de por medio: qué es el sistema (su descripción), el nivel de su escenario, dónde está y
+la causa. Los más graves a la vista; los demás, plegados.
+{% endcomment %}
+<ul class="mt-1.5 flex flex-col gap-2" data-risk-systems>
+  {% for row in systems.shown %}{% include "detection/_business_risk_system.html" %}{% endfor %}
+</ul>
+{% if systems.more %}
+<details class="fold mt-1.5"><summary>y {{ systems.more|length }} más</summary>
+  <ul class="mt-1.5 flex flex-col gap-2">
+    {% for row in systems.more %}{% include "detection/_business_risk_system.html" %}{% endfor %}
+  </ul>
+</details>
+{% endif %}

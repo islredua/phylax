@@ -1,0 +1,6 @@
+{% load detection_tags %}
+<li data-risk-system>
+  <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5"><a href="{% url 'detection:risk' row.scenario.pk %}" class="font-medium">{{ row.asset.name }}</a> {% risk_level_badge row.scenario.level %} {% intel_badges row.scenario %}</div>
+  {% if row.what %}<p class="text-xs text-ink-soft" data-system-what>{{ row.what }}</p>{% else %}<p class="text-xs text-muted" data-system-what>Sin descripción en el inventario{% if perms.assets.change_asset %}: <a href="{% url 'assets:edit' row.asset.pk %}">escríbela</a> para que se sepa qué se perdería aquí{% endif %}.</p>{% endif %}
+  {% if row.how %}<p class="text-xs text-muted" data-system-how>{{ row.how|capfirst }}.</p>{% endif %}
+</li>

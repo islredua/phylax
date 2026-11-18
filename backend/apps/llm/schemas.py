@@ -370,14 +370,14 @@ def _stems(text) -> set:
     }
 
 
-def _copied_from(general, text, size=BUSINESS_ROLE_COPIED_WORDS) -> str:
+def _copied_from(general, text) -> str:
     """El tramo de la definición general que el texto trae copiado (seis palabras seguidas o más,
     o toda si es más corta), o ``""``. Se devuelve el tramo para decírselo al modelo: sin saber
     qué copió, repetía la misma frase en cada reintento (laboratorio, 2026-11-18)."""
     words = _word_run(general).split()
     if not words:
         return ""
-    size = min(size, len(words))
+    size = min(BUSINESS_ROLE_COPIED_WORDS, len(words))
     run = f" {_word_run(text)} "
     for start in range(len(words) - size + 1):
         end = start + size
@@ -408,11 +408,10 @@ def _not_named(names, text) -> list:
     return [name for name in names if f" {_name_run(name)} " not in said]
 
 
-def _not_told(clues, text, words=1) -> list:
-    """Los activos de los que el texto no usa palabras de su descripción (``words``: cuántas
-    distintas hacen falta; menos si la descripción no tiene tantas)."""
+def _not_told(clues, text) -> list:
+    """Los activos de los que el texto no usa ninguna palabra de su descripción."""
     used = _stems(text)
-    return [name for name, found in clues.items() if len(found & used) < min(words, len(found))]
+    return [name for name, found in clues.items() if not (found & used)]
 
 
 def _stems_beyond_names(text, names) -> set:
@@ -545,18 +544,17 @@ def business_role_validator(*, assets, known_text, general="", about=None, organ
 
 BUSINESS_RISK_SCHEMA = {
     "type": "object",
-    "properties": {"summary": {"type": "string", "maxLength": 750}},
+    # El tope del esquema va por encima del de la regla: una respuesta larga llega entera y se
+    # rechaza por larga, en vez de llegar cortada a media frase.
+    "properties": {"summary": {"type": "string", "maxLength": 480}},
     "required": ["summary"],
 }
-BUSINESS_RISK_MIN = 100
-BUSINESS_RISK_MAX = 750
-BUSINESS_RISK_NAME = (
-    3  # con hasta tres sistemas se nombran todos; con más, tres y siempre el primero
+BUSINESS_RISK_MIN = 60
+BUSINESS_RISK_MAX = 340
+BUSINESS_RISK_TELL_WORDS = (
+    2  # palabras de la descripción del sistema más grave («clientes» no basta)
 )
-BUSINESS_RISK_TELL = 2  # de cuántos sistemas descritos dice qué guardan o qué hacen
-BUSINESS_RISK_TELL_WORDS = 2  # con cuántas palabras de su descripción («clientes» sola no basta)
-BUSINESS_RISK_COPIED_WORDS = 14  # tantas seguidas de una descripción son copiarla, no resumirla
-BUSINESS_RISK_HINT_WORDS = 8  # cuánto de la descripción se le recuerda al modelo al reintentar
+BUSINESS_RISK_HINT = 220  # cuánto de la descripción se le recuerda al modelo al reintentar
 # Cómo se dice cada pérdida (sobre el texto sin acentos): una fuga no «se altera» ni un sistema
 # «cae»; el párrafo de una alteración habló de datos «a la vista» (laboratorio, 2026-11-18).
 _RISK_LOSS_SAID = {
@@ -564,7 +562,7 @@ _RISK_LOSS_SAID = {
         re.compile(
             r"\b(?:sal(?:ga|gan|ir|e|en|dria|drian)|filtr\w+|fug\w+|a la vista|expuest\w+|"
             r"expon\w+|rob\w+|extra\w+|manos ajenas|le(?:a|an|er|ido|idos)|acced\w+|divulg\w+|"
-            r"obten\w+|vea|vean|conozc\w+|descarg\w+|copi\w+)\b"
+            r"obten\w+|vea|vean|conozc\w+|descarg\w+|copi\w+|lleg\w+ a)\b"
         ),
         "que algo sale o queda a la vista de quien no debe",
     ),
@@ -584,7 +582,7 @@ _RISK_LOSS_SAID = {
         "que algo cae o deja de funcionar",
     ),
 }
-# Lo que solo se dice de UNA pérdida: usado en el párrafo de otra, la confunde. Los textos de una
+# Lo que solo se dice de UNA pérdida: usado en la frase de otra, la confunde. Los textos de una
 # fuga y de una alteración en Pagos decían además que el servicio «puede caer», y el de una
 # alteración, que algo quedaba «a la vista» (laboratorio, 2026-11-18). «Caer en manos ajenas» es
 # de la fuga.
@@ -596,116 +594,91 @@ _RISK_LOSS_ONLY = {
         r"dej\w+ de (?:funcionar|responder|operar)|fuera de servicio|sin servicio|interrump\w+)\b"
     ),
 }
-# El nivel y la probabilidad los pone el código al lado: el párrafo no los repite ni los contradice.
+# Cómo se le dice al modelo qué otra pérdida metió y qué va en su lugar. Con «quita «caer»» a
+# secas repetía la misma frase los cinco intentos (laboratorio, 2026-11-18).
+_RISK_LOSS_NAMED = {
+    "CONFIDENTIALITY": ("una fuga", "nada «queda a la vista» ni «se filtra»"),
+    "INTEGRITY": ("una alteración", "nada «se altera» ni «se falsea»"),
+    "AVAILABILITY": ("una interrupción", "nada «cae» ni «deja de funcionar»"),
+}
+# El nivel y la probabilidad los pone el código al lado: la frase no los repite ni los contradice.
 _RISK_LEVEL_SAID = re.compile(
     r"\b(?:nivel|riesgo|probabilidad|impacto)\s+(?:(?:es|de|muy)\s+)*"
     r"(?:cr[ií]tic[oa]|alt[oa]|moderad[oa]|medi[oa]|baj[oa])\b",
     re.IGNORECASE,
 )
-
-
-# Cómo dice el párrafo que un sistema es alcanzable desde fuera (sobre el texto sin acentos).
-_RISK_OUTSIDE_SAID = re.compile(r"\b(?:dmz|internet|desde fuera|fuera de la organizacion)\b")
-_RISK_ATTACKED_SAID = re.compile(
-    r"ataques reales|explotaci[oó]n activa|ya se (?:usan?|explotan?|han? usado|ha explotado)",
-    re.IGNORECASE,
+# Por dónde puede ocurrir (la debilidad de cada sistema, si ya se usa en ataques reales) lo
+# escribe el código debajo de la frase, con los datos de cada escenario. Dicho por el modelo salía
+# mal: la debilidad de un sistema atribuida a otro, «ataques reales» de más (sobre el texto sin
+# acentos).
+_RISK_WEAKNESS_SAID = re.compile(
+    r"\b(?:vulnerabilidad\w*|debilidad\w*|exploit\w*|explotacion\w*|ataques? reales|"
+    r"fall[ao]s? (?:de|en)|cve)\b"
 )
 
 
-def _weakness_class(cause) -> str:
-    """La clase de debilidad de una causa, sin el software: de «ejecución remota de código en
-    pillow 8.1.0», «ejecución remota de código». Una causa sin software se queda entera."""
-    head, found, _software = str(cause or "").rpartition(" en ")
-    return head if found else str(cause or "")
-
-
-# Cómo se le dice al modelo qué otra pérdida metió y qué poner en su lugar. Con «quita «caer»» a
-# secas repetía la misma frase los cinco intentos (laboratorio, 2026-11-18).
-_RISK_LOSS_NAMED = {
-    "CONFIDENTIALITY": ("una fuga", "nada «queda a la vista» ni «se filtra»"),
-    "INTEGRITY": ("una alteración", "nada «se altera» ni «se falsea»"),
-    "AVAILABILITY": ("una interrupción", "de un sistema di que «tiene» la debilidad, no que «cae»"),
-}
-
-
-def _other_loss_said(text, loss, from_data) -> dict:
-    """Lo que el texto dice con las palabras de otra pérdida, por pérdida y con la palabra de
-    antes («puede caer»). No cuenta lo que viene de los datos de los sistemas (un proxy que hace
-    «filtrado de contenido» no habla de una fuga)."""
-    found = {}
+def _said_beyond_data(found, text, from_data) -> list:
+    """Lo que ``found`` (una expresión) encuentra en el texto, con la palabra de antes («puede
+    caer»), sin contar lo que viene de los datos de los sistemas: un proxy que hace «filtrado de
+    contenido» no habla de una fuga, ni un «escáner de vulnerabilidades» de una debilidad."""
     run = _name_run(text)
-    for other, said in _RISK_LOSS_ONLY.items():
-        if other == loss:
+    said = {}
+    for match in found.finditer(run):
+        stems = _stems(match.group(0))
+        if stems and stems <= from_data:
             continue
-        for match in said.finditer(run):
-            stems = _stems(match.group(0))
-            if stems and stems <= from_data:
-                continue
-            before = run[: match.start()].split()[-1:]
-            found.setdefault(other, {})[" ".join([*before, match.group(0)])] = True
-    return {other: list(said) for other, said in found.items()}
-
-
-def _clauses(text) -> list:
-    """El texto en tramos (hasta un punto, un punto y coma o dos puntos): para saber de qué
-    sistema se dice cada cosa."""
-    return [part for part in re.split(r"(?<=[.;:])\s+", text) if part.strip()]
+        before = run[: match.start()].split()[-1:]
+        said[" ".join([*before, match.group(0)])] = True
+    return list(said)
 
 
 def business_risk_validator(
-    *,
-    systems,
-    known_text,
-    general="",
-    about=None,
-    causes=None,
-    outside=(),
-    attacked=(),
-    organization="",
-    loss="",
+    *, known_text, systems=(), about=None, general="", organization="", loss=""
 ):
-    """Validador de «qué puede pasar» en un riesgo de la organización, atado a lo que se le envió.
+    """Validador de la frase «qué puede pasar» de un riesgo de la organización, atada a lo que se
+    le envió.
 
-    ``systems`` son los nombres de los sistemas del riesgo, del más grave al menos: el párrafo
-    nombra el primero y, en total, tres (o todos si son menos). ``about`` es la descripción de
-    cada uno por su nombre: dice qué guardan o qué hacen dos de ellos (o todos si son menos), no
-    «información» a secas. ``causes`` es la debilidad que más pesa en cada uno: dice por dónde,
-    con alguna palabra de alguna, y no le atribuye a un sistema la debilidad de otro. ``outside``
-    son los alcanzables desde fuera: nombra el más grave y lo dice. ``attacked``, los que tienen
-    debilidades que ya se usan en ataques reales: no lo dice de los demás. El «por dónde» es la
-    clase de debilidad («cabeceras de seguridad ausentes»), no solo el software. ``general`` es el
-    significado general de la pérdida, del que no copia ni un tramo. ``known_text``, todo lo que
-    el modelo recibió: ni sistemas ni cifras de fuera. ``organization``, su nombre, que no cuenta
-    como palabra de una descripción. ``loss``, el código de la consecuencia: el párrafo habla de
-    esa pérdida y no usa las palabras de otra, salvo las que traen los datos de los sistemas.
+    La frase dice **qué se perdería** en concreto. Dónde está cada sistema y por qué debilidad
+    puede ocurrir lo escribe el código debajo, sistema por sistema: aquí ni se pide ni se admite.
+    ``systems`` son los nombres de los sistemas del riesgo y ``about`` la descripción de los que
+    la tienen, del más grave al menos: la frase usa dos palabras de esas descripciones (no
+    «información» o «el servicio» a secas). No se le exige que sean del sistema más grave ni que
+    cubra varios: con esas dos reglas se rechazaban frases concretas que hablaban de lo que
+    guarda otro sistema del mismo riesgo, o se le obligaba a mencionar un sistema de pruebas
+    (laboratorio, 2026-11-18); todos los sistemas se listan debajo. ``general`` es
+    el significado general de la pérdida, del que no copia ni un tramo. ``loss``, el código de la
+    consecuencia: habla de esa pérdida y no usa las palabras de otra, salvo las que traen los
+    datos. ``known_text``, todo lo que el modelo recibió: ni sistemas ni cifras de fuera.
+    ``organization``, su nombre, que no cuenta como palabra de una descripción.
     """
     names = [n for n in dict.fromkeys(systems) if n]
-    wanted = min(len(names), BUSINESS_RISK_NAME)
+    about = {name: text for name, text in (about or {}).items() if text}
     known = _folded(known_text)
     known_numbers = set(_LOOSE_NUMBER.findall(known))
     # Lo que distingue a cada sistema: las palabras de su descripción sin los comodines. Las de
-    # su nombre cuentan si el texto las usa aparte del nombre (``_stems_beyond_names``).
-    plain_words = _ROLE_FILLER | _stems(organization)
-    clues = {name: _stems(text) - plain_words for name, text in (about or {}).items()}
-    clues = {name: found for name, found in clues.items() if found}
-    told = min(len(clues), BUSINESS_RISK_TELL)
-    skipped = _ROLE_FILLER | _stems(" ".join(names))
-    ways = {name: _stems(cause) - skipped for name, cause in (causes or {}).items()}
-    # La clase de debilidad de cada sistema, sin el software: «una debilidad en nginx 1.27.5» no
-    # dice por dónde. Si la causa no deja nada (solo comodines), vale la causa entera.
-    kinds = {
-        name: (_stems(_weakness_class(cause)) - skipped) or ways[name]
-        for name, cause in (causes or {}).items()
+    # su nombre cuentan si el texto las usa aparte del nombre (``_stems_beyond_names``). El
+    # nombre de la organización se quita entero y no por sus letras: «Aseguradora Norte» no debe
+    # llevarse por delante «asegurados», que sí dice de quién son los expedientes.
+    apart = [*names, organization]
+    clues = {
+        name: _stems_beyond_names(text, [organization]) - _ROLE_FILLER
+        for name, text in about.items()
     }
-    any_kind = set().union(*kinds.values())
-    from_data = _stems(" ".join([*(causes or {}).values(), *(about or {}).values()]))
-    outside = [name for name in names if name in set(outside)]
-    attacked = set(attacked)
+    clues = {name: found for name, found in clues.items() if found}
+    told = set().union(*clues.values())
+    from_data = _stems(" ".join(about.values()))
+
+    def hint(name):
+        # La primera frase de su descripción, entera: con diez palabras se cortaba antes de lo
+        # que importa («Proxy de salida a Internet para los equipos de la…») y el modelo seguía
+        # hablando de lo que hace la organización en general (laboratorio, 2026-11-18).
+        sentence = re.split(r"(?<=[.;])\s+", about[name].strip(), maxsplit=1)[0]
+        return f"{name} es «{sentence[:BUSINESS_RISK_HINT].rstrip(' .;')}»"
 
     class _BusinessRisk(BaseModel):
         model_config = ConfigDict(extra="ignore")
 
-        summary: str = Field(max_length=BUSINESS_RISK_MAX + 100)
+        summary: str = Field(max_length=BUSINESS_RISK_MAX + 400)
 
         @field_validator("summary")
         @classmethod
@@ -715,114 +688,54 @@ def business_risk_validator(
             text = _clean_paragraph(value)
             if len(text) < BUSINESS_RISK_MIN:
                 raise ValueError(
-                    "summary debe decir en dos o tres frases qué puede pasar en este riesgo: qué "
-                    "se perdería, en qué sistemas y por dónde"
+                    "summary debe decir en una frase qué se perdería en este riesgo: qué "
+                    "información o qué trabajo, y de quién"
                 )
             if len(text) > BUSINESS_RISK_MAX:
-                raise ValueError(f"summary no pasa de {BUSINESS_RISK_MAX} caracteres")
+                raise ValueError(
+                    f"summary no pasa de {BUSINESS_RISK_MAX} caracteres: una frase, dos como "
+                    "mucho, con lo que se perdería; los sistemas se listan aparte"
+                )
             if not looks_spanish(text):
                 raise ValueError("summary debe estar redactado en español")
             # Todos los problemas juntos, como en ``business_role_validator``.
             problems = []
             if _cut_short(text):
-                problems.append(
-                    "summary quedó a media frase: escríbelo más corto (dos o tres frases) y "
-                    "termina la última"
-                )
+                problems.append("summary quedó a media frase: termínala con un punto")
             copied = _copied_from(general, text)
             if copied:
                 problems.append(
                     f"summary no repite el significado general de la pérdida: quita «{copied}» "
-                    "y di qué se perdería en ESTE riesgo, con sus sistemas"
+                    "y di qué se perdería en ESTE riesgo, con lo que guardan sus sistemas"
                 )
-            said, hint = _RISK_LOSS_SAID.get(loss, (None, ""))
+            said, loss_hint = _RISK_LOSS_SAID.get(loss, (None, ""))
             if said is not None and not said.search(_name_run(text)):
-                problems.append(f"summary debe decir la pérdida de este riesgo: {hint}")
+                problems.append(f"summary debe decir la pérdida de este riesgo: {loss_hint}")
             if said is not None:
-                for other, fragments in _other_loss_said(text, loss, from_data).items():
-                    what, instead = _RISK_LOSS_NAMED[other]
-                    problems.append(
-                        f"summary habla de otra pérdida (este riesgo no es {what}): quita «"
-                        + "», «".join(fragments[:4])
-                        + f"». Aquí {instead}; di solo {hint}"
-                    )
-            for name, description in (about or {}).items():
-                lifted = _copied_from(description, text, BUSINESS_RISK_COPIED_WORDS)
-                if lifted and len(lifted.split()) >= BUSINESS_RISK_COPIED_WORDS:
-                    problems.append(
-                        f"summary no copia la descripción de {name} («{lifted}»): di en pocas "
-                        "palabras qué guarda o qué trabajo hace"
-                    )
-            missing = _not_named(names, text)
-            short = len(names) - len(missing) < wanted
-            if names and (short or names[0] in missing):
-                problems.append(
-                    "summary debe nombrar "
-                    + (
-                        "todos los sistemas"
-                        if wanted == len(names)
-                        else f"al menos {wanted} sistemas, y siempre el primero ({names[0]})"
-                    )
-                    + ", tal como vienen en name; faltan: "
-                    + ", ".join((missing if short else [names[0]])[:8])
-                )
-            beyond = _stems_beyond_names(text, names)
-            untold = [
-                name
-                for name, found in clues.items()
-                if len(found & beyond) < min(BUSINESS_RISK_TELL_WORDS, len(found))
-            ]
-            if len(clues) - len(untold) < told:
-                # Con un trozo de su descripción delante: sin él, el modelo repetía el nombre o
-                # copiaba la descripción entera (laboratorio, 2026-11-18).
-                hints = [
-                    f"{name} (es «{' '.join(about[name].split()[:BUSINESS_RISK_HINT_WORDS])}…»)"
-                    for name in untold[:4]
-                ]
-                problems.append(
-                    "summary debe decir en pocas palabras qué guarda o qué trabajo hace cada "
-                    "sistema que nombra, con lo que cuenta su what_it_is (no «información» o «el "
-                    "servicio» a secas); falta decirlo de: " + ", ".join(hints)
-                )
-            if any_kind and not (any_kind & _stems(text)):
-                first = next((name for name in names if name in (causes or {})), "")
-                example = _weakness_class(causes[first]) if first else ""
-                problems.append(
-                    "summary debe decir por dónde puede ocurrir: la clase de debilidad de al "
-                    "menos un sistema, con palabras de su main_weakness (no basta el nombre del "
-                    "software)" + (f"; la de {first} es «{example}»" if example else "")
-                )
-            if outside and (
-                outside[0] in missing or not _RISK_OUTSIDE_SAID.search(_name_run(text))
-            ):
-                problems.append(
-                    f"summary debe nombrar {outside[0]} y decir que es alcanzable desde fuera "
-                    "(su where): es lo que lo hace más probable"
-                )
-            if not attacked and _RISK_ATTACKED_SAID.search(text):
-                problems.append(
-                    "summary no dice que hay debilidades usadas en ataques reales: los datos no "
-                    "lo dicen de ningún sistema"
-                )
-            # De quién se dice cada cosa: en un tramo que nombra un solo sistema, ni la debilidad
-            # de otro ni «ya se usa en ataques reales» si los datos no lo dicen de él.
-            for clause in _clauses(text):
-                here = [name for name in names if name not in _not_named([name], clause)]
-                if len(here) != 1:
-                    continue
-                name, used = here[0], _stems(clause)
-                for other, way in ways.items():
-                    if other != name and len((way - ways.get(name, set())) & used) >= 2:
+                for other, only in _RISK_LOSS_ONLY.items():
+                    fragments = [] if other == loss else _said_beyond_data(only, text, from_data)
+                    if fragments:
+                        what, instead = _RISK_LOSS_NAMED[other]
                         problems.append(
-                            f"summary le atribuye a {name} la debilidad de {other} "
-                            f"(«{causes[other]}»)"
-                            + (f"; la de {name} es «{causes[name]}»" if name in causes else "")
+                            f"summary habla de otra pérdida (este riesgo no es {what}): quita «"
+                            + "», «".join(fragments[:4])
+                            + f"». Aquí {instead}; di solo {loss_hint}"
                         )
-                if attacked and name not in attacked and _RISK_ATTACKED_SAID.search(clause):
-                    problems.append(
-                        f"summary no dice de {name} que sus debilidades ya se usan en ataques "
-                        "reales: los datos no lo dicen de ese sistema"
-                    )
+            weaknesses = _said_beyond_data(_RISK_WEAKNESS_SAID, text, from_data)
+            if weaknesses:
+                problems.append(
+                    "summary no habla de debilidades, fallas ni ataques (la plataforma los "
+                    "muestra debajo, sistema por sistema): quita «"
+                    + "», «".join(weaknesses[:4])
+                    + "» y di solo qué se perdería"
+                )
+            used = told & _stems_beyond_names(text, apart)
+            if len(used) < min(BUSINESS_RISK_TELL_WORDS, len(told)):
+                problems.append(
+                    "summary debe decir qué se perdería en los sistemas de ESTE riesgo, con "
+                    "palabras de su what_it_is: ni «información» o «el servicio» a secas, ni lo "
+                    f"que hace la organización en general. Por ejemplo, {hint(next(iter(clues)))}"
+                )
             levels = [m.group(0) for m in _RISK_LEVEL_SAID.finditer(text)]
             if levels:
                 problems.append(
@@ -831,9 +744,8 @@ def business_risk_validator(
                 )
             problems += _not_in_data(text, known, known_numbers)
             if problems:
-                # Se probó añadir «conserva lo que ya está bien: …» y pedir «más corto sin quitar
-                # sistemas»: con el modelo del laboratorio, 2 de 23 riesgos dejaron de dar texto
-                # válido (no añadía el sistema que faltaba). Los avisos dicen solo lo que falla.
+                # Se probó añadir «conserva lo que ya está bien: …»: con el modelo del laboratorio
+                # dejó de corregir lo que faltaba. Los avisos dicen solo lo que falla.
                 raise ValueError("\n- ".join(problems))
             return text
 
