@@ -560,15 +560,22 @@ def risk_level_for(likelihood, impact):
 
 
 class Risk(UUIDModel):
-    """Escenario de amenaza sobre un activo, alimentado por sus vulnerabilidades consolidadas.
+    """Escenario de riesgo de un activo: una consecuencia (fuga, alteración, interrupción) con
+    todas las vulnerabilidades sostenidas del activo que llevan a ella.
 
-    Probabilidad e impacto en escalas cualitativas 1–5; nivel por matriz 5×5. El LLM propone
-    escenario y valoraciones (``assessment_source = AI``) o una regla lo hace si no responde.
-    El tratamiento, el responsable y el riesgo residual los fija una persona.
+    El reparto lo hace el código (``risks.scenario_groups``); el LLM solo valora: probabilidad e
+    impacto en escalas cualitativas 1–5, nivel por matriz 5×5 (``assessment_source = AI``), o una
+    regla si no responde. El tratamiento, el responsable y el riesgo residual los fija una
+    persona. El riesgo de la organización (una consecuencia sobre una función de negocio) reúne
+    los escenarios de sus activos y no tiene tabla propia: ``business_risks``.
     """
 
     asset = models.ForeignKey("assets.Asset", on_delete=models.CASCADE, related_name="risks")
-    key = models.CharField(max_length=120, help_text="Estable por activo: escenario + fuente.")
+    key = models.CharField(
+        max_length=120,
+        help_text="Estable por activo: la consecuencia del escenario. Los riesgos de antes del "
+        "reparto por consecuencia llevan «consecuencia:fuente:vulnerabilidad».",
+    )
     title = models.CharField(
         max_length=200,
         help_text="«Consecuencia en activo por causa»: nombra qué se pierde y por qué.",
@@ -649,6 +656,12 @@ class Risk(UUIDModel):
     assessed_at = models.DateTimeField(null=True, blank=True)
     environment = models.CharField(max_length=30, blank=True)
     first_identified_at = models.DateTimeField()
+    deadline_from = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Desde cuándo cuenta el plazo de la política: cuándo se detectó la más "
+        "antigua de sus vulnerabilidades más graves. Vacío: desde que se identificó.",
+    )
     closed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:

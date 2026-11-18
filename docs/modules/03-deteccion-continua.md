@@ -259,15 +259,16 @@ retardo). Varios disparadores cercanos producen una sola corrida.
 Tras cada consolidación, las vulnerabilidades **sostenidas** del activo (confirmadas, probables, o
 en verificación con plausibilidad > 0.5; una duda a medias como «software no observado» o una
 versión imprecisa de nmap espera a que alguien la verifique o la IA la suba, y un probable falso
-positivo no entra) se expresan como **riesgos**: escenarios de amenaza con fuente (atacante externo,
+positivo no entra) se expresan como **escenarios de riesgo**: uno por activo y **consecuencia** (fuga de información,
+alteración de datos o sistemas, interrupción del servicio), con fuente de amenaza (atacante externo,
 persona interna, malware, cadena de suministro, error, otra), vulnerabilidades ligadas,
 **probabilidad** e **impacto** en escalas cualitativas 1–5 y **nivel** por matriz 5×5
-(producto: 1–4 bajo, 5–9 moderado, 10–14 alto, 15–19 muy alto, 20–25 crítico). Cada riesgo
-nombra su **consecuencia** (fuga de información, alteración, interrupción del servicio,
-incumplimiento, daño reputacional, pérdida financiera, afectación operativa) y su título sigue la
-fórmula **«Consecuencia en activo por causa»** («Fuga de datos de pagos en api-pagos por
-Log4Shell»); el esquema rechaza títulos genéricos y cualquier texto que no parezca español, y el
-reintento le dice al modelo qué corregir.
+(producto: 1–4 bajo, 5–9 moderado, 10–14 alto, 15–19 muy alto, 20–25 crítico). Qué
+vulnerabilidades entran en cada escenario y con qué consecuencia **lo decide el código**, no el
+modelo (ver «Riesgos en dos niveles», más abajo); el título lo compone el código con la fórmula
+**«Consecuencia en activo por causa»** («Fuga de información en api-pagos por Log4Shell y 15
+más»). El esquema rechaza cualquier texto que no parezca español y el reintento le dice al modelo
+qué corregir.
 
 **Dos lectores por riesgo (revisión del 2026-11-10).** Cada riesgo trae textos para dos públicos,
 redactados en **dos etapas** porque el modelo de 7B no logra, dentro del JSON grande de la
@@ -297,10 +298,7 @@ activo; y `humanize_sources` traduce los códigos de fuente del payload («CTI_M
 a palabras en detalles, lectura de inteligencia y razonamiento. Al redactor no se le da lo que
 luego se le prohíbe escribir: `lay_text` quita siglas y porcentajes de la lectura de inteligencia
 y los detalles viajan sin el «Sustento:». Si en tres intentos no lo logra, va la descripción por
-regla y queda anotado en el razonamiento. Los riesgos por regla se agrupan por software (dos
-fallas de spring-web son un riesgo, no dos filas con el mismo título) y las debilidades de
-configuración sin software propio (cabeceras ausentes, SRI, enumeración de usuarios) van juntas
-por consecuencia en un solo riesgo por activo. Ningún texto tiene límite editorial: los topes del esquema
+regla y queda anotado en el razonamiento. La regla valora el mismo escenario que habría valorado el modelo (el reparto no depende de quién valore). Ningún texto tiene límite editorial: los topes del esquema
 (4000/6000 caracteres) solo frenan una salida desbocada. La **Inteligencia de amenazas** se
 presenta primero en claro («1 de las 2 vulnerabilidades figura en el catálogo de explotación
 activa de CISA: hay constancia de que atacantes reales ya la han usado…», `intelligence()["plain"]`)
@@ -312,20 +310,14 @@ repone con el título de esa vulnerabilidad. Las vulnerabilidades que Grype saca
 ligan a su componente (`consolidation.component_from_findings`, por `purl` o nombre y versión),
 y donde no hay componente el software se toma del título (`risks.software_key`), para que la
 agrupación por software funcione en el payload, en la adopción y en los detalles por regla.
-El LLM local (`apps/llm/prompts/risk_assessment/v4.md`, tarea
-`RISK_ASSESSMENT`) propone entre 1 y 5
-escenarios agrupando vulnerabilidades que llevan a la misma consecuencia; las referencias
-inválidas se descartan, dos escenarios con el mismo título se funden y el título se **garantiza
-en código**, no con reintentos (`risks.fix_title`): si no nombra al activo real se repone el
-nombre; si no trae consecuencia ni « por » («Inyección de código en lodash en agente-portal») se
-reconstruye con la etiqueta de la consecuencia que el modelo sí entrega en su campo; si la causa
-es genérica («por múltiples vulnerabilidades») se sustituye por la vulnerabilidad principal del
-riesgo «y N vulnerabilidades más». Una vulnerabilidad que el modelo no referenció pero vive en el mismo software que una
-sí referenciada se liga a ese riesgo (`_adopt_by_component`: mismo software, mismo escenario) y
-queda anotado en el razonamiento. Lo no cubierto se valora por regla (explotabilidad, KEV y
-exposición → probabilidad; criticidad, datos e impacto de negocio → impacto; consecuencia por
-datos y función del activo; textos deterministas en español), y el riesgo agregado de la regla
-también nombra a su vulnerabilidad principal en vez de «N vulnerabilidades acumuladas».
+El LLM local (`apps/llm/prompts/risk_assessment/v5.md`, tarea `RISK_ASSESSMENT`) recibe **un
+escenario ya delimitado** por llamada (el activo, la consecuencia y sus vulnerabilidades) y solo
+lo valora y lo detalla: fuente de amenaza, probabilidad, impacto, razonamiento, detalles,
+lectura de inteligencia y recomendaciones. Ya no propone escenarios, ni elige la consecuencia, ni
+escribe el título: hasta la versión 4 lo hacía y repartía las mismas vulnerabilidades de forma
+distinta en cada pasada. Si el modelo no está o su respuesta no pasa el esquema, ese escenario
+se valora por regla (explotabilidad, KEV y exposición → probabilidad; criticidad, datos e impacto
+de negocio → impacto; textos deterministas en español) y nombra a su vulnerabilidad principal.
 
 **Inteligencia de amenazas visible.** La CTI siempre pesó en los números (puntaje técnico, piso
 KEV, fuente de amenaza «malware»), pero el riesgo no lo contaba. Ahora cada riesgo lleva dos
@@ -345,7 +337,7 @@ ransomware · EPSS … · CVSS …», fuentes con nombre legible —«Inteligenc
 «nuclei», «Manual»—, plantillas, dónde se observó; `risks.evidence`). Cada riesgo tiene
 un **reporte completo** descargable (`/detection/risks/<id>/report/`: HTML imprimible, PDF con
 «Imprimir → Guardar como PDF» del navegador; `?format=md` lo entrega en Markdown). Idempotente por `(activo,
-fuente:escenario)`. Un riesgo sin vulnerabilidades abiertas se **cierra** con evento y se reabre si
+consecuencia)`. Un riesgo sin vulnerabilidades abiertas se **cierra** con evento y se reabre si
 vuelven.
 
 El **tratamiento** es siempre de una persona: mitigar, aceptar, transferir o evitar, con
@@ -552,9 +544,10 @@ y aplica el estado a las vulnerabilidades del grupo **dentro de los filtros con 
 **Plazos de tratamiento** (`detection/policy.py`, modelo `TreatmentPolicy`, una sola fila). Días
 por nivel (`critical_days` 7, `very_high_days` 15, `high_days` 30, `moderate_days` 90, `low_days`
 180), `accept_review_days` (180) y `use_cisa_deadline`. `policy.deadline(risk)` da el plazo de un
-riesgo sin decidir o en tratamiento: fecha en que se identificó + días de su nivel; si una de sus
-vulnerabilidades tiene un plazo de CISA que seguía vigente al identificarse y vence antes, manda
-ese. Un riesgo aceptado o cerrado no tiene plazo. `policy.overdue_filter()` es la misma regla como
+riesgo sin decidir o en tratamiento: días de su nivel contados desde que se detectó la más antigua
+de sus vulnerabilidades más graves (`Risk.deadline_from`; un riesgo anterior al reparto por
+consecuencia cuenta desde que se identificó); si una de sus vulnerabilidades tiene un plazo de CISA
+que seguía vigente en esa fecha y vence antes, manda ese. Un riesgo aceptado o cerrado no tiene plazo. `policy.overdue_filter()` es la misma regla como
 filtro de base (`?policy_overdue=1`, tarjeta «Fuera de plazo», pendiente en «Hoy» con cola
 `policy_overdue`). `policy.update` valida 1–1825 días y que los plazos no se inviertan (crítico ≤
 muy alto ≤ alto ≤ moderado ≤ bajo) y deja el cambio en la bitácora de automatización. Pantalla:
@@ -747,13 +740,11 @@ cuando se cambia de modelo o de prompt; cuando una vulnerabilidad mitigada vuelv
 cuando una persona devuelve el estado a la IA; y cuando la evaluación anterior fue por regla (el
 modelo no estaba o no la cubrió).
 
-**Riesgos (`risks.standing_risks`).** Un riesgo abierto **sigue en pie** cuando la huella de sus
+**Riesgos (`risks._stands`).** Un escenario abierto **sigue en pie** cuando la huella de sus
 vulnerabilidades es la de su última valoración y lo valoró la IA con el modelo y el prompt de
-ahora. No se toca: ni valoración, ni reparto, ni texto. Al modelo se le dan solo las
-vulnerabilidades que no están en ningún riesgo en pie. Deja de estar en pie, y el modelo valora
-su escenario entero, en dos casos: llega al registro una vulnerabilidad de su misma familia (el
-mismo software, o debilidades de configuración con la misma consecuencia), o comparte alguna
-vulnerabilidad con un riesgo abierto que no sigue en pie.
+ahora. No se toca: ni valoración ni texto, y no hay llamada al modelo. Como el reparto es del
+código, ya no hay «familias» ni riesgos que se arrastren unos a otros: una vulnerabilidad nueva
+entra en el escenario de su consecuencia y solo ese se vuelve a valorar.
 
 Consecuencias que conviene conocer:
 
@@ -794,35 +785,69 @@ segundos sin una sola llamada. Dos límites quedan a la vista:
   al final 18 de los 48 repetían activo y software con otro riesgo. La regla de huellas fija lo
   que el modelo decidió, pero no hace que agrupe igual dos veces.
 
-### Un riesgo que el modelo expresa distinto sigue siendo el mismo (`risks._same_risk`)
+### Un escenario por activo y consecuencia: el reparto es del código (2026-11-18)
 
-La clave de un riesgo es consecuencia + fuente de amenaza + vulnerabilidad principal. La fuente y
-la consecuencia las elige el modelo, y con la misma evidencia cambian de una corrida a otra
-(«atacante externo» → «cadena de suministro», «fuga de información» → «pérdida financiera»). Cada
-cambio cerraba el riesgo como «reemplazado» y abría otro: se perdían su dirección, su línea de
-tiempo y su responsable, la regla de «misma evidencia, misma valoración» no encontraba la
-valoración anterior y **el plazo volvía a empezar**. Ahora:
+El segundo límite de arriba no se arreglaba con más reglas sobre lo que el modelo agrupaba: había
+que dejar de pedirle que agrupara. Desde el 2026-11-18 **el modelo solo valora y redacta**; qué
+vulnerabilidades forman un escenario, con qué consecuencia y con qué título lo decide el código
+(`risks.scenario_groups`, `consequence_of`, `scenario_title`).
 
-- Si la clave exacta no existe, es el mismo riesgo el del activo que tiene **la misma
-  vulnerabilidad principal**: conserva su fila y toma la clave nueva. Primero uno abierto (antes
-  el que tiene tratamiento decidido); si no, el que se cerró más recientemente. No se le da a
-  otro un riesgo que esta misma valoración va a encontrar por su clave exacta: dos riesgos con
-  la misma vulnerabilidad principal y consecuencias distintas siguen pudiendo convivir.
-- La línea de tiempo lo dice con una nota: «La valoración lo expresa de otra forma; antes:
-  «…». Es el mismo riesgo: su vulnerabilidad principal es la misma».
-- «Reemplazado» queda para cuando la valoración agrupa distinto de verdad (ningún riesgo nuevo
-  tiene esa vulnerabilidad principal). Si después vuelve a expresarlo, la línea de tiempo dice
-  «La valoración del activo vuelve a expresarlo», no que «vuelve a tener vulnerabilidades».
+**Un escenario es un activo y una consecuencia.** Las vulnerabilidades sostenidas de un activo se
+reparten entre, como mucho, tres escenarios: fuga de información, alteración de datos o sistemas
+e interrupción del servicio. Cada vulnerabilidad está en exactamente uno. La identidad del
+escenario es `(activo, consecuencia)` (`Risk.key` guarda el código de la consecuencia), así que
+entre una pasada y otra no hay nada que pueda duplicarse ni partirse distinto.
 
-### El plazo no se reinicia al reagrupar (`risks._known_since`)
+**La consecuencia sale de datos, no del modelo** (`risks.vulnerability_impacts`):
 
-El plazo de la política cuenta desde que el riesgo se identificó. Un riesgo que nace porque la
-valoración partió otro en dos, o porque expresó lo mismo con otra vulnerabilidad principal, no es
-trabajo nuevo: toma la fecha del más antiguo de los **otros** riesgos del activo que ya tenían
-alguna de sus vulnerabilidades, y su evento «Identificado» lo dice («sus vulnerabilidades ya
-estaban en otro riesgo del activo desde el 2026-11-10: el plazo cuenta desde entonces»). La regla
-se aplica en cada valoración, así que un riesgo que hubiera estrenado plazo antes de ella lo
-recupera en la siguiente, con una nota en su línea de tiempo.
+1. **El vector CVSS** de la vulnerabilidad (2.0, 3.x o 4.0): la dimensión con más impacto entre
+   confidencialidad, integridad y disponibilidad. Una denegación de servicio (`C:N/I:N/A:H`) va a
+   interrupción; una lectura de memoria (`C:H/I:N/A:N`), a fuga.
+2. **Si empatan** (lo normal en una ejecución de código: `C:H/I:H/A:H`), **desempata el activo**
+   (`risks.consequence_order`): con datos restringidos o confidenciales pesa primero la fuga; si
+   no, en un servicio expuesto o de cara al negocio (pagos, web pública, API, autenticación,
+   correo, red) pesa primero la interrupción, y en el resto la alteración.
+3. **Sin vector**, la familia de la debilidad (`WEAKNESS_DIMENSIONS`: exposición de información →
+   fuga; TLS débil y cabeceras → fuga o alteración; software sin soporte y credenciales por
+   defecto → cualquiera, decide el activo). Una debilidad de configuración sin familia conocida
+   va a fuga o alteración, nunca a interrupción.
+
+Las consecuencias de segundo orden (incumplimiento, daño reputacional, pérdida financiera,
+afectación operativa) siguen en el catálogo para los riesgos anteriores, pero el reparto ya no
+las produce: son efecto de una de las tres primeras y van en la descripción del impacto.
+
+**El título lo compone el código**: «Consecuencia en activo por causa», donde la causa es la
+vulnerabilidad que más pesa del escenario (KEV primero, luego puntaje) «y N más», o «N debilidades
+de configuración del servicio» si todas lo son. Si cambia la vulnerabilidad que más pesa, cambia
+el título sin que cambie el escenario ni se le pregunte al modelo.
+
+**Una llamada por escenario.** El modelo recibe el escenario ya delimitado (`build_payload`: las
+vulnerabilidades que más pesan una a una y el resto agrupado por software) y devuelve fuente de
+amenaza, probabilidad, impacto, razonamiento, detalles, lectura de inteligencia y recomendaciones
+(`RiskAssessmentOutput`, un solo objeto). Las anclas (KEV, criticidad, tope sin explotación
+conocida) y la comprobación de la lectura de inteligencia siguen aplicando encima. Un activo con
+tres escenarios son tres llamadas de valoración y tres de redacción, cada una con menos texto que
+la llamada única de antes.
+
+**Los riesgos anteriores continúan en su escenario** (`risks._scenario_rows`). En la primera
+consolidación de cada activo después de actualizar, cada escenario nuevo toma la fila del riesgo
+anterior con el que comparte más vulnerabilidades (antes uno con tratamiento decidido por una
+persona): conserva su decisión, su responsable y su historia, y la línea de tiempo lo dice
+(«Ahora reúne todas las vulnerabilidades del activo que llevan a esta consecuencia…»). Los demás
+riesgos anteriores se cierran como «Reemplazado: sus vulnerabilidades pasan al escenario «…»».
+Si el reemplazado tenía una decisión humana, el escenario que recibe sus vulnerabilidades lleva
+una nota que lo dice: **esa decisión no se traslada**, porque se tomó sobre otro conjunto de
+vulnerabilidades. Como cambia la versión del prompt, esa primera consolidación valora todos los
+escenarios una vez; las siguientes, solo lo que cambie.
+
+**El plazo cuenta desde la evidencia** (`Risk.deadline_from`, `risks.clock_start`). Un escenario
+dura mientras al activo le quede algo que lleve a esa consecuencia: puede vivir años. Si el plazo
+de la política contara desde que se identificó, la vulnerabilidad crítica que llega hoy a un
+escenario de hace seis meses nacería vencida. Cuenta desde que se detectó la más antigua de sus
+vulnerabilidades **más graves** (las que le dan el nivel): corregir lo viejo y grave reinicia el
+reloj con lo que quede; que llegue algo menor no lo mueve. `first_identified_at` sigue diciendo
+desde cuándo existe el escenario (`risks._known_since` lo hereda del riesgo anterior más antiguo
+que ya tenía alguna de sus vulnerabilidades).
 
 ### Actividad por acción (`activity.threads`, P7)
 

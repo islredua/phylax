@@ -70,7 +70,7 @@
 </details>
 {% endif %}
 
-<p class="text-xs text-muted">Orden de trabajo: primero el nivel (crítico → bajo), luego el puntaje probabilidad × impacto y, a igualdad, el riesgo más antiguo. El plazo de cada riesgo sale de la <a href="{% url 'detection:policy' %}">política de la organización</a>: crítico {{ policy.critical_days }} días, muy alto {{ policy.very_high_days }}, alto {{ policy.high_days }}, moderado {{ policy.moderate_days }} y bajo {{ policy.low_days }}, contados desde que se identificó.</p>
+<p class="text-xs text-muted">Orden de trabajo: primero el nivel (crítico → bajo), luego el puntaje probabilidad × impacto y, a igualdad, el riesgo más antiguo. El plazo de cada riesgo sale de la <a href="{% url 'detection:policy' %}">política de la organización</a>: crítico {{ policy.critical_days }} días, muy alto {{ policy.very_high_days }}, alto {{ policy.high_days }}, moderado {{ policy.moderate_days }} y bajo {{ policy.low_days }}, contados desde que se detectó la más antigua de sus vulnerabilidades más graves.</p>
 {% if perms.detection.work_findings and risks %}
 <form method="post" action="{% url 'detection:risk_bulk' %}" class="flex flex-col gap-2" data-no-busy>
   {% csrf_token %}

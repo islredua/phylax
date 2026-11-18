@@ -3,12 +3,17 @@
 La fecha compromiso de un riesgo se escribía a mano en cada uno y nada decía si iba tarde. Con la
 política, cada riesgo abierto tiene un plazo que sale de dos reglas, sin modelo de por medio:
 
-- **Por nivel.** Tantos días desde que el riesgo se identificó (crítico 7, muy alto 15, alto 30,
-  moderado 90 y bajo 180 por defecto; se cambian en Administración → Plazos).
+- **Por nivel.** Tantos días (crítico 7, muy alto 15, alto 30, moderado 90 y bajo 180 por
+  defecto; se cambian en Administración → Plazos) desde que se detectó la más antigua de las
+  vulnerabilidades más graves del escenario (``Risk.deadline_from``, que fija
+  ``risks.clock_start``). Un escenario vive mientras al activo le quede alguna vulnerabilidad de
+  esa consecuencia: si el plazo contara desde que se identificó, la vulnerabilidad crítica que
+  llega hoy a un escenario de hace un año nacería vencida. Un riesgo sin esa fecha (anterior al
+  reparto por consecuencia) cuenta desde que se identificó.
 - **Por CISA.** Si una vulnerabilidad del riesgo tiene un plazo de remediación de CISA que seguía
-  vigente cuando el riesgo se identificó y vence antes que el del nivel, manda el de CISA. Un
-  plazo de CISA que ya había vencido al identificarlo no se usa: se muestra aparte («plazo de
-  CISA vencido») porque no es una fecha que la organización pueda cumplir.
+  vigente cuando el plazo empezó a contar y vence antes que el del nivel, manda el de CISA. Un
+  plazo de CISA que ya había vencido entonces no se usa: se muestra aparte («plazo de CISA
+  vencido») porque no es una fecha que la organización pueda cumplir.
 
 El plazo propone la fecha compromiso y mide qué está fuera de plazo; el tratamiento lo sigue
 decidiendo una persona.
@@ -22,7 +27,7 @@ from dataclasses import dataclass
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import Min, Q
-from django.db.models.functions import TruncDate
+from django.db.models.functions import Coalesce, TruncDate
 from django.utils import timezone
 
 from .models import Risk, RiskLevel, RiskStatus, TreatmentPolicy
@@ -40,6 +45,13 @@ MAX_DAYS = 1825  # cinco años: más que eso no es un plazo
 # tiene su propia fecha de revisión y uno cerrado ya no espera nada.
 RUNNING_STATUSES = (RiskStatus.OPEN, RiskStatus.TREATED)
 _UNSET = object()
+# Desde cuándo cuenta el plazo, en una consulta.
+CLOCK = Coalesce("deadline_from", "first_identified_at")
+
+
+def clock_date(risk) -> datetime.date:
+    """El día desde el que cuenta el plazo del riesgo."""
+    return timezone.localtime(risk.deadline_from or risk.first_identified_at).date()
 
 
 def current() -> TreatmentPolicy:
@@ -59,8 +71,9 @@ class Deadline:
     days: int  # los del nivel, aunque mande CISA
     basis: str  # "level" | "cisa"
     level_label: str
-    identified: datetime.date
+    identified: datetime.date  # desde cuándo cuenta
     remaining: int  # días que faltan; negativo = días de retraso
+    by_evidence: bool = False  # cuenta desde la evidencia, no desde que el riesgo se identificó
 
     @property
     def overdue(self) -> bool:
@@ -92,15 +105,18 @@ class Deadline:
     def rule(self) -> str:
         if self.basis == "cisa":
             return "plazo de remediación que fijó CISA para una de sus vulnerabilidades"
-        return (
-            f"{self.days} días para un riesgo {self.level_label.lower()}, "
-            f"contados desde que se identificó"
+        since = (
+            "desde que se detectó la más antigua de sus vulnerabilidades más graves"
+            if self.by_evidence
+            else "desde que se identificó"
         )
+        return f"{self.days} días para un riesgo {self.level_label.lower()}, contados {since}"
 
 
 def kev_due(risk):
-    """El plazo de CISA más próximo que seguía vigente al identificarse el riesgo, o ``None``."""
-    identified = timezone.localtime(risk.first_identified_at).date()
+    """El plazo de CISA más próximo que seguía vigente cuando el plazo del riesgo empezó a
+    contar, o ``None``."""
+    identified = clock_date(risk)
     return risk.vulnerabilities.filter(in_kev=True, kev_due_at__gte=identified).aggregate(
         due=Min("kev_due_at")
     )["due"]
@@ -113,7 +129,7 @@ def with_kev_due(qs):
             "vulnerabilities__kev_due_at",
             filter=Q(
                 vulnerabilities__in_kev=True,
-                vulnerabilities__kev_due_at__gte=TruncDate("first_identified_at"),
+                vulnerabilities__kev_due_at__gte=TruncDate(CLOCK),
             ),
         )
     )
@@ -125,7 +141,7 @@ def deadline(risk, policy=None, today=None, cisa_due=_UNSET) -> Deadline | None:
         return None
     policy = policy or current()
     today = today or timezone.localdate()
-    identified = timezone.localtime(risk.first_identified_at).date()
+    identified = clock_date(risk)
     days = days_for(risk.level, policy)
     date, basis = identified + datetime.timedelta(days=days), "level"
     if policy.use_cisa_deadline:
@@ -142,6 +158,7 @@ def deadline(risk, policy=None, today=None, cisa_due=_UNSET) -> Deadline | None:
         level_label=RiskLevel(risk.level).label,
         identified=identified,
         remaining=(date - today).days,
+        by_evidence=risk.deadline_from is not None,
     )
 
 
@@ -170,13 +187,15 @@ def overdue_filter(policy=None, today=None) -> Q:
     late = Q()
     for level, field in LEVEL_FIELDS.items():
         cutoff = today - datetime.timedelta(days=getattr(policy, field))
-        late |= Q(level=level, first_identified_at__date__lt=cutoff)
+        late |= Q(level=level, deadline_from__date__lt=cutoff) | Q(
+            level=level, deadline_from=None, first_identified_at__date__lt=cutoff
+        )
     if policy.use_cisa_deadline:
         late |= Q(
             pk__in=Risk.objects.filter(
                 vulnerabilities__in_kev=True,
                 vulnerabilities__kev_due_at__lt=today,
-                vulnerabilities__kev_due_at__gte=TruncDate("first_identified_at"),
+                vulnerabilities__kev_due_at__gte=TruncDate(CLOCK),
             ).values("pk")
         )
     return Q(status__in=RUNNING_STATUSES) & late

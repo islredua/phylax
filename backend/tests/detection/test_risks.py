@@ -15,7 +15,6 @@ from apps.cti import services as cti
 from apps.detection import components, consolidation, findings, matching, risks
 from apps.detection.models import (
     Risk,
-    RiskEvent,
     RiskEventKind,
     RiskLevel,
     RiskStatus,
@@ -117,31 +116,21 @@ def test_rule_fallback_when_llm_is_down(settings, monkeypatch):
     assert 1 <= risk.likelihood <= 5 and risk.impact >= 4  # criticidad CRITICO manda
 
 
-def test_invalid_references_fall_back_to_rule(monkeypatch):
-    from apps.llm import client
+def test_a_valuation_the_model_cannot_give_falls_back_to_rule(monkeypatch):
+    asked = []
 
-    monkeypatch.setitem(
-        client.MOCK_GENERATORS,
-        "RISK_ASSESSMENT",
-        lambda payload: {
-            "risks": [
-                {
-                    "vulnerabilities": [42],
-                    "title": "Fuga de información en api-pagos por un invento",
-                    "consequence": "CONFIDENTIALITY",
-                    "description": "Descripción inventada en español, larga como para que el esquema la acepte sin reparos.",
-                    "details": "Detalle técnico inventado que referencia una vulnerabilidad inexistente del activo.",
-                    "recommendations": ["Nada que hacer."],
-                    "threat_source": "OTHER",
-                    "likelihood": 5,
-                    "impact": 5,
-                }
-            ]
-        },
-    )
+    def failed(**kwargs):
+        asked.append(kwargs["task"])
+        return SimpleNamespace(parsed_ok=False, parsed=None, model="", model_responded="")
+
+    monkeypatch.setattr(risks, "run_structured", failed)
     asset = _asset_with_vulns()
     risk = Risk.objects.get(asset=asset)
-    assert "invento" not in risk.title and risk.assessment_source == StatusSource.RULE
+    assert asked == ["RISK_ASSESSMENT"] and risk.assessment_source == StatusSource.RULE
+    # El escenario es el mismo que habría valorado el modelo: lo delimita el código.
+    assert risk.key == "CONFIDENTIALITY" and risk.title.startswith(
+        "Fuga de información en api-pagos"
+    )
 
 
 def test_treatment_is_human_and_persists_across_reassessment(make_user):
@@ -260,58 +249,45 @@ def test_auditor_reads_only(client, as_role):
 # --------------------------------------------------------------------------
 
 
-def test_risk_item_schema_requires_spanish_and_title_formula():
+def test_valuation_schema_requires_spanish_and_ignores_what_the_code_decides():
     from pydantic import ValidationError
 
-    from apps.llm.schemas import RiskItem
+    from apps.llm.schemas import RISK_ASSESSMENT_SCHEMA, RiskAssessmentOutput
 
     base = {
-        "vulnerabilities": [1],
-        "consequence": "CONFIDENTIALITY",
         "details": "Un atacante externo explota CVE-2021-44228 en log4j-core 2.14.1 y extrae los datos de pagos.",
-        "description": "El servicio de pagos usa una biblioteca con una falla conocida y explotada; desde la DMZ un atacante podría ejecutar código y leer los datos.",
-        "impact_description": "Se expondrían datos de tarjetas y la operación de cobro se detendría.",
-        "recommendations": ["Actualizar log4j-core.", "Verificar con un nuevo escaneo."],
+        "intelligence_summary": "Una vulnerabilidad está en KEV desde 2021.",
+        "recommendations": ["Actualizar log4j-core.", "Restringir el acceso al servicio."],
         "threat_source": "EXTERNAL",
         "likelihood": 5,
         "impact": 5,
     }
-    RiskItem.model_validate({**base, "title": "Fuga de datos de pagos en api-pagos por Log4Shell"})
-    # Un título fuera de fórmula ya no gasta un reintento: el esquema lo acepta y el código lo
-    # reconstruye con la consecuencia y el activo reales.
-    for bad_title, fixed in (
-        (
-            "Compromiso del activo por vulnerabilidades acumuladas",
-            "Fuga de información en api-pagos por vulnerabilidades acumuladas",
-        ),
-        (
-            "Integridad en api-pagos por cabeceras ausentes",
-            "Fuga de información en api-pagos por cabeceras ausentes",
-        ),
-        (
-            "Inyección de código en lodash 4.17.15 en api-pagos",
-            "Fuga de información en api-pagos por inyección de código en lodash 4.17.15",
-        ),
-        (
-            "Exposición del servidor a vulnerabilidades en OpenSSH",
-            "Fuga de información en api-pagos por exposición del servidor a vulnerabilidades en OpenSSH",
-        ),
-        ("CVE-2021-44228 en api-pagos", "Fuga de información en api-pagos por CVE-2021-44228"),
-    ):
-        RiskItem.model_validate({**base, "title": bad_title})
-        assert risks.fix_title(bad_title, "api-pagos", "CONFIDENTIALITY") == fixed, bad_title
-    assert (
-        risks.fix_title("Fuga de datos en api-pagos por Log4Shell", "api-pagos", "AVAILABILITY")
-        == "Fuga de datos en api-pagos por Log4Shell"
+    RiskAssessmentOutput.model_validate(base)
+    # El modelo ya no elige vulnerabilidades, consecuencia ni título: el esquema no los pide y,
+    # si los manda, se ignoran.
+    assert not {"vulnerabilities", "consequence", "title"} & set(
+        RISK_ASSESSMENT_SCHEMA["properties"]
     )
-    with pytest.raises(ValidationError):
-        RiskItem.model_validate(
-            {
-                **base,
-                "title": "Fuga de datos en api-pagos por Log4Shell",
-                "description": "An attacker could execute arbitrary code on the payment API and exfiltrate data.",
-            }
-        )
+    out = RiskAssessmentOutput.model_validate(
+        {
+            **base,
+            "title": "Compromiso del activo",
+            "consequence": "FINANCIAL",
+            "vulnerabilities": [9],
+        }
+    ).model_dump()
+    assert not {"vulnerabilities", "consequence", "title"} & set(out)
+    for bad in (
+        {
+            "details": "An attacker could execute arbitrary code on the payment API and exfiltrate data."
+        },
+        {"recommendations": ["Upgrade the library to the latest release immediately."]},
+        {"likelihood": 6},
+        {"impact": 0},
+        {"threat_source": "ALIENS"},
+    ):
+        with pytest.raises(ValidationError):
+            RiskAssessmentOutput.model_validate({**base, **bad})
     # La descripción para la dirección se redacta aparte: ahí sí se rechazan CVE, siglas, nombres
     # de software y versiones, con el mensaje de qué quitar.
     from apps.llm.schemas import narrative_validator
@@ -368,27 +344,150 @@ def test_rule_risks_follow_the_formula_and_carry_description_and_recommendations
     assert "Compromiso del activo" not in risk.title and "Explotación de «" not in risk.title
 
 
-def test_rule_consequence_prefers_data_then_availability():
-    from types import SimpleNamespace
+V31 = "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U"
 
-    vuln = SimpleNamespace(factors={}, in_kev=False, plausibility=0.8, contextual_score=5)
-    ctx = SimpleNamespace(data_classification="INTERNA", business_role="PAGOS", exposure="DMZ")
-    assert risks.rule_consequence(vuln, ctx) == "AVAILABILITY"
-    ctx.business_role, ctx.exposure = "BACKUP", "INTERNA"
-    assert risks.rule_consequence(vuln, ctx) == "OPERATIONS"
-    ctx.data_classification = "CONFIDENCIAL"
-    assert risks.rule_consequence(vuln, ctx) == "CONFIDENTIALITY"
+
+def _flaw(cia="", key="CVE-2099-1", **extra):
+    """Vulnerabilidad de mentira con el vector que se pida («HNN» = solo confidencialidad)."""
+    cve = SimpleNamespace(cvss_vector=f"{V31}/C:{cia[0]}/I:{cia[1]}/A:{cia[2]}") if cia else None
+    base = {
+        "pk": key,
+        "key": key,
+        "cve": cve,
+        "cve_id": key if cve else None,
+        "component_id": None,
+        "in_kev": False,
+        "contextual_score": 5,
+        "title": f"Falla {key}",
+    }
+    return SimpleNamespace(**{**base, **extra})
+
+
+def test_consequence_comes_from_the_cvss_vector_and_the_asset_breaks_ties():
+    assert risks.cvss_impacts(f"{V31}/C:H/I:L/A:N") == {"C": 2, "I": 1, "A": 0}
+    # CVSS 2 (parcial y completo) y CVSS 4 (también el sistema posterior).
+    assert risks.cvss_impacts("AV:N/AC:L/Au:N/C:N/I:P/A:C") == {"C": 0, "I": 1, "A": 2}
+    v4 = "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:N/SC:N/SI:L/SA:N"
+    assert risks.cvss_impacts(v4) == {"C": 0, "I": 1, "A": 0}
+    # «S:C» es el alcance de CVSS 3, no una dimensión.
+    assert risks.cvss_impacts("CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:N/I:N/A:N") is None
+    assert risks.cvss_impacts("") is None and risks.cvss_impacts(None) is None
+
+    pagos = SimpleNamespace(
+        data_classification="RESTRINGIDA", business_role="PAGOS", exposure="DMZ"
+    )
+    web = SimpleNamespace(
+        data_classification="PUBLICA", business_role="WEB_PUBLICA", exposure="INTERNET"
+    )
+    puesto = SimpleNamespace(
+        data_classification="INTERNA", business_role="ENDPOINT", exposure="INTERNAL"
+    )
+    archivo = SimpleNamespace(
+        data_classification="CONFIDENCIAL", business_role="ARCHIVOS", exposure="INTERNAL"
+    )
+    assert [risks.consequence_order(c) for c in (pagos, web, puesto, archivo)] == [
+        "CAI",
+        "AIC",
+        "IAC",
+        "CIA",
+    ]
+    # Lo que dice el vector manda, sea cual sea el activo.
+    for ctx in (pagos, web, puesto, archivo):
+        assert risks.consequence_of(_flaw("NNH"), ctx) == "AVAILABILITY"
+        assert risks.consequence_of(_flaw("HNN"), ctx) == "CONFIDENTIALITY"
+        assert risks.consequence_of(_flaw("NHN"), ctx) == "INTEGRITY"
+        assert risks.consequence_of(_flaw("LLH"), ctx) == "AVAILABILITY"
+    # Si afecta a todo por igual (ejecución remota de código), decide lo que el activo guarda o
+    # hace: datos sensibles, un servicio del que otros dependen, o ninguna de las dos cosas.
+    assert risks.consequence_of(_flaw("HHH"), pagos) == "CONFIDENTIALITY"
+    assert risks.consequence_of(_flaw("HHH"), web) == "AVAILABILITY"
+    assert risks.consequence_of(_flaw("HHH"), puesto) == "INTEGRITY"
+    # El empate entre dos se rompe entre esas dos.
+    assert risks.consequence_of(_flaw("NHH"), pagos) == "AVAILABILITY"
+    assert risks.consequence_of(_flaw("NHH"), puesto) == "INTEGRITY"
+    assert risks.consequence_of(_flaw("LLN"), web) == "INTEGRITY"
+    # Sin vector: la familia de la debilidad; una de configuración no tira el servicio; de un
+    # CVE sin datos no se sabe y decide el activo.
+    exposure = _flaw(key="WEAKNESS:EXPOSICION_DE_INFORMACION:wordpress")
+    headers = _flaw(key="WEAKNESS:CABECERAS_HTTP")
+    template = _flaw(key="WEAKNESS:nuclei_wp_user_enum")
+    advisory = _flaw(key="WEAKNESS:ghsa_4fx9_vc88_q2xc", component_id=7)
+    assert risks.consequence_of(exposure, web) == "CONFIDENTIALITY"
+    assert risks.consequence_of(headers, web) == "INTEGRITY"
+    assert risks.consequence_of(headers, pagos) == "CONFIDENTIALITY"
+    assert risks.consequence_of(template, web) == "INTEGRITY"
+    assert risks.consequence_of(advisory, web) == "AVAILABILITY"
+    assert risks.consequence_of(_flaw(key="CVE-2021-1"), web) == "AVAILABILITY"
+    assert risks.vulnerability_impacts(_flaw("HNN"))[1] == "vector"
+    assert risks.vulnerability_impacts(headers)[1] == "family"
+    assert risks.vulnerability_impacts(_flaw(key="CVE-2021-1"))[1] == "unknown"
     assert risks.rule_title("AVAILABILITY", "portal", "cabeceras ausentes") == (
         "Interrupción del servicio en portal por cabeceras ausentes"
     )
+
+
+def test_scenarios_are_one_per_consequence_and_each_vulnerability_is_in_one():
+    pagos = SimpleNamespace(
+        data_classification="RESTRINGIDA", business_role="PAGOS", exposure="DMZ"
+    )
+    rce = _flaw(
+        "HHH", key="CVE-2099-10", contextual_score=9, title="Log4Shell en log4j-core 2.14.1"
+    )
+    leak = _flaw("HNN", key="CVE-2099-11", contextual_score=6)
+    kev_leak = _flaw(
+        "LNN",
+        key="CVE-2099-12",
+        contextual_score=4,
+        in_kev=True,
+        title="Lectura de archivos en nginx 1.27.3",
+    )
+    dos = _flaw(
+        "NNH",
+        key="CVE-2099-13",
+        contextual_score=7,
+        title="Denegación de servicio en jackson-databind 2.17.2",
+    )
+    tamper = _flaw("NHN", key="CVE-2099-14")
+    vulns = [tamper, dos, leak, rce, kev_leak]
+    groups = risks.scenario_groups(vulns, pagos)
+    # Orden fijo (fuga, alteración, interrupción) y, dentro, primero lo que más pesa: KEV y puntaje.
+    assert list(groups) == ["CONFIDENTIALITY", "INTEGRITY", "AVAILABILITY"]
+    assert [v.key for v in groups["CONFIDENTIALITY"]] == [
+        "CVE-2099-12",
+        "CVE-2099-10",
+        "CVE-2099-11",
+    ]
+    assert sorted(v.key for g in groups.values() for v in g) == sorted(v.key for v in vulns)
+    # El mismo reparto sea cual sea el orden en que lleguen.
+    again = risks.scenario_groups(list(reversed(vulns)), pagos)
+    assert {c: [v.key for v in g] for c, g in again.items()} == {
+        c: [v.key for v in g] for c, g in groups.items()
+    }
+    # El título lo compone el código: consecuencia, activo y la vulnerabilidad que más pesa.
+    assert risks.scenario_title("CONFIDENTIALITY", "api-pagos", groups["CONFIDENTIALITY"]) == (
+        "Fuga de información en api-pagos por lectura de archivos en nginx 1.27.3 "
+        "y 2 vulnerabilidades más"
+    )
+    assert risks.scenario_title("AVAILABILITY", "api-pagos", groups["AVAILABILITY"]) == (
+        "Interrupción del servicio en api-pagos por denegación de servicio en jackson-databind 2.17.2"
+    )
+    # En un activo sin datos sensibles la misma ejecución remota de código es otra consecuencia.
+    web = SimpleNamespace(
+        data_classification="PUBLICA", business_role="WEB_PUBLICA", exposure="INTERNET"
+    )
+    assert [v.key for v in risks.scenario_groups(vulns, web)["AVAILABILITY"]] == [
+        "CVE-2099-10",
+        "CVE-2099-13",
+    ]
 
 
 def test_ai_risk_stores_description_impact_and_recommendations():
     asset = _asset_with_vulns()
     consolidation.consolidate_asset(asset.pk)
     risk = Risk.objects.filter(asset=asset, assessment_source=StatusSource.AI).first()
-    assert risk is not None and risk.title.startswith("Interrupción del servicio en api-pagos por ")
-    assert risk.consequence == "AVAILABILITY" and risk.description.startswith(
+    # nginx CVE-2025-23419 solo afecta a la confidencialidad (C:L/I:N/A:N): fuga de información.
+    assert risk is not None and risk.title.startswith("Fuga de información en api-pagos por ")
+    assert risk.consequence == risk.key == "CONFIDENTIALITY" and risk.description.startswith(
         "Descripción simulada del riesgo para la dirección"
     )
     assert "\n\n" in risk.description and risk.impact_description.startswith("Impacto simulado")
@@ -434,54 +533,125 @@ def test_risk_detail_and_report_expose_description_evidence_and_downloads(client
     assert "{%" not in text and "{{" not in text
 
 
-def test_risk_key_is_stable_across_title_changes_and_superseded_risks_close(monkeypatch):
-    """La clave no depende del título: la IA reformula y el riesgo sigue siendo el mismo."""
+def test_a_scenario_is_its_asset_and_its_consequence(monkeypatch, make_user):
+    """La identidad no depende de nada que escriba el modelo: se le vuelve a preguntar y el
+    escenario es la misma fila. Lo que comparta sus vulnerabilidades se cierra como reemplazado."""
     from apps.llm import client as llm_client
 
     asset = _asset_with_vulns()
-    consolidation.consolidate_asset(asset.pk)
-    first = list(Risk.objects.filter(asset=asset, status=RiskStatus.OPEN))
-    assert first
+    first = Risk.objects.get(asset=asset, status=RiskStatus.OPEN)
+    assert first.key == "CONFIDENTIALITY"
 
-    def reworded(payload):
-        data = risks.mock_risks(payload)
-        for r in data["risks"]:
-            r["title"] = (
-                "Interrupción de los cobros en api-pagos por " + r["title"].split(" por ", 1)[1]
-            )
-        return data
+    def other_words(payload):
+        return {
+            **risks.mock_risks(payload),
+            "threat_source": "SUPPLY_CHAIN",
+            "details": "Detalle técnico con otra redacción, del mismo escenario y con la misma evidencia.",
+        }
 
-    monkeypatch.setitem(llm_client.MOCK_GENERATORS, "RISK_ASSESSMENT", reworded)
+    monkeypatch.setitem(llm_client.MOCK_GENERATORS, "RISK_ASSESSMENT", other_words)
     # ``fresh``: con la misma evidencia ya no se le pregunta; aquí importa qué pasa cuando sí.
     risks.derive_risks(asset.pk, fresh=True)
-    again = list(Risk.objects.filter(asset=asset, status=RiskStatus.OPEN))
-    assert {r.pk for r in again} == {r.pk for r in first}
-    assert all(r.title.startswith("Interrupción de los cobros") for r in again)
-    # Un riesgo viejo que la nueva valoración ya no produce se cierra como reemplazado…
+    again = Risk.objects.get(asset=asset, status=RiskStatus.OPEN)
+    assert again.pk == first.pk and again.key == "CONFIDENTIALITY" and again.title == first.title
+    assert again.threat_source == "SUPPLY_CHAIN" and "otra redacción" in again.details
+    # Un riesgo de antes del reparto por consecuencia con sus mismas vulnerabilidades se cierra
+    # como reemplazado, y dice a qué escenario pasaron…
     stale = Risk.objects.create(
         asset=asset,
         key="EXTERNAL:apache_http_server_vulnerabilities",
         title="Apache HTTP Server Vulnerabilities",
         scenario="x",
-        first_identified_at=first[0].first_identified_at,
+        first_identified_at=first.first_identified_at,
     )
-    stale.vulnerabilities.set(first[0].vulnerabilities.all())
-    # …salvo que una persona ya haya decidido su tratamiento.
+    stale.vulnerabilities.set(first.vulnerabilities.all())
+    # …también si una persona había decidido su tratamiento: una vulnerabilidad está en un solo
+    # escenario. La decisión no se traslada, pero el escenario que las recibe la cuenta.
     decided = Risk.objects.create(
         asset=asset,
         key="EXTERNAL:decidido",
         title="Riesgo con tratamiento decidido",
         scenario="x",
         treatment="MITIGATE",
-        first_identified_at=first[0].first_identified_at,
+        owner="Infraestructura",
+        target_date=datetime.date(2026, 12, 1),
+        first_identified_at=first.first_identified_at,
     )
-    decided.vulnerabilities.set(first[0].vulnerabilities.all())
+    decided.vulnerabilities.set(first.vulnerabilities.all())
     result = risks.derive_risks(asset.pk)
     stale.refresh_from_db()
     decided.refresh_from_db()
-    assert stale.status == RiskStatus.CLOSED and result["closed"] >= 1
-    assert stale.events.filter(message__startswith="Reemplazado").exists()
-    assert decided.status == RiskStatus.OPEN
+    again.refresh_from_db()
+    assert result["closed"] == 2 and result["kept"] == 1
+    for old in (stale, decided):
+        assert old.status == RiskStatus.CLOSED
+        closed = old.events.get(kind=RiskEventKind.CLOSED).message
+        assert closed == (
+            "Reemplazado: sus vulnerabilidades pasan al escenario «Fuga de información en api-pagos»"
+        )
+    assert again.status == RiskStatus.OPEN and again.treatment == ""
+    note = again.events.get(kind=RiskEventKind.NOTE).message
+    assert "«Riesgo con tratamiento decidido»" in note and "mitigar" in note
+    assert "2026-12-01" in note and "Infraestructura" in note and "no se traslada" in note
+    assert risks.closure_label(closed) == "reemplazado por otro riesgo"
+
+
+def test_earlier_risks_continue_in_their_scenario(make_user):
+    """Al pasar al reparto por consecuencia, los riesgos que partía el modelo no se pierden: el
+    escenario continúa al que más vulnerabilidades comparte (antes, a uno con tratamiento
+    decidido) y conserva su decisión, su responsable y su historia."""
+    user = make_user(OPERATOR)
+    asset = _three_scenarios()
+    scenarios = {r.key: r for r in Risk.objects.filter(asset=asset)}
+    assert set(scenarios) == {"CONFIDENTIALITY", "INTEGRITY", "AVAILABILITY"}
+    month_ago = timezone.now() - datetime.timedelta(days=30)
+    # Como estaban antes: claves del modelo, y uno que juntaba dos consecuencias.
+    leak, tamper, dos = (scenarios[k] for k in ("CONFIDENTIALITY", "INTEGRITY", "AVAILABILITY"))
+    Risk.objects.filter(pk=leak.pk).update(
+        key="FINANCIAL:EXTERNAL:cve_2025_23419", title="Pérdida financiera en api-pagos por nginx"
+    )
+    Risk.objects.filter(pk=tamper.pk).update(
+        key="OPERATIONS:MALWARE:cve_2099_0201",
+        title="Afectación operativa en api-pagos por spring-web",
+        first_identified_at=month_ago,
+    )
+    tamper.vulnerabilities.add(*dos.vulnerabilities.all())
+    Risk.objects.filter(pk=dos.pk).update(key="AVAILABILITY:EXTERNAL:cve_2099_0101")
+    risks.set_treatment(
+        dos.pk,
+        user=user,
+        treatment="MITIGATE",
+        owner="Plataforma",
+        note="Parche",
+        target_date=timezone.localdate() + datetime.timedelta(days=14),
+    )
+
+    result = risks.derive_risks(asset.pk)
+    after = {r.key: r for r in Risk.objects.filter(asset=asset, status__in=("OPEN", "TREATED"))}
+    assert result["closed"] == 0 and len(after) == 3
+    assert {k: r.pk for k, r in after.items()} == {
+        "CONFIDENTIALITY": leak.pk,
+        "INTEGRITY": tamper.pk,
+        # El de interrupción lo comparten dos riesgos: gana el que tiene tratamiento decidido.
+        "AVAILABILITY": dos.pk,
+    }
+    assert (
+        after["AVAILABILITY"].treatment == "MITIGATE"
+        and after["AVAILABILITY"].owner == "Plataforma"
+    )
+    assert after["CONFIDENTIALITY"].title.startswith("Fuga de información en api-pagos por ")
+    assert after["CONFIDENTIALITY"].consequence == "CONFIDENTIALITY"
+    note = after["CONFIDENTIALITY"].events.get(kind=RiskEventKind.NOTE).message
+    assert "antes: «Pérdida financiera en api-pagos por nginx»" in note
+    # Cada vulnerabilidad queda en un solo escenario abierto.
+    for vuln in Vulnerability.objects.filter(asset=asset, status="CONFIRMED"):
+        assert vuln.risks.filter(status__in=("OPEN", "TREATED")).count() == 1, vuln.key
+    # El escenario de interrupción se identificó cuando el más antiguo que ya tenía su
+    # vulnerabilidad.
+    assert after["AVAILABILITY"].first_identified_at == month_ago
+    # A la siguiente, nada que hacer.
+    again = risks.derive_risks(asset.pk)
+    assert again == {**again, "kept": 3, "closed": 0, "by_rule": 0}
 
 
 def test_kev_and_criticality_anchor_the_model_valuation(monkeypatch):
@@ -489,10 +659,7 @@ def test_kev_and_criticality_anchor_the_model_valuation(monkeypatch):
     from apps.llm import client as llm_client
 
     def timid(payload):
-        data = risks.mock_risks(payload)
-        for r in data["risks"]:
-            r["likelihood"], r["impact"] = 1, 1
-        return data
+        return {**risks.mock_risks(payload), "likelihood": 1, "impact": 1}
 
     monkeypatch.setitem(llm_client.MOCK_GENERATORS, "RISK_ASSESSMENT", timid)
     asset = _asset_with_vulns(criticality="CRITICO", exposure="DMZ")
@@ -517,53 +684,6 @@ def test_risks_without_sustained_vulnerabilities_close():
     assert risk.events.filter(
         message__startswith="Ninguna de sus vulnerabilidades está sostenida"
     ).exists()
-
-
-def test_fix_title_restores_the_real_asset_name_and_twins_merge():
-    assert risks.fix_title(
-        "Fuga de datos en api-pagos por Log4Shell", "portal-expuesto-apache"
-    ) == ("Fuga de datos en portal-expuesto-apache por Log4Shell")
-    assert (
-        risks.fix_title(
-            "Interrupción del servicio en el sistema de facturación por múltiples fallas",
-            "app-siniestros",
-        )
-        == "Interrupción del servicio en app-siniestros por múltiples fallas"
-    )
-    assert risks.fix_title("Fuga de datos en App-Siniestros por X", "app-siniestros").endswith(
-        "App-Siniestros por X"
-    )
-    parsed = {
-        "risks": [
-            {
-                "vulnerabilities": [1],
-                "title": "Interrupción parcial en a por fallas menores",
-                "consequence": "AVAILABILITY",
-                "likelihood": 2,
-                "impact": 3,
-            },
-            {
-                "vulnerabilities": [2],
-                "title": "Interrupción parcial en a por fallas menores",
-                "consequence": "AVAILABILITY",
-                "likelihood": 3,
-                "impact": 2,
-            },
-            {
-                "vulnerabilities": [9],
-                "title": "Inventado en a por nada",
-                "consequence": "AVAILABILITY",
-                "likelihood": 1,
-                "impact": 1,
-            },
-        ]
-    }
-    items, covered, rejected = risks._validate(parsed, [], {"pk1": 1, "pk2": 2}, "a")
-    assert len(items) == 1 and rejected == 1 and covered == {1, 2}
-    assert items[0]["vuln_pks"] == ["pk1", "pk2"] and (
-        items[0]["likelihood"],
-        items[0]["impact"],
-    ) == (3, 3)
 
 
 def test_intelligence_summary_counts_kev_epss_and_sources(client, as_role):
@@ -653,10 +773,14 @@ def test_rule_risks_without_kev_say_so_and_payload_carries_intelligence(client, 
         data_classification="CONFIDENCIAL",
         data_categories=[],
     )
-    data, _ = risks.build_payload(asset.pk, vulns, context)
+    data = risks.build_payload(asset.pk, "CONFIDENTIALITY", vulns, context)
     first = data["vulnerabilities"][0]
     assert {"kev", "epss", "epss_percentile", "sources", "cvss"} <= set(first)
     assert first["kev"] is None and isinstance(first["sources"], list)
+    # El escenario viaja ya delimitado: el modelo no elige ni consecuencia ni vulnerabilidades.
+    assert data["scenario"]["consequence"] == "Fuga de información"
+    assert data["scenario"]["title"].startswith("Fuga de información en api-pagos por ")
+    assert data["scenario"]["vulnerability_count"] == len(vulns) and "id" not in first
 
 
 def test_model_intelligence_reading_must_match_the_data():
@@ -679,16 +803,10 @@ def test_model_intelligence_reading_must_match_the_data():
     )
     assert risks.coherent_intelligence("Una de las dos está en KEV desde 2021.", [kev, quiet])
     parsed = {
-        "risks": [
-            {
-                "vulnerabilities": [1],
-                "title": "Fuga de datos en a por X",
-                "consequence": "CONFIDENTIALITY",
-                "intelligence_summary": "lodash es una biblioteca ampliamente utilizada.",
-                "likelihood": 3,
-                "impact": 3,
-            }
-        ]
+        "details": "Cadena de ataque: petición preparada.\nSustento: está en KEV (EPSS 94 %).",
+        "intelligence_summary": "lodash es una biblioteca ampliamente utilizada.",
+        "likelihood": 3,
+        "impact": 3,
     }
     v = SimpleNamespace(
         pk="pk1",
@@ -699,51 +817,47 @@ def test_model_intelligence_reading_must_match_the_data():
         cve_id=None,
         kev_due_at=None,
     )
-    items, _, _ = risks._validate(parsed, [v], {"pk1": 1}, "a")
-    assert items[0]["intelligence_summary"] == "" and items[0]["intel_replaced"]
+    item = risks._checked(parsed, [v])
+    assert item["intelligence_summary"] == "" and item["intel_replaced"]
+    # El «Sustento:» lo escribe el código, no el modelo.
+    assert "EPSS 94 %" not in item["details"] and "Sustento:" in item["details"]
+    assert parsed["details"].endswith("(EPSS 94 %).")  # lo recibido no se altera
 
 
-def test_generic_causes_name_the_lead_vulnerability():
-    lead = SimpleNamespace(
-        title="Ejecución remota de código en log4j-core 2.14.1", contextual_score=9.8
+def test_the_cause_names_the_vulnerability_that_weighs_most():
+    lead = _flaw(
+        key="CVE-2021-44228",
+        contextual_score=9.8,
+        title="Ejecución remota de código en log4j-core 2.14.1",
     )
-    other = SimpleNamespace(title="Recorrido de rutas en Apache httpd", contextual_score=5.0)
+    other = _flaw(
+        key="CVE-2021-41773", contextual_score=5.0, title="Recorrido de rutas en Apache httpd"
+    )
     assert risks.lead_cause([other, lead]) == (
         "ejecución remota de código en log4j-core 2.14.1 y 1 vulnerabilidad más"
     )
     assert risks.lead_cause([lead]) == "ejecución remota de código en log4j-core 2.14.1"
-    for generic in (
-        "Fuga de datos en api-pagos por múltiples vulnerabilidades",
-        "Fuga de datos en api-pagos por vulnerabilidades de seguridad",
-        "Fuga de datos en api-pagos por vulnerabilidades conocidas en el servidor",
-        "Fuga de datos en api-pagos por 21 vulnerabilidades acumuladas",
-    ):
-        assert risks.fix_title(generic, "api-pagos", "CONFIDENTIALITY", [other, lead]) == (
-            "Fuga de datos en api-pagos por ejecución remota de código en log4j-core 2.14.1 "
-            "y 1 vulnerabilidad más"
-        ), generic
-    # Una causa concreta se respeta aunque mencione «vulnerabilidades».
-    concrete = "Fuga de datos en api-pagos por vulnerabilidades en jackson-databind 2.17.2"
-    assert risks.fix_title(concrete, "api-pagos", "CONFIDENTIALITY", [lead]) == concrete
-
-
-def test_merged_rule_risk_names_its_lead_vulnerability(as_role):
-    as_role(ADMIN)
-    asset = _asset_with_vulns()
-    vulns = list(Vulnerability.objects.filter(asset=asset))
-    index = {v.pk: i + 1 for i, v in enumerate(vulns)}
-    context = SimpleNamespace(
-        business_role="API",
-        environment="PROD",
-        criticality="CRITICO",
-        exposure="DMZ",
-        data_classification="CONFIDENCIAL",
-        data_categories=[],
+    # Una que ya se explota pesa más que una de mayor puntaje.
+    exploited = _flaw(
+        key="CVE-2021-41773",
+        contextual_score=5.0,
+        in_kev=True,
+        title="Recorrido de rutas en Apache httpd",
     )
-    items = risks.rule_items(vulns, context, index, "api-pagos")
-    [item] = risks._merge_rule_items(items, vulns, index, context, "api-pagos")
-    assert " por " in item["title"] and "acumuladas" not in item["title"]
-    assert item["title"].endswith("y 1 vulnerabilidad más") or len(vulns) == 1
+    assert risks.lead_cause([lead, exploited, other]).startswith(
+        "recorrido de rutas en Apache httpd y 2"
+    )
+    # A igual peso, siempre la misma (por clave): el título no baila de una corrida a otra.
+    twin = _flaw(key="CVE-2020-0001", contextual_score=9.8, title="Otra falla en log4j-core 2.14.1")
+    assert risks.lead_cause([lead, twin]) == risks.lead_cause([twin, lead])
+    assert risks.lead_cause([]) == ""
+    # Solo debilidades de configuración: cuántas son, no una de ellas.
+    weak = [_flaw(key=f"WEAKNESS:{n}", title=f"Debilidad {n}") for n in range(3)]
+    assert risks.scenario_cause(weak) == "3 debilidades de configuración del servicio"
+    assert risks.scenario_cause(weak[:1]) == "debilidad 0"
+    assert risks.scenario_title("INTEGRITY", "crm-legacy", weak) == (
+        "Alteración de datos o sistemas en crm-legacy por 3 debilidades de configuración del servicio"
+    )
 
 
 # --------------------------------------------------------------------------
@@ -752,70 +866,35 @@ def test_merged_rule_risk_names_its_lead_vulnerability(as_role):
 
 
 def test_payload_budget_details_the_worst_and_groups_the_rest_by_software():
-    """Con 4096 tokens de contexto el modelo no veía la lista completa: ahora van una a una las
-    peores y el resto agrupado por software con sus ids, para que ninguna quede sin referenciar."""
-    asset = _asset_with_vulns()
-    consolidation.consolidate_asset(asset.pk, use_llm=False)
+    """Con 4096 tokens de contexto el modelo no veía la lista completa: van una a una las peores
+    y el resto agrupado por software. Ya no viajan identificadores: el modelo no reparte."""
+    asset = _three_scenarios()
     vulns = list(Vulnerability.objects.filter(asset=asset).select_related("cve", "component"))
     monkey_total = risks.RISK_PAYLOAD_DETAIL
     try:
         risks.RISK_PAYLOAD_DETAIL = 1
-        data, index = risks.build_payload(
-            asset.pk, vulns, assets_services.get_asset_context(asset.pk)
+        data = risks.build_payload(
+            asset.pk, "AVAILABILITY", vulns, assets_services.get_asset_context(asset.pk)
         )
     finally:
         risks.RISK_PAYLOAD_DETAIL = monkey_total
-    assert len(data["vulnerabilities"]) == 1 and set(index.values()) == set(
-        range(1, len(vulns) + 1)
-    )
-    grouped_ids = {i for g in data["more_vulnerabilities"] for i in g["ids"]}
-    assert grouped_ids | {data["vulnerabilities"][0]["id"]} == set(index.values())
+    assert len(data["vulnerabilities"]) == 1
+    assert sum(g["count"] for g in data["more_vulnerabilities"]) == len(vulns) - 1
     group = data["more_vulnerabilities"][0]
-    assert {"software", "ids", "count", "kev_count", "examples", "sources"} <= set(group)
+    assert {"software", "count", "kev_count", "examples", "sources"} <= set(group)
+    assert "ids" not in group and "id" not in data["vulnerabilities"][0]
+    assert data["scenario"] == {
+        "title": data["scenario"]["title"],
+        "consequence": "Interrupción del servicio",
+        "meaning": risks.CONSEQUENCE_PLAIN["AVAILABILITY"],
+        "vulnerability_count": len(vulns),
+    }
     # Lo que no pesa en la decisión no viaja: resumen corto, tres acciones, dos factores.
     first = data["vulnerabilities"][0]
     assert len(first["actions"]) <= 3 and set(first["factors"]) <= {
         "exploitability",
         "compensating_controls",
     }
-
-
-def test_unreferenced_vulnerabilities_in_the_same_software_join_that_risk():
-    jackson = SimpleNamespace(label="jackson-databind 2.17.2")
-    spring = SimpleNamespace(label="spring-web 6.1.13")
-    base = {"in_kev": False, "epss_score": None, "title": "", "cve": None, "cve_id": None}
-    v_a = SimpleNamespace(pk="a", component_id=7, component=jackson, key="CVE-2021-1", **base)
-    # Sin componente (hallazgo de Grype): el software sale del título.
-    v_b = SimpleNamespace(
-        pk="b",
-        component_id=None,
-        key="CVE-2021-2",
-        in_kev=False,
-        epss_score=None,
-        cve=None,
-        cve_id=None,
-        title="Bypass de @JsonIgnore en jackson-databind 2.17.2",
-    )
-    v_c = SimpleNamespace(pk="c", component_id=9, component=spring, key="CVE-2021-3", **base)
-    v_d = SimpleNamespace(pk="d", component_id=None, key="CVE-2021-4", **base)
-    index = {"a": 1, "b": 2, "c": 3, "d": 4}
-    parsed = {
-        "risks": [
-            {
-                "vulnerabilities": [1],
-                "title": "Fuga de datos en x por A",
-                "consequence": "CONFIDENTIALITY",
-                "intelligence_summary": "Ninguna está en KEV y no hay dato de EPSS.",
-                "likelihood": 3,
-                "impact": 3,
-            }
-        ]
-    }
-    items, covered, _ = risks._validate(parsed, [v_a, v_b, v_c, v_d], index, "x")
-    # b comparte software con a → se liga al mismo riesgo; c (otro software) y d (sin software)
-    # quedan para la regla.
-    assert items[0]["vulnerabilities"] == [1, 2] and items[0]["adopted"] == 1
-    assert covered == {1, 2}
 
 
 def test_rule_texts_speak_to_two_readers():
@@ -926,32 +1005,12 @@ def test_risk_text_links_cited_vulnerabilities_in_a_new_tab(client, as_role):
     assert "## Detalles" in md and vuln.key in md and "Qué perdería la organización" in md
 
 
-def test_title_whose_cause_is_only_a_cve_names_the_vulnerability():
-    jackson = SimpleNamespace(
-        key="CVE-2026-54513",
-        title="Inyección de código en jackson-databind 2.17.2",
-        contextual_score=7,
-    )
-    log4j = SimpleNamespace(
-        key="CVE-2021-44228", title="Log4Shell en log4j-core", contextual_score=9
-    )
-    assert (
-        risks.fix_title(
-            "Fuga de datos financieros en api-pagos por CVE-2026-54513",
-            "api-pagos",
-            "CONFIDENTIALITY",
-            [jackson, log4j],
-        )
-        == "Fuga de datos financieros en api-pagos por inyección de código en jackson-databind 2.17.2"
-    )
-
-
 def test_narrative_payload_names_what_matters_and_forbids_software_names():
     asset = _asset_with_vulns()
     consolidation.consolidate_asset(asset.pk, use_llm=False)
     vulns = list(Vulnerability.objects.filter(asset=asset).select_related("cve", "component"))
     context = assets_services.get_asset_context(asset.pk)
-    data, index = risks.build_payload(asset.pk, vulns, context)
+    data = risks.build_payload(asset.pk, "AVAILABILITY", vulns, context)
     item = {
         "title": "Interrupción del servicio en api-pagos por nginx",
         "consequence": "AVAILABILITY",
@@ -1070,30 +1129,28 @@ def test_polish_paragraph_drops_cut_and_repeated_sentences():
     assert risks.polish_paragraph("  Doble   espacio.  ") == "Doble espacio."
 
 
-def test_rule_risks_group_configuration_weaknesses_together():
+def test_the_rule_values_a_whole_scenario():
     ctx = SimpleNamespace(
-        business_role="CRM",
+        business_role="API",
         environment="PROD",
         exposure="INTERNET",
         data_classification="CONFIDENCIAL",
+        data_categories=[],
         criticality="ALTO",
     )
     base = {
-        "in_kev": False,
         "epss_score": None,
         "cvss_score": None,
         "status": "CONFIRMED",
         "plausibility": 1.0,
-        "actions": [],
+        "actions": ["Actualizar a la versión corregida."],
         "factors": {},
-        "cve_id": None,
-        "cve": None,
         "kev_due_at": None,
-        "component_id": None,
-        "contextual_score": 3,
+        "observations": None,
+        "summary": "",
     }
     weak = [
-        SimpleNamespace(pk=str(i), key=f"WEAKNESS:{i}", title=t, **base)
+        _flaw(key=f"WEAKNESS:{i}", title=t, contextual_score=3, **base)
         for i, t in enumerate(
             (
                 "Missing Subresource Integrity",
@@ -1102,70 +1159,20 @@ def test_rule_risks_group_configuration_weaknesses_together():
             )
         )
     ]
-    cve = SimpleNamespace(pk="c", key="CVE-2024-1", title="Vulnerabilidad en wordpress 6.0", **base)
-    items = risks.rule_items(weak + [cve], ctx, {"0": 1, "1": 2, "2": 3, "c": 4}, "crm-legacy")
-    assert len(items) == 2
-    grouped = next(i for i in items if len(i["vulnerabilities"]) == 3)
-    assert grouped["vulnerabilities"] == [1, 2, 3]
-    assert grouped["title"].endswith("por 3 debilidades de configuración del servicio")
-
-
-def test_rule_risks_group_vulnerabilities_by_software():
-    spring = SimpleNamespace(label="spring-web 6.1.13")
-    ctx = SimpleNamespace(
-        business_role="PAGOS",
-        environment="PROD",
-        exposure="DMZ",
-        data_classification="RESTRINGIDA",
-        criticality="CRITICO",
-    )
-    base = {
-        "in_kev": False,
-        "epss_score": None,
-        "cvss_score": None,
-        "status": "CONFIRMED",
-        "plausibility": 1.0,
-        "actions": [],
-        "factors": {},
-        "cve_id": None,
-        "cve": None,
-        "kev_due_at": None,
-    }
-    v1 = SimpleNamespace(
-        pk="a",
-        key="CVE-2024-38820",
-        title="Vulnerabilidad en spring-web 6.1.13",
-        contextual_score=6,
-        component_id=3,
-        component=spring,
-        **base,
-    )
-    v2 = SimpleNamespace(
-        pk="b",
-        key="CVE-2025-41234",
-        title="Vulnerabilidad en spring-web 6.1.13",
-        contextual_score=5,
-        component_id=3,
-        component=spring,
-        **base,
-    )
-    v3 = SimpleNamespace(
-        pk="c",
-        key="CVE-2026-49844",
-        title="Inyección de datos en log4j-api 2.14.1",
-        contextual_score=7,
-        component_id=None,
-        **base,
-    )
-    items = risks.rule_items([v1, v2, v3], ctx, {"a": 1, "b": 2, "c": 3}, "api-pagos")
-    assert len(items) == 2
-    by_title = {i["title"]: i for i in items}
-    assert "Fuga de información en api-pagos por inyección de datos en log4j-api 2.14.1" in by_title
-    merged = next(i for i in items if len(i["vulnerabilities"]) == 2)
-    assert merged["vulnerabilities"] == [1, 2]
-    assert merged["title"].endswith(
-        "por vulnerabilidad en spring-web 6.1.13 y 1 vulnerabilidad más"
-    )
+    cve = _flaw(key="CVE-2024-1", title="Vulnerabilidad en wordpress 6.0", in_kev=True, **base)
+    cve.factors = {"exploitability": "HIGH"}
+    groups = risks.scenario_groups([*weak, cve], ctx)
+    # Datos confidenciales: tanto la ejecución de código como las debilidades son fuga.
+    assert list(groups) == ["CONFIDENTIALITY"] and len(groups["CONFIDENTIALITY"]) == 4
+    item = risks.rule_item("CONFIDENTIALITY", groups["CONFIDENTIALITY"], ctx, "crm-legacy")
+    assert {"title", "consequence", "vulnerabilities"} & set(item) == set()
+    # La peor probabilidad y el peor impacto entre sus vulnerabilidades.
+    assert item["likelihood"] == 5 and item["impact"] == 4 and item["threat_source"] == "MALWARE"
+    assert "«Vulnerabilidad en wordpress 6.0» u otra de las 4" in item["scenario"]
+    assert item["details"].startswith("Software afectado:") and item["recommendations"]
+    assert "manos ajenas" in item["description"]
+    alone = risks.rule_item("INTEGRITY", weak[:1], ctx, "crm-legacy")
+    assert "u otra de las" not in alone["scenario"] and alone["threat_source"] == "EXTERNAL"
 
 
 # --------------------------------------------------------------------------
@@ -1215,47 +1222,6 @@ def test_old_scan_recommendations_are_hidden_without_touching_the_data(client, a
         assert "Actualizar nginx a 1.27.4." in report and "nuevo escaneo del activo" not in report
     risk.refresh_from_db()
     assert risk.recommendations == stored
-
-
-def test_title_names_the_consequence_and_the_cause_does_not_repeat_the_asset():
-    fix = risks.fix_title
-    # «Compromiso del <activo>» no dice qué se pierde: encabeza la consecuencia de su campo.
-    assert fix(
-        "Compromiso del api-pagos por Log4Shell en log4j-core", "api-pagos", "CONFIDENTIALITY"
-    ) == ("Fuga de información en api-pagos por Log4Shell en log4j-core")
-    assert fix(
-        "Compromiso total del servidor api-pagos por recorrido de rutas en Apache httpd 2.4.49",
-        "api-pagos",
-        "INTEGRITY",
-    ) == (
-        "Alteración de datos o sistemas en api-pagos por recorrido de rutas en Apache httpd 2.4.49"
-    )
-    # Sin consecuencia en su campo no hay con qué sustituirla: se respeta.
-    untouched = "Compromiso del api-pagos por Log4Shell en log4j-core"
-    assert fix(untouched, "api-pagos") == untouched
-    # Un «compromiso» que sí dice de qué no es genérico.
-    specific = "Compromiso de datos restringidos en api-pagos por vulnerabilidades en pillow"
-    assert fix(specific, "api-pagos", "CONFIDENTIALITY") == specific
-    # La causa no repite el activo, que ya va en la cabeza.
-    assert (
-        fix(
-            "Fuga de información en portal-rh por falta de cabeceras de seguridad en el portal-rh",
-            "portal-rh",
-            "CONFIDENTIALITY",
-        )
-        == "Fuga de información en portal-rh por falta de cabeceras de seguridad"
-    )
-    assert (
-        fix(
-            "Fuga de información en agente-portal por vulnerabilidad de Express.js en agente-portal",
-            "agente-portal",
-            "CONFIDENTIALITY",
-        )
-        == "Fuga de información en agente-portal por vulnerabilidad de Express.js"
-    )
-    # Otro activo con nombre parecido no se toca.
-    keep = "Fuga de información en portal por fallo en portal-rh-legacy"
-    assert fix(keep, "portal-rh", "CONFIDENTIALITY").endswith("por fallo en portal-rh-legacy")
 
 
 def test_lists_lead_with_what_tells_risks_apart(client, as_role):
@@ -1317,10 +1283,7 @@ def test_same_evidence_keeps_the_previous_valuation(monkeypatch):
     def with_values(likelihood, impact):
         def generator(payload):
             asked.append(payload)
-            data = risks.mock_risks(payload)
-            for r in data["risks"]:
-                r["likelihood"], r["impact"] = likelihood, impact
-            return data
+            return {**risks.mock_risks(payload), "likelihood": likelihood, "impact": impact}
 
         return generator
 
@@ -1393,137 +1356,67 @@ def test_reopening_is_told_before_the_new_valuation(make_user):
     assert kinds[-2:] == [RiskEventKind.REOPENED, RiskEventKind.ASSESSED]
 
 
-def test_a_restated_risk_is_the_same_risk(monkeypatch, make_user):
-    """Con la misma evidencia el modelo cambia la fuente de amenaza o la consecuencia (api-pagos,
-    2026-11-17: «Compromiso… por Log4Shell», de malware, pasó a «Pérdida financiera…», de atacante
-    externo). Eso cerraba el riesgo como reemplazado y abría otro con el plazo en cero: ahora es
-    el mismo riesgo, con su fecha, su responsable y su valoración."""
-    from apps.detection import responsibles
-    from apps.llm import client as llm_client
-
-    asset = _asset_with_vulns()
-    week_ago = timezone.now() - datetime.timedelta(days=7)
-    Risk.objects.filter(asset=asset).update(first_identified_at=week_ago)
-    before = {r.pk: r for r in Risk.objects.filter(asset=asset, status=RiskStatus.OPEN)}
-    assert before
-    person = make_user(OPERATOR)
-    assert responsibles.assign(list(before), user=make_user(ADMIN), choice=str(person.pk))
-
-    def restated(payload):
-        data = risks.mock_risks(payload)
-        for r in data["risks"]:
-            r["consequence"], r["threat_source"], r["likelihood"] = "FINANCIAL", "SUPPLY_CHAIN", 2
-            r["title"] = "Pérdida financiera en api-pagos por " + r["title"].split(" por ", 1)[1]
-        return data
-
-    monkeypatch.setitem(llm_client.MOCK_GENERATORS, "RISK_ASSESSMENT", restated)
-    # Hoy, con la misma evidencia, ni se le pregunta (el riesgo sigue en pie). Cuando sí se le
-    # pregunta (cambió la evidencia, el modelo o el prompt) y reformula, sigue siendo el mismo.
-    result = risks.derive_risks(asset.pk, fresh=True)
-    after = list(Risk.objects.filter(asset=asset))
-    assert {r.pk for r in after} == set(before) and result["closed"] == 0
-    for risk in after:
-        old = before[risk.pk]
-        assert risk.status == RiskStatus.OPEN and risk.key != old.key
-        assert risk.key.startswith("FINANCIAL:SUPPLY_CHAIN:")
-        assert risk.key.rsplit(":", 1)[1] == old.key.rsplit(":", 1)[1]
-        assert risk.consequence == "FINANCIAL" and risk.title.startswith("Pérdida financiera en")
-        assert risk.first_identified_at == week_ago and risk.assignee_id == person.pk
-        note = risk.events.filter(kind=RiskEventKind.NOTE).get()
-        assert old.title in note.message and "Es el mismo riesgo" in note.message
-        assert not risk.events.filter(kind=RiskEventKind.CLOSED).exists()
-    # Otra vez igual: nada que contar.
-    risks.derive_risks(asset.pk)
-    assert RiskEvent.objects.filter(risk__asset=asset, kind=RiskEventKind.NOTE).count() == len(
-        before
-    )
-
-
-def test_regrouped_vulnerabilities_keep_their_clock(monkeypatch):
-    """El plazo cuenta desde que las vulnerabilidades entraron al registro: un riesgo que nace
-    porque la valoración las reagrupó no estrena plazo (portal-rh, 2026-11-17: tres fallas de un
-    riesgo crítico de hacía una semana salieron como riesgo nuevo, con siete días por delante)."""
+def test_the_deadline_counts_from_the_oldest_of_the_worst_vulnerabilities(monkeypatch):
+    """Un escenario vive mientras al activo le quede alguna vulnerabilidad de esa consecuencia.
+    Si el plazo contara desde que se identificó, la crítica que llega hoy a un escenario de hace
+    un año nacería vencida. Cuenta desde que se detectó la más antigua de las más graves."""
     from apps.detection import policy
-    from apps.llm import client as llm_client
+
+    now = timezone.now()
+
+    def days_ago(n):
+        return now - datetime.timedelta(days=n)
+
+    def flaw(severity, detected):
+        return SimpleNamespace(severity=severity, first_detected_at=detected)
+
+    old_medium, old_high, new_high, new_critical = (
+        flaw("MEDIUM", days_ago(300)),
+        flaw("HIGH", days_ago(40)),
+        flaw("HIGH", days_ago(10)),
+        flaw("CRITICAL", days_ago(2)),
+    )
+    assert risks.clock_start([old_medium, old_high, new_high, new_critical]) == days_ago(2)
+    # Corregida la crítica, mandan las altas, y de ellas la más antigua.
+    assert risks.clock_start([old_medium, old_high, new_high]) == days_ago(40)
+    assert risks.clock_start([old_medium]) == days_ago(300)
 
     asset = _asset_with_vulns()
-    week_ago = timezone.now() - datetime.timedelta(days=7)
-    Risk.objects.filter(asset=asset).update(first_identified_at=week_ago)
-    originals = {r.pk: r.key for r in Risk.objects.filter(asset=asset, status=RiskStatus.OPEN)}
-
-    def split(payload):
-        data = risks.mock_risks(payload)
-        extra = [
-            {
-                **r,
-                "consequence": "CONFIDENTIALITY",
-                "title": "Fuga de información en api-pagos por " + r["title"].split(" por ", 1)[1],
-            }
-            for r in data["risks"]
-        ]
-        # Primero los nuevos: no deben quedarse con el riesgo que su clave exacta va a encontrar.
-        return {"risks": extra + data["risks"]}
-
-    monkeypatch.setitem(llm_client.MOCK_GENERATORS, "RISK_ASSESSMENT", split)
-    # ``fresh`` en toda la prueba: reagrupar es lo que hace el modelo cuando se le pregunta, y
-    # con la misma evidencia ya no se le pregunta.
-    risks.derive_risks(asset.pk, fresh=True)
-    assert {r.pk: r.key for r in Risk.objects.filter(pk__in=originals)} == originals
-    born = list(Risk.objects.filter(asset=asset).exclude(pk__in=originals))
-    assert len(born) == len(originals)
-    today = timezone.localdate()
-    for risk in born:
-        assert risk.first_identified_at == week_ago
-        identified = risk.events.get(kind=RiskEventKind.IDENTIFIED)
-        assert "ya estaban en otro riesgo del activo desde el" in identified.message
-        assert "el plazo cuenta desde entonces" in identified.message
-        twin = Risk.objects.get(pk__in=originals, vulnerabilities__in=risk.vulnerabilities.all())
-        if twin.level == risk.level:
-            assert policy.deadline(risk, today=today).date == policy.deadline(twin).date
-
-    # Un riesgo que ya tenía el plazo reiniciado lo recupera en la siguiente valoración, una vez.
-    late = born[0]
-    Risk.objects.filter(pk=late.pk).update(first_identified_at=timezone.now())
-    risks.derive_risks(asset.pk, fresh=True)
-    risks.derive_risks(asset.pk, fresh=True)
-    late.refresh_from_db()
-    assert late.first_identified_at == week_ago
-    note = late.events.filter(kind=RiskEventKind.NOTE).get()
-    assert note.message.startswith("Sus vulnerabilidades ya estaban en otro riesgo del activo")
-
-    # La valoración deja de producirlos: se cierran como reemplazados. Si vuelve a producirlos,
-    # la línea de tiempo no dice que «vuelven a tener vulnerabilidades» (nunca dejaron de tenerlas).
-    monkeypatch.setitem(llm_client.MOCK_GENERATORS, "RISK_ASSESSMENT", risks.mock_risks)
-    assert risks.derive_risks(asset.pk, fresh=True)["closed"] == len(born)
-    monkeypatch.setitem(llm_client.MOCK_GENERATORS, "RISK_ASSESSMENT", split)
-    risks.derive_risks(asset.pk, fresh=True)
-    late.refresh_from_db()
-    assert late.status == RiskStatus.OPEN
-    reopened = late.events.filter(kind=RiskEventKind.REOPENED).get()
-    assert reopened.message == "La valoración del activo vuelve a expresarlo"
-
-    # Entre uno abierto y uno cerrado con la misma vulnerabilidad principal, el mismo riesgo es
-    # el abierto.
-    monkeypatch.setitem(llm_client.MOCK_GENERATORS, "RISK_ASSESSMENT", risks.mock_risks)
-    risks.derive_risks(asset.pk, fresh=True)
-
-    def restated(payload):
-        data = risks.mock_risks(payload)
-        for r in data["risks"]:
-            r["consequence"], r["threat_source"] = "FINANCIAL", "SUPPLY_CHAIN"
-        return data
-
-    monkeypatch.setitem(llm_client.MOCK_GENERATORS, "RISK_ASSESSMENT", restated)
-    risks.derive_risks(asset.pk, fresh=True)
-    assert set(
-        Risk.objects.filter(asset=asset, status=RiskStatus.OPEN).values_list("pk", flat=True)
-    ) == set(originals)
-    assert all(
-        r.key.startswith("FINANCIAL:SUPPLY_CHAIN:") for r in Risk.objects.filter(pk__in=originals)
+    risk = Risk.objects.get(asset=asset)
+    vuln = risk.vulnerabilities.get()
+    assert risk.deadline_from == vuln.first_detected_at
+    # Un escenario identificado hace un año cuya vulnerabilidad más grave llegó hace dos días.
+    Risk.objects.filter(pk=risk.pk).update(
+        first_identified_at=days_ago(365), level="CRITICAL", deadline_from=days_ago(2)
     )
-    assert all(
-        r.status == RiskStatus.CLOSED for r in Risk.objects.filter(pk__in=[b.pk for b in born])
+    risk.refresh_from_db()
+    rules = policy.current()
+    due = policy.deadline(risk, rules)
+    assert due.date == (
+        timezone.localtime(days_ago(2)).date() + datetime.timedelta(days=rules.critical_days)
     )
+    assert not due.overdue and "la más antigua de sus vulnerabilidades más graves" in due.rule
+    assert not Risk.objects.filter(policy.overdue_filter(rules), pk=risk.pk).exists()
+    # Pasado el plazo desde esa fecha, sí está fuera de plazo.
+    Risk.objects.filter(pk=risk.pk).update(deadline_from=days_ago(rules.critical_days + 3))
+    risk.refresh_from_db()
+    assert policy.deadline(risk, rules).overdue
+    assert Risk.objects.filter(policy.overdue_filter(rules), pk=risk.pk).exists()
+    # Un riesgo sin esa fecha (anterior al reparto por consecuencia) cuenta desde que se identificó.
+    Risk.objects.filter(pk=risk.pk).update(deadline_from=None, first_identified_at=days_ago(1))
+    risk.refresh_from_db()
+    due = policy.deadline(risk, rules)
+    assert not due.overdue and due.rule.endswith("contados desde que se identificó")
+    assert not Risk.objects.filter(policy.overdue_filter(rules), pk=risk.pk).exists()
+    # El plazo de CISA vale si seguía vigente cuando el plazo empezó a contar.
+    Risk.objects.filter(pk=risk.pk).update(deadline_from=days_ago(2), level="LOW")
+    vuln.in_kev, vuln.kev_due_at = True, timezone.localdate() + datetime.timedelta(days=1)
+    vuln.save()
+    risk.refresh_from_db()
+    assert policy.deadline(risk, rules).basis == "cisa"
+    vuln.kev_due_at = timezone.localtime(days_ago(30)).date()
+    vuln.save()
+    assert policy.deadline(risk, rules).basis == "level"
 
 
 # --------------------------------------------------------------------------
@@ -1531,8 +1424,21 @@ def test_regrouped_vulnerabilities_keep_their_clock(monkeypatch):
 # --------------------------------------------------------------------------
 
 
-def _sbom(asset, cve_id, title):
-    """Una vulnerabilidad sostenida de otro software: Grype la vio en el SBOM (versión exacta)."""
+def _sbom(asset, cve_id, title, cia=""):
+    """Una vulnerabilidad sostenida de otro software: Grype la vio en el SBOM (versión exacta).
+    ``cia`` le da un vector CVSS («NNH» = solo disponibilidad)."""
+    from apps.cti.models import CveRecord
+
+    cve = None
+    if cia:
+        cve = CveRecord.objects.create(
+            cve_id=cve_id,
+            description=title,
+            cvss_score=7.5,
+            cvss_vector=f"{V31}/C:{cia[0]}/I:{cia[1]}/A:{cia[2]}",
+            cvss_version="3.1",
+            severity="HIGH",
+        )
     return findings.upsert_finding(
         asset_id=asset.pk,
         vulnerability_id=cve_id,
@@ -1540,14 +1446,17 @@ def _sbom(asset, cve_id, title):
         title=title,
         severity="HIGH",
         evidence_summary="sbom",
+        cve=cve,
     ).finding
 
 
 def _three_scenarios():
-    """api-pagos con tres escenarios de software distinto: nginx, jackson-databind y spring-web."""
+    """api-pagos con un escenario por consecuencia: fuga (nginx, C:L), interrupción (una falla
+    de jackson-databind que solo afecta a la disponibilidad) y alteración (una de spring-web que
+    solo afecta a la integridad)."""
     asset = _asset_with_vulns()
-    _sbom(asset, "CVE-2099-0101", "Deserialización insegura en jackson-databind 2.17.2")
-    _sbom(asset, "CVE-2099-0201", "Inyección de plantillas en spring-web 6.1.13")
+    _sbom(asset, "CVE-2099-0101", "Denegación de servicio en jackson-databind 2.17.2", "NNH")
+    _sbom(asset, "CVE-2099-0201", "Inyección de plantillas en spring-web 6.1.13", "NHN")
     consolidation.consolidate_asset(asset.pk)
     return asset
 
@@ -1559,17 +1468,14 @@ def _asked_risks(monkeypatch, **changes):
 
     def generator(payload):
         asked.append(sorted(v["key"] for v in payload["vulnerabilities"]))
-        data = risks.mock_risks(payload)
-        for r in data["risks"]:
-            r.update(changes)
-        return data
+        return {**risks.mock_risks(payload), **changes}
 
     monkeypatch.setitem(llm_client.MOCK_GENERATORS, "RISK_ASSESSMENT", generator)
     return asked
 
 
 def _risk_rows(asset):
-    """Cada riesgo abierto por su vulnerabilidad, con todo lo que guarda la valoración."""
+    """Cada riesgo abierto por sus vulnerabilidades, con todo lo que guarda la valoración."""
     rows = {}
     for risk in Risk.objects.filter(asset=asset, status=RiskStatus.OPEN):
         keys = ",".join(sorted(risk.vulnerabilities.values_list("key", flat=True)))
@@ -1578,21 +1484,25 @@ def _risk_rows(asset):
 
 
 def test_only_the_scenario_whose_evidence_changed_goes_to_the_model(monkeypatch):
-    """Con la misma evidencia el modelo repartía las vulnerabilidades de otra forma (api-pagos,
-    2026-11-17: trece en un riesgo, luego once) y la valoración se movía. Los riesgos cuya
-    evidencia no cambió siguen en pie, y al modelo solo se le da lo demás."""
+    """Con la misma evidencia el modelo movía la valoración. Los escenarios cuya evidencia no
+    cambió siguen en pie, y al modelo solo se le pregunta por los demás."""
     from apps.detection.models import Finding
 
     asset = _three_scenarios()
     before = _risk_rows(asset)
     assert set(before) == {"CVE-2025-23419", "CVE-2099-0101", "CVE-2099-0201"}
+    assert {row["key"] for row in before.values()} == {
+        "CONFIDENTIALITY",
+        "AVAILABILITY",
+        "INTEGRITY",
+    }
     assert all(row["likelihood"] == 3 for row in before.values())
 
     asked = _asked_risks(monkeypatch, likelihood=2)
     result = consolidation.consolidate_asset(asset.pk)
     assert not asked and result.kept == result.vulnerabilities and _risk_rows(asset) == before
 
-    # Una de jackson pasa a tener EPSS alto: inteligencia nueva para ese escenario y solo ese.
+    # La de jackson pasa a tener EPSS alto: inteligencia nueva para ese escenario y solo ese.
     Finding.objects.filter(asset=asset, vulnerability_id="CVE-2099-0101").update(epss_score=0.6)
     consolidation.consolidate_asset(asset.pk)
     assert asked == [["CVE-2099-0101"]]
@@ -1604,28 +1514,25 @@ def test_only_the_scenario_whose_evidence_changed_goes_to_the_model(monkeypatch)
     assert changed["evidence_fingerprint"] != before["CVE-2099-0101"]["evidence_fingerprint"]
 
 
-def test_a_new_vulnerability_reopens_only_the_scenario_of_its_software(monkeypatch):
+def test_a_new_vulnerability_goes_to_the_scenario_of_its_consequence(monkeypatch):
     asset = _three_scenarios()
     before = _risk_rows(asset)
 
-    # Otra falla en jackson-databind: el modelo valora ese escenario entero, con ella dentro.
-    _sbom(asset, "CVE-2099-0102", "Lectura de archivos en jackson-databind 2.17.2")
+    # Otra falla que tira el servicio, en otro software: el modelo valora el escenario de
+    # interrupción entero, con ella dentro, y no hay un riesgo más.
+    _sbom(asset, "CVE-2099-0301", "Desbordamiento de memoria en libxml2 2.9.14", "NNH")
     asked = _asked_risks(monkeypatch)
     consolidation.consolidate_asset(asset.pk)
-    assert asked == [["CVE-2099-0101", "CVE-2099-0102"]]
+    assert asked == [["CVE-2099-0101", "CVE-2099-0301"]]
     after = _risk_rows(asset)
+    assert len(after) == 3
     assert after["CVE-2025-23419"] == before["CVE-2025-23419"]
     assert after["CVE-2099-0201"] == before["CVE-2099-0201"]
-    assert after["CVE-2099-0101"]["id"] == before["CVE-2099-0101"]["id"]
-
-    # Una falla de un software que no estaba: los tres escenarios siguen en pie.
-    settled = _risk_rows(asset)
-    _sbom(asset, "CVE-2099-0301", "Desbordamiento de memoria en libxml2 2.9.14")
-    del asked[:]
-    consolidation.consolidate_asset(asset.pk)
-    assert asked == [["CVE-2099-0301"]]
-    after = _risk_rows(asset)
-    assert {key: after[key] for key in settled} == settled and "CVE-2099-0301" in after
+    grown = after["CVE-2099-0101,CVE-2099-0301"]
+    assert grown["id"] == before["CVE-2099-0101"]["id"] and grown["key"] == "AVAILABILITY"
+    assert grown["title"].endswith("y 1 vulnerabilidad más")
+    for vuln in Vulnerability.objects.filter(asset=asset, status="CONFIRMED"):
+        assert vuln.risks.filter(status=RiskStatus.OPEN).count() == 1, vuln.key
 
 
 def test_another_model_values_the_risks_again(monkeypatch):
@@ -1634,10 +1541,11 @@ def test_another_model_values_the_risks_again(monkeypatch):
     assert risks.derive_risks(asset.pk)["kept"] == 3 and not asked
     monkeypatch.setattr(risks, "active_model", lambda: "otro-modelo:13b")
     result = risks.derive_risks(asset.pk)
-    assert result["kept"] == 0 and len(asked) == 1 and len(asked[0]) == 3
+    # Una pregunta por escenario.
+    assert result["kept"] == 0 and len(asked) == 3 and all(len(keys) == 1 for keys in asked)
     assert all(row["likelihood"] == 2 for row in _risk_rows(asset).values())
     # Y lo que valoró ese modelo sigue en pie mientras sea el activo.
-    assert risks.derive_risks(asset.pk)["kept"] == 3 and len(asked) == 1
+    assert risks.derive_risks(asset.pk)["kept"] == 3 and len(asked) == 3
 
 
 def test_model_outage_leaves_the_risks_the_ai_valued(settings, monkeypatch):
@@ -1651,24 +1559,3 @@ def test_model_outage_leaves_the_risks_the_ai_valued(settings, monkeypatch):
     assert result["kept"] == 3 and result["by_rule"] == 0 and result["closed"] == 0
     assert _risk_rows(asset) == before
     assert all(row["assessment_source"] == StatusSource.AI for row in before.values())
-
-
-def test_a_risk_sharing_a_vulnerability_with_one_that_changed_does_not_stand():
-    asset = _three_scenarios()
-    context = assets_services.get_asset_context(asset.pk)
-    vulns = list(Vulnerability.objects.filter(asset=asset, status="CONFIRMED"))
-    standing = risks.standing_risks(asset.pk, vulns, context)
-    assert len(standing) == 3
-    nginx = Risk.objects.get(asset=asset, vulnerabilities__key="CVE-2025-23419")
-    # Otro riesgo abierto, sin valoración que conservar, expresa la misma vulnerabilidad: el
-    # modelo tiene que ver las dos caras del escenario.
-    other = Risk.objects.create(
-        asset=asset,
-        key="CONFIDENTIALITY:EXTERNAL:cve_2025_23419",
-        title="Fuga de información en api-pagos por nginx",
-        scenario="x",
-        first_identified_at=nginx.first_identified_at,
-    )
-    other.vulnerabilities.set(nginx.vulnerabilities.all())
-    standing = risks.standing_risks(asset.pk, vulns, context)
-    assert nginx.pk not in standing and len(standing) == 2

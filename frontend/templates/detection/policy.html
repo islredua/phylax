@@ -5,7 +5,7 @@
 <div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
   <form method="post" class="card flex flex-col gap-3" novalidate>{% csrf_token %}
     <h3 class="card-title mb-0">Plazos para tratar un riesgo</h3>
-    <p class="text-sm text-ink-soft">Cuántos días tiene la organización para tratar un riesgo de cada nivel, contados desde que se identificó. Con esto Atalaya propone la fecha compromiso al decidir un tratamiento y marca lo que va fuera de plazo.</p>
+    <p class="text-sm text-ink-soft">Cuántos días tiene la organización para tratar un riesgo de cada nivel, contados desde que se detectó la más antigua de sus vulnerabilidades más graves (un riesgo reúne todo lo que lleva a la misma consecuencia en un activo y dura mientras quede algo sin corregir: si el plazo contara desde que se identificó, una vulnerabilidad crítica descubierta hoy nacería vencida). Con esto Atalaya propone la fecha compromiso al decidir un tratamiento y marca lo que va fuera de plazo.</p>
     {% if form.non_field_errors %}<div class="alert-error text-sm" role="alert">{% for e in form.non_field_errors %}{{ e }} {% endfor %}</div>{% endif %}
     <div class="table-wrap">
       <table class="data-table">

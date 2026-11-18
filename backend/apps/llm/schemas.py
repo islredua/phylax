@@ -248,23 +248,12 @@ class VulnAssessmentOutput(BaseModel):
 # --- Riesgos (fase 5, ISO/IEC 27005): vulnerabilidades consolidadas → escenarios valorados ------
 
 THREAT_SOURCES = ("EXTERNAL", "INSIDER", "MALWARE", "SUPPLY_CHAIN", "ERROR", "OTHER")
-RISK_CONSEQUENCES = (
-    "CONFIDENTIALITY",
-    "INTEGRITY",
-    "AVAILABILITY",
-    "COMPLIANCE",
-    "REPUTATION",
-    "FINANCIAL",
-    "OPERATIONS",
-)
-
+# El modelo valora y detalla UN escenario que el código ya delimitó (activo, consecuencia y
+# vulnerabilidades): no elige qué vulnerabilidades entran, ni la consecuencia, ni el título.
 # Los textos no llevan un límite editorial: el tope del esquema solo frena una salida desbocada.
-_RISK_ITEM_SCHEMA = {
+RISK_ASSESSMENT_SCHEMA = {
     "type": "object",
     "properties": {
-        "vulnerabilities": {"type": "array", "items": {"type": "integer"}, "minItems": 1},
-        "title": {"type": "string", "maxLength": 160},
-        "consequence": {"type": "string", "enum": list(RISK_CONSEQUENCES)},
         "details": {"type": "string", "maxLength": 6000},
         "intelligence_summary": {"type": "string", "maxLength": 2000},
         "recommendations": {
@@ -279,9 +268,6 @@ _RISK_ITEM_SCHEMA = {
         "rationale": {"type": "string", "maxLength": 800},
     },
     "required": [
-        "vulnerabilities",
-        "title",
-        "consequence",
         "details",
         "intelligence_summary",
         "recommendations",
@@ -289,11 +275,6 @@ _RISK_ITEM_SCHEMA = {
         "likelihood",
         "impact",
     ],
-}
-RISK_ASSESSMENT_SCHEMA = {
-    "type": "object",
-    "properties": {"risks": {"type": "array", "items": _RISK_ITEM_SCHEMA}},
-    "required": ["risks"],
 }
 
 
@@ -321,27 +302,13 @@ def _must_be_plain_language(value):
     return value
 
 
-class RiskItem(BaseModel):
+class RiskAssessmentOutput(BaseModel):
+    """Valoración de UN escenario de riesgo: detalle técnico, lectura de inteligencia,
+    recomendaciones, fuente de amenaza, probabilidad e impacto."""
+
     model_config = ConfigDict(extra="ignore")
 
-    vulnerabilities: list[int] = Field(min_length=1)
-    title: str = Field(max_length=160)
-    consequence: Literal[
-        "CONFIDENTIALITY",
-        "INTEGRITY",
-        "AVAILABILITY",
-        "COMPLIANCE",
-        "REPUTATION",
-        "FINANCIAL",
-        "OPERATIONS",
-    ]
-    # La descripción para la dirección se redacta aparte (RISK_NARRATIVE); si el modelo la trae
-    # aquí se conserva solo como respaldo.
-    description: str = Field(max_length=4000, default="")
-    impact_description: str = Field(max_length=2000, default="")
     details: str = Field(min_length=40, max_length=6000)
-    # El relato corto se conserva por compatibilidad; ya no se pide al modelo.
-    scenario: str = Field(max_length=1500, default="")
     intelligence_summary: str = Field(max_length=2000, default="")
     recommendations: list[Annotated[str, StringConstraints(max_length=400)]] = Field(
         min_length=1, max_length=6
@@ -351,10 +318,8 @@ class RiskItem(BaseModel):
     impact: int = Field(ge=1, le=5)
     rationale: str = Field(max_length=800, default="")
 
-    # El texto llega a quien dirige: en español, y el título nombra consecuencia y causa.
-    _spanish = field_validator(
-        "title", "scenario", "description", "impact_description", "details", "intelligence_summary"
-    )(_must_look_spanish)
+    # El texto llega a quien corrige y a quien dirige: en español.
+    _spanish = field_validator("details", "intelligence_summary")(_must_look_spanish)
 
     @field_validator("recommendations")
     @classmethod
@@ -364,16 +329,6 @@ class RiskItem(BaseModel):
         if not all(looks_spanish(r) for r in value):
             raise ValueError("las recomendaciones deben estar en español")
         return value
-
-    # La fórmula del título («Consecuencia en activo por causa») no se exige aquí: un título que
-    # no la siga se reconstruye en ``risks.fix_title`` con la consecuencia y el activo, sin
-    # gastar un reintento del modelo. Solo el idioma se valida.
-
-
-class RiskAssessmentOutput(BaseModel):
-    model_config = ConfigDict(extra="ignore")
-
-    risks: list[RiskItem] = Field(default_factory=list)
 
 
 # --- Etapa 2 de riesgos: redacción para quien no es técnico ------------------------------------
