@@ -26,13 +26,13 @@
 {% for d in decisions %}
 <section class="card flex flex-col gap-2">
   <div class="flex flex-wrap items-center gap-2">
-    <h3 class="card-title mb-0">Decisión: {{ d.get_action_display }}</h3>{% urgency_badge d.urgency %}
-    {% if d.fallback %}<span class="badge-medium">por regla, sin LLM</span> <span class="text-xs text-muted">{{ d.fallback_reason }}</span>{% endif %}
+    <h3 class="card-title mb-0">{% if d.by_person %}Acción pedida{% else %}Decisión{% endif %}: {{ d.get_action_display }}</h3>{% urgency_badge d.urgency %}
+    {% if d.by_person %}<span class="badge-neutral">pedida por una persona</span> <span class="text-xs text-muted">No la decidió la IA ni una regla.</span>{% elif d.fallback %}<span class="badge-medium">por regla, sin LLM</span> <span class="text-xs text-muted">{{ d.fallback_reason }}</span>{% endif %}
     {% model_warning d.model_mismatch d.model_requested d.model_responded %}
   </div>
   <p class="text-ink-soft">{{ d.rationale|linebreaksbr }}</p>
-  {% if d.evidence %}<ul class="flex flex-wrap gap-1">{% for e in d.evidence %}<li class="badge-neutral">{{ e }}</li>{% endfor %}</ul>{% endif %}
-  <p class="text-xs text-muted">{{ d.created_at|momento }}{% if d.fallback %} · por regla{% else %} · modelo {{ d.model_requested|default:"—" }}{% if d.model_responded and d.model_responded != d.model_requested %} (respondió {{ d.model_responded }}){% endif %} · prompt {{ d.prompt_version }}{% endif %}{% if d.duration_ms %} · {{ d.duration_ms|duracion }}{% endif %}{% if d.category %} · plantillas: {{ d.category|category_label }}{% endif %}</p>
+  {% if d.evidence and not d.by_person %}<ul class="flex flex-wrap gap-1">{% for e in d.evidence %}<li class="badge-neutral">{{ e }}</li>{% endfor %}</ul>{% endif %}
+  <p class="text-xs text-muted">{{ d.created_at|momento }}{% if d.by_person %} · pedida por una persona{% elif d.fallback %} · por regla{% else %} · modelo {{ d.model_requested|default:"—" }}{% if d.model_responded and d.model_responded != d.model_requested %} (respondió {{ d.model_responded }}){% endif %} · prompt {{ d.prompt_version }}{% endif %}{% if d.duration_ms %} · {{ d.duration_ms|duracion }}{% endif %}{% if d.category %} · plantillas: {{ d.category|category_label }}{% endif %}</p>
   {% if d.input_payload %}<details class="fold"><summary>Entrada que recibió el modelo</summary><pre class="code-block mt-2 text-xs">{{ d.input_payload|pretty_json }}</pre></details>{% endif %}
   {% with planned=d.planned %}{% if planned %}<p class="text-sm"><a href="{% url 'detection:action' planned.pk %}">Ver la acción</a> {% action_status_badge planned.status %}</p>{% endif %}{% endwith %}
 </section>

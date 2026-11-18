@@ -403,7 +403,15 @@ no observado) y los pasos que el sistema puede dar: «Detectar con herramienta»
 `DETECT_VULNS` y «Reescanear servicios» una `RESCAN_SERVICES` (`actions.request_manual`: decisión
 marcada «pedida a mano», sin planificador, por la misma cola, modo y guardarraíles; el evento
 queda `PLANNED` y la vulnerabilidad anota la petición), y «No aplica» fija falso positivo con nota
-a nombre de la persona. Si ya hay una acción en marcha sobre el activo se enlaza en vez de duplicar;
+a nombre de la persona. Lo mismo hace «Ya lo corregí: comprobar» en un riesgo
+(`request_manual_many`). Esa «decisión» existe solo para que la acción tenga de dónde colgar
+(`PlannerDecision.by_person`, `prompt_version` = `manual`): ahí no decidió el modelo ni la regla.
+La página de la acción, la del evento y el progreso del activo dicen «pedida por una persona» y
+quién la pidió, e Inicio la cuenta aparte de las decisiones del planificador. Hasta el
+2026-11-18 decían «por regla, sin LLM · Decidida por regla» y contaban como decisiones «por la
+regla de respaldo». Distinto es pedir una evaluación sin elegir la acción («Evaluar el activo
+ahora», «Volver a evaluar»): ahí la acción sí la elige el planificador, por regla o con el
+modelo, y así se muestra, con el motivo «Evaluación pedida por una persona». Si ya hay una acción en marcha sobre el activo se enlaza en vez de duplicar;
 sin IP autorizada se explica el bloqueo. **Triaje en lote** (`/detection/vulnerabilities/bulk/`,
 permiso `work_findings`): casillas en la lista, un estado y una nota para todas las marcadas
 (`consolidation.set_status` una por una: aceptar o falso positivo siguen exigiendo nota); el

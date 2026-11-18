@@ -6,7 +6,7 @@
       <a href="{% url 'detection:action' a.pk %}" class="font-medium">{{ a.get_action_display }}</a>
       {% urgency_badge a.urgency %}{% action_status_badge a.status %}
       {% if a.asset %}<span class="text-sm">sobre <a href="{% url 'assets:detail' a.asset_id %}">{{ a.asset.name }}</a></span>{% endif %}
-      {% if a.decision.fallback %}<span class="badge-medium" title="{{ a.decision.fallback_reason }}">por regla, sin LLM</span>{% endif %}
+      {% if a.decision.by_person %}<span class="badge-neutral" title="El planificador no intervino">pedida por una persona</span>{% elif a.decision.fallback %}<span class="badge-medium" title="{{ a.decision.fallback_reason }}">por regla, sin LLM</span>{% endif %}
       {% model_warning a.decision.model_mismatch a.decision.model_requested a.decision.model_responded %}
     </div>
     <p class="font-mono text-[11px] text-muted">{{ a.event.get_kind_display|lower }} · prioridad {{ a.priority }} · {{ a.created_at|hace }}</p>

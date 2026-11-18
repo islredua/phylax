@@ -165,7 +165,11 @@ def signals(since) -> dict:
 def decisions(since) -> dict:
     from apps.detection.automation import current_settings
 
-    rows = PlannerDecision.objects.filter(created_at__gte=since)
+    # Lo que pidió una persona (comprobar una corrección, un escaneo desde la ficha) no es una
+    # decisión del planificador: se cuenta aparte.
+    asked = Q(prompt_version=PlannerDecision.BY_PERSON)
+    by_person = PlannerDecision.objects.filter(asked, created_at__gte=since).count()
+    rows = PlannerDecision.objects.filter(created_at__gte=since).exclude(asked)
     action_label = dict(Action.choices)
     urgency_label = dict(Urgency.choices)
     by_action = dict(rows.values_list("action").annotate(n=Count("id")).values_list("action", "n"))
@@ -197,11 +201,14 @@ def decisions(since) -> dict:
         "total": total,
         "by_model": total - fallback,
         "fallback": fallback,
+        "by_person": by_person,
         "by_action": [
             {"key": action, "label": action_label.get(action, action), "value": n}
             for action, n in sorted(by_action.items(), key=lambda kv: -kv[1])
         ],
-        "auto_approved": actions.filter(auto_approved=True).count(),
+        "auto_approved": actions.filter(auto_approved=True)
+        .exclude(decision__prompt_version=PlannerDecision.BY_PERSON)
+        .count(),
         "human_approved": actions.filter(approved_by__isnull=False).count(),
         "rejected": by_status.get("REJECTED", 0),
         "waiting_approval": by_status.get("PROPOSED", 0) + by_status.get("NEEDS_REVIEW", 0),

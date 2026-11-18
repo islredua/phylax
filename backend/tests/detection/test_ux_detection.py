@@ -556,7 +556,7 @@ def test_action_and_event_pages_use_labels_and_links(client, as_role):
     planned = actions.request_manual(asset.pk, "DETECT_VULNS", user=None, reason="prueba")
     body = client.get(f"/detection/actions/{planned.pk}/").content.decode()
     assert "Modo al decidir" in body and "mode_at_decision" not in body
-    assert "Decidida por regla" in body and "plantillas: CVE conocidos" in body
+    assert "Pedida por una persona" in body and "plantillas: CVE conocidos" in body
     crumb = (
         body.split('aria-label="Ruta"')[1].split("</nav>")[0]
         if 'aria-label="Ruta"' in body
@@ -573,6 +573,43 @@ def test_action_and_event_pages_use_labels_and_links(client, as_role):
     event, _ = events.emit(EventKind.CTI_CVE_MODIFIED, cve_id=cve.pk)
     event_body = client.get(f"/detection/events/{event.pk}/").content.decode()
     assert f"q={cve.pk}" in event_body and "Reportes relacionados" in event_body
+
+
+def test_an_action_a_person_asked_for_is_not_shown_or_counted_as_a_planner_decision(
+    client, as_role
+):
+    """Comprobar una corrección o pedir un escaneo se guarda como una decisión para que la acción
+    tenga de dónde colgar, pero ahí no decidió el modelo ni la regla de respaldo. La página decía
+    «por regla, sin LLM · Decidida por regla» e Inicio la contaba entre las decisiones «por la
+    regla de respaldo» (2026-11-18)."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from apps.detection import actions, progress
+    from apps.presentation import pipeline
+
+    user = as_role(OPERATOR)
+    asset = _nginx_asset()
+    planned = actions.request_manual(asset.pk, "DETECT_VULNS", user=user, reason="prueba")
+    assert planned.decision.by_person
+
+    body = client.get(f"/detection/actions/{planned.pk}/").content.decode()
+    assert "pedida por una persona" in body and "No la decidió la IA ni una regla" in body
+    assert f"Pedida por {user.get_username()}" in body
+    assert "por regla, sin LLM" not in body and "Decidida por regla" not in body
+    event_body = client.get(f"/detection/events/{planned.event_id}/").content.decode()
+    assert "Acción pedida: " in event_body and "pedida por una persona" in event_body
+    assert "por regla" not in event_body
+    story = progress.evaluation_progress(asset.pk)
+    detail = next(step.detail for step in story["steps"] if step.key == "decision")
+    assert "pedida por una persona" in detail and "por regla" not in detail
+
+    # Inicio: no es una decisión del planificador; se cuenta aparte.
+    found = pipeline.decisions(timezone.now() - timedelta(days=1))
+    assert found["by_person"] == 1
+    assert (found["total"], found["by_model"], found["fallback"]) == (0, 0, 0)
+    assert found["latest"] == [] and found["by_action"] == [] and found["auto_approved"] == 0
 
 
 def test_observation_can_be_registered_from_the_global_list(client, as_role):

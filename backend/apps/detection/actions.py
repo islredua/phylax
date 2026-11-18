@@ -183,7 +183,7 @@ def request_manual_many(asset_id, wanted, *, user, reason="", payload=None):
             category="cves" if action == str(Action.DETECT_VULNS) else "",
             rationale=reason or f"Pedida a mano por {who}.",
             evidence=["pedida por una persona"],
-            prompt_version="manual",
+            prompt_version=PlannerDecision.BY_PERSON,
             fallback=True,
             fallback_reason="acción pedida por una persona; el planificador no intervino",
         )

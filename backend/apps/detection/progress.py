@@ -196,7 +196,12 @@ def evaluation_progress(asset_id):
         hint = f"el modelo suele tardar ~{typical} s" if typical else "esperando al modelo"
         steps.append(Step("decision", "Planificador", "active", hint))
     elif decision is not None:
-        how = "por regla, sin LLM" if decision.fallback else f"modelo {decision.model_requested}"
+        if decision.by_person:
+            how = "pedida por una persona"
+        elif decision.fallback:
+            how = "por regla, sin LLM"
+        else:
+            how = f"modelo {decision.model_requested}"
         steps.append(
             Step(
                 "decision",

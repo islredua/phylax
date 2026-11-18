@@ -156,7 +156,7 @@ estaciones que siguen el lazo completo, cada una con su cifra, quién actúa y e
 |---|---|---|---|
 | Señales recibidas | `DetectionEvent` (CVE nuevo o modificado, EPSS, KEV, cambios del inventario) | Fuentes | ventana |
 | Tocan al inventario | las que el cruce no descartó (resueltas por reconciliación + enviadas al planificador + pendientes) | Regla | ventana |
-| Decisiones | `PlannerDecision` (modelo o regla de respaldo) y sus aprobaciones | IA local | ventana |
+| Decisiones | `PlannerDecision` (modelo o regla de respaldo) y sus aprobaciones; las acciones que pidió una persona no cuentan | IA local | ventana |
 | Escaneos | nmap (`DiscoveryRun`), nuclei y Grype (`ToolExecution`), completados o fallidos | Automatización | ventana |
 | Evidencia | `Finding` vigentes (reportes) y su combinación de fuentes | Regla | hoy |
 | Vulnerabilidades | sostenidas, estado puesto por IA o regla, prioridad contextual | IA local | hoy |
@@ -184,6 +184,10 @@ con el panel abierto. Los paneles explican **cómo** trabaja cada etapa:
   con productos y versiones.
 - *Decisiones*: del modelo o de la regla de respaldo, qué acción eligió, las tres últimas con su
   motivo y los límites que acotan la automatización (modo, ventana de trabajo pesado, topes por hora).
+  Las acciones que pidió una persona (comprobar una corrección, un escaneo desde una
+  vulnerabilidad) no son decisiones del planificador: se dicen aparte («aparte, 2 acciones pedidas
+  por una persona») y no entran en el total, en «por la regla de respaldo», en «aprobadas sin
+  intervención» ni en las últimas decisiones (`pipeline.decisions`, 2026-11-18).
 - *Escaneos*: ejecuciones por herramienta (completadas y fallidas), duración media y cobertura.
 - *Evidencia*: matriz de combinaciones de fuentes (una fila por combinación exacta, así cada
   reporte cuenta una vez): cuánto se encontró solo cruzando inteligencia con inventario, cuánto

@@ -1152,12 +1152,24 @@ class PlannerDecision(UUIDModel):
         verbose_name = "decisión del planificador"
         verbose_name_plural = "decisiones del planificador"
 
+    # Lo que lleva ``prompt_version`` cuando la acción la pidió una persona (comprobar una
+    # corrección, un escaneo desde la ficha del activo). Se guarda como decisión para que la
+    # acción tenga de dónde colgar, pero ahí no decidió nadie más: ni el modelo ni la regla.
+    BY_PERSON = "manual"
+
     def __str__(self):
         return f"{self.get_action_display()} · {self.get_urgency_display()}"
 
     @property
     def urgency_rank(self):
         return URGENCY_RANK.get(self.urgency, 1)
+
+    @property
+    def by_person(self) -> bool:
+        """¿La acción la pidió una persona? Entonces no es una decisión del planificador: se
+        mostraba «por regla, sin LLM» y contaba entre las decisiones «por la regla de respaldo»
+        (2026-11-18)."""
+        return self.prompt_version == self.BY_PERSON
 
 
 class WatchItem(UUIDModel):
