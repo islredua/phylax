@@ -107,6 +107,40 @@ class SoftwareDescription(UUIDModel):
         return self.name
 
 
+class BusinessRoleDescription(UUIDModel):
+    """Qué es una función de negocio **en esta organización** («Pagos»: el cobro de primas con
+    tarjeta, que hace api-pagos), para quien abre el cuadro de la función en el registro de riesgos.
+
+    Una fila por función del catálogo (``role`` = su código). La escribe la IA con el perfil de la
+    organización y la descripción de los activos que la cumplen (``ROLE_DESCRIBE``);
+    ``fingerprint`` es la huella de esos datos y solo se vuelve a preguntar cuando cambian. Una
+    persona puede corregirla y desde entonces la IA no la toca; la huella dice entonces si los
+    activos cambiaron después de que la escribió.
+    """
+
+    role = models.CharField(max_length=30, unique=True)
+    summary = models.TextField(blank=True)
+    source = models.CharField(max_length=8, choices=[("AI", "IA"), ("HUMAN", "Persona")])
+    fingerprint = models.CharField(max_length=64, blank=True)
+    inference = models.ForeignKey(
+        "llm.InferenceLog", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    model = models.CharField(max_length=100, blank=True)
+    prompt_version = models.CharField(max_length=20, blank=True)
+    described_at = models.DateTimeField(null=True, blank=True)
+    edited_by = models.ForeignKey(
+        USER, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
+    class Meta:
+        ordering = ["role"]
+        verbose_name = "descripción de función de negocio"
+        verbose_name_plural = "descripciones de funciones de negocio"
+
+    def __str__(self):
+        return self.role
+
+
 # --------------------------------------------------------------------------
 # Hallazgos (etapa 3)
 # --------------------------------------------------------------------------

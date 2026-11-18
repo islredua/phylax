@@ -302,6 +302,203 @@ class SoftwareDescribeOutput(BaseModel):
         return self
 
 
+# --- Una función de negocio, dicha para esta organización --------------------------------------
+
+BUSINESS_ROLE_SCHEMA = {
+    "type": "object",
+    "properties": {"summary": {"type": "string", "maxLength": 700}},
+    "required": ["summary"],
+}
+BUSINESS_ROLE_MIN = 60
+BUSINESS_ROLE_MAX = 700
+# De qué no habla: de fallas ni de ataques (eso está en los riesgos de la función).
+_ROLE_OFF_TOPIC = re.compile(r"vulnerab|\bataque|\batacante|\bexplot|CVE-", re.IGNORECASE)
+# Lo que parece el nombre de un sistema («api-pagos», «erp_interno», «srv01.dominio»).
+_SYSTEM_NAME = re.compile(r"(?<![\w.-])[a-z0-9]+(?:[-_.][a-z0-9]+)+(?![\w-])", re.IGNORECASE)
+_LOOSE_NUMBER = re.compile(r"(?<![\w.,/-])\d+(?![\w/-])")
+
+
+BUSINESS_ROLE_NAME_ALL = 5  # con hasta cinco activos se nombran todos; con más, al menos tres
+BUSINESS_ROLE_NAME_SOME = 3
+BUSINESS_ROLE_COPIED_WORDS = 6  # tantas palabras seguidas de la definición general son una copia
+BUSINESS_ROLE_TELL = 3  # de cuántos activos descritos dice qué hacen (de todos, si son menos)
+BUSINESS_ROLE_STEM = 5  # letras con que se compara una palabra: «cobros» y «cobro» son la misma
+# Palabras que no dicen qué hace un sistema: comodines, palabras de enlace y las de los datos, la
+# criticidad y la red, que el párrafo usa de todos modos. Por sus cinco primeras letras, sin
+# acentos.
+_ROLE_FILLER = frozenset(
+    "siste aplic servi inter infor equip organ empre negoc funci usuar perso finan clini crede "
+    "confi restr publi sensi criti produ permi utili media trave tambi inclu puede tiene cuand "
+    "porqu aunqu adema mient duran cualq quien siend manej dentr vario acces desde hacia sobre "
+    "entre donde todos todas otros otras estos estas estan tanto segun cuyos cuyas hasta antes "
+    "luego ellos ellas datos tener hacen hacer usado usada forma parte nivel mismo misma mayor "
+    "menor gesti algun ningu aquel mucho mucha pocos pocas siemp nunca ahora despu segur".split()
+)
+# Valoraciones: el párrafo describe; lo que importa cada cosa lo dicen la criticidad y los riesgos.
+_ROLE_JUDGMENT = re.compile(
+    r"\b(?:fundamental(?:es)?|vital(?:es)?|crucial(?:es)?|esencial(?:es)?|indispensables?|"
+    r"imprescindibles?|de (?:alto|gran) valor|de suma importancia)\b",
+    re.IGNORECASE,
+)
+
+
+def _folded(text) -> str:
+    return " ".join(str(text or "").lower().split())
+
+
+def _word_run(text) -> str:
+    """El texto como palabras separadas por un espacio, sin puntuación: para buscar copias."""
+    return " ".join(re.findall(r"\w+", str(text or "").lower()))
+
+
+def _name_run(text) -> str:
+    """Como ``_word_run`` pero sin acentos y partiendo también por guion bajo: «el portal público»
+    nombra a «portal-publico» igual que si lo escribiera con guion."""
+    import unicodedata
+
+    plain = unicodedata.normalize("NFKD", str(text or "").lower())
+    plain = "".join(c for c in plain if not unicodedata.combining(c))
+    return " ".join(re.findall(r"[a-z0-9]+", plain))
+
+
+def _stems(text) -> set:
+    """Las palabras de cinco letras o más de un texto, por sus cinco primeras y sin acentos."""
+    return {
+        word[:BUSINESS_ROLE_STEM]
+        for word in _name_run(text).split()
+        if len(word) >= BUSINESS_ROLE_STEM and not word.isdigit()
+    }
+
+
+def _copied_from(general, text) -> str:
+    """El tramo de la definición general que el texto trae copiado (seis palabras seguidas o más,
+    o toda si es más corta), o ``""``. Se devuelve el tramo para decírselo al modelo: sin saber
+    qué copió, repetía la misma frase en cada reintento (laboratorio, 2026-11-18)."""
+    words = _word_run(general).split()
+    if not words:
+        return ""
+    size = min(BUSINESS_ROLE_COPIED_WORDS, len(words))
+    run = f" {_word_run(text)} "
+    for start in range(len(words) - size + 1):
+        end = start + size
+        if f" {' '.join(words[start:end])} " not in run:
+            continue
+        while end < len(words) and f" {' '.join(words[start : end + 1])} " in run:
+            end += 1
+        return " ".join(words[start:end])
+    return ""
+
+
+def business_role_validator(*, assets, known_text, general="", about=None, organization=""):
+    """Validador de «qué es esta función en esta organización», atado a lo que se le envió.
+
+    ``assets`` son los nombres de los activos de la función (con hasta cinco los nombra todos;
+    con más, al menos tres); ``known_text``, todo lo que el modelo recibió (para comprobar que no
+    nombra sistemas ni cifras que nadie le dio); ``general``, la definición del catálogo, de la
+    que no debe copiar ni un tramo; ``about``, la descripción de cada activo por su nombre: el
+    párrafo dice qué hace cada sistema, no solo lo nombra (alguna palabra de su descripción, de
+    tres activos o de todos si son menos); ``organization``, su nombre, que no cuenta como tal.
+    """
+    names = [n for n in dict.fromkeys(assets) if n]
+    wanted = len(names) if len(names) <= BUSINESS_ROLE_NAME_ALL else BUSINESS_ROLE_NAME_SOME
+    known = _folded(known_text)
+    known_numbers = set(_LOOSE_NUMBER.findall(known))
+    # Lo que distingue a cada activo: las palabras de su descripción, sin comodines y sin las de
+    # los nombres (de los activos y de la organización), que el párrafo trae de todos modos.
+    skipped = _ROLE_FILLER | _stems(" ".join(names)) | _stems(organization)
+    clues = {name: _stems(text) - skipped for name, text in (about or {}).items()}
+    clues = {name: found for name, found in clues.items() if found}
+    told = min(len(clues), BUSINESS_ROLE_TELL)
+
+    class _BusinessRole(BaseModel):
+        model_config = ConfigDict(extra="ignore")
+
+        summary: str = Field(max_length=BUSINESS_ROLE_MAX + 100)
+
+        @field_validator("summary")
+        @classmethod
+        def _grounded(cls, value):
+            from apps.llm.language import looks_spanish
+
+            text = " ".join(str(value or "").replace("**", "").replace("`", "").split())
+            if len(text) < BUSINESS_ROLE_MIN:
+                raise ValueError(
+                    "summary debe explicar en dos o tres frases qué es esta función en esta "
+                    "organización"
+                )
+            if len(text) > BUSINESS_ROLE_MAX:
+                raise ValueError(f"summary no pasa de {BUSINESS_ROLE_MAX} caracteres")
+            if not looks_spanish(text):
+                raise ValueError("summary debe estar redactado en español")
+            # Lo que sigue se junta y se dice de una vez. Avisando solo de lo primero, el modelo
+            # arreglaba una cosa y deshacía otra: quitaba «fundamentales» y con ello un activo,
+            # y al reintento siguiente al revés (laboratorio, 2026-11-18).
+            problems = []
+            if _ROLE_OFF_TOPIC.search(text):
+                problems.append(
+                    "summary dice qué hace la función y con qué sistemas: sin vulnerabilidades, "
+                    "ataques ni identificadores CVE"
+                )
+            copied = _copied_from(general, text)
+            if copied:
+                problems.append(
+                    f"summary no repite la definición general de la función: quita «{copied}» "
+                    "y di con otras palabras qué hace en ESTA organización, con sus sistemas"
+                )
+            said = f" {_name_run(text)} "
+            missing = [n for n in names if f" {_name_run(n)} " not in said]
+            if len(names) - len(missing) < wanted:
+                problems.append(
+                    "summary debe nombrar "
+                    + (
+                        "todos los activos de la función"
+                        if wanted == len(names)
+                        else f"al menos {wanted} activos de la función"
+                    )
+                    + ", tal como vienen en name; faltan: "
+                    + ", ".join(missing[:8])
+                )
+            used = _stems(text)
+            untold = [name for name, found in clues.items() if not (found & used)]
+            if len(clues) - len(untold) < told:
+                problems.append(
+                    "summary debe decir qué hace cada sistema con lo que cuenta su what_it_is, "
+                    "no solo nombrarlo; falta decirlo de: " + ", ".join(untold[:6])
+                )
+            judged = [
+                m.group(0)
+                for m in _ROLE_JUDGMENT.finditer(text)
+                if _folded(m.group(0)) not in known
+            ]
+            if judged:
+                problems.append(
+                    "summary describe, no valora: quita " + ", ".join(dict.fromkeys(judged))
+                )
+            # Solo lo que de verdad parece un nombre de equipo: con guion, guion bajo o dígitos
+            # («p.ej.» o un punto sin espacio no cuentan).
+            unknown = [
+                m.group(0)
+                for m in _SYSTEM_NAME.finditer(text)
+                if re.search(r"[-_\d]", m.group(0)) and _folded(m.group(0)) not in known
+            ]
+            if unknown:
+                problems.append(
+                    "summary nombra sistemas que no están en los datos: "
+                    + ", ".join(dict.fromkeys(unknown))
+                )
+            numbers = [n for n in _LOOSE_NUMBER.findall(text) if n not in known_numbers]
+            if numbers:
+                problems.append(
+                    "summary trae cifras que no están en los datos: "
+                    + ", ".join(dict.fromkeys(numbers))
+                )
+            if problems:
+                raise ValueError("\n- ".join(problems))
+            return text
+
+    return _BusinessRole
+
+
 class VulnAssessmentOutput(BaseModel):
     model_config = ConfigDict(extra="ignore")
 

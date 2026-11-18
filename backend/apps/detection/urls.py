@@ -53,6 +53,11 @@ urlpatterns = [
     path("risks/bulk/", views.RiskBulkView.as_view(), name="risk_bulk"),
     path("risks/policy/", views.TreatmentPolicyView.as_view(), name="policy"),
     path(
+        "risks/functions/<str:role>/context/",
+        views.BusinessRoleContextView.as_view(),
+        name="business_role_context",
+    ),
+    path(
         "risks/business/<str:consequence>/<str:role>/",
         views.BusinessRiskView.as_view(),
         name="business_risk",

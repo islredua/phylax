@@ -697,7 +697,12 @@ def test_ai_figures_count_only_calls_made_with_the_instructions_in_force():
     versions = pipeline.prompt_versions()
     assert set(versions) == {key for key, _what, _stage in pipeline.AI_TASKS}
     assert not set(pipeline.HIDDEN_AI_TASKS) & set(versions)
-    assert set(pipeline.HIDDEN_AI_TASKS) == {"EXEC_NARRATIVE", "VULN_DESCRIBE", "SOFTWARE_DESCRIBE"}
+    assert set(pipeline.HIDDEN_AI_TASKS) == {
+        "EXEC_NARRATIVE",
+        "VULN_DESCRIBE",
+        "SOFTWARE_DESCRIBE",
+        "ROLE_DESCRIBE",
+    }
 
     def log(task, version, ok=True, ref="assets.Asset:1", ms=60_000):
         return InferenceLog.objects.create(

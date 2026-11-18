@@ -27,6 +27,7 @@ from . import (
     activity,
     automation,
     business_risks,
+    business_roles,
     consolidation,
     corrections,
     descriptions,
@@ -1107,7 +1108,7 @@ class RiskRegisterView(Perm, PaginationMixin, ListView):
                 # Cada riesgo, en la casilla de su peor escenario.
                 risk_matrix=risks.matrix(found),
                 cell_filter=self.cell() if any(self.cell()) else None,
-                roles=business_risks.role_cards(found),
+                roles=business_risks.role_cards(found, self.request.user),
                 today=risks.today(user=self.request.user),
                 export_url=_export_url(self.request),
                 filters_active=filters_active(self.request.GET),
@@ -1201,6 +1202,47 @@ class RiskDetailView(Perm, TemplateView):
         return context
 
 
+class BusinessRoleContextView(Perm, View):
+    """Qué es una función de negocio en esta organización: el bloque que se consulta mientras la IA
+    lo escribe (GET) y la corrección de una persona (POST; con el texto vacío vuelve a escribirlo
+    la IA)."""
+
+    permission_required = "detection.view_risk"
+
+    def _entry(self, role):
+        entry = catalogs.get(catalogs.BUSINESS_ROLE, role)
+        if not entry:
+            raise Http404("No existe esa función de negocio.")
+        return entry
+
+    def get(self, request, role):
+        self._entry(role)
+        assets = business_roles.assets_of(role)
+        card = {
+            "role": role,
+            "dialog_id": business_risks.dialog_id(role),
+            "context": business_roles.context_of(role, assets, user=request.user),
+        }
+        return render(request, "detection/_business_role_context.html", {"card": card})
+
+    def post(self, request, role):
+        if not request.user.has_perm("detection.work_findings"):
+            raise PermissionDenied
+        entry = self._entry(role)
+        back = _safe_next(request, reverse("detection:risks"))
+        found = business_roles.set_by_person(role, request.POST.get("summary", ""), request.user)
+        if found is None:
+            messages.success(
+                request, f"Explicación de «{entry['label']}» borrada: la IA la volverá a escribir."
+            )
+        else:
+            messages.success(
+                request,
+                f"Explicación de «{entry['label']}» guardada a tu nombre; la IA ya no la cambia.",
+            )
+        return HttpResponseRedirect(back)
+
+
 class BusinessRiskView(Perm, TemplateView):
     """Un riesgo de la organización: una consecuencia sobre una función de negocio, con sus
     escenarios (uno por activo). Aquí se decide el tratamiento de todos a la vez; cada decisión
@@ -1237,7 +1279,7 @@ class BusinessRiskView(Perm, TemplateView):
             risk=self.risk,
             risks=self.risk.scenarios,
             brief=business_risks.describe(self.risk),
-            role_card=business_risks.role_card(self.risk.role),
+            role_card=business_risks.role_card(self.risk.role, self.request.user),
             policy=self.rules,
             bulk_treatments=list(Risk._meta.get_field("treatment").choices),
             bulk_assign=BULK_ASSIGN,

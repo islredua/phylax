@@ -71,6 +71,7 @@ SECTIONS = (
                 ("detection.view_risk",),
                 (
                     "detection:business_risk",
+                    "detection:business_role_context",
                     "detection:risk",
                     "detection:risk_report",
                     "detection:risk_treatment",

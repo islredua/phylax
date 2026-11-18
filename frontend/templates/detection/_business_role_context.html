@@ -1,0 +1,42 @@
+{% load detection_tags inventory %}
+{% comment %}
+Qué es una función de negocio en esta organización (`business_roles.context_of`): el párrafo que la
+IA arma con el perfil de la organización y la descripción de los activos de la función, y lo que
+el inventario dice de ellos (criticidad, dónde están, qué datos manejan), que pone el código.
+Mientras se escribe, el bloque se consulta solo cada 5 s, y solo con el cuadro abierto. Quien
+trabaja los riesgos puede corregir el párrafo; con el texto vacío vuelve a escribirlo la IA.
+{% endcomment %}
+{% with ctx=card.context %}
+<div id="{{ card.dialog_id }}-contexto" data-role-context{% if ctx.pending and not ctx.text %} hx-get="{% url 'detection:business_role_context' card.role %}" hx-trigger="every 5s [this.closest('dialog').open]" hx-swap="outerHTML"{% endif %}>
+  {% if card.role %}
+  <h4 class="modal-section">En {{ ctx.organization|default:"esta organización" }}</h4>
+  {% if ctx.text %}
+  <p data-role-text>{{ ctx.text.summary }}</p>
+  <p class="mt-1 text-xs text-muted">{% if ctx.text.source == 'HUMAN' %}<span class="badge-neutral">por una persona</span> Lo escribió <span class="font-mono">{{ ctx.text.edited_by.get_username|default:"—" }}</span> el {{ ctx.text.described_at|fecha }}; la IA ya no lo cambia.{% if ctx.stale %} <strong class="text-medium">Desde entonces cambiaron el perfil de la organización o los activos de esta función: conviene revisarlo.</strong>{% endif %}{% else %}<span class="badge-primary">por IA</span> Lo armó el modelo local el {{ ctx.text.described_at|fecha }} con el perfil de la organización y la descripción de los activos de esta función, y lo vuelve a escribir cuando cambian. Puede equivocarse: si no es así, corrígelo.{% endif %}</p>
+  {% elif ctx.pending %}
+  <p class="text-muted"><span class="badge-primary">la IA está redactando</span> En unos segundos dirá aquí qué es esta función en la organización, con sus propios sistemas.</p>
+  {% elif ctx.missing %}
+  <p class="text-muted">Todavía no hay con qué decirlo: ningún activo de esta función tiene descripción y el perfil de la organización no dice a qué se dedica. Escribe qué hace cada activo (Inventario › el activo › Editar) y la IA lo resumirá aquí.</p>
+  {% else %}
+  <p class="text-muted">Sin explicación todavía: la IA la escribirá en cuanto el modelo esté disponible.</p>
+  {% endif %}
+  {% endif %}
+  {% if ctx.facts %}
+  <dl class="mt-2 grid grid-cols-1 gap-x-3 gap-y-1 text-xs sm:grid-cols-[10rem_minmax(0,1fr)]" data-role-facts title="Datos del inventario de los activos con esta función; no los escribe la IA">
+    {% for label, text in ctx.facts %}<dt class="text-muted">{{ label }}</dt><dd class="mb-1 text-ink sm:mb-0">{{ text }}</dd>{% endfor %}
+  </dl>
+  {% endif %}
+  {% if card.role and perms.detection.work_findings %}{% if ctx.text or not ctx.pending %}
+  <details class="fold mt-2"><summary>{% if ctx.text %}Corregir la explicación{% else %}Escribir la explicación{% endif %}</summary>
+    <form method="post" action="{% url 'detection:business_role_context' card.role %}" class="mt-2 flex flex-col gap-2">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ request.get_full_path }}">
+      <label class="form-label" for="{{ card.dialog_id }}-texto">Qué es esta función en la organización, en dos o tres frases para quien no es técnico</label>
+      <textarea id="{{ card.dialog_id }}-texto" name="summary" class="form-input" rows="4" maxlength="900">{{ ctx.text.summary }}</textarea>
+      <p class="form-help">Queda a tu nombre. Déjalo vacío para que la IA lo vuelva a escribir.</p>
+      <div><button class="btn-secondary btn-sm" type="submit">Guardar explicación</button></div>
+    </form>
+  </details>
+  {% endif %}{% endif %}
+</div>
+{% endwith %}

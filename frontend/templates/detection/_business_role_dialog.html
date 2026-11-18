@@ -1,8 +1,9 @@
 {% load detection_tags inventory %}
 {% comment %}
 Cuadro que explica una función de negocio a quien no la conoce («API»: ¿qué es?). Recibe `card`
-(`business_risks.role_cards`): la descripción del catálogo, lo que la organización puede perder en
-esa función y los activos que la cumplen. Lo abre cualquier `[data-dialog-open="<card.dialog_id>"]`
+(`business_risks.role_cards`): qué es la función en esta organización (`_business_role_context`),
+su definición general del catálogo, lo que la organización puede perder en ella y los activos que
+la cumplen, cada uno con lo que es. Lo abre cualquier `[data-dialog-open="<card.dialog_id>"]`
 (atalaya.js); Esc, la ✕ o un clic fuera lo cierran.
 {% endcomment %}
 <dialog class="modal" id="{{ card.dialog_id }}" aria-labelledby="{{ card.dialog_id }}-titulo" data-dialog>
@@ -15,9 +16,11 @@ esa función y los activos que la cumplen. Lo abre cualquier `[data-dialog-open=
       <button type="button" class="btn-secondary btn-sm" data-dialog-close aria-label="Cerrar">✕</button>
     </div>
     <div class="modal-body">
+      {% include "detection/_business_role_context.html" %}
       <div>
-        {% if card.description %}<p>{{ card.description }}</p>
-        {% else %}<p class="text-muted">Esta función todavía no tiene descripción.{% if perms.assets.manage_catalogs %} Escríbela en <a href="{% url 'assets:catalogs' %}">Administración › Catálogos</a>: es lo que se lee aquí.{% endif %}</p>{% endif %}
+        {% if card.role %}<h4 class="modal-section">En general</h4>{% endif %}
+        {% if card.description %}<p class="text-ink-soft">{{ card.description }}</p>
+        {% else %}<p class="text-muted">Esta función todavía no tiene descripción general.{% if perms.assets.manage_catalogs %} Escríbela en <a href="{% url 'assets:catalogs' %}">Administración › Catálogos</a>.{% endif %}</p>{% endif %}
         {% if card.identity %}<p class="mt-1 text-xs text-muted">Es un componente de identidad o control: de él depende el acceso a otros sistemas, y por eso sus activos pesan más.</p>{% endif %}
       </div>
       {% if card.risks %}
@@ -34,12 +37,15 @@ esa función y los activos que la cumplen. Lo abre cualquier `[data-dialog-open=
         <h4 class="modal-section">Activos con esta función <span class="font-normal text-muted">{{ card.assets|length }}{% if card.with_risk != card.assets|length %} · {{ card.with_risk }} con riesgos abiertos{% endif %}</span></h4>
         <ul class="flex flex-col gap-1.5">
           {% for row in card.assets|slice:":12" %}
-          <li class="flex flex-wrap items-center gap-x-2 gap-y-0.5"><a href="{% url 'assets:detail' row.asset.pk %}?tab=riesgos">{{ row.asset.name }}</a> {% if row.level %}{% risk_level_badge row.level %}{% else %}<span class="text-xs text-muted">sin riesgos abiertos</span>{% endif %}</li>
+          <li>
+            <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5"><a href="{% url 'assets:detail' row.asset.pk %}?tab=riesgos" class="font-medium">{{ row.asset.name }}</a> {% if row.level %}{% risk_level_badge row.level %}{% else %}<span class="text-xs text-muted">sin riesgos abiertos</span>{% endif %}</div>
+            {% if row.asset.description %}<p class="text-xs text-ink-soft" data-asset-what>{{ row.asset.description|truncatechars:190 }}</p>{% else %}<p class="text-xs text-muted">Sin descripción en el inventario.</p>{% endif %}
+          </li>
           {% endfor %}
         </ul>
         {% if card.assets|length > 12 %}<p class="mt-1 text-xs text-muted">y {{ card.assets|length|add:"-12" }} más.</p>{% endif %}
       </div>
-      <p class="text-xs text-muted">{% if card.role %}La función de negocio se elige al editar cada activo. Lo que se pierde en una función se valora activo por activo y el riesgo toma el nivel del peor.{% else %}La función de negocio se elige al editar cada activo.{% endif %}{% if card.description and perms.assets.manage_catalogs %} La descripción se cambia en <a href="{% url 'assets:catalogs' %}">Administración › Catálogos</a>.{% endif %}</p>
+      <p class="text-xs text-muted">{% if card.role %}La función de negocio se elige al editar cada activo. Lo que se pierde en una función se valora activo por activo y el riesgo toma el nivel del peor.{% else %}La función de negocio se elige al editar cada activo.{% endif %}{% if card.description and perms.assets.manage_catalogs %} La definición general se cambia en <a href="{% url 'assets:catalogs' %}">Administración › Catálogos</a>.{% endif %}</p>
     </div>
   </div>
 </dialog>

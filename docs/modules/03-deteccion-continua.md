@@ -956,9 +956,11 @@ activo.
     los de la matriz de escenarios (Inicio, la ficha del activo, la vista por escenario) y abren
     la lista de escenarios.
   - **El nombre de cada función se explica al pulsarlo** («API»: ¿qué es una API?). Abre un
-    cuadro (`business_risks.role_cards`, `_business_role_dialog.html`) con la descripción de la
-    función, lo que la organización puede perder en ella (sus riesgos, con nivel y enlace) y los
-    activos que la cumplen, tengan riesgos abiertos o no. La descripción es la del catálogo
+    cuadro (`business_risks.role_cards`, `_business_role_dialog.html`) con qué es la función
+    **en esta organización** (ver «Qué es cada función en esta organización», más abajo), su
+    definición general, lo que la organización puede perder en ella (sus riesgos, con nivel y
+    enlace) y los activos que la cumplen, tengan riesgos abiertos o no, cada uno con su
+    descripción del inventario. La definición general es la del catálogo
     (`CatalogEntry.description`, **Administración › Catálogos**); `assets.0013` la siembra para
     las doce funciones iniciales, en palabras para quien no es técnico, sin tocar las que ya
     tuvieran texto. Una función sin descripción lo dice y, a quien administra catálogos, le dice
@@ -1003,6 +1005,84 @@ La segunda pasada no es inestabilidad del reparto: es el pendiente ya conocido d
 vulnerabilidades que el modelo deja sin responder y que se le vuelven a preguntar en la
 siguiente consolidación; al cambiar su evaluación cambia la evidencia de su escenario y este se
 valora otra vez (aquí, con el mismo resultado).
+
+### Qué es cada función en esta organización (`detection/business_roles.py`, tarea `ROLE_DESCRIBE`, 2026-11-18)
+
+El cuadro de una función decía solo la definición del catálogo, igual para cualquier
+organización («Pagos: sistemas que cobran, pagan o mueven dinero, o que manejan datos de tarjetas
+y cuentas bancarias»). Lo que la contextualiza ya estaba escrito, repartido: el perfil de la
+organización y la descripción de cada activo. Ahora el cuadro abre con eso:
+
+1. **«En *nombre de la organización*»**: dos o tres frases que escribe la IA
+   (`BusinessRoleDescription`, una fila por función) y que dicen qué sostiene la función aquí,
+   con qué sistemas y qué información pasa por ellos. Van marcadas «por IA».
+2. **Datos del inventario, por código** (`business_roles.facts`): cuántos activos hay de cada
+   criticidad, dónde están (Internet, DMZ, red interna, aislada), qué datos manejan con su
+   clasificación más alta y sus responsables de negocio.
+3. **«En general»**: la definición del catálogo, que antes era todo.
+4. Los riesgos de la función y sus activos, cada uno con su descripción (hasta 190 caracteres) o
+   «Sin descripción en el inventario».
+
+**Qué recibe el modelo** (`build_payload`): el nombre, el sector y la descripción del perfil; el
+nombre y la definición general de la función; y hasta doce activos, del más crítico al menos,
+cada uno con su nombre, su descripción, su criticidad, dónde está, su ambiente y sus datos. Los
+textos libres van sin marcas de Markdown. Los activos retirados o ignorados no cuentan.
+
+**Cuándo se pregunta.** Una vez por función, y de nuevo solo cuando cambia lo que se le envía:
+la huella (`fingerprint`) es el SHA-256 de la versión del prompt, la versión de las reglas
+(`RULES_VERSION`) y los datos. Editar la descripción de un activo vuelve a pedir el párrafo de
+su función; editar el perfil, todos. Lo pide el cuadro al abrirse (`context_of`) y el drenaje
+periódico (`describe_pending_vulnerabilities` → `queue_missing`, clave `functions` del
+resultado); la tarea `describe_business_role` va por la cola `llm`. Mientras se escribe, el
+cuadro lo dice y se consulta solo cada 5 s, y solo el que está abierto
+(`hx-trigger="every 5s [this.closest('dialog').open]"`). Sin nada con qué contextualizar (ningún
+activo descrito y un perfil que no dice a qué se dedica la organización) no se pregunta: el
+cuadro dice qué falta escribir y dónde. Los activos sin función no tienen párrafo.
+
+**El validador ata el texto a los datos** (`llm.schemas.business_role_validator`, armado con lo
+que se envió). Rechaza un párrafo que:
+
+- no nombre los activos de la función tal como vienen (todos si son cinco o menos; al menos tres
+  si son más). «El portal público» nombra a `portal-publico`;
+- los nombre sin decir qué hacen: de tres activos descritos (o de todos, si son menos) debe usar
+  alguna palabra de su descripción. Se comparan las cinco primeras letras, sin acentos («cobros»
+  y «cobro» son la misma), y no cuentan los comodines («sistema», «servicio», «datos»…) ni las
+  palabras de los nombres;
+- copie seis palabras seguidas de la definición general;
+- nombre un sistema (algo con guion, guion bajo o dígitos) o una cifra que no estén en los datos;
+- valore en vez de describir («fundamental», «vital», «de alto valor») sin que los datos lo digan;
+- hable de vulnerabilidades o ataques, no esté en español o tenga menos de 60 o más de 700
+  caracteres.
+
+Todos los problemas de una respuesta se dicen **juntos** en el reintento, y el de la copia dice
+qué tramo se copió. Con un solo aviso cada vez, el modelo arreglaba una cosa y deshacía otra: en
+el laboratorio quitaba «fundamentales» y con ello un activo, y al reintento siguiente al revés.
+La tarea admite cuatro intentos (`MAX_ATTEMPTS`); si ninguno vale, la función se queda sin
+párrafo (el resto del cuadro sirve igual) y se reintenta con espera creciente, de 30 minutos a un
+día.
+
+**Una persona puede corregirlo** («Corregir la explicación», permiso `detection.work_findings`;
+`BusinessRoleContextView`, `/detection/risks/functions/<función>/context/`). Queda a su nombre,
+marcado «por una persona», y la IA ya no lo toca. Si después cambian el perfil o los activos de
+la función, el cuadro avisa de que conviene revisarlo. Con el texto vacío vuelve a escribirlo la
+IA.
+
+**En el laboratorio (2026-11-18, modelo real, 9 funciones en uso):**
+
+| Versión | Qué pasó |
+|---|---|
+| Prompt v1 | 9 de 9 válidas al primer intento, pero dos empezaban copiando la definición general («las APIs son servicios que otros sistemas y aplicaciones consultan…») y API nombraba tres de sus cinco activos. |
+| Prompt v2, reglas iniciales | Ya no definen la función. Una respuesta enumeraba los cinco sistemas de API sin decir qué hace ninguno, otra los llamaba «fundamentales» y una impresora manejaba «información interna clasificada» (así devolvía «clasificación interna»; ahora recibe «información de uso interno, no sensible»). |
+| Prompt v2, reglas finales | 27 ensayos sin guardar (tres rondas por las 9 funciones): 27 válidos; 15 al primer intento, 9 al segundo y 3 al tercero. Unos 2 s por función. |
+
+Ejemplo, Pagos: «En Aseguradora Norte, esta función procesa los pagos de primas con tarjeta de
+crédito/débito a través del servicio api-pagos. Este sistema opera en la DMZ y maneja datos
+sensibles como información personal y financiera de clientes.»
+
+Lo que las reglas no evitan: una imprecisión dentro de lo que el modelo sí recibió. En Archivos
+escribió que `file-server` guarda «expedientes médicos y financieros» cuando su descripción habla
+de expedientes clínicos y pólizas firmadas. Por eso el párrafo va marcado «por IA», dice que
+puede equivocarse y se puede corregir.
 
 ### Actividad por acción (`activity.threads`, P7)
 

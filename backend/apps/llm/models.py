@@ -18,6 +18,7 @@ class InferenceTask(models.TextChoices):
     RISK_NARRATIVE = "RISK_NARRATIVE", "Redacción del riesgo para la dirección"
     VULN_DESCRIBE = "VULN_DESCRIBE", "Redacción de vulnerabilidad"
     SOFTWARE_DESCRIBE = "SOFTWARE_DESCRIBE", "Qué es un software"
+    ROLE_DESCRIBE = "ROLE_DESCRIBE", "Función de negocio en la organización"
 
 
 class InferenceLog(UUIDModel):

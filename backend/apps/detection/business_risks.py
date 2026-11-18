@@ -30,7 +30,7 @@ from apps.assets import catalogs
 from apps.assets.enums import AssetStatus
 from apps.assets.models import Asset
 
-from . import policy, responsibles, risks
+from . import business_roles, policy, responsibles, risks
 from .models import RISK_OPEN_STATUSES, Risk, RiskConsequence, RiskLevel, RiskTreatment
 
 # En la URL, la función de los activos que no la tienen definida.
@@ -285,7 +285,7 @@ def dialog_id(role) -> str:
     return f"funcion-{(role or 'sin-funcion').lower().replace('_', '-')}"
 
 
-def _card(role, here, assets) -> dict:
+def _card(role, here, assets, user=None) -> dict:
     entry = catalogs.get(catalogs.BUSINESS_ROLE, role) if role else None
     worst = {}
     for risk in here:
@@ -303,11 +303,15 @@ def _card(role, here, assets) -> dict:
         key=lambda row: (worst.get(row["asset"].pk, (99, ""))[0], row["asset"].name.lower()),
     )
     label = BusinessRisk("", role).role_label
+    # Qué es la función en esta organización: lo que cuenta el inventario de sus activos y el
+    # párrafo que la IA arma con sus descripciones (solo de los activos que siguen en inventario).
+    context = business_roles.context_of(role, assets, user=user)
     return {
         "role": role,
         "dialog_id": dialog_id(role),
         "label": label[:1].upper() + label[1:],
         "description": ((entry or {}).get("description") or "") if role else NO_ROLE_HELP,
+        "context": context,
         "identity": bool(entry and entry["is_identity_control"]),
         "risks": here,
         "assets": rows,
@@ -315,7 +319,7 @@ def _card(role, here, assets) -> dict:
     }
 
 
-def role_cards(found) -> list[dict]:
+def role_cards(found, user=None) -> list[dict]:
     """Lo que el registro explica de cada función de negocio que tiene riesgos: qué es (la
     descripción del catálogo, que se edita en Administración), qué puede perder la organización
     en ella y qué activos la cumplen, tengan riesgos abiertos o no."""
@@ -331,15 +335,15 @@ def role_cards(found) -> list[dict]:
         inventory = Asset.objects.filter(wanted).exclude(status__in=OUT_OF_INVENTORY)
         for asset in inventory.order_by("name"):
             assets.setdefault(asset.business_role or "", []).append(asset)
-    return [_card(role, here, assets.get(role, [])) for role, here in by_role.items()]
+    return [_card(role, here, assets.get(role, []), user) for role, here in by_role.items()]
 
 
-def role_card(role) -> dict:
+def role_card(role, user=None) -> dict:
     """El cuadro de una sola función (la página de uno de sus riesgos), con todos sus riesgos."""
     role = "" if role == NO_ROLE else (role or "")
     found = register(Risk.objects.filter(_in_role(role), status__in=RISK_OPEN_STATUSES))
-    cards = role_cards(found)
-    return cards[0] if cards else _card(role, [], [])
+    cards = role_cards(found, user)
+    return cards[0] if cards else _card(role, [], [], user)
 
 
 def describe(risk) -> list[tuple[str, str]]:

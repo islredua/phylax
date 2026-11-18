@@ -109,6 +109,13 @@ def describe_pending_vulnerabilities():
     described = software.queue_missing()
     if described:
         result["software"] = described
+    # Y qué es cada función de negocio en esta organización: una pregunta por función, solo
+    # cuando cambian el perfil o los activos que la cumplen.
+    from . import business_roles
+
+    functions = business_roles.queue_missing()
+    if functions:
+        result["functions"] = functions
     # Repaso de los títulos ya guardados con las reglas vigentes: una vez por versión de las
     # reglas (y de nuevo si la caché se vacía; es barato y no cambia lo que ya está bien).
     if cache.add(f"detection:titles:reviewed:v{titles.RULES_VERSION}", True, 24 * 3600):
@@ -139,6 +146,19 @@ def describe_software(component_id, user_id=None):
 
     user = get_user_model().objects.filter(pk=user_id).first() if user_id else None
     log_obj = software.describe(component_id, requested_by=user)
+    return {"ok": bool(log_obj and log_obj.parsed_ok)}
+
+
+@shared_task(acks_late=True, soft_time_limit=600, time_limit=660)
+def describe_business_role(role, user_id=None):
+    """Pregunta al modelo qué es una función de negocio en esta organización, para el cuadro del
+    registro de riesgos (cola ``llm``)."""
+    from django.contrib.auth import get_user_model
+
+    from . import business_roles
+
+    user = get_user_model().objects.filter(pk=user_id).first() if user_id else None
+    log_obj = business_roles.describe(role, requested_by=user)
     return {"ok": bool(log_obj and log_obj.parsed_ok)}
 
 
