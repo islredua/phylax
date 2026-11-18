@@ -4,7 +4,7 @@
 {% block toolbar %}
 <div class="toolbar">
   <div class="flex flex-wrap items-center gap-2">
-    <h2>Vulnerabilidades <span class="ml-1 font-mono text-xs font-normal text-muted">{{ total_vulnerabilities|miles }}</span></h2>
+    <h2>Vulnerabilidades <span class="ml-1 font-mono text-xs font-normal text-muted">{{ total_vulnerabilities|miles }}{% if view == 'correccion' and total_groups %} en {{ total_groups|miles }} {{ total_groups|pl:"-corrección,correcciones" }}{% endif %}</span></h2>
     {% if automation.paused %}<span class="badge-critical" title="Ningún escaneo ni decisión corre mientras dure la pausa">automatización en pausa</span>{% elif automation.mode == 'MANUAL' %}<span class="badge-medium">modo manual</span>{% else %}<span class="badge-low">modo automático</span>{% endif %}
     {% if queue_size %}<a href="{% url 'detection:queue' %}" class="badge-high hover:no-underline">{{ queue_size }} por aprobar</a>{% endif %}
     {% if consolidation_pending %}<span class="badge-primary" title="La IA está consolidando las observaciones de este activo">consolidación en curso</span>{% endif %}
@@ -43,13 +43,13 @@
 
 <div class="flex flex-wrap items-center justify-between gap-2">
   <nav class="subtabs" aria-label="Cómo ver las vulnerabilidades">
-    <a href="{{ software_url }}" class="subtab {% if view == 'software' %}subtab-active{% endif %}"{% if view == 'software' %} aria-current="true"{% endif %} title="Una fila por software en cada activo: lo que hay que actualizar o corregir">Por software a corregir <span class="font-mono text-xs">{{ total_groups|miles }}</span></a>
+    <a href="{{ correction_url }}" class="subtab {% if view == 'correccion' %}subtab-active{% endif %}"{% if view == 'correccion' %} aria-current="true"{% endif %} title="Una fila por lo que hay que hacer: actualizar un software en un activo o cambiar una configuración">Por corrección <span class="font-mono text-xs">{{ total_groups|miles }}</span></a>
     <a href="{{ list_url }}" class="subtab {% if view == 'list' %}subtab-active{% endif %}"{% if view == 'list' %} aria-current="true"{% endif %} title="Cada falla por separado, ordenada por puntaje contextual">Una por una <span class="font-mono text-xs">{{ total_vulnerabilities|miles }}</span></a>
   </nav>
-  {% if software_label %}<p class="text-sm">Software: <strong class="font-medium">{{ software_label }}</strong> <a href="{{ software_url }}" class="ml-1 text-xs" title="Volver a todos los grupos">quitar ✕</a></p>{% endif %}
+  {% if software_label %}<p class="text-sm">Software: {% if software_correction_url %}<a href="{{ software_correction_url }}" class="font-medium" title="La corrección de este software: qué es, a qué versión hay que llegar y por qué importa">{{ software_label }}</a>{% else %}<strong class="font-medium">{{ software_label }}</strong>{% endif %} <a href="{{ correction_url }}" class="ml-1 text-xs" title="Volver a todas las correcciones">quitar ✕</a></p>{% endif %}
 </div>
-{% if view == 'software' %}
-<p class="text-xs text-muted">Cada fila es <strong>una corrección</strong>: un software en un activo con todas sus fallas. Van primero las de mayor <strong>puntaje contextual</strong> (lo técnico ponderado con la criticidad, la exposición y los datos del activo). La versión que corrige sale de Grype y de NVD, no de la IA.</p>
+{% if view == 'correccion' %}
+<p class="text-xs text-muted" data-correction-help>Son las mismas <strong>{{ total_vulnerabilities|miles }} {{ total_vulnerabilities|pl:"-vulnerabilidad,vulnerabilidades" }}</strong>, juntas por lo que hay que hacer para resolverlas. <strong>Actualizar software</strong> resuelve de una vez todas las fallas de ese software en el activo; <strong>cambiar configuración</strong> resuelve una. Van primero las de mayor <strong>puntaje contextual</strong> (lo técnico ponderado con la criticidad, la exposición y los datos del activo). El tipo y la versión que corrige los ponen los datos de Grype y de NVD, no la IA.</p>
 {% else %}
 <p class="text-xs text-muted">Orden por <strong>puntaje contextual</strong>: lo técnico (CVSS, EPSS, KEV) ponderado con la criticidad, exposición y datos del activo y con lo que la IA estimó del caso. El estado lo pone la IA y una persona puede corregirlo, una a una o en lote.</p>
 {% endif %}
@@ -58,7 +58,7 @@
   {% csrf_token %}
   <input type="hidden" name="next" value="{{ request.get_full_path }}">
   <input type="hidden" name="query" value="{{ query }}">
-  <div class="card flex flex-wrap items-end gap-3 py-3" data-bulk data-bulk-names="ids,groups" data-bulk-hint-empty="{% if view == 'software' %}Marca un software para fijar el estado de todas sus vulnerabilidades.{% else %}Marca vulnerabilidades en la tabla y elige el estado.{% endif %}" data-bulk-hint-action="Elige el estado que quieres fijar.">
+  <div class="card flex flex-wrap items-end gap-3 py-3" data-bulk data-bulk-names="ids,groups" data-bulk-hint-empty="{% if view == 'correccion' %}Marca una corrección para fijar el estado de todas sus vulnerabilidades.{% else %}Marca vulnerabilidades en la tabla y elige el estado.{% endif %}" data-bulk-hint-action="Elige el estado que quieres fijar.">
     <div>
       <label class="form-label" for="bulk-status">Estado para las marcadas</label>
       <select id="bulk-status" name="status" class="form-input w-auto" data-bulk-action required>
@@ -73,10 +73,10 @@
     <button type="submit" class="btn-secondary" data-bulk-submit>Fijar en <span data-bulk-count>las</span> marcadas</button>
     <p class="w-full text-xs text-muted" data-bulk-hint>Marca vulnerabilidades en la tabla y elige el estado.</p>
   </div>
-  {% if view == 'software' %}{% include "detection/_software_rows.html" with bulk=True %}{% else %}{% include "detection/_vulnerability_rows.html" with bulk=True %}{% endif %}
+  {% if view == 'correccion' %}{% include "detection/_correction_rows.html" with bulk=True %}{% else %}{% include "detection/_vulnerability_rows.html" with bulk=True %}{% endif %}
 </form>
-{% elif view == 'software' %}
-{% include "detection/_software_rows.html" %}
+{% elif view == 'correccion' %}
+{% include "detection/_correction_rows.html" %}
 {% else %}
 {% include "detection/_vulnerability_rows.html" %}
 {% endif %}

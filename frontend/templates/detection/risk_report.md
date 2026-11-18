@@ -78,8 +78,8 @@ Ver las acciones de cada vulnerabilidad.{% endfor %}
 {{ row.vuln.get_status_display }}, puntaje contextual {{ row.vuln.contextual_score|default_if_none:"—" }}.
 
 {{ row.vuln.summary }}
-{% if row.vuln.actions %}
-Acciones: {{ row.vuln.actions|join:" · " }}
+{% if row.vuln.own_steps %}
+Acciones: {{ row.vuln.own_steps|join:" · " }}
 {% endif %}{% endfor %}{% endif %}
 ## Historia
 {% for ev in timeline %}

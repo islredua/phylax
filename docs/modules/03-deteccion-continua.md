@@ -526,21 +526,20 @@ correo usa `DJANGO_EMAIL_BACKEND` (consola en desarrollo).
 
 ## Trabajo por lotes y plazos (revisión del 2026-11-16, bloque 1)
 
-**Por software a corregir** (`detection/grouping.py`, `PanelView`). `/detection/vulnerabilities/`
-abre agrupada (`?view=software`): una fila por activo + software (`Vulnerability.asset`,
-`Vulnerability.component`; las que no tienen componente forman el grupo «Sin software
-identificado» del activo). `grouping.groups` cuenta fallas, confirmadas, por verificar, en KEV y
-con plazo de CISA vencido, y ordena por el mayor puntaje contextual. `grouping.fix_versions`
-calcula la versión a la que hay que actualizar **sin modelo**: primero la evidencia de Grype
-(`data.fix` = «fixed X, Y»: la versión corregida más cercana por encima de la instalada); si no
-hay, `CveProduct.version_end_excluding` del rango de NVD que contiene la versión instalada (no se
-usa para paquetes de distribución, cuyas versiones no son comparables con las de NVD). La versión
-del grupo es la mayor de las de sus fallas, y la fila dice cuántas corrige y de cuántas no se
-conoce corrección. «Una por una» (`?view=list`) es la lista anterior; una búsqueda de texto o el
-filtro `comp=<id del componente|none>` (al abrir un grupo) llevan a ella. El lote
-(`/detection/vulnerabilities/bulk/`) acepta `groups` (claves `activo:componente`) además de `ids`
-y aplica el estado a las vulnerabilidades del grupo **dentro de los filtros con los que se veía**
-(campo oculto `query`).
+**Por corrección** (`detection/grouping.py`, `PanelView`). `/detection/vulnerabilities/` abre
+agrupada (`?view=correccion`; el enlace anterior `?view=software` sigue sirviendo): una fila por
+lo que hay que hacer. El detalle está en «La corrección como eje» más abajo. `grouping.groups`
+cuenta fallas, confirmadas, por verificar, en KEV y con plazo de CISA vencido, y ordena por el
+mayor puntaje contextual. `grouping.fix_versions` calcula la versión a la que hay que actualizar
+**sin modelo**: primero la evidencia de Grype (`data.fix` = «fixed X, Y»: la versión corregida
+más cercana por encima de la instalada); si no hay, `CveProduct.version_end_excluding` del rango
+de NVD que contiene la versión instalada (no se usa para paquetes de distribución, cuyas versiones
+no son comparables con las de NVD). La versión de la corrección es la mayor de las de sus fallas,
+y la fila dice cuántas corrige y de cuántas no se conoce corrección. «Una por una» (`?view=list`)
+es la lista anterior; una búsqueda de texto o el filtro `comp=<id del componente|none>` llevan a
+ella. El lote (`/detection/vulnerabilities/bulk/`) acepta `groups` (claves de corrección) además
+de `ids` y aplica el estado a las vulnerabilidades de la corrección **dentro de los filtros con
+los que se veía** (campo oculto `query`).
 
 **Plazos de tratamiento** (`detection/policy.py`, modelo `TreatmentPolicy`, una sola fila). Días
 por nivel (`critical_days` 7, `very_high_days` 15, `high_days` 30, `moderate_days` 90, `low_days`
@@ -995,6 +994,95 @@ no cuelga de ningún evento (una pausa, un cambio de configuración) va como fil
 pestañas por tipo siguen siendo el listado plano. Lo que la persona desplegó sigue abierto tras
 el refresco de 10 s (`data-keep-open`).
 
+## La corrección como eje (2026-11-18)
+
+Las vulnerabilidades siguen siendo vulnerabilidades. Lo que cambia es cómo se juntan para
+trabajarlas: por su **corrección**, lo que hay que hacer para resolverlas. Antes la vista se
+llamaba «por software a corregir» y eso era falso para una parte: todo software por corregir tiene
+vulnerabilidades, pero no toda vulnerabilidad se resuelve corrigiendo un software (hay cabeceras
+que faltan, archivos expuestos, configuraciones). Además, abrir una fila llevaba a una lista
+filtrada que no explicaba nada.
+
+**Una vulnerabilidad tiene exactamente una corrección; una corrección resuelve una o varias.** El
+tipo lo decide una regla (`grouping.correction_type`), no el modelo:
+
+| Caso | Tipo | Fila | Al abrirla |
+|---|---|---|---|
+| Tiene software del inventario (`Vulnerability.component`) | Actualizar software | Una por software en el activo, con todas sus vulnerabilidades | La página de la corrección |
+| Sin software y sin CVE (debilidad de nuclei: cabeceras, exposición, enumeración) | Cambiar configuración | Una por vulnerabilidad | La vulnerabilidad, con el aviso «Corrección: cambiar configuración» |
+| CVE o GHSA de un software que el inventario del activo no tiene | Actualizar software | Una por vulnerabilidad, con «El inventario del activo no tiene este software» | La vulnerabilidad, con el aviso de confirmar que está instalado y registrarlo |
+
+No hay tabla para la corrección: se arma al leer. La clave de una fila es `activo:componente` o
+`activo:none:vulnerabilidad` (`grouping.group_key`, `parse_key`, `members`); la clave anterior
+`activo:none` (todas las del activo sin software) todavía se acepta en un envío viejo del lote.
+En el laboratorio las 1,053 vulnerabilidades abiertas son **48 correcciones**: 25 de software
+(1,030 vulnerabilidades) y 23 sueltas (19 de configuración y 4 CVE fuera del inventario). Antes
+eran 39 filas, 14 de ellas «Sin software identificado».
+
+### La página de una corrección (`detection/corrections.py`, `CorrectionView`)
+
+`/detection/vulnerabilities/corrections/<activo>/<componente>/` (404 si ese software no tiene
+vulnerabilidades en ese activo). `corrections.card` la arma con datos; solo «Qué es» lo escribe la
+IA:
+
+| Sección | De dónde sale |
+|---|---|
+| Qué hacer | `grouping.fix_versions`: la versión de Grype o de NVD que resuelve todas; si no hay dato, lo dice («sin corrección publicada», «ni Grype ni NVD dicen a qué versión») |
+| Qué es | `SoftwareDescription` (ver abajo), con la etiqueta «por IA» o «por una persona» |
+| Por qué importa | Frases por código: cuántas están en KEV y si el plazo de CISA venció, criticidad y exposición del activo, el puntaje de la más grave; debajo, la descripción ya redactada de la más grave |
+| A qué riesgo alimenta | Los escenarios abiertos que contienen alguna de sus vulnerabilidades y el riesgo de la organización de cada uno (`business_risks.of`) |
+| Sus vulnerabilidades | De mayor a menor puntaje, cada una con «Deja de aplicar desde» (`grouping.vulnerability_fixes`); las resueltas o descartadas, aparte |
+| Evidencia | Cómo llegó el software al inventario, qué herramientas reportaron sus fallas, primer y último reporte, y el enlace a los reportes (`/detection/observations/?asset=…&comp=…`) |
+| Estado | El formulario del lote con la clave de la corrección: fija el estado de todas (permiso `detection.work_findings`) |
+
+### «Qué es» un software (`detection/software.py`, tarea `SOFTWARE_DESCRIBE`)
+
+Una o dos frases para quien no es técnico sobre qué es el software y para qué sirve. Se pregunta
+**una vez por software** (`software.key_of`: la clave de producto, sin activo ni versión) y vale
+para todos los activos que lo tienen. El modelo recibe el nombre, cómo se encontró, el puerto, el
+lenguaje y el paquete (del purl) y hasta tres avisos de NVD que lo mencionan; no recibe la versión
+instalada ni el activo. `SoftwareDescribeOutput` rechaza un texto que hable de fallas
+(«vulnerab», «ataque», «riesgo», «CVE-»…), que traiga una versión, que no esté en español o que
+tenga menos de 25 caracteres. El modelo puede responder `known: false` y entonces la página dice
+que la IA no lo reconoció en lugar de inventar.
+
+Se pide al abrir la página de la corrección (`software.request`) y por el drenaje periódico
+(`software.queue_missing`, 5 por pasada dentro de `describe_pending_vulnerabilities`; tarea
+`describe_software` en la cola `llm`). Tras un fallo espera 30 min, 1 h, 2 h… hasta un día; una
+persona que abre la página no espera. Quien tiene `detection.work_findings` puede corregir el
+texto (`SoftwareDescriptionView`, `software.set_by_person`): queda «por una persona» y la IA ya no
+lo toca; con el texto vacío vuelve a escribirlo la IA.
+
+El prompt `software_describe/v1` terminaba con «si no reconoces con seguridad qué es, responde
+`known: false`» y el modelo local contestó `known: false` a los 15 productos que alcanzó a ver,
+PHP y Apache incluidos. `v2` dice que casi todo lo que recibe es conocido, trae ejemplos y pone
+`summary` antes que `known` en el esquema. Con `v2`, en el laboratorio (2026-11-18,
+qwen2.5:7b-instruct-q4_K_M en GPU): 19 productos, 19 respuestas válidas al primer intento, 0.8 s
+de media, ninguno sin reconocer. Las frases son correctas en lo general y alguna es imprecisa
+(«Werkzeug es un servidor web») o se le escapa una palabra en inglés («arrays»): por eso van
+marcadas «por IA» y se pueden corregir.
+
+### La vulnerabilidad dentro de su corrección
+
+- **Banda** bajo el título: «Parte de la corrección *Actualizar X a V o superior* en *activo*:
+  resuelve esta y otras N» con enlace a la corrección; o «Corrección: cambiar configuración»; o el
+  aviso de software fuera del inventario (`corrections.of_vulnerability`).
+- **El paso de actualizar lo escribe el código** (`corrections.update_step`, etiqueta «dato, no
+  IA») con la versión de la corrección completa: «Actualizar log4j-core a la versión 2.25.4 o
+  superior: corrige esta falla y otras 7 de este software. Esta deja de aplicar desde la 2.15.0,
+  pero las demás piden llegar a la 2.25.4». Los pasos de la IA que nombran una versión distinta de
+  la instalada se apartan al mostrar (`Vulnerability.own_steps`, solo cuando hay software: en una
+  de configuración «TLS 1.0» es el paso, no una versión de destino). En el laboratorio 538 de las
+  1,053 vulnerabilidades tenían un paso de la IA con una versión propia de ese CVE, distinta de la
+  que resuelve el software entero. No se borra nada guardado: se decide al leer, también en el
+  informe de riesgos.
+- **Riesgo que alimenta**: los escenarios abiertos que la contienen y su riesgo de la
+  organización (`corrections.feeds_of`).
+- **Evidencia** (`id="evidencia"`): la cadena de origen y los reportes que la sustentan, antes en
+  dos tarjetas («Origen» y «Observaciones que la sustentan»).
+- En «Detalles técnicos», «Deja de aplicar desde» es la versión de esta falla, con la aclaración
+  de la que pide la corrección entera.
+
 ## Título coherente con el software observado (`detection/titles.py`)
 
 El título de una vulnerabilidad lo escribe el modelo (al consolidar o al redactar) y se revisa por
@@ -1023,6 +1111,17 @@ IA; corre dentro de `describe_pending_vulnerabilities` (beat) una vez por `title
 deja un evento «Título ajustado por regla…» con el título anterior en `data.previous_title`. Lo
 que no se arregla por código vuelve al título de la regla y se pide de nuevo al modelo
 (`request_description(force=True)`).
+
+**Dos vulnerabilidades del mismo software no se llaman igual** (`RULES_VERSION = 3`).
+`descriptions.distinguish_titles(asset_id, component_id=None)` añade el identificador al final del
+título («Ejecución remota de código en log4j-core 2.14.1 (CVE-2021-44228)») de las vulnerabilidades
+abiertas de un mismo software en un activo cuyo título coincide. Solo con identificador público
+(CVE o GHSA: `titles.identifier`); no toca lo que tituló una persona. Corre al terminar
+`consolidate_asset`, después de redactar cada vulnerabilidad y en el repaso periódico; deja el
+evento «Título ajustado por regla: se añadió su identificador…». En el laboratorio 332 de las
+1,053 abiertas compartían título con otra de su software; la regla ajustó 330 y no queda ninguna
+repetida dentro de un software. Las tablas que ya muestran el identificador en su propia línea
+(la lista «Una por una» y la de la corrección) pintan `Vulnerability.title_without_key`.
 
 **Números y plurales (`apps/core/text.py`).** `cuantos(n, singular, plural=None)` es la única
 forma de escribir una cantidad en un texto: separador de miles y la forma que toca. `legible`

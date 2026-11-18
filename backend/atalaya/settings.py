@@ -293,6 +293,7 @@ CELERY_TASK_ROUTES = {
     "apps.detection.tasks.draft_org_profile": {"queue": "llm"},
     "apps.detection.tasks.consolidate_asset": {"queue": "llm"},
     "apps.detection.tasks.describe_vulnerability": {"queue": "llm"},
+    "apps.detection.tasks.describe_software": {"queue": "llm"},
     "apps.scanners.tasks.run_tool": {"queue": "discovery"},
     # Misma cola que las herramientas (concurrencia 1): los datos nunca se reemplazan durante
     # un escaneo.

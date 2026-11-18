@@ -1,0 +1,37 @@
+{% load detection_tags inventory %}
+{% comment %}
+Vulnerabilidades agrupadas por su corrección (`grouping.decorate`): una fila por lo que hay que
+hacer. «Actualizar software» junta todas las fallas de un software en un activo y lleva a la
+página de esa corrección; «Cambiar configuración» es una sola vulnerabilidad y lleva a ella. Con
+`bulk` cada fila lleva una casilla que representa a todas sus vulnerabilidades dentro de los
+filtros vigentes; `data-bulk-weight` le dice a la barra cuántas son.
+{% endcomment %}
+<div class="table-wrap">
+  <table class="data-table">
+    <thead><tr>
+      {% if bulk %}<th class="w-6"><input type="checkbox" class="checkbox" data-bulk-all aria-label="Seleccionar todas las de esta página"></th>{% endif %}
+      <th scope="col">Corrección</th><th scope="col" class="col-md" title="Qué clase de trabajo es: instalar una versión corregida o cambiar una configuración. Lo decide una regla, no la IA.">Tipo</th><th scope="col">Activo</th><th scope="col" class="text-right" title="Cuántas vulnerabilidades deja resueltas esta corrección">Resuelve</th><th scope="col" title="Fallas que atacantes reales ya usan (catálogo KEV de CISA)">Explotación activa</th><th scope="col" title="La vulnerabilidad de mayor puntaje contextual de la corrección">La más grave</th>
+    </tr></thead>
+    <tbody>
+      {% for g in groups %}
+      <tr data-correction="{{ g.type }}">
+        {% if bulk %}<td><input type="checkbox" name="groups" value="{{ g.key }}" class="checkbox" data-bulk-weight="{{ g.total }}" aria-label="Seleccionar {% if g.total == 1 %}la vulnerabilidad{% else %}las {{ g.total }} vulnerabilidades{% endif %} de {{ g.label }} en {{ g.asset.name }}"></td>{% endif %}
+        <td class="min-w-48">
+          <a href="{{ g.url }}" class="font-medium" title="{% if g.component %}Abre la corrección: qué es este software, por qué importa y sus vulnerabilidades{% else %}Abre la vulnerabilidad{% endif %}">{{ g.action|truncatechars:90 }}</a>
+          {% if g.detail %}<p class="text-xs {% if g.component and not g.fix.version and g.fix.unfixed %}text-high{% else %}text-muted{% endif %}"{% if g.fix.version %} title="Dato de {{ g.fix.source }}: la primera versión que ya no está en el rango afectado de cada falla.{% if g.fix.missing %} De {{ g.fix.missing }} no se conoce versión corregida.{% endif %} No lo escribe la IA."{% endif %}>{{ g.detail }}</p>{% endif %}
+          <p class="mt-1 md:hidden"><span class="badge-neutral">{{ g.type_label }}</span></p>
+        </td>
+        <td class="col-md"><span class="badge-neutral whitespace-nowrap" title="{{ g.type_help }}">{{ g.type_label }}</span></td>
+        <td><a href="{% url 'assets:detail' g.asset_id %}">{{ g.asset.name }}</a>{% if g.where %}<p class="font-mono text-xs text-muted">{{ g.where }}</p>{% endif %}</td>
+        <td class="text-right whitespace-nowrap"><span class="font-mono font-medium text-ink">{{ g.total|miles }}</span> <span class="text-xs text-muted">{{ g.total|pl:"-vulnerabilidad,vulnerabilidades" }}</span><p class="text-xs text-muted">{% if g.confirmed %}{{ g.confirmed|miles }} {{ g.confirmed|pl:"-confirmada,confirmadas" }}{% endif %}{% if g.confirmed and g.unverified %} · {% endif %}{% if g.unverified %}{{ g.unverified|miles }} por verificar{% endif %}{% if not g.confirmed and not g.unverified %}{{ g.other|miles }} {{ g.other|pl:"-probable,probables" }}{% endif %}</p></td>
+        <td class="text-xs">{% if g.kev %}<span class="badge-critical">{{ g.kev }} en KEV</span>{% if g.kev_overdue %}<p class="mt-0.5 whitespace-nowrap text-critical" title="El plazo de remediación que fijó CISA ya pasó">plazo CISA vencido{% if g.kev_overdue != g.kev %} en {{ g.kev_overdue }}{% endif %}</p>{% endif %}{% else %}<span class="text-muted">ninguna</span>{% endif %}</td>
+        <td class="whitespace-nowrap">{% score_badge g.top_score %} {% severity_badge g.severity %}</td>
+      </tr>
+      {% empty %}<tr><td colspan="{% if bulk %}7{% else %}6{% endif %}" class="table-empty">
+        {% if filters_active %}Sin coincidencias para estos filtros. <a href="{% url 'detection:panel' %}{% if asset_id %}?asset={{ asset_id }}{% endif %}">Limpiar filtros</a>
+        {% elif unconsolidated %}Hay {{ unconsolidated|miles }} {{ unconsolidated|pl:"-reporte,reportes" }} de las herramientas sin consolidar todavía. La consolidación con IA corre sola poco después de cada escaneo o reconciliación{% if asset_id and perms.detection.request_evaluation %}; también puedes pedirla con «Reevaluar con IA»{% endif %}.
+        {% else %}Sin vulnerabilidades{% if asset_id %} en este activo{% endif %}. Nacen cuando la IA consolida lo que reportan las herramientas, la inteligencia de amenazas o una persona.{% endif %}
+      </td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>

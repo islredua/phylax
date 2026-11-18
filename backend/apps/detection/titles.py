@@ -22,7 +22,7 @@ from __future__ import annotations
 import re
 
 # Sube cuando cambian las reglas: el repaso de los títulos ya guardados corre una vez por versión.
-RULES_VERSION = 2
+RULES_VERSION = 3
 
 # «http_server», «horizon_daas», «mod_proxy_ajp»: minúsculas unidas con guion bajo.
 _RAW_KEY = re.compile(r"(?<![\w.\-/])[a-z][a-z0-9]*(?:_[a-z0-9]+)+(?![\w\-])")
@@ -95,6 +95,38 @@ def _grounded(token, grounding) -> bool:
     """¿Aparece la versión en lo que se observó o en el texto técnico? «6.5.x» vale por «6.5»."""
     base = re.sub(r"(?:\.[xX])+$", "", token)
     return bool(re.search(rf"(?<![\w.]){re.escape(base)}(?!\d)", grounding))
+
+
+_IDENTIFIER = re.compile(r"^(?:CVE-\d{4}-\d+|GHSA(?:-[0-9a-z]{4}){3})$", re.IGNORECASE)
+_ID_SUFFIX = re.compile(r"\s*\((?:CVE-\d{4}-\d+|GHSA(?:-[0-9a-z]{4}){3})\)\s*$", re.IGNORECASE)
+
+
+def identifier(key) -> str:
+    """El identificador público de una vulnerabilidad («CVE-2021-44228») o vacío si su clave es
+    interna (una familia de debilidad)."""
+    key = str(key or "").strip()
+    return key if _IDENTIFIER.match(key) else ""
+
+
+def bare(title) -> str:
+    """El título sin el identificador que la regla le haya puesto al final entre paréntesis."""
+    return _ID_SUFFIX.sub("", str(title or "")).strip()
+
+
+def with_identifier(title, ident, limit=200) -> str:
+    """«Ejecución remota de código en log4j-core 2.14.1 (CVE-2021-44228)», sin pasar de ``limit``."""
+    suffix = f" ({ident})"
+    return f"{bare(title)[: limit - len(suffix)].rstrip()}{suffix}"
+
+
+def versions_in(text) -> list:
+    """Los números de versión que nombra un texto («2.15.0», «4.x»)."""
+    return [match.group(0) for match in _VERSION.finditer(str(text or ""))]
+
+
+def is_installed(token, installed) -> bool:
+    """¿Es ``token`` la versión instalada (o un tramo de ella: «2.4» de «2.4.49»)?"""
+    return bool(installed) and _grounded(token, installed)
 
 
 def strip_ungrounded(title, grounding):

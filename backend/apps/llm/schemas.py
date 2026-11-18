@@ -3,7 +3,14 @@
 import re
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 CRITICALITY_CLASSES = ("CRITICO", "ALTO", "MEDIO", "BAJO", "INFORMATIVO")
 
@@ -237,6 +244,62 @@ class VulnDescribeOutput(BaseModel):
         if not all(looks_spanish(a) for a in value):
             raise ValueError("las acciones deben estar en español")
         return value
+
+
+# --- «Qué es» un software: una o dos frases para quien no es técnico -------------------------------
+
+SOFTWARE_DESCRIBE_SCHEMA = {
+    "type": "object",
+    # ``summary`` va primero: el modelo escribe y después dice si lo reconocía. Con ``known``
+    # delante contestaba ``false`` y ya no escribía nada.
+    "properties": {
+        "summary": {"type": "string", "maxLength": 320},
+        "known": {"type": "boolean"},
+    },
+    "required": ["summary", "known"],
+}
+SOFTWARE_SUMMARY_MIN = 25
+SOFTWARE_SUMMARY_MAX = 320
+# De qué no habla el «qué es»: de fallas (eso está en cada vulnerabilidad) ni de versiones (la
+# instalada y la que corrige las pone el código).
+_SOFTWARE_OFF_TOPIC = re.compile(
+    r"vulnerab|\bfall[ao]s?\b|\bataque|\batacante|\bexplot|\briesgo|CVE-", re.IGNORECASE
+)
+_SOFTWARE_VERSION = re.compile(r"(?<![\w.])\d+\.\d+")
+
+
+class SoftwareDescribeOutput(BaseModel):
+    """Qué es un software. ``known=False`` es una respuesta válida: «no lo reconozco»."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    known: bool
+    summary: str = Field(default="", max_length=SOFTWARE_SUMMARY_MAX)
+
+    @model_validator(mode="after")
+    def _says_what_it_is(self):
+        from apps.llm.language import looks_spanish
+
+        text = " ".join((self.summary or "").split())
+        if not self.known:
+            self.summary = ""
+            return self
+        if len(text) < SOFTWARE_SUMMARY_MIN:
+            raise ValueError(
+                "summary debe decir qué es el software en una o dos frases; si no lo reconoces, "
+                "responde known=false"
+            )
+        if not looks_spanish(text):
+            raise ValueError("summary debe estar redactado en español")
+        if _SOFTWARE_OFF_TOPIC.search(text):
+            raise ValueError(
+                "summary dice qué es el software y para qué sirve: sin fallas, ataques, riesgos "
+                "ni identificadores CVE"
+            )
+        if _SOFTWARE_VERSION.search(text):
+            raise ValueError("summary no lleva números de versión")
+        self.summary = text
+        return self
 
 
 class VulnAssessmentOutput(BaseModel):

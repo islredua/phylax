@@ -50,6 +50,8 @@ class FindingFilterForm(StyledMixin, forms.Form):
         label="Fuente", required=False, choices=[("", "Todas"), *FindingSource.choices]
     )
     asset = forms.UUIDField(required=False, widget=forms.HiddenInput())
+    # La evidencia de un solo software: a donde lleva la página de su corrección.
+    comp = forms.UUIDField(required=False, widget=forms.HiddenInput())
 
 
 class NoteForm(forms.Form):

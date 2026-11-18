@@ -1,6 +1,6 @@
 """Revisión del 2026-11-16, bloque 1: que el trabajo quepa en una jornada (W1, W2, W3).
 
-- W1: las vulnerabilidades se ven por lo que hay que corregir (un software en un activo).
+- W1: las vulnerabilidades se ven por su corrección (lo que hay que hacer para resolverlas).
 - W2: el mismo tratamiento para varios riesgos a la vez.
 - W3: plazos por nivel de riesgo, que proponen la fecha compromiso y miden lo que va tarde.
 
@@ -88,11 +88,11 @@ def _risk(asset, level, *, days_ago=0, key=None, **extra):
 
 
 # --------------------------------------------------------------------------
-# W1 · por software a corregir
+# W1 · por corrección
 # --------------------------------------------------------------------------
 
 
-def test_panel_groups_vulnerabilities_by_software_to_fix(client, as_role):
+def test_panel_groups_vulnerabilities_by_their_correction(client, as_role):
     as_role(OPERATOR)
     first = _nginx_asset()
     second = _nginx_asset("web-poniente", "10.9.0.11")
@@ -102,11 +102,14 @@ def test_panel_groups_vulnerabilities_by_software_to_fix(client, as_role):
     response = client.get("/detection/vulnerabilities/")
     body = response.content.decode()
     groups = response.context["groups"]
-    assert response.context["view"] == "software"
+    assert response.context["view"] == "correccion"
     assert {g["asset"].pk for g in groups} == {first.pk, second.pk}
     assert sum(g["total"] for g in groups) == total == response.context["total_vulnerabilities"]
     assert response.context["total_groups"] == len(groups)
-    assert "Por software a corregir" in body and "Una por una" in body
+    assert "Por corrección" in body and "Una por una" in body
+    assert "Por software a corregir" not in body
+    # El enlace guardado de cuando la vista se llamaba «por software» sigue sirviendo.
+    assert client.get("/detection/vulnerabilities/?view=software").context["view"] == "correccion"
     assert "nginx 1.27.3" in body and 'name="groups"' in body and 'name="ids"' not in body
 
     # La lista de siempre sigue ahí; una búsqueda de texto va directo a ella.
@@ -115,9 +118,15 @@ def test_panel_groups_vulnerabilities_by_software_to_fix(client, as_role):
     assert listed.context["paginator"].count == total
     assert client.get("/detection/vulnerabilities/?q=nginx").context["view"] == "list"
 
-    # Abrir un grupo lleva a sus fallas, y solo a las suyas.
+    # La fila lleva a la página de la corrección; desde ahí se llega a sus fallas en la lista, y
+    # solo a las suyas.
     group = next(g for g in groups if g["asset"].pk == first.pk)
-    opened = client.get(group["url"])
+    assert group["type"] == grouping.UPDATE and group["action"].startswith(
+        "Actualizar nginx 1.27.3"
+    )
+    page = client.get(group["url"])
+    assert page.status_code == 200 and page.context["card"]["counts"]["total"] == group["total"]
+    opened = client.get(page.context["card"]["list_url"])
     assert opened.context["view"] == "list"
     assert opened.context["paginator"].count == group["total"]
     assert opened.context["software_label"].startswith("nginx 1.27.3")
@@ -197,7 +206,7 @@ def test_bulk_status_applies_to_every_vulnerability_of_the_marked_software(clien
         {"groups": [key], "query": "", "status": "CONFIRMED", "note": ""},
         follow=True,
     )
-    assert "software → confirmar, fijado por ti" in response.content.decode()
+    assert "de 1 corrección → confirmar, fijado por ti" in response.content.decode()
     for vuln in Vulnerability.objects.filter(asset=first):
         assert vuln.status == VulnerabilityStatus.CONFIRMED
         assert vuln.status_source == StatusSource.HUMAN and vuln.status_by == operator
@@ -215,7 +224,7 @@ def test_bulk_status_applies_to_every_vulnerability_of_the_marked_software(clien
         {"groups": ["no-existe"], "status": "CONFIRMED"},
         follow=True,
     )
-    assert "Marca al menos una vulnerabilidad o un software" in response.content.decode()
+    assert "Marca al menos una vulnerabilidad o una corrección" in response.content.decode()
     as_role(AUDITOR)
     denied = client.post(
         "/detection/vulnerabilities/bulk/", {"groups": [key], "status": "MITIGATED"}

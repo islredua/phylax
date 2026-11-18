@@ -882,7 +882,9 @@ def test_beat_drains_missing_descriptions_across_assets(lab_cti, monkeypatch):
     queued = []
     monkeypatch.setattr(descriptions, "active_model_ready", lambda: True)
     monkeypatch.setattr(tasks.describe_vulnerability, "apply_async", lambda **kw: queued.append(kw))
-    assert tasks.describe_pending_vulnerabilities() == {"queued": 2}
+    # Dos vulnerabilidades por redactar y, de paso, una sola pregunta por «qué es nginx» aunque
+    # esté en dos activos.
+    assert tasks.describe_pending_vulnerabilities() == {"queued": 2, "software": 1}
     assert {q["args"][0] for q in queued} == {str(pk) for pk in pks}
     # Lo que ya está en cola (clave pendiente en caché) no se vuelve a pedir.
     assert tasks.describe_pending_vulnerabilities() == {"queued": 0} and len(queued) == 2
@@ -917,7 +919,7 @@ def test_failed_description_waits_before_the_drain_retries_it(lab_cti, settings,
     assert "se reintenta en 30 min" in vuln.events.filter(kind="DESCRIBED").last().message
 
     # El drenaje automático la salta mientras dura la espera…
-    assert tasks.describe_pending_vulnerabilities() == {"queued": 0} and not queued
+    assert tasks.describe_pending_vulnerabilities()["queued"] == 0 and not queued
     # …pero una persona que la pide desde el detalle no espera.
     assert descriptions.request_description(vuln, requested_by=user) and len(queued) == 1
     cache.delete(descriptions._pending_key(vuln.pk))
@@ -931,7 +933,7 @@ def test_failed_description_waits_before_the_drain_retries_it(lab_cti, settings,
 
     # Pasada la espera se reintenta, y al lograrse se olvida el historial de fallos.
     cache.delete(descriptions._retry_key(vuln.pk))
-    assert tasks.describe_pending_vulnerabilities() == {"queued": 1}
+    assert tasks.describe_pending_vulnerabilities()["queued"] == 1
     descriptions.note_failure(vuln.pk)
     monkeypatch.setattr(descriptions, "run_structured", real_run)
     assert descriptions.describe_vulnerability(vuln.pk).parsed_ok

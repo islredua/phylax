@@ -99,6 +99,8 @@ SECTIONS = (
                     "detection:vulnerability_release",
                     "detection:vulnerability_note",
                     "detection:asset_consolidate",
+                    "detection:correction",
+                    "detection:software_description",
                 ),
             ),
             Tab(

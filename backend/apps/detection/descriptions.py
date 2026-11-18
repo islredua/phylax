@@ -249,7 +249,62 @@ def review_titles() -> dict:
             message = f"El título de la IA se descartó ({'; '.join(notes)}); se vuelve a redactar"
             request_description(vuln, force=True)
         _event(vuln, VulnerabilityEventKind.DESCRIBED, message, previous_title=previous)
-    return {"fixed": fixed, "redone": redone}
+    from .models import VULN_OPEN_STATUSES
+
+    distinguished = 0
+    assets = (
+        Vulnerability.objects.filter(component__isnull=False, status__in=VULN_OPEN_STATUSES)
+        .order_by()
+        .values_list("asset_id", flat=True)
+        .distinct()
+    )
+    for asset_id in assets:
+        distinguished += distinguish_titles(asset_id)
+    return {"fixed": fixed, "redone": redone, "distinguished": distinguished}
+
+
+def distinguish_titles(asset_id, component_id=None) -> int:
+    """Dentro de un software, dos vulnerabilidades abiertas no se llaman igual.
+
+    El modelo titula por lo que permite la falla («Ejecución remota de código en log4j-core
+    2.14.1») y varias del mismo software permiten lo mismo: en el laboratorio 332 de 1 053
+    compartían título con otra de su corrección y solo las distinguía el CVE en letra pequeña.
+    A las que coinciden se les añade su identificador; una que es única se queda como está. Es
+    una regla: no se le pide al modelo. Los títulos que fijó una persona no se tocan. Devuelve
+    cuántos cambió. Sin ``component_id`` repasa todo el software del activo.
+    """
+    from collections import defaultdict
+
+    from .models import VULN_OPEN_STATUSES
+
+    qs = Vulnerability.objects.filter(
+        asset_id=asset_id, component__isnull=False, status__in=VULN_OPEN_STATUSES
+    ).exclude(description_source=StatusSource.HUMAN)
+    if component_id:
+        qs = qs.filter(component_id=component_id)
+    same = defaultdict(list)
+    for vuln in qs.order_by("pk"):
+        same[(vuln.component_id, titles.bare(vuln.title).casefold())].append(vuln)
+    changed = 0
+    for group in same.values():
+        if len(group) < 2:
+            continue
+        for vuln in group:
+            ident = titles.identifier(vuln.key)
+            if not ident or ident.lower() in vuln.title.lower():
+                continue
+            previous = vuln.title
+            vuln.title = titles.with_identifier(vuln.title, ident)
+            vuln.save(update_fields=["title"])
+            _event(
+                vuln,
+                VulnerabilityEventKind.DESCRIBED,
+                "Título ajustado por regla: se añadió su identificador porque otra "
+                "vulnerabilidad del mismo software se llamaba igual",
+                previous_title=previous,
+            )
+            changed += 1
+    return changed
 
 
 def describe_vulnerability(vuln_id, *, requested_by=None):
@@ -328,6 +383,8 @@ def describe_vulnerability(vuln_id, *, requested_by=None):
             actor=requested_by,
             attempts=log_obj.attempts,
         )
+        if vuln.component_id:
+            distinguish_titles(vuln.asset_id, vuln.component_id)
         return log_obj
     finally:
         cache.delete(_pending_key(vuln_id))

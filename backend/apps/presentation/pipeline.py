@@ -57,7 +57,7 @@ AI_TASKS = (
 # - la lectura del estado es trabajo de la propia pantalla;
 # - la explicación de cada vulnerabilidad se ve en la etapa «Vulnerabilidades» («con explicación
 #   y acciones redactadas por IA»).
-HIDDEN_AI_TASKS = ("EXEC_NARRATIVE", "VULN_DESCRIBE")
+HIDDEN_AI_TASKS = ("EXEC_NARRATIVE", "VULN_DESCRIBE", "SOFTWARE_DESCRIBE")
 # Corridas de evaluación (``eval_criticality``): quedan en el registro, no en los indicadores.
 EVALUATION_REF_PREFIX = "eval:"
 SOURCE_ORDER = ("CTI_MATCH", "NUCLEI", "GRYPE", "MANUAL")

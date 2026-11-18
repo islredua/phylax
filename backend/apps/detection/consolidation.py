@@ -1118,11 +1118,14 @@ def consolidate_asset(asset_id, *, requested_by=None, reason="", use_llm=True, f
         risks.derive_risks(asset_id, requested_by=requested_by, use_llm=use_llm, fresh=fresh)
     except Exception:  # pragma: no cover - un fallo en riesgos no deshace la consolidación
         log.exception("derivación de riesgos del activo %s", asset_id)
+    from . import descriptions
+
+    # Dos vulnerabilidades del mismo software no se llaman igual: a las que coinciden se les
+    # añade su identificador (regla, sin modelo).
+    descriptions.distinguish_titles(asset_id)
     # Lo que quedó sin descripción en español (por regla, o inglés descartado) se redacta aparte,
     # una vulnerabilidad por llamada, de mayor a menor puntaje.
     if use_llm:
-        from . import descriptions
-
         descriptions.queue_missing(asset_id, requested_by=requested_by)
     return ConsolidationResult(
         len(groups),

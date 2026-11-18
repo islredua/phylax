@@ -408,7 +408,7 @@ def test_stored_titles_are_reviewed_once_in_the_periodic_task(monkeypatch):
     monkeypatch.setattr(tasks.describe_vulnerability, "apply_async", lambda **kw: queued.append(kw))
 
     result = tasks.describe_pending_vulnerabilities()
-    assert result["titles"] == {"fixed": 1, "redone": 1}
+    assert result["titles"] == {"fixed": 1, "redone": 1, "distinguished": 0}
     fixable.refresh_from_db(), unfixable.refresh_from_db(), human.refresh_from_db()
     assert fixable.title == "Ejecución remota de código en PHPMailer (en nginx 1.27.3)"
     event = fixable.events.filter(kind="DESCRIBED").last()
@@ -421,4 +421,4 @@ def test_stored_titles_are_reviewed_once_in_the_periodic_task(monkeypatch):
 
     # Una vez por versión de las reglas; y repetirlo no cambia nada.
     assert "titles" not in tasks.describe_pending_vulnerabilities()
-    assert descriptions.review_titles() == {"fixed": 0, "redone": 0}
+    assert descriptions.review_titles() == {"fixed": 0, "redone": 0, "distinguished": 0}

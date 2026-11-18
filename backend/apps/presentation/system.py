@@ -79,6 +79,7 @@ TASK_LABELS = {
     "apps.cti.tasks.sync_cti_sources": "Sincronizar las fuentes de inteligencia",
     "apps.detection.tasks.consolidate_asset": "Consolidar las observaciones de un activo",
     "apps.detection.tasks.describe_pending_vulnerabilities": "Encolar explicaciones pendientes",
+    "apps.detection.tasks.describe_software": "Explicar qué es un software",
     "apps.detection.tasks.describe_vulnerability": "Redactar la explicación de una vulnerabilidad",
     "apps.detection.tasks.dispatch_actions": "Enviar acciones aprobadas a las herramientas",
     "apps.detection.tasks.draft_org_profile": "Redactar el perfil de la organización",
@@ -109,6 +110,7 @@ HEARTBEAT_TASK = "apps.presentation.tasks.refresh_system_status"
 # Qué inferencias hace cada tarea de la cola del modelo: de ahí sale cuánto tarda.
 TASK_INFERENCES = {
     "apps.detection.tasks.describe_vulnerability": ("VULN_DESCRIBE",),
+    "apps.detection.tasks.describe_software": ("SOFTWARE_DESCRIBE",),
     "apps.detection.tasks.consolidate_asset": (
         "VULN_ASSESSMENT",
         "RISK_ASSESSMENT",

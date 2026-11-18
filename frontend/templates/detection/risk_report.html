@@ -127,7 +127,7 @@
 {% if described %}
 <h2>Las vulnerabilidades principales, explicadas</h2>
 {% for row in described %}
-<p><strong>{{ row.vuln.title }}</strong> <span class="mono muted">{{ row.vuln.key }}</span> · {{ row.vuln.get_status_display|lower }}, puntaje contextual {{ row.vuln.contextual_score|default_if_none:"—" }}<br>{{ row.vuln.summary }}{% if row.vuln.actions %}<br><span class="muted">Acciones: {{ row.vuln.actions|join:" · " }}</span>{% endif %}</p>
+<p><strong>{{ row.vuln.title }}</strong> <span class="mono muted">{{ row.vuln.key }}</span> · {{ row.vuln.get_status_display|lower }}, puntaje contextual {{ row.vuln.contextual_score|default_if_none:"—" }}<br>{{ row.vuln.summary }}{% if row.vuln.own_steps %}<br><span class="muted">Acciones: {{ row.vuln.own_steps|join:" · " }}</span>{% endif %}</p>
 {% endfor %}
 {% endif %}
 

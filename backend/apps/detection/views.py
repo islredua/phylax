@@ -15,6 +15,7 @@ from django.views import View
 from django.views.generic import ListView, TemplateView
 
 from apps.assets import catalogs
+from apps.core.text import cuantos
 from apps.core.views import PaginationMixin
 from apps.cti import services as cti
 from apps.cti.models import CtiSource, CtiSyncRun, SourceKind
@@ -27,6 +28,7 @@ from . import (
     automation,
     business_risks,
     consolidation,
+    corrections,
     descriptions,
     events,
     exports,
@@ -37,6 +39,8 @@ from . import (
     profile,
     responsibles,
     risks,
+    software,
+    titles,
     verification,
 )
 from .forms import (
@@ -141,6 +145,8 @@ def filter_findings(params):
             qs = qs.filter(sources__contains=[data["source"]])
         if data["asset"]:
             qs = qs.filter(asset_id=data["asset"])
+        if data["comp"]:
+            qs = qs.filter(component_id=data["comp"])
     if status == "all":
         pass
     elif status:
@@ -268,11 +274,12 @@ def filter_vulnerabilities(params):
 
 
 class PanelView(Perm, PaginationMixin, ListView):
-    """Vulnerabilidades consolidadas, vistas por lo que hay que corregir o una por una.
+    """Vulnerabilidades consolidadas, vistas por su corrección o una por una.
 
-    «Por software» (lo normal) da una fila por activo + software: es la unidad de trabajo de quien
-    remedia. «Una por una» es la lista de siempre, ordenada por puntaje contextual. Las dos salen
-    de la misma consulta filtrada, así que filtros y cifras coinciden.
+    «Por corrección» (lo normal) da una fila por lo que hay que hacer: actualizar un software en
+    un activo (y con eso resolver todas sus fallas) o cambiar una configuración. Es la unidad de
+    trabajo de quien remedia. «Una por una» es la lista de siempre, ordenada por puntaje
+    contextual. Las dos salen de la misma consulta filtrada, así que filtros y cifras coinciden.
     """
 
     permission_required = "detection.view_vulnerability"
@@ -283,7 +290,7 @@ class PanelView(Perm, PaginationMixin, ListView):
     def get_queryset(self):
         self.flat, self.filter_form = filter_vulnerabilities(self.request.GET)
         self.mode = grouping.view_mode(self.request.GET)
-        return grouping.groups(self.flat) if self.mode == "software" else self.flat
+        return grouping.groups(self.flat) if self.mode == grouping.BY_CORRECTION else self.flat
 
     def get(self, request, *args, **kwargs):
         if exports.wants_csv(request):
@@ -298,15 +305,15 @@ class PanelView(Perm, PaginationMixin, ListView):
 
     def get_paginate_by(self, queryset):
         size = super().get_paginate_by(queryset)
-        return max(size, grouping.PAGE_SIZE) if self.mode == "software" else size
+        return max(size, grouping.PAGE_SIZE) if self.mode == grouping.BY_CORRECTION else size
 
     def _view_url(self, mode):
-        """La misma lista en la otra vista. Al volver a «por software» se suelta el software
-        elegido (y el activo que vino con él) para ver de nuevo todos los grupos."""
+        """La misma lista en la otra vista. Al volver a «por corrección» se suelta el software
+        elegido (y el activo que vino con él) para ver de nuevo todas las correcciones."""
         params = self.request.GET.copy()
         params.pop("page", None)
         params["view"] = mode
-        if mode == "software" and params.get("comp"):
+        if mode == grouping.BY_CORRECTION and params.get("comp"):
             params.pop("comp", None)
             params.pop("asset", None)
         return f"?{params.urlencode()}"
@@ -315,19 +322,20 @@ class PanelView(Perm, PaginationMixin, ListView):
         context = super().get_context_data(**kwargs)
         data = self.filter_form.cleaned_data if self.filter_form.is_valid() else {}
         asset_id = data.get("asset")
-        software = self.mode == "software"
-        listed = [] if software else list(context["vulnerabilities"])
+        grouped = self.mode == grouping.BY_CORRECTION
+        listed = [] if grouped else list(context["vulnerabilities"])
         comp = data.get("comp") or ""
         component = None
         if comp and comp != grouping.NO_COMPONENT:
             from .models import SoftwareComponent
 
             component = SoftwareComponent.objects.filter(pk=comp).first()
+        open_reports = findings.open_findings(asset_id)
         context.update(
             filter_form=self.filter_form,
             summary=consolidation.summary(asset_id),
-            observations_open=findings.open_findings(asset_id).count(),
-            unconsolidated=consolidation.consolidable(findings.open_findings(asset_id))
+            observations_open=open_reports.count(),
+            unconsolidated=consolidation.consolidable(open_reports)
             .filter(consolidated__isnull=True)
             .count(),
             asset_id=asset_id,
@@ -340,18 +348,21 @@ class PanelView(Perm, PaginationMixin, ListView):
             view=self.mode,
             vulnerabilities=listed,
             groups=grouping.decorate(context["vulnerabilities"], self.flat, self.request.GET)
-            if software
+            if grouped
             else [],
-            total_vulnerabilities=self.flat.count() if software else context["paginator"].count,
+            total_vulnerabilities=self.flat.count() if grouped else context["paginator"].count,
             total_groups=context["paginator"].count
-            if software
+            if grouped
             else grouping.groups(self.flat).count(),
             export_url=_export_url(self.request),
-            software_url=self._view_url("software"),
-            list_url=self._view_url("list"),
+            correction_url=self._view_url(grouping.BY_CORRECTION),
+            list_url=self._view_url(grouping.ONE_BY_ONE),
             software_label=component.label
             if component
             else (grouping.NO_COMPONENT_LABEL if comp else ""),
+            software_correction_url=corrections.url(component.asset_id, component.pk)
+            if component
+            else "",
             query=self.request.GET.urlencode(),
         )
         return context
@@ -374,7 +385,7 @@ class VulnerabilityBulkView(Perm, View):
             ids = [*ids, *(str(pk) for pk in grouping.members(listed, group_keys))]
         form = VulnerabilityBulkForm(request.POST)
         if not ids:
-            messages.error(request, "Marca al menos una vulnerabilidad o un software.")
+            messages.error(request, "Marca al menos una vulnerabilidad o una corrección.")
             return HttpResponseRedirect(back)
         if not form.is_valid():
             messages.error(request, "Elige el estado que quieres fijar.")
@@ -394,7 +405,7 @@ class VulnerabilityBulkView(Perm, View):
         label = HUMAN_STATUS_LABELS[form.cleaned_data["status"]].lower()
         if done:
             scope = (
-                f" de {len(group_keys)} software"
+                f" de {cuantos(len(group_keys), 'corrección', 'correcciones')}"
                 if group_keys and not request.POST.getlist("ids")
                 else ""
             )
@@ -528,10 +539,14 @@ class VulnerabilityDetailView(Perm, TemplateView):
         observations = list(
             vuln.observations.select_related("component").prefetch_related("evidence")
         )
+        correction = corrections.of_vulnerability(vuln)
         context.update(
             vuln=vuln,
             observations=observations,
             description_pending=description_pending,
+            correction=correction,
+            steps=corrections.steps(vuln, correction),
+            feeds=corrections.feeds_of(vuln),
             technical=technical_details(vuln, observations),
             origin=origin_story(vuln, observations),
             timeline=vuln.events.select_related("actor").order_by("-occurred_at", "-id"),
@@ -582,12 +597,89 @@ class VulnerabilityDescriptionView(Perm, View):
     def get(self, request, pk):
         from . import descriptions
 
-        vuln = get_object_or_404(Vulnerability.objects.select_related("asset"), pk=pk)
+        vuln = get_object_or_404(Vulnerability.objects.select_related("asset", "component"), pk=pk)
         return render(
             request,
             "detection/_vulnerability_description.html",
-            {"vuln": vuln, "description_pending": descriptions.is_pending(vuln.pk)},
+            {
+                "vuln": vuln,
+                "description_pending": descriptions.is_pending(vuln.pk),
+                "steps": corrections.steps(vuln),
+            },
         )
+
+
+class CorrectionView(Perm, TemplateView):
+    """La corrección de un software en un activo: qué hacer, qué es, por qué importa, a qué riesgo
+    alimenta, sus vulnerabilidades y la evidencia. Se arma al leer (``corrections.card``)."""
+
+    permission_required = "detection.view_vulnerability"
+    template_name = "detection/correction.html"
+
+    def get_context_data(self, **kwargs):
+        from apps.assets.models import Asset
+
+        from .models import SoftwareComponent
+
+        context = super().get_context_data(**kwargs)
+        asset = get_object_or_404(Asset, pk=kwargs["asset_id"])
+        component = get_object_or_404(SoftwareComponent, pk=kwargs["component_id"], asset=asset)
+        card = corrections.card(asset, component, user=self.request.user)
+        if not card["vulnerabilities"] and not card["resolved"]:
+            raise Http404("Este software no tiene vulnerabilidades en este activo.")
+        context.update(
+            card=card,
+            asset=asset,
+            component=component,
+            bulk_statuses=list(HUMAN_STATUS_LABELS.items()),
+            describing=descriptions.pending_ids([v.pk for v in card["vulnerabilities"]]),
+        )
+        return context
+
+
+class SoftwareDescriptionView(Perm, View):
+    """El «Qué es» de un software: el fragmento que se consulta mientras la IA lo escribe (GET) y
+    la corrección de una persona (POST; con el texto vacío vuelve a escribirlo la IA)."""
+
+    permission_required = "detection.view_vulnerability"
+
+    def _component(self, component_id):
+        from .models import SoftwareComponent
+
+        return get_object_or_404(SoftwareComponent.objects.select_related("asset"), pk=component_id)
+
+    def get(self, request, component_id):
+        component = self._component(component_id)
+        what = software.for_component(component)
+        return render(
+            request,
+            "detection/_software_description.html",
+            {
+                "component": component,
+                "card": {
+                    "name": titles.software_name(component) or component.label,
+                    "what": what if what and what.known and what.summary else None,
+                    "what_unknown": bool(what and not what.known),
+                    "what_pending": software.is_pending(software.key_of(component)),
+                },
+            },
+        )
+
+    def post(self, request, component_id):
+        if not request.user.has_perm("detection.work_findings"):
+            raise PermissionDenied
+        component = self._component(component_id)
+        back = _safe_next(request, corrections.url(component.asset_id, component.pk))
+        found = software.set_by_person(component, request.POST.get("summary", ""), request.user)
+        if found is None:
+            messages.success(request, "Descripción borrada: la IA la volverá a escribir.")
+        else:
+            messages.success(
+                request,
+                f"Descripción de {found.name} guardada a tu nombre; vale para todos los activos "
+                "que tienen este software y la IA ya no la cambia.",
+            )
+        return HttpResponseRedirect(back)
 
 
 def origin_story(vuln, observations):

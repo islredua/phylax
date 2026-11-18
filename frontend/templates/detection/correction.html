@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% load detection_tags inventory %}
+{% comment %}
+La corrección de un software en un activo (`corrections.card`): lo que hay que hacer para resolver
+todas sus vulnerabilidades. De arriba abajo responde a qué hacer, qué es, por qué importa, a qué
+riesgo alimenta, cuáles son las vulnerabilidades y con qué evidencia se sabe. Solo «Qué es» lo
+escribe la IA; lo demás sale de los datos.
+{% endcomment %}
+{% block title %}{{ card.action }}{% endblock %}
+{% block breadcrumb_tail %}<li><a href="{% url 'assets:detail' asset.pk %}?tab=vulnerabilidades">{{ asset.name }}</a></li><li>{{ card.label|truncatechars:60 }}</li>{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <div class="flex flex-wrap items-center gap-2">
+    <div><p class="eyebrow mb-0">Corrección · actualizar software</p><h2>{{ card.label }} en {{ asset.name }}</h2></div>
+    {% if card.severity %}{% severity_badge card.severity %}{% endif %}
+    {% if card.counts.kev %}<span class="badge-critical" title="Vulnerabilidades de este software que atacantes reales ya usan (catálogo KEV de CISA)">{{ card.counts.kev }} en KEV</span>{% endif %}
+    {% if card.counts.kev_overdue %}<span class="badge-critical" title="El plazo de remediación que fijó CISA ya pasó">plazo CISA vencido</span>{% endif %}
+    {% if not component.is_current %}<span class="badge-neutral" title="El inventario ya no ve este software en el activo">ya no se observa</span>{% endif %}
+  </div>
+  <div class="page-actions">
+    <a href="{% url 'assets:detail' asset.pk %}?tab=vulnerabilidades" class="btn-secondary btn-sm">Activo</a>
+    <a href="{% url 'detection:panel' %}" class="btn-secondary btn-sm">← Vulnerabilidades por corrección</a>
+  </div>
+</div>
+{% endblock %}
+{% block content %}
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+  <div class="flex flex-col gap-4">
+
+    <section class="card border-primary/40" data-what-to-do>
+      <h3 class="card-title">Qué hacer</h3>
+      {% if not card.vulnerabilities %}
+      <p class="text-ink-soft">Nada pendiente: este software ya no tiene vulnerabilidades abiertas en {{ asset.name }}.</p>
+      {% elif card.fix.version %}
+      <p class="text-lg text-ink">Actualizar a la versión <strong class="font-mono font-semibold">{{ card.fix.version }}</strong> o superior.</p>
+      <p class="mt-1 text-sm text-ink-soft">{% if card.fix.missing %}Corrige {{ card.fix.covered|miles }} de sus {{ card.fix.total|miles }} vulnerabilidades abiertas; de las otras {{ card.fix.missing|miles }} {% if card.fix.unfixed == card.fix.missing %}no hay corrección publicada: hay que mitigarlas o aceptar el riesgo{% else %}ni Grype ni NVD dicen qué versión las corrige{% endif %}.{% elif card.fix.total == 1 %}Corrige su única vulnerabilidad abierta.{% else %}Corrige sus {{ card.fix.total|miles }} vulnerabilidades abiertas.{% endif %}{% if card.counts.total > 1 %} Cada una deja de aplicar desde una versión distinta (está en la tabla): se pide la mayor para resolverlas todas de una vez.{% endif %}</p>
+      {% elif card.fix.unfixed %}
+      <p class="text-lg text-high">Sin corrección publicada.</p>
+      <p class="mt-1 text-sm text-ink-soft">Para {{ card.fix.unfixed|miles }} de sus {{ card.fix.total|miles }} {{ card.fix.total|pl:"-vulnerabilidad,vulnerabilidades" }} quien mantiene el software todavía no publica una versión corregida: toca mitigar (restringir el acceso, desactivar la función afectada) o aceptar el riesgo.</p>
+      {% else %}
+      <p class="text-lg text-ink">Actualizar a una versión corregida.</p>
+      <p class="mt-1 text-sm text-ink-soft">Ni Grype ni NVD dicen cuál{% if card.where or not card.fix %} (o la versión instalada, «{{ component.version|default:"sin dato" }}», no se pudo comparar){% endif %}: consulta el aviso del fabricante de {{ card.name }}.</p>
+      {% endif %}
+      <p class="mt-3 text-xs text-muted">Instalada: <span class="font-mono">{{ component.version|default:"versión desconocida" }}</span>{% if card.where %} · responde en <span class="font-mono">{{ card.where }}</span>{% endif %}.{% if card.fix.version %} La versión que corrige sale de {{ card.fix.source }} (la primera que ya no está en el rango afectado de cada falla), no de la IA.{% endif %}</p>
+    </section>
+
+    {% include "detection/_software_description.html" %}
+
+    {% if card.vulnerabilities %}
+    <section class="card" data-why>
+      <h3 class="card-title">Por qué importa</h3>
+      <ul class="flex list-disc flex-col gap-1 pl-5 text-ink-soft marker:text-muted">{% for line in card.why %}<li>{{ line }}</li>{% endfor %}</ul>
+      {% if card.worst.summary %}
+      <p class="kv-label mt-4">Lo más grave que permite</p>
+      <p class="mt-1 text-ink-soft">{{ card.worst.summary }}</p>
+      {% if card.worst.business_impact %}<p class="mt-2 text-ink-soft">{{ card.worst.business_impact }}</p>{% endif %}
+      <p class="mt-2 text-xs text-muted">Es la descripción de <a href="{% url 'detection:vulnerability' card.worst.pk %}">{{ card.worst.title }}</a>{% if card.worst.description_source == 'AI' %}, redactada por IA{% endif %}.</p>
+      {% endif %}
+    </section>
+
+    <section class="card" data-feeds>
+      <h3 class="card-title">A qué riesgo alimenta</h3>
+      {% if card.feeds %}
+      <ul class="flex flex-col gap-2 text-sm">
+        {% for item in card.feeds %}
+        <li class="flex flex-wrap items-baseline gap-x-2 gap-y-1">{% risk_level_badge item.scenario.level %} <a href="{{ item.business.url }}" class="font-medium" title="El riesgo de la organización: esta consecuencia sobre esta función de negocio">{{ item.business.title }}</a> <span class="text-xs text-muted">· <a href="{% url 'detection:risk' item.scenario.pk %}" title="El escenario de este activo, con su valoración y su tratamiento">escenario en {{ item.scenario.asset.name }}</a> ({{ item.scenario.likelihood }}×{{ item.scenario.impact }})</span></li>
+        {% endfor %}
+      </ul>
+      <p class="mt-3 text-xs text-muted">Corregir este software quita estas vulnerabilidades de esos escenarios; la IA los vuelve a valorar en la siguiente consolidación.</p>
+      {% else %}
+      <p class="text-sm text-muted">Ningún riesgo abierto contiene todavía estas vulnerabilidades: los escenarios se arman tras la consolidación del activo.</p>
+      {% endif %}
+    </section>
+
+    <section class="card" data-vulnerabilities>
+      <h3 class="card-title">{% if card.counts.total == 1 %}Su vulnerabilidad{% else %}Sus {{ card.counts.total|miles }} vulnerabilidades{% endif %} <span class="text-xs font-normal text-muted">de la más grave a la menos grave</span></h3>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead><tr><th scope="col">Vulnerabilidad</th><th scope="col">Prioridad</th><th scope="col">Estado</th><th scope="col" title="La primera versión que ya no tiene esta falla, según Grype o NVD">Deja de aplicar desde</th></tr></thead>
+          <tbody>
+            {% for v in card.vulnerabilities %}
+            <tr>
+              <td><a href="{% url 'detection:vulnerability' v.pk %}" class="font-medium">{{ v.title_without_key|truncatechars:95 }}</a> {% kev_badge v.in_kev %}<p class="font-mono text-xs text-muted">{{ v.key }}{% if v.pk|stringformat:"s" in describing %} · <span class="font-sans">la IA está redactando</span>{% endif %}</p></td>
+              <td class="whitespace-nowrap">{% score_badge v.contextual_score %} {% severity_badge v.severity %}</td>
+              <td class="whitespace-nowrap">{% vuln_status_badge v.status %} {% status_source_badge v.status_source %}</td>
+              <td class="text-xs whitespace-nowrap">{% if v.fix.version %}<span class="font-mono text-sm text-ink">{{ v.fix.version }}</span> <span class="text-muted">· {{ v.fix.source }}</span>{% elif v.fix.unfixed %}<span class="text-high">sin corrección publicada</span>{% else %}<span class="text-muted" title="Ni Grype ni NVD dicen qué versión la corrige">sin dato</span>{% endif %}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if card.resolved %}
+      <details class="fold mt-3"><summary>{{ card.resolved|length }} ya {{ card.resolved|length|pl:"-resuelta o descartada,resueltas o descartadas" }}</summary>
+        <ul class="mt-2 flex flex-col gap-1 text-sm">{% for v in card.resolved %}<li><a href="{% url 'detection:vulnerability' v.pk %}">{{ v.title|truncatechars:95 }}</a> <span class="font-mono text-xs text-muted">{{ v.key }}</span> {% vuln_status_badge v.status %}</li>{% endfor %}</ul>
+      </details>
+      {% endif %}
+    </section>
+    {% elif card.resolved %}
+    <section class="card">
+      <h3 class="card-title">Ya resueltas o descartadas <span class="font-mono text-xs font-normal text-muted">{{ card.resolved|length }}</span></h3>
+      <ul class="flex flex-col gap-1 text-sm">{% for v in card.resolved %}<li><a href="{% url 'detection:vulnerability' v.pk %}">{{ v.title|truncatechars:95 }}</a> <span class="font-mono text-xs text-muted">{{ v.key }}</span> {% vuln_status_badge v.status %}</li>{% endfor %}</ul>
+    </section>
+    {% endif %}
+
+    <section class="card" data-evidence>
+      <h3 class="card-title">Evidencia <span class="text-xs font-normal text-muted">cómo se sabe</span></h3>
+      <dl class="kv-grid text-sm">
+        <div class="sm:col-span-2"><dt class="kv-label">El software</dt><dd class="kv-value">{{ card.evidence.origin }}{% if card.evidence.component_since %} desde el {{ card.evidence.component_since|fecha }}{% endif %}{% if not card.evidence.current %} · <span class="badge-neutral">ya no se observa</span>{% endif %}</dd></div>
+        <div><dt class="kv-label">Quién reportó sus fallas</dt><dd class="kv-value">{% for source, n in card.evidence.sources %}<span class="badge-neutral">{{ source|source_label }}</span> <span class="font-mono text-xs text-muted">{{ n|miles }}</span>{% if not forloop.last %} · {% endif %}{% empty %}—{% endfor %}</dd></div>
+        <div><dt class="kv-label">Primer y último reporte</dt><dd class="kv-value font-mono text-xs">{{ card.evidence.first|fecha|default:"—" }} · {{ card.evidence.last|fecha|default:"—" }}</dd></div>
+      </dl>
+      <p class="mt-3 text-sm"><a href="{{ card.evidence.url }}{% if not card.vulnerabilities %}&amp;status=all{% endif %}">Ver {% if card.evidence.reports == 1 %}el reporte{% else %}los {{ card.evidence.reports|miles }} reportes{% endif %} de las herramientas</a> <span class="text-xs text-muted">· lo que dijo cada una, sin interpretar</span></p>
+    </section>
+  </div>
+
+  <div class="flex flex-col gap-4">
+    <section class="card flex flex-col gap-3">
+      <h3 class="card-title mb-0">Activo</h3>
+      <dl class="kv-grid text-sm">
+        <div><dt class="kv-label">Nombre</dt><dd class="kv-value"><a href="{% url 'assets:detail' asset.pk %}">{{ asset.name }}</a></dd></div>
+        <div><dt class="kv-label">Función de negocio</dt><dd class="kv-value">{{ asset.business_role|catalog:"BUSINESS_ROLE"|default:"—" }}</dd></div>
+        <div><dt class="kv-label">Criticidad</dt><dd class="kv-value">{{ asset.get_criticality_display|default:"—" }}</dd></div>
+        <div><dt class="kv-label">Exposición</dt><dd class="kv-value">{{ asset.get_exposure_display|default:"—" }}</dd></div>
+      </dl>
+    </section>
+
+    {% if card.vulnerabilities %}
+    <section class="card flex flex-col gap-3" id="estado">
+      <h3 class="card-title mb-0">Estado de {% if card.counts.total == 1 %}la vulnerabilidad{% else %}las {{ card.counts.total|miles }}{% endif %}</h3>
+      <p class="text-sm text-ink-soft">{% if card.counts.confirmed %}{{ card.counts.confirmed|miles }} {{ card.counts.confirmed|pl:"-confirmada,confirmadas" }}{% endif %}{% if card.counts.confirmed and card.counts.unverified %} · {% endif %}{% if card.counts.unverified %}{{ card.counts.unverified|miles }} por verificar{% endif %}{% if not card.counts.confirmed and not card.counts.unverified %}{{ card.counts.total|miles }} {{ card.counts.total|pl:"-probable,probables" }}{% endif %}{% if card.counts.resolved %} · {{ card.counts.resolved|miles }} ya {{ card.counts.resolved|pl:"-resuelta,resueltas" }}{% endif %}</p>
+      {% if perms.detection.work_findings %}
+      <form method="post" action="{% url 'detection:vulnerability_bulk' %}" class="flex flex-col gap-2 border-t border-line-soft pt-3" data-confirm="¿Fijar ese estado en {% if card.counts.total == 1 %}la vulnerabilidad{% else %}las {{ card.counts.total }} vulnerabilidades{% endif %} de {{ card.label }} en {{ asset.name }}? Quedarán a tu nombre y la IA ya no las tocará.">
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path }}">
+        <input type="hidden" name="query" value="">
+        <input type="hidden" name="groups" value="{{ card.key }}">
+        <label class="form-label" for="correction-status">Ya se corrigió, no aplica o se acepta</label>
+        <select id="correction-status" name="status" class="form-input" required>
+          <option value="" selected disabled>Elige el estado…</option>
+          {% for value, label in bulk_statuses %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+        </select>
+        <label class="form-label" for="correction-note">Nota (obligatoria para aceptar el riesgo o falso positivo)</label>
+        <textarea id="correction-note" name="note" class="form-input" rows="2" maxlength="2000"></textarea>
+        <button class="btn-primary" type="submit">Fijar en {% if card.counts.total == 1 %}la vulnerabilidad{% else %}las {{ card.counts.total|miles }}{% endif %}</button>
+        <p class="text-xs text-muted">Si ya actualizaste, basta con volver a escanear el activo: las que dejen de verse se cierran solas.</p>
+      </form>
+      {% else %}<p class="text-sm text-muted">Solo lectura.</p>{% endif %}
+      <p class="border-t border-line-soft pt-3 text-xs"><a href="{{ card.list_url }}">Verlas en la lista una por una</a>, con filtros y selección individual.</p>
+    </section>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

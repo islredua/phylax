@@ -74,6 +74,39 @@ class SoftwareComponent(UUIDModel):
         return text
 
 
+class SoftwareDescription(UUIDModel):
+    """Qué es un software, en una o dos frases para quien no es técnico («Qué es» de la corrección).
+
+    Una fila por software (``key`` = su clave de producto), no por activo ni por versión: lo que es
+    log4j-core no cambia de un equipo a otro. La escribe la IA una vez (``SOFTWARE_DESCRIBE``) y una
+    persona puede corregirla; desde entonces la IA no la toca. ``known=False`` es la respuesta
+    «no sé qué es»: se guarda para no volver a preguntar lo mismo.
+    """
+
+    key = models.CharField(max_length=160, unique=True)
+    name = models.CharField(max_length=200)
+    summary = models.TextField(blank=True)
+    known = models.BooleanField(default=True)
+    source = models.CharField(max_length=8, choices=[("AI", "IA"), ("HUMAN", "Persona")])
+    inference = models.ForeignKey(
+        "llm.InferenceLog", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    model = models.CharField(max_length=100, blank=True)
+    prompt_version = models.CharField(max_length=20, blank=True)
+    described_at = models.DateTimeField(null=True, blank=True)
+    edited_by = models.ForeignKey(
+        USER, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+
+    class Meta:
+        ordering = ["name"]
+        verbose_name = "descripción de software"
+        verbose_name_plural = "descripciones de software"
+
+    def __str__(self):
+        return self.name
+
+
 # --------------------------------------------------------------------------
 # Hallazgos (etapa 3)
 # --------------------------------------------------------------------------
@@ -448,6 +481,36 @@ class Vulnerability(UUIDModel):
     def human_locked(self):
         """Una persona fijó el estado: la consolidación conserva su decisión."""
         return self.status_source == StatusSource.HUMAN
+
+    @property
+    def title_without_key(self) -> str:
+        """El título sin el identificador que la regla le añade al final cuando otra vulnerabilidad
+        del mismo software se llama igual: para las tablas que ya lo muestran en su propia línea."""
+        suffix = f" ({self.key})"
+        if self.key and self.title.endswith(suffix):
+            return self.title[: -len(suffix)]
+        return self.title
+
+    def own_steps(self) -> list:
+        """Los pasos que redactó la IA, sin los que nombran una versión de destino.
+
+        La IA redacta cada vulnerabilidad por separado y recomienda la versión que corrige esa
+        falla; otra del mismo software pide una mayor. La versión a la que hay que llegar la pone
+        el código en la corrección (``corrections.update_step``), así que aquí quedan los pasos
+        que no dependen de ella: verificar, mitigar entre tanto, volver a escanear. Solo aplica
+        cuando hay software: en una de configuración «TLS 1.2» es el paso, no una versión.
+        """
+        from . import titles
+
+        found = list(self.actions or [])
+        if not self.component_id:
+            return found
+        installed = (self.component.version or "").strip()
+        return [
+            step
+            for step in found
+            if all(titles.is_installed(token, installed) for token in titles.versions_in(step))
+        ]
 
 
 class VulnerabilityEventKind(models.TextChoices):

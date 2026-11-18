@@ -42,6 +42,13 @@ modelo real y sin herramientas) y se comprueba en el navegador con los datos del
   2.4.49 → 2.4.69, corrige 77 de 88). 24 de los 39 grupos del laboratorio tienen versión. Marcar
   un software fija el estado de todas sus vulnerabilidades. «Una por una» conserva la lista de
   siempre; buscar texto o abrir un grupo lleva a ella.
+  **Actualización del 2026-11-18:** el eje dejó de ser el software y es la **corrección**: no
+  toda vulnerabilidad se resuelve actualizando un software (hay configuraciones), así que la vista
+  es «Por corrección» con el tipo en una columna (48 filas: 25 de software y 23 sueltas, sin grupos
+  «Sin software identificado»), y abrir una corrección de software lleva a su página (qué hacer,
+  qué es, por qué importa, a qué riesgo alimenta, sus vulnerabilidades y la evidencia) en lugar de
+  a una lista filtrada. Ver «La corrección como eje» en `03-deteccion-continua.md`. Pruebas:
+  `tests/detection/test_corrections.py`.
 - **W2 · El mismo tratamiento para varios riesgos.** El registro de riesgos tiene casillas y una
   barra «Tratamiento para los marcados» (tratamiento, responsable, fecha compromiso o de revisión
   y nota). Con la fecha vacía cada riesgo recibe el plazo de la política; con el responsable vacío

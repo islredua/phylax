@@ -102,11 +102,18 @@ def describe_pending_vulnerabilities():
     from . import descriptions, titles
 
     result = {"queued": descriptions.queue_missing_everywhere()}
+    # El «qué es» de cada software con vulnerabilidades abiertas: son pocos (uno por producto, no
+    # por activo) y van de a unos cuantos por pasada.
+    from . import software
+
+    described = software.queue_missing()
+    if described:
+        result["software"] = described
     # Repaso de los títulos ya guardados con las reglas vigentes: una vez por versión de las
     # reglas (y de nuevo si la caché se vacía; es barato y no cambia lo que ya está bien).
     if cache.add(f"detection:titles:reviewed:v{titles.RULES_VERSION}", True, 24 * 3600):
         reviewed = descriptions.review_titles()
-        if reviewed["fixed"] or reviewed["redone"]:
+        if any(reviewed.values()):
             result["titles"] = reviewed
     return result
 
@@ -120,6 +127,18 @@ def describe_vulnerability(vuln_id, user_id=None):
 
     user = get_user_model().objects.filter(pk=user_id).first() if user_id else None
     log_obj = descriptions.describe_vulnerability(vuln_id, requested_by=user)
+    return {"ok": bool(log_obj and log_obj.parsed_ok)}
+
+
+@shared_task(acks_late=True, soft_time_limit=600, time_limit=660)
+def describe_software(component_id, user_id=None):
+    """Pregunta al modelo qué es un software, para la página de su corrección (cola ``llm``)."""
+    from django.contrib.auth import get_user_model
+
+    from . import software
+
+    user = get_user_model().objects.filter(pk=user_id).first() if user_id else None
+    log_obj = software.describe(component_id, requested_by=user)
     return {"ok": bool(log_obj and log_obj.parsed_ok)}
 
 
