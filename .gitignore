@@ -86,3 +86,5 @@ secrets/
 backups/
 deploy/certs/*
 !deploy/certs/README.md
+deploy/ca/*
+!deploy/ca/README.md

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import os
 import shutil
 import statistics
 import time
@@ -253,8 +254,17 @@ def _doing(info) -> str:
 # --- Servicios ------------------------------------------------------------------------------
 
 
-def _row(key, name, role, state, detail, fix=""):
-    return {"key": key, "name": name, "role": role, "state": state, "detail": detail, "fix": fix}
+def _row(key, name, role, state, detail, fix="", label=""):
+    # ``label``: palabras propias para la píldora cuando «sin datos» no describe el estado.
+    return {
+        "key": key,
+        "name": name,
+        "role": role,
+        "state": state,
+        "detail": detail,
+        "fix": fix,
+        "label": label,
+    }
 
 
 def _database():
@@ -323,6 +333,115 @@ def _broker(facts):
     else:
         detail += " · no guarda en disco: un reinicio de Redis pierde lo encolado"
     return _row("redis", name, role, OK, detail)
+
+
+MAIL_CHECK_KEY = "system:mail"
+MAIL_CHECK_TTL = 60
+SMTP_BACKEND = "apps.core.mail.EmailBackend"
+CONSOLE_BACKEND = "django.core.mail.backends.console.EmailBackend"
+
+
+def _sends_by_smtp(backend) -> bool:
+    from django.core.mail.backends import smtp
+    from django.utils.module_loading import import_string
+
+    try:
+        return issubclass(import_string(backend), smtp.EmailBackend)
+    except ImportError:
+        return False
+
+
+def _mail_answers(host, port) -> bool:
+    """¿Abre conexión el servidor de correo? Dos segundos de espera y un minuto de memoria: la
+    página de Sistema no puede depender de un servidor ajeno."""
+    import socket
+
+    key = f"{MAIL_CHECK_KEY}:{host}:{port}"
+    known = cache.get(key)
+    if known is None:
+        try:
+            with socket.create_connection((host, port), timeout=2):
+                known = True
+        except OSError:
+            known = False
+        cache.set(key, known, MAIL_CHECK_TTL)
+    return known
+
+
+def _mail(*, live=True):
+    """Por dónde sale el correo. Restablecer la contraseña y los avisos dependen de él, y un
+    despliegue que lo deja en la consola no avisa a nadie de que no llega."""
+    name, role = "Correo", "Restablecer la contraseña y avisos por correo"
+    backend = settings.EMAIL_BACKEND
+    sender = settings.DEFAULT_FROM_EMAIL
+    if _sends_by_smtp(backend):
+        host, port = settings.EMAIL_HOST or "localhost", settings.EMAIL_PORT
+        ca_file = getattr(settings, "EMAIL_CA_FILE", "")
+        if ca_file and not os.path.isfile(ca_file):
+            return _row(
+                "mail",
+                name,
+                role,
+                DOWN,
+                f"No existe el archivo de la CA del correo ({ca_file}): el envío cifrado falla",
+                "Deja el certificado de la CA en deploy/ca/ y revisa DJANGO_EMAIL_CA_FILE en .env.",
+            )
+        cipher = (
+            "TLS desde la conexión"
+            if settings.EMAIL_USE_SSL
+            else "STARTTLS"
+            if settings.EMAIL_USE_TLS
+            else "sin cifrar"
+        )
+        account = "con usuario" if settings.EMAIL_HOST_USER else "sin usuario"
+        trust = ", con la CA de la organización" if ca_file else ""
+        detail = f"Sale por {host}:{port} ({cipher}, {account}{trust}) como {sender}"
+        if live and not _mail_answers(host, port):
+            return _row(
+                "mail",
+                name,
+                role,
+                DOWN,
+                f"{host}:{port} no responde: el correo no está saliendo",
+                "Revisa DJANGO_EMAIL_HOST y DJANGO_EMAIL_PORT en .env y que el servidor acepte "
+                "conexiones desde este equipo.",
+            )
+        return _row("mail", name, role, OK, detail)
+    if backend == CONSOLE_BACKEND:
+        if settings.EMAIL_HOST:
+            # Las dos líneas se contradicen, también en desarrollo: quien puso el servidor espera
+            # que el correo salga, y la línea DJANGO_EMAIL_BACKEND (venía en el .env de ejemplo
+            # anterior) lo deja en la consola sin decir nada.
+            return _row(
+                "mail",
+                name,
+                role,
+                WARN,
+                f"Hay un servidor configurado ({settings.EMAIL_HOST}), pero el correo se imprime "
+                "en la consola: nadie lo recibe",
+                "DJANGO_EMAIL_BACKEND lo manda a la consola: quita esa línea de .env.",
+            )
+        if settings.DEBUG:
+            return _row(
+                "mail",
+                name,
+                role,
+                UNKNOWN,
+                "Se imprime en la consola del backend (desarrollo): nadie lo recibe",
+                label="solo consola",
+            )
+        return _row(
+            "mail",
+            name,
+            role,
+            WARN,
+            "Se imprime en la consola del servidor: nadie recibe el enlace para restablecer "
+            "la contraseña ni los avisos por correo",
+            "Define DJANGO_EMAIL_HOST en .env (y puerto, usuario y cifrado si hacen falta).",
+        )
+    return _row(
+        "mail", name, role, UNKNOWN, f"Lo entrega {backend.rsplit('.', 2)[-2]}", label="a medida"
+    )
 
 
 def _model():
@@ -653,7 +772,14 @@ def report(now=None, *, live=True) -> dict:
     view = worker_view(now, live=live)
     facts = broker_facts()
     database, db_size = _database()
-    services = [database, _broker(facts), _model(), *_workers(view), _scheduler(view)]
+    services = [
+        database,
+        _broker(facts),
+        _model(),
+        *_workers(view),
+        _scheduler(view),
+        _mail(live=live),
+    ]
     scanner = scanner_data.datasets(now)
     sources = intelligence(now)
     disks = storage(db_size)

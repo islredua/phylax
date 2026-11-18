@@ -407,6 +407,12 @@ class Vulnerability(UUIDModel):
     model = models.CharField(max_length=100, blank=True)
     prompt_version = models.CharField(max_length=20, blank=True)
     assessed_at = models.DateTimeField(null=True, blank=True)
+    evidence_fingerprint = models.CharField(
+        max_length=64,
+        blank=True,
+        editable=False,
+        help_text="Huella de la evidencia con que se evaluó: si no cambia, la evaluación se conserva.",
+    )
 
     cvss_score = models.FloatField(null=True, blank=True)
     epss_score = models.FloatField(null=True, blank=True)

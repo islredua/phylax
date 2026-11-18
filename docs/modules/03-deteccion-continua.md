@@ -722,6 +722,78 @@ proponía 2 × 3)»). Las anclas siguen aplicando encima. Un riesgo valorado ant
 tiene huella: la primera valoración la guarda. Al reabrirse un riesgo, la línea de tiempo dice
 primero que volvió y después cómo quedó valorado.
 
+### Al modelo solo se le pregunta por lo que cambió
+
+La regla anterior no bastaba. Al reconsolidar un activo sin que nada hubiera cambiado, el modelo
+daba otros factores a las mismas vulnerabilidades (explotabilidad, controles compensatorios,
+plausibilidad) y las repartía de otra forma entre los riesgos (trece en uno, luego once): con eso
+cambiaban la severidad, la huella del riesgo y, al final, su valoración. Desde el cierre de la
+revisión del 2026-11-16 la estabilidad se decide **antes** de preguntar, en los dos niveles:
+
+**Vulnerabilidades (`consolidation.evidence_fingerprint`, `stands`).** Cada vulnerabilidad guarda
+la huella de su evidencia (`Vulnerability.evidence_fingerprint`): sus observaciones (fuente,
+severidad de la herramienta, software y versión, CVSS, KEV, EPSS alto o no), lo que dicen las
+reglas del grupo (topes y pisos de plausibilidad y de estado) y el marco en que se evalúa (contexto
+del activo, su tipo y descripción, y el giro y la descripción de la organización). Si la huella es
+la de su última evaluación, la hizo la IA con **el mismo modelo y el mismo prompt** y la
+vulnerabilidad sigue abierta (o su estado lo fijó una persona), la evaluación se conserva entera:
+estado, plausibilidad, factores, ajuste y redacción. No se le pregunta al modelo. Lo que sí se
+pone al día es lo que no decide el modelo: el puntaje con el EPSS de hoy, el detalle técnico y
+las observaciones ligadas.
+
+Se vuelve a evaluar cuando cambia la evidencia (otra fuente la confirma, cambia la versión, entra
+a KEV, el EPSS cruza el umbral de «alto»), el contexto del activo o el perfil de la organización;
+cuando se cambia de modelo o de prompt; cuando una vulnerabilidad mitigada vuelve a observarse;
+cuando una persona devuelve el estado a la IA; y cuando la evaluación anterior fue por regla (el
+modelo no estaba o no la cubrió).
+
+**Riesgos (`risks.standing_risks`).** Un riesgo abierto **sigue en pie** cuando la huella de sus
+vulnerabilidades es la de su última valoración y lo valoró la IA con el modelo y el prompt de
+ahora. No se toca: ni valoración, ni reparto, ni texto. Al modelo se le dan solo las
+vulnerabilidades que no están en ningún riesgo en pie. Deja de estar en pie, y el modelo valora
+su escenario entero, en dos casos: llega al registro una vulnerabilidad de su misma familia (el
+mismo software, o debilidades de configuración con la misma consecuencia), o comparte alguna
+vulnerabilidad con un riesgo abierto que no sigue en pie.
+
+Consecuencias que conviene conocer:
+
+- **«Reevaluar con IA» sin cambios no mueve nada** y termina en segundos. El paso
+  «Vulnerabilidades con IA» de la tarjeta del activo actualiza su hora y añade «sin cambios en la
+  evidencia».
+- **Una caída del modelo ya no degrada lo evaluado.** Antes, consolidar con el modelo caído
+  rehacía por regla todas las evaluaciones y valoraciones del activo; ahora solo queda por regla
+  lo nuevo, y al volver el modelo solo se le pregunta por eso.
+- **La primera consolidación de cada activo después de actualizar evalúa todo** (las
+  vulnerabilidades anteriores no tienen huella) y la guarda.
+- `consolidate_asset(..., fresh=True)` y `derive_risks(..., fresh=True)` evalúan todo de nuevo sin
+  mirar lo anterior. No hay botón para eso: sirve para medir cuánto varía el modelo
+  (`evaluate_lab --stability`) y para las pruebas.
+- El puntaje se calcula con la plausibilidad que se guarda (dos decimales): recalcularlo desde lo
+  guardado da siempre el mismo número.
+
+**Medido (2026-11-17, copia del laboratorio, modelo real, cinco pasadas seguidas sobre los 19
+activos con observaciones y sin cambiar nada entre una y otra):**
+
+| Pasada | Tiempo | Llamadas al modelo | Evaluaciones conservadas | Preguntadas | Sin respuesta del modelo (quedan por regla) | Riesgos abiertos |
+|---|---|---|---|---|---|---|
+| 1 (sin huellas) | 30 min | 93 | 0 | 1 053 | 166 | 36 → 41 |
+| 2 | 8 min | 34 | 887 | 166 | 37 | 44 |
+| 3 | 6 min | 24 | 1 016 | 37 | 0 | 49 |
+| 4 | 33 s | 2 | 1 053 | 0 | 0 | 48 |
+| 5 | 10 s | 0 | 1 053 | 0 | 0 | 48 |
+
+Lo que la IA evaluó no se movió en ninguna pasada, y con todo evaluado la quinta termina en diez
+segundos sin una sola llamada. Dos límites quedan a la vista:
+
+- **El modelo deja sin responder parte de lo que se le pregunta** (el 16 % en la primera pasada).
+  Esas vulnerabilidades quedan por regla y se le vuelven a preguntar en la siguiente
+  consolidación del activo: hicieron falta tres pasadas para que todas tuvieran evaluación de la
+  IA. Entre tanto, cada una que pasa de regla a IA cambia de estado y reabre su escenario.
+- **La agrupación en riesgos la decide el modelo, y cada vez que se reabre un escenario lo parte
+  de otra forma.** Los riesgos abiertos pasaron de 36 a 48 sin que cambiara una sola observación;
+  al final 18 de los 48 repetían activo y software con otro riesgo. La regla de huellas fija lo
+  que el modelo decidió, pero no hace que agrupe igual dos veces.
+
 ### Un riesgo que el modelo expresa distinto sigue siendo el mismo (`risks._same_risk`)
 
 La clave de un riesgo es consecuencia + fuente de amenaza + vulnerabilidad principal. La fuente y

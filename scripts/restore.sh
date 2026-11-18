@@ -143,11 +143,11 @@ restore() {
     scripts/backup.sh "backups/antes-de-restaurar" > /dev/null
   fi
   say "deteniendo la aplicación y los trabajadores…"
-  docker compose stop "${APP_SERVICES[@]}" > /dev/null
+  docker compose --progress quiet stop "${APP_SERVICES[@]}"
   say "cargando el respaldo en una base nueva…"
   if ! load_into "$fresh" "$dir" || ! compare_counts "$fresh" "$dir"; then
     drop_database "$fresh" > /dev/null 2>&1 || true
-    docker compose start "${APP_SERVICES[@]}" > /dev/null
+    docker compose --progress quiet start "${APP_SERVICES[@]}"
     die "el respaldo no se pudo cargar completo; no se cambió nada y el sistema volvió a arrancar"
   fi
   say "cambiando la base en uso…"
@@ -157,7 +157,7 @@ restore() {
   say "vaciando la cola y la caché…"
   docker compose exec -T redis redis-cli FLUSHALL > /dev/null
   say "arrancando…"
-  docker compose start "${APP_SERVICES[@]}" > /dev/null
+  docker compose --progress quiet start "${APP_SERVICES[@]}"
   say "restaurado. La base anterior quedó como «$previous»; cuando confirmes que todo está bien:"
   say "  docker compose exec db sh -c 'dropdb -U \"\$POSTGRES_USER\" $previous'"
   say "Lo que estaba en cola al respaldar se retoma solo en unos minutos (Administración › Sistema)."

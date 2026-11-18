@@ -77,6 +77,35 @@ def test_production_profile_values():
     ]
 
 
+def _web_server(**env):
+    """La configuración con la que arranca gunicorn desde el directorio del backend, que es como
+    lo lanza el perfil: sin más argumentos que la aplicación."""
+    clean = {k: v for k, v in os.environ.items() if k != "ATALAYA_WEB_WORKERS"}
+    result = subprocess.run(  # noqa: S603 - argumentos fijos de la prueba
+        [sys.executable, "-m", "gunicorn", "--print-config", "atalaya.wsgi:application"],
+        cwd=settings.BASE_DIR,
+        env={**clean, **PROD, **env},
+        capture_output=True,
+        text=True,
+        timeout=180,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    pairs = (line.split("=", 1) for line in result.stdout.splitlines() if " = " in line)
+    return {key.strip(): value.strip() for key, value in pairs}
+
+
+def test_the_web_server_runs_several_processes_without_command_line_options():
+    """El perfil lanza «gunicorn atalaya.wsgi:application» a secas. Cuando las opciones iban en
+    la línea de órdenes, un salto de línea las dejó fuera y corría un solo proceso, que atendía
+    las páginas de una en una."""
+    config = _web_server()
+    assert (config["workers"], config["threads"], config["timeout"]) == ("3", "4", "60")
+    assert config["bind"] == "['0.0.0.0:8000']"
+    assert (config["accesslog"], config["errorlog"]) == ("-", "-")
+    assert _web_server(ATALAYA_WEB_WORKERS="5")["workers"] == "5"
+
+
 def test_it_does_not_start_outside_debug_with_the_fallback_key():
     result = _manage("check", DJANGO_DEBUG="0", DJANGO_SECRET_KEY="")
     assert result.returncode != 0 and "Falta DJANGO_SECRET_KEY" in result.stderr
@@ -151,3 +180,116 @@ def test_trusted_proxy_can_be_a_host_name(settings, monkeypatch):
     assert audit.client_ip(_request("172.18.0.10", "198.51.100.20")) == "172.18.0.10"
     # Se resuelve una vez y se recuerda un minuto, no en cada petición.
     assert seen == ["proxy", "otro-que-no-resuelve"]
+
+
+# --- Correo: el servidor SMTP se configura desde el entorno ---
+
+MAIL = (
+    "import json; from django.conf import settings as s; print('CORREO ' + json.dumps("
+    "[s.EMAIL_BACKEND.rsplit('.', 2)[-2], s.EMAIL_HOST, s.EMAIL_PORT, s.EMAIL_USE_TLS, "
+    "s.EMAIL_USE_SSL, s.EMAIL_HOST_USER, bool(s.EMAIL_HOST_PASSWORD), s.EMAIL_TIMEOUT, "
+    "s.EMAIL_CA_FILE]))"
+)
+NO_MAIL = {
+    name: ""
+    for name in (
+        "DJANGO_EMAIL_BACKEND",
+        "DJANGO_EMAIL_HOST",
+        "DJANGO_EMAIL_PORT",
+        "DJANGO_EMAIL_USE_TLS",
+        "DJANGO_EMAIL_USE_SSL",
+        "DJANGO_EMAIL_HOST_USER",
+        "DJANGO_EMAIL_HOST_PASSWORD",
+        "DJANGO_EMAIL_TIMEOUT",
+        "DJANGO_EMAIL_CA_FILE",
+    )
+}
+
+
+def _mail_settings(**env):
+    result = _manage("shell", "-c", MAIL, DJANGO_DEBUG="1", **{**NO_MAIL, **env})
+    line = next(ln for ln in result.stdout.splitlines() if ln.startswith("CORREO "))
+    return json.loads(line.removeprefix("CORREO "))
+
+
+def test_without_a_mail_server_the_mail_stays_on_the_console():
+    assert _mail_settings() == ["console", "", 25, False, False, "", False, 20, ""]
+
+
+def test_a_mail_server_in_the_environment_is_enough_to_send_through_it():
+    """Hasta la revisión no había forma de configurar SMTP: el restablecimiento de contraseña y
+    los avisos de un despliegue real se quedaban en la consola del contenedor."""
+    assert _mail_settings(
+        DJANGO_EMAIL_HOST="smtp.ejemplo.mx",
+        DJANGO_EMAIL_USE_TLS="1",
+        DJANGO_EMAIL_HOST_USER="atalaya",
+        DJANGO_EMAIL_HOST_PASSWORD="una-contraseña",
+        DJANGO_EMAIL_TIMEOUT="8",
+        DJANGO_EMAIL_CA_FILE="/ca/ca-interna.pem",
+    ) == ["mail", "smtp.ejemplo.mx", 587, True, False, "atalaya", True, 8, "/ca/ca-interna.pem"]
+    # El puerto sigue al cifrado si no se dice otro.
+    assert _mail_settings(DJANGO_EMAIL_HOST="smtp.ejemplo.mx", DJANGO_EMAIL_USE_SSL="1")[2] == 465
+    assert _mail_settings(DJANGO_EMAIL_HOST="smtp.ejemplo.mx")[2] == 25
+    assert _mail_settings(DJANGO_EMAIL_HOST="relay", DJANGO_EMAIL_PORT="1025")[1:3] == [
+        "relay",
+        1025,
+    ]
+    # Quien quiera la consola aunque haya servidor lo dice con el backend.
+    forced = _mail_settings(
+        DJANGO_EMAIL_HOST="smtp.ejemplo.mx",
+        DJANGO_EMAIL_BACKEND="django.core.mail.backends.console.EmailBackend",
+    )
+    assert forced[0] == "console"
+
+
+def test_starttls_and_implicit_tls_together_do_not_start():
+    result = _manage(
+        "check",
+        DJANGO_DEBUG="1",
+        **{**NO_MAIL, "DJANGO_EMAIL_USE_TLS": "1", "DJANGO_EMAIL_USE_SSL": "1"},
+    )
+    assert result.returncode != 0 and "no van juntos" in result.stderr
+
+
+def test_mail_trusts_the_organization_ca_without_touching_the_public_ones(settings, tmp_path):
+    """El servidor de correo interno suele presentar un certificado de la CA de la organización.
+    Esa CA se añade a las públicas, y solo para el correo."""
+    import datetime
+    import ssl
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.x509.oid import NameOID
+
+    from apps.core.mail import EmailBackend
+
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "CA interna de prueba")])
+    now = datetime.datetime.now(datetime.UTC)
+    certificate = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - datetime.timedelta(minutes=1))
+        .not_valid_after(now + datetime.timedelta(days=1))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .sign(key, hashes.SHA256())
+    )
+    ca_file = tmp_path / "ca-interna.pem"
+    ca_file.write_bytes(certificate.public_bytes(serialization.Encoding.PEM))
+
+    public = ssl.create_default_context().cert_store_stats()["x509_ca"]
+    settings.EMAIL_CA_FILE = ""
+    assert EmailBackend().ssl_context.cert_store_stats()["x509_ca"] == public
+    settings.EMAIL_CA_FILE = str(ca_file)
+    context = EmailBackend().ssl_context
+    assert context.cert_store_stats()["x509_ca"] == public + 1
+    assert context.verify_mode == ssl.CERT_REQUIRED and context.check_hostname
+
+    # Un archivo que no está falla al enviar, con su ruta: no se envía sin verificar.
+    settings.EMAIL_CA_FILE = str(tmp_path / "no-existe.pem")
+    with pytest.raises(FileNotFoundError):
+        _ = EmailBackend().ssl_context

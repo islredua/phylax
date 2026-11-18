@@ -333,7 +333,7 @@ debajo**: al reconsolidar un activo, el modelo cambia factores de sus vulnerabil
 es la misma (en `api-pagos`, jackson-databind pasó de 3 × 4 a 4 × 5 al agruparse 11
 vulnerabilidades en vez de 13, y el riesgo por regla de log4j-api de 3 × 5 a 2 × 5). La regla
 de estabilidad cubre la evidencia idéntica; llevarla a los factores de cada vulnerabilidad queda
-pendiente. Las vistas de teléfono se revisaron con capturas a 390 px en Chrome sin interfaz, no
+pendiente (hecho después: ver «Cierre»). Las vistas de teléfono se revisaron con capturas a 390 px en Chrome sin interfaz, no
 en un dispositivo. El buscador se probó con los datos del laboratorio (20 activos, unas mil
 vulnerabilidades), no con inventarios grandes. En Actividad no había acciones en curso ni en
 espera de aprobación al capturar: esos estados quedan cubiertos por las pruebas.
@@ -423,7 +423,74 @@ midió gunicorn con carga. El cierre de un descubrimiento «en ejecución» inte
 cubierto por pruebas: en real, si el trabajador muere de golpe, Redis tarda hasta una hora en
 volver a entregar su mensaje y el cierre llega después. La depuración por retención se ejecutó
 sobre una copia; en el laboratorio corre cada noche pero aún no tiene nada con más de 90 días.
-El envío de correo en producción (SMTP) no se probó.
+El envío de correo en producción (SMTP) no se probó. **La restauración completa, el certificado
+propio, la carga, el correo y el descubrimiento interrumpido se comprobaron después: ver
+«Cierre».**
+
+### Cierre: lo que los bloques dejaron sin comprobar (2026-11-17)
+
+Después del bloque 6 se ejecutó en real lo que cada bloque había dejado «sin comprobar», y se
+corrigió lo que esas comprobaciones encontraron.
+
+**Lo que cambió**
+
+- **El correo sale por SMTP.** No había forma de configurarlo: en un despliegue real, restablecer
+  la contraseña y los avisos por correo se quedaban en la consola del contenedor. Ahora basta
+  `DJANGO_EMAIL_HOST` en `.env` (puerto, usuario, STARTTLS o TLS y tiempo de espera son
+  opcionales); `DJANGO_EMAIL_CA_FILE` añade la autoridad interna de la organización solo para el
+  correo, sin quitar las públicas que usan las descargas de inteligencia. Administración ›
+  Sistema tiene una fila «Correo»: por dónde sale, si el servidor responde y, en producción,
+  aviso si se quedó en la consola. `docs/operacion.md` §2.
+- **El servidor web de producción corría con un solo proceso.** Lo encontró la prueba de carga:
+  12 peticiones a la vez usaban el 63 % de un núcleo. Las opciones de gunicorn iban en la línea
+  de órdenes del perfil y un salto de línea las dejaba fuera: arrancaba con los valores por
+  defecto (1 proceso, una petición a la vez, 30 s de límite, sin registro de accesos) en lugar de
+  3 procesos de 4 hilos. Ahora viven en `backend/gunicorn.conf.py`, que gunicorn lee solo, y una
+  prueba comprueba con qué configuración arranca.
+- **Un descubrimiento interrumpido se cierra sin esperar una hora.** Si el trabajador muere de
+  golpe, Redis retiene su mensaje una hora y el descubrimiento seguía «en ejecución», con el
+  rango bloqueado. El barrido pregunta a los trabajadores qué ejecutan: si ninguno lo tiene en
+  dos pasadas seguidas, lo cierra como interrumpido.
+- **Al modelo solo se le pregunta por lo que cambió** (la recomendación abierta del bloque 5).
+  Cada vulnerabilidad y cada riesgo guardan la huella de la evidencia con que se evaluaron; con
+  la misma huella, el mismo modelo y el mismo prompt, la evaluación se conserva y no se pregunta.
+  Detalle en «Al modelo solo se le pregunta por lo que cambió», `03-deteccion-continua.md`.
+
+**Comprobado en el flujo real (laboratorio)**
+
+| Qué | Cómo | Resultado |
+|---|---|---|
+| Restauración completa | `scripts/restore.sh` sobre la base en uso, con un respaldo recién hecho | 42 s, incluido el respaldo de seguridad previo. Las mismas cifras y la misma huella de riesgos, vulnerabilidades, observaciones y archivos antes y después. Un descubrimiento que estaba en cola al respaldar volvió «en cola» sin mensaje: el barrido lo encoló de nuevo tras los diez minutos de margen y terminó bien en 18 s. |
+| Correo | Un servidor SMTP de pruebas en la red del laboratorio, sobre una copia de la base | Restablecer contraseña por HTTP real: llega el mensaje y su enlace abre el formulario; una dirección desconocida responde igual y no envía nada. «Enviar prueba» de un aviso llega sin cifrado, y con STARTTLS, usuario y la autoridad interna. Falla diciendo por qué: certificado no confiable sin la autoridad, credenciales inválidas, servidor que exige STARTTLS, archivo de autoridad inexistente, servidor apagado e inalcanzable (1.1 s). La fila «Correo» pasa a «no responde» en un minuto como mucho. |
+| Certificado de la organización | Perfil de producción con un certificado firmado por una autoridad de ensayo y un nombre propio | El proxy sirve ese certificado; un cliente que confía en la autoridad verifica bien (HTTP/2); sin la autoridad, o entrando por IP, la conexión se rechaza. HTTP responde 308 a HTTPS; HSTS, `nosniff`, `DENY` y cookie `Secure`. Arriba en 33 s. |
+| Carga ligera | 1 640 peticiones por HTTPS en cada pasada (840 con sesión), de 12 a 48 a la vez | Sin errores ni tiempos agotados. Con un proceso (el defecto): Inicio 4 páginas/s, Riesgos 2, Vulnerabilidades 6. Con los 3 procesos: 15, 9 y 21; con 12 a la vez la mediana de Riesgos es 1.2 s. Al volver a desarrollo, las mismas cifras de datos. |
+| Datos de escáner programados | La tarea de las 04:30, lanzada como la lanza el programador | Dos corridas «Programada» terminadas bien (Grype 1.1 s, nuclei 15.5 s). |
+| Trabajador muerto a media ejecución | Descubrimiento de `portal-rh` en curso y `kill -9` al contenedor del trabajador; se arrancó de nuevo 40 s después | Administración › Sistema lo dio por «no responde» a los 23 s. Al volver, el trabajador no retomó nada (Redis retiene el mensaje una hora) y el descubrimiento siguió «en ejecución». El barrido lo anotó sin dueño en la primera pasada tras los diez minutos de margen y lo cerró en la siguiente: «Interrumpido…», 20 min después del corte en lugar de más de una hora. Un descubrimiento nuevo del mismo activo se aceptó y terminó bien en 18 s; volver a entregar el mensaje viejo no cambia nada. |
+| Valorar sin que nada haya cambiado | «Reevaluar con IA» en los 19 activos con observaciones, antes de que existieran huellas (la última pasada en que el modelo valora todo de nuevo) | 29 min y 54 llamadas al modelo. Con las mismas 1 053 vulnerabilidades y las mismas observaciones, el modelo movió 38 estados, 84 severidades y 18 valoraciones de riesgo, y los riesgos abiertos pasaron de 36 a 43. Es la medida del problema que la regla de huellas evita. |
+| La regla de huellas | Cinco pasadas seguidas de todos los activos sobre una copia de la base, con el modelo real y sin cambiar nada | Lo que la IA evaluó no se movió en ninguna. Pasada 1: 30 min, 93 llamadas. Pasada 2: 8 min, 887 de 1 053 evaluaciones conservadas (las 166 restantes eran las que el modelo dejó sin responder). Pasada 3: 6 min, 1 016 conservadas. Pasada 4: 33 s. Pasada 5: 10 s, ninguna llamada y ningún cambio. Tabla en `03-deteccion-continua.md`. |
+
+**Lo que estas comprobaciones dejaron abierto**
+
+- **La agrupación de los riesgos la decide el modelo y no es estable.** En el laboratorio, 13 de
+  los 43 riesgos abiertos repiten activo y software con otro (`portal-expuesto-apache`: cinco
+  riesgos sobre Apache 2.4.49, los cinco «fuga de información», que se resuelven con la misma
+  actualización), mientras `crm-legacy` junta 293 vulnerabilidades de WordPress, Apache y PHP en
+  uno. Diez de los trece salen de cómo le llegan los datos: las seis vulnerabilidades más graves
+  una a una y el resto resumido por software. En la copia, cinco pasadas sin cambios llevaron los
+  abiertos de 36 a 48. Agrupando por código (un riesgo por activo y software, y las debilidades
+  de configuración del activo juntas) serían 33 en los dos casos. **Pendiente de decisión.**
+- **El modelo deja sin responder entre el 10 % y el 16 % de las vulnerabilidades de una pasada**
+  (112 de 1 053 en el laboratorio, 166 en la copia); quedan por regla hasta la siguiente
+  consolidación del activo. Volver a preguntar por ellas dentro de la misma consolidación
+  evitaría las tres pasadas que hicieron falta. **Pendiente.**
+
+*Qué sigue sin comprobarse:* la regla de huellas se midió en una copia, no pulsando «Reevaluar
+con IA» dos veces en el laboratorio (para no mover los riesgos mientras se revisaba su
+agrupación). El certificado se firmó con una autoridad de ensayo y se
+verificó con `curl` y `openssl`, no con un navegador ni con un nombre público. La carga se midió
+con una sola sesión y desde el mismo equipo. El correo se envió a un servidor de pruebas, no a
+un buzón de la organización. Siguen como estaban: los formularios de lote pulsados en un
+navegador (bloque 1) y los límites de la regla de versiones en los títulos (bloque 2).
 
 ## 1. Flujo de trabajo
 

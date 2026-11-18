@@ -45,8 +45,62 @@ Solo quedan publicados los puertos 80 y 443 del proxy (`ATALAYA_HTTP_PORT` y
 `ATALAYA_HTTPS_PORT` los cambian). Para volver al perfil de desarrollo:
 `scripts/compose.sh up -d --remove-orphans`.
 
-Límites conocidos: es un despliegue de un solo equipo (sin réplicas ni alta disponibilidad); el
-correo (restablecer contraseña, avisos) necesita un servidor SMTP configurado en `.env`.
+Límite conocido: es un despliegue de un solo equipo (sin réplicas ni alta disponibilidad).
+
+### Cuánta gente atiende
+
+El servidor web corre con 3 procesos de 4 hilos (`backend/gunicorn.conf.py`); cada proceso
+atiende una página a la vez y los hilos cubren las esperas. `ATALAYA_WEB_WORKERS` en `.env`
+cambia el número de procesos: una regla útil es uno por núcleo que se le quiera dar a la web.
+Para comprobar que arrancó así: `docker compose logs backend | grep "Booting worker"` debe
+mostrar una línea por proceso.
+
+Medido en el laboratorio (3 procesos, 1 053 vulnerabilidades, por HTTPS con un certificado
+propio, todo en el mismo equipo), sin errores ni tiempos agotados:
+
+| Página | Una sola | 12 a la vez (mediana) | Páginas por segundo |
+|---|---|---|---|
+| Inicio de sesión | — | 0.04 s (20 a la vez) | 490 |
+| Inicio | 0.25 s | 0.7 s | 15 |
+| Riesgos | 0.37 s | 1.2 s | 9 |
+| Vulnerabilidades | 0.16 s | 0.5 s | 21 |
+
+Riesgos es la página más cara: con 48 peticiones simultáneas la mediana sube a 5.7 s. Para un
+equipo de decenas de personas sobra; si las páginas tardan, lo primero es subir
+`ATALAYA_WEB_WORKERS`.
+
+### Correo
+
+Restablecer la contraseña y los avisos por correo salen por el servidor SMTP que se indique en
+`.env`. Sin servidor el correo **se imprime en la consola del contenedor y nadie lo recibe**: en
+producción, Administración › Sistema lo marca como «atención» en la fila «Correo».
+
+```
+DJANGO_EMAIL_HOST=smtp.ejemplo.mx
+DJANGO_EMAIL_USE_TLS=1                  # STARTTLS (puerto 587 por defecto)
+DJANGO_EMAIL_HOST_USER=atalaya
+DJANGO_EMAIL_HOST_PASSWORD=…
+DJANGO_DEFAULT_FROM_EMAIL=atalaya@ejemplo.mx
+```
+
+- Basta `DJANGO_EMAIL_HOST` para que el correo salga por SMTP; si en `.env` quedó la línea
+  `DJANGO_EMAIL_BACKEND=…console…` de una instalación anterior, hay que quitarla (la fila
+  «Correo» lo avisa).
+- Cifrado: `DJANGO_EMAIL_USE_TLS=1` es STARTTLS; `DJANGO_EMAIL_USE_SSL=1` es TLS desde la
+  conexión (puerto 465). No van juntos: la plataforma no arranca con los dos. Sin ninguno el
+  puerto por defecto es el 25, para un relevo interno sin cifrar. `DJANGO_EMAIL_PORT` lo cambia.
+- El certificado del servidor **se verifica**. Si lo firma la CA interna de la organización,
+  deja el certificado de esa CA (solo el certificado, nunca una llave) en `deploy/ca/` y añade
+  `DJANGO_EMAIL_CA_FILE=/ca/ca-interna.pem`. Sin eso el envío falla con
+  `CERTIFICATE_VERIFY_FAILED`. La CA se añade solo para el correo: no uses `SSL_CERT_FILE`
+  para esto, porque sustituye las autoridades públicas y dejaría sin verificar las descargas
+  de NVD, KEV y EPSS.
+- `DJANGO_EMAIL_TIMEOUT` (20 s) es lo que se espera a un servidor que no contesta antes de dar
+  el envío por fallido.
+- Para comprobarlo: la fila «Correo» de Administración › Sistema dice por dónde sale y si el
+  servidor abre conexión (lo recuerda un minuto); **Administración › Avisos › Enviar prueba**
+  manda un mensaje real al canal y muestra el error del servidor si lo rechaza (usuario o
+  contraseña, cifrado exigido, certificado).
 
 ## 3. Qué hay que conservar
 
@@ -131,6 +185,12 @@ Después de restaurar, mira **Administración › Sistema**. Lo que estaba «en 
 el respaldo (un escaneo, un descubrimiento) ya no tiene mensaje en Redis: el sistema lo detecta
 y lo retoma solo en unos minutos (§8).
 
+En el laboratorio la restauración completa sobre la base en uso tardó 42 segundos, incluido el
+respaldo de seguridad previo (base de 49 MB, 328 archivos). Lo restaurado era idéntico a lo
+respaldado: las mismas cifras y la misma huella de riesgos, vulnerabilidades, observaciones y
+archivos. Un descubrimiento que estaba en cola al respaldar volvió «en cola» sin mensaje; el
+barrido lo encoló de nuevo en la primera pasada tras los diez minutos de margen y terminó bien.
+
 ## 6. Actualizar
 
 ```bash
@@ -188,7 +248,7 @@ restaurar un respaldo. Para eso cada tipo de trabajo tiene quien lo retome:
 | Escaneo (nuclei, Grype) | Ejecución «en cola» | **`recover_lost_work`** la vuelve a encolar |
 | Escaneo ya corriendo | Ejecución «en ejecución» sin tarea viva | `recover_orphaned_executions`, cada 5 min: la cierra y repite la acción una vez |
 | Descubrimiento | Run «en cola» (el rango no admite otro) | **`recover_lost_work`** lo vuelve a encolar |
-| Descubrimiento ya corriendo | Run «en ejecución» para siempre | **`recover_lost_work`** lo cierra como interrumpido; se puede lanzar de nuevo |
+| Descubrimiento ya corriendo | Run «en ejecución» para siempre | **`recover_lost_work`** lo cierra como interrumpido; se puede lanzar de nuevo. Si al trabajador lo mataron a media ejecución, lo cierra a la segunda pasada que ningún trabajador lo ejecuta (entre 10 y 20 minutos), sin esperar la hora que Redis tarda en soltar el mensaje |
 | Explicación de una vulnerabilidad | Vulnerabilidad sin descripción | `describe_pending_vulnerabilities`, cada 2 min |
 | Sugerencia de criticidad | Sugerencia «pendiente» sin respuesta | **`recover_lost_work`** la vuelve a pedir |
 | Borrador del perfil | Perfil «generando» (no deja pedir otro) | **`recover_lost_work`** lo vuelve a pedir |

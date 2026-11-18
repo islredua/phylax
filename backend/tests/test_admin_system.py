@@ -129,7 +129,10 @@ def test_report_is_green_when_everything_answers(stack):
         "worker-llm",
         "worker-discovery",
         "beat",
+        "mail",
     ]
+    # El correo de las pruebas se queda en memoria: ni en marcha ni caído.
+    assert rows.pop("mail")["state"] == system.UNKNOWN
     assert all(row["state"] == system.OK for row in rows.values())
     assert rows["db"]["detail"].startswith("PostgreSQL ")
     assert "no guarda en disco" in rows["redis"]["detail"]
@@ -524,3 +527,99 @@ def test_home_reminder_is_only_for_who_administers(client, make_user, stack):
     _as(client, make_user, AUDITOR)
     body = client.get("/administration/").content.decode()
     assert "Puesta en marcha" in body and 'href="/llm/"' not in body
+
+
+# --- Cierre de la revisión: por dónde sale el correo ---
+
+
+def _mail_row(**kwargs):
+    return system._mail(**kwargs)
+
+
+def test_mail_row_says_where_the_mail_goes_and_whether_the_server_answers(settings, monkeypatch):
+    settings.EMAIL_BACKEND = system.SMTP_BACKEND
+    settings.EMAIL_HOST, settings.EMAIL_PORT = "smtp.ejemplo.mx", 587
+    settings.EMAIL_USE_TLS, settings.EMAIL_USE_SSL = True, False
+    settings.EMAIL_HOST_USER = "atalaya"
+    settings.DEFAULT_FROM_EMAIL = "atalaya@ejemplo.mx"
+    asked = []
+    monkeypatch.setattr(
+        system, "_mail_answers", lambda host, port: asked.append((host, port)) or True
+    )
+    row = _mail_row()
+    assert row["state"] == system.OK and asked == [("smtp.ejemplo.mx", 587)]
+    assert row["detail"] == (
+        "Sale por smtp.ejemplo.mx:587 (STARTTLS, con usuario) como atalaya@ejemplo.mx"
+    )
+    # La contraseña no se muestra en ningún caso.
+    settings.EMAIL_HOST_PASSWORD = "secreto-del-correo"
+    assert "secreto-del-correo" not in str(_mail_row())
+
+    monkeypatch.setattr(system, "_mail_answers", lambda host, port: False)
+    row = _mail_row()
+    assert row["state"] == system.DOWN and "smtp.ejemplo.mx:587 no responde" in row["detail"]
+    assert "DJANGO_EMAIL_HOST" in row["fix"]
+    # Sin consulta en vivo (resumen de Inicio) no se abre ninguna conexión.
+    assert _mail_row(live=False)["state"] == system.OK
+
+    # La CA de la organización se dice; si su archivo no está, el envío cifrado no va a salir.
+    settings.EMAIL_CA_FILE = __file__
+    assert "con la CA de la organización" in _mail_row(live=False)["detail"]
+    settings.EMAIL_CA_FILE = "/ca/no-existe.pem"
+    row = _mail_row(live=False)
+    assert row["state"] == system.DOWN and "/ca/no-existe.pem" in row["detail"]
+    assert "deploy/ca/" in row["fix"]
+
+
+def test_mail_left_on_the_console_is_a_warning_outside_development(settings, stack):
+    settings.EMAIL_BACKEND = system.CONSOLE_BACKEND
+    settings.EMAIL_HOST = ""
+    settings.DEBUG = True
+    row = _mail_row()
+    assert row["state"] == system.UNKNOWN and row["label"] == "solo consola"
+    assert "mail" not in {p["name"] for p in system.report()["problems"]}
+
+    settings.DEBUG = False
+    row = _mail_row()
+    assert row["state"] == system.WARN and "nadie recibe" in row["detail"]
+    assert "Define DJANGO_EMAIL_HOST" in row["fix"]
+    problems = {p["name"]: p for p in system.report()["problems"]}
+    assert problems["Correo"]["state"] == system.WARN
+    # Servidor definido pero la consola forzada: se dice cuál de las dos líneas sobra, también
+    # en desarrollo (quien puso el servidor espera que el correo salga).
+    settings.EMAIL_HOST = "smtp.ejemplo.mx"
+    for debug in (False, True):
+        settings.DEBUG = debug
+        row = _mail_row()
+        assert row["state"] == system.WARN and "smtp.ejemplo.mx" in row["detail"]
+        assert "quita esa línea" in row["fix"]
+
+
+def test_mail_check_remembers_the_answer_for_a_minute(monkeypatch):
+    import socket
+
+    calls = []
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def connect(address, timeout=None):
+        calls.append((address, timeout))
+        return Connection()
+
+    cache.clear()
+    monkeypatch.setattr(socket, "create_connection", connect)
+    assert system._mail_answers("smtp.ejemplo.mx", 25) and system._mail_answers(
+        "smtp.ejemplo.mx", 25
+    )
+    assert calls == [(("smtp.ejemplo.mx", 25), 2)]
+
+    def refuse(address, timeout=None):
+        raise ConnectionRefusedError
+
+    monkeypatch.setattr(socket, "create_connection", refuse)
+    assert system._mail_answers("smtp.ejemplo.mx", 2525) is False

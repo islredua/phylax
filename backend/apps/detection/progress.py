@@ -461,6 +461,10 @@ def _consolidation_step(asset_id, evaluation, scan_active):
         )
         if last:
             detail += f" · {timezone.localtime(last):%Y-%m-%d %H:%M}"
+        outcome = consolidation.last_outcome(asset_id)
+        if outcome.get("kept") and not outcome.get("assessed"):
+            # Quien pidió reevaluar ve que se hizo y por qué nada se movió.
+            detail += " · sin cambios en la evidencia"
         if unconsolidated:
             detail += f" · {unconsolidated} sin consolidar"
         return PipelineStep(

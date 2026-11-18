@@ -24,8 +24,9 @@ LONG_AGO = timedelta(minutes=30)
 @pytest.fixture
 def queue(monkeypatch):
     """La cola de Redis simulada: ``state["tasks"]`` es lo que espera; ``sent`` lo reencolado."""
-    state = {"tasks": [], "sent": []}
+    state = {"tasks": [], "sent": [], "executing": None}
     monkeypatch.setattr(recovery, "waiting_tasks", lambda: state["tasks"])
+    monkeypatch.setattr(recovery, "executing_tasks", lambda: state["executing"])
 
     def fake_delay(name):
         return lambda *args, **kwargs: state["sent"].append((name, args)) or _Result()
@@ -113,6 +114,94 @@ def test_discovery_queued_is_requeued_and_running_is_closed_so_the_range_is_free
     assert recovery.run()["discoveries_closed"] == 0
     again.refresh_from_db()
     assert again.status == "RUNNING"
+
+
+def test_a_discovery_whose_worker_died_is_closed_without_waiting_an_hour(queue):
+    """Si matan al trabajador a media ejecución, el mensaje se queda «entregado» en Redis una
+    hora. El descubrimiento seguía «en ejecución» todo ese tiempo, con su rango bloqueado."""
+    from django.core.cache import cache
+
+    cache.clear()
+    run = DiscoveryRun.objects.create(
+        target_asset=AssetFactory(),
+        profile="SERVICE_SCAN",
+        status="RUNNING",
+        started_at=timezone.now() - LONG_AGO,
+    )
+    held = [(recovery.RUN_DISCOVERY, f"['{run.pk}']")]
+    queue["tasks"] = held
+
+    # Los trabajadores no contestan: sin respuesta no se decide.
+    assert recovery.run()["discoveries_closed"] == 0
+    assert recovery.run()["discoveries_closed"] == 0
+
+    # Un trabajador lo está ejecutando: no se toca, las veces que haga falta.
+    queue["executing"] = [(recovery.RUN_DISCOVERY, f"['{run.pk}'] {{}}")]
+    assert recovery.run()["discoveries_closed"] == 0
+    assert recovery.run()["discoveries_closed"] == 0
+
+    # Contestan y ninguno lo ejecuta: la primera pasada solo lo anota…
+    queue["executing"] = [("apps.detection.tasks.consolidate_asset", "['otro'] {}")]
+    assert recovery.run()["discoveries_closed"] == 0
+    run.refresh_from_db()
+    assert run.status == "RUNNING"
+    # …si en la siguiente vuelve a ejecutarse (la respuesta se había perdido), la marca se borra…
+    queue["executing"] = [(recovery.RUN_DISCOVERY, f"['{run.pk}'] {{}}")]
+    assert recovery.run()["discoveries_closed"] == 0
+    queue["executing"] = []
+    assert recovery.run()["discoveries_closed"] == 0
+    # …y a la segunda pasada seguida sin nadie que lo ejecute, se cierra.
+    assert recovery.run()["discoveries_closed"] == 1
+    run.refresh_from_db()
+    assert run.status == "FAILED" and run.error.startswith("Interrumpido:")
+    assert recovery.run()["discoveries_closed"] == 0
+
+    # Uno recién empezado no se mira todavía.
+    fresh = DiscoveryRun.objects.create(
+        target_asset=AssetFactory(),
+        profile="SERVICE_SCAN",
+        status="RUNNING",
+        started_at=timezone.now(),
+    )
+    queue["tasks"] = [(recovery.RUN_DISCOVERY, f"['{fresh.pk}']")]
+    assert recovery.run()["discoveries_closed"] == 0 and recovery.run()["discoveries_closed"] == 0
+    fresh.refresh_from_db()
+    assert fresh.status == "RUNNING"
+
+
+def test_what_workers_execute_is_asked_to_them(monkeypatch, settings):
+    from celery import current_app
+
+    settings.CELERY_TASK_ALWAYS_EAGER = False
+
+    class Inspector:
+        def __init__(self, replies):
+            self.replies = replies
+
+        def active(self):
+            return self.replies
+
+    replies = {
+        "celery@discovery": [
+            {"name": recovery.RUN_DISCOVERY, "args": ["abc-123"], "kwargs": {}, "id": "t1"}
+        ],
+        "celery@llm": [],
+    }
+    monkeypatch.setattr(current_app.control, "inspect", lambda timeout=None: Inspector(replies))
+    executing = recovery.executing_tasks()
+    assert recovery._waits(executing, recovery.RUN_DISCOVERY, "abc-123")
+    assert not recovery._waits(executing, recovery.RUN_DISCOVERY, "otro")
+    # Nadie contesta, o no hay broker: no se sabe.
+    monkeypatch.setattr(current_app.control, "inspect", lambda timeout=None: Inspector(None))
+    assert recovery.executing_tasks() is None
+
+    def broken(timeout=None):
+        raise ConnectionError
+
+    monkeypatch.setattr(current_app.control, "inspect", broken)
+    assert recovery.executing_tasks() is None
+    settings.CELERY_TASK_ALWAYS_EAGER = True
+    assert recovery.executing_tasks() is None
 
 
 def test_a_profile_draft_stuck_generating_is_asked_again(queue):

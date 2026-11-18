@@ -28,6 +28,7 @@ import logging
 from datetime import timedelta
 
 from django.conf import settings
+from django.core.cache import cache
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,10 @@ DRAFT_PROFILE = "apps.detection.tasks.draft_org_profile"
 SUGGEST = "apps.assets.tasks.suggest_criticality"
 IMPORT_CSV = "apps.assets.tasks.import_assets_csv"
 PULL_COVERAGE = "apps.cti.tasks.pull_product_coverage"
+# Un descubrimiento «en ejecución» que ningún trabajador ejecuta: visto así en una pasada. A la
+# siguiente (cinco minutos) se cierra; la marca caduca sola si no hay siguiente.
+IDLE_KEY = "recovery:discovery:idle:{}"
+IDLE_TTL = 20 * 60
 # Un producto que NVD no entrega no se vuelve a pedir en cada pasada.
 COVERAGE_RETRY_S = 6 * 3600
 COVERAGE_PER_RUN = 20
@@ -76,6 +81,26 @@ def waiting_tasks() -> list[tuple[str, str]] | None:
     return found
 
 
+def executing_tasks() -> list[tuple[str, str]] | None:
+    """``(tarea, argumentos)`` de lo que los trabajadores dicen estar ejecutando ahora mismo.
+    ``None`` si ninguno contesta: sin respuesta no se decide."""
+    if getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+        return None
+    try:
+        from celery import current_app
+
+        replies = current_app.control.inspect(timeout=2.0).active()
+    except Exception:  # noqa: BLE001 - sin broker no hay a quién preguntar
+        return None
+    if not replies:
+        return None
+    return [
+        (task.get("name", ""), f"{task.get('args')!r} {task.get('kwargs')!r}")
+        for tasks in replies.values()
+        for task in tasks
+    ]
+
+
 def _waits(tasks, name, pk=None) -> bool:
     return any(task == name and (pk is None or str(pk) in args) for task, args in tasks)
 
@@ -105,9 +130,26 @@ def _lost_discoveries(tasks, before, now):
         if not _waits(tasks, RUN_DISCOVERY, pk):
             services._enqueue(pk)
             requeued += 1
+    executing = ...
     for run in DiscoveryRun.objects.filter(status=RunStatus.RUNNING, started_at__lt=before):
+        idle = IDLE_KEY.format(run.pk)
         if not _waits(tasks, RUN_DISCOVERY, run.pk):
             closed += services.close_interrupted(run, now=now)
+            continue
+        # El mensaje sigue «entregado»: o un trabajador lo está ejecutando, o el trabajador que
+        # lo tenía murió a media ejecución y Redis no lo devuelve a la cola hasta pasada una hora
+        # (y entonces la tarea ya no hace nada: el descubrimiento no está «en cola»). Se pregunta
+        # a los trabajadores; si ninguno lo ejecuta en dos pasadas seguidas, se cierra ya en vez
+        # de dejarlo «en ejecución» una hora, con el rango bloqueado.
+        if executing is ...:
+            executing = executing_tasks()
+        if executing is None or _waits(executing, RUN_DISCOVERY, run.pk):
+            cache.delete(idle)
+        elif cache.get(idle):
+            cache.delete(idle)
+            closed += services.close_interrupted(run, now=now)
+        else:
+            cache.set(idle, True, IDLE_TTL)
     return requeued, closed
 
 

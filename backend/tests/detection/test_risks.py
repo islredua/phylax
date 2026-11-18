@@ -355,7 +355,7 @@ def test_risk_item_schema_requires_spanish_and_title_formula():
 def test_rule_risks_follow_the_formula_and_carry_description_and_recommendations():
     asset = _asset_with_vulns(data_classification="RESTRINGIDA")
     consolidation.consolidate_asset(asset.pk, use_llm=False)
-    risks.derive_risks(asset.pk, use_llm=False)
+    risks.derive_risks(asset.pk, use_llm=False, fresh=True)
     risk = Risk.objects.filter(asset=asset).order_by("-impact", "-likelihood").first()
     assert risk.assessment_source == StatusSource.RULE
     assert risk.title.startswith("Fuga de información en api-pagos por ")
@@ -452,7 +452,8 @@ def test_risk_key_is_stable_across_title_changes_and_superseded_risks_close(monk
         return data
 
     monkeypatch.setitem(llm_client.MOCK_GENERATORS, "RISK_ASSESSMENT", reworded)
-    risks.derive_risks(asset.pk)
+    # ``fresh``: con la misma evidencia ya no se le pregunta; aquí importa qué pasa cuando sí.
+    risks.derive_risks(asset.pk, fresh=True)
     again = list(Risk.objects.filter(asset=asset, status=RiskStatus.OPEN))
     assert {r.pk for r in again} == {r.pk for r in first}
     assert all(r.title.startswith("Interrupción de los cobros") for r in again)
@@ -638,7 +639,7 @@ def test_intelligence_summary_counts_kev_epss_and_sources(client, as_role):
 def test_rule_risks_without_kev_say_so_and_payload_carries_intelligence(client, as_role):
     as_role(AUDITOR)
     asset = _asset_with_vulns()
-    risks.derive_risks(asset.pk, use_llm=False)
+    risks.derive_risks(asset.pk, use_llm=False, fresh=True)
     risk = Risk.objects.filter(asset=asset, status="OPEN").first()
     assert "Ninguna de sus vulnerabilidades aparece en el catálogo" in risk.intelligence_summary
     body = client.get("/detection/").content.decode()
@@ -820,7 +821,7 @@ def test_unreferenced_vulnerabilities_in_the_same_software_join_that_risk():
 def test_rule_texts_speak_to_two_readers():
     asset = _asset_with_vulns(data_classification="RESTRINGIDA")
     consolidation.consolidate_asset(asset.pk, use_llm=False)
-    risks.derive_risks(asset.pk, use_llm=False)
+    risks.derive_risks(asset.pk, use_llm=False, fresh=True)
     risk = Risk.objects.filter(asset=asset).order_by("-impact", "-likelihood").first()
     # Descripción: sin CVE, sin «regla», nombra al activo y explica la consecuencia en palabras.
     assert "CVE-" not in risk.description and "regla" not in risk.description.lower()
@@ -1307,11 +1308,15 @@ def test_lists_lead_with_what_tells_risks_apart(client, as_role):
 
 def test_same_evidence_keeps_the_previous_valuation(monkeypatch):
     """El modelo, preguntado dos veces por lo mismo, movía la probabilidad un punto y el riesgo
-    cambiaba de nivel (lb-dmz: bajo → moderado con la misma evidencia). Ahora se conserva."""
+    cambiaba de nivel (lb-dmz: bajo → moderado con la misma evidencia). Ahora el riesgo sigue en
+    pie y ni siquiera se le pregunta."""
     from apps.llm import client as llm_client
+
+    asked = []
 
     def with_values(likelihood, impact):
         def generator(payload):
+            asked.append(payload)
             data = risks.mock_risks(payload)
             for r in data["risks"]:
                 r["likelihood"], r["impact"] = likelihood, impact
@@ -1325,22 +1330,27 @@ def test_same_evidence_keeps_the_previous_valuation(monkeypatch):
     assert (risk.likelihood, risk.impact) == (2, 3) and len(risk.evidence_fingerprint) == 64
     fingerprint = risk.evidence_fingerprint
     assessed = risk.events.filter(kind=RiskEventKind.ASSESSED).count()
+    before = Risk.objects.filter(pk=risk.pk).values().get()
 
-    # Misma evidencia, otra respuesta del modelo: la valoración no se mueve y queda dicho.
+    # Misma evidencia: el riesgo queda exactamente como estaba y al modelo no se le pregunta.
+    del asked[:]
     monkeypatch.setitem(llm_client.MOCK_GENERATORS, "RISK_ASSESSMENT", with_values(3, 3))
-    risks.derive_risks(asset.pk)
-    risk.refresh_from_db()
-    assert (risk.likelihood, risk.impact, risk.level) == (2, 3, RiskLevel.MODERATE)
-    assert risk.evidence_fingerprint == fingerprint
-    assert "se conserva la valoración anterior" in risk.rationale and "3 × 3" in risk.rationale
+    result = risks.derive_risks(asset.pk)
+    assert not asked and result["kept"] == result["risks"] >= 1 and result["llm_ok"]
+    assert Risk.objects.filter(pk=risk.pk).values().get() == before
     assert risk.events.filter(kind=RiskEventKind.ASSESSED).count() == assessed
+    assert result["closed"] == 0
 
     # Cierra y vuelve con la misma evidencia: reabre con la valoración que tenía, y la línea de
     # tiempo dice primero que volvió.
     Risk.objects.filter(pk=risk.pk).update(status=RiskStatus.CLOSED, closed_at=timezone.now())
     risks.derive_risks(asset.pk)
     risk.refresh_from_db()
-    assert risk.status == RiskStatus.OPEN and (risk.likelihood, risk.impact) == (2, 3)
+    assert asked and risk.status == RiskStatus.OPEN
+    assert (risk.likelihood, risk.impact, risk.level) == (2, 3, RiskLevel.MODERATE)
+    assert risk.evidence_fingerprint == fingerprint
+    assert "se conserva la valoración anterior" in risk.rationale and "3 × 3" in risk.rationale
+    assert risk.events.filter(kind=RiskEventKind.ASSESSED).count() == assessed
     assert risk.events.filter(kind=RiskEventKind.REOPENED).count() == 1
 
     # Cambia la evidencia (crece la probabilidad de explotación de una de sus vulnerabilidades):
@@ -1407,7 +1417,9 @@ def test_a_restated_risk_is_the_same_risk(monkeypatch, make_user):
         return data
 
     monkeypatch.setitem(llm_client.MOCK_GENERATORS, "RISK_ASSESSMENT", restated)
-    result = risks.derive_risks(asset.pk)
+    # Hoy, con la misma evidencia, ni se le pregunta (el riesgo sigue en pie). Cuando sí se le
+    # pregunta (cambió la evidencia, el modelo o el prompt) y reformula, sigue siendo el mismo.
+    result = risks.derive_risks(asset.pk, fresh=True)
     after = list(Risk.objects.filter(asset=asset))
     assert {r.pk for r in after} == set(before) and result["closed"] == 0
     for risk in after:
@@ -1417,8 +1429,6 @@ def test_a_restated_risk_is_the_same_risk(monkeypatch, make_user):
         assert risk.key.rsplit(":", 1)[1] == old.key.rsplit(":", 1)[1]
         assert risk.consequence == "FINANCIAL" and risk.title.startswith("Pérdida financiera en")
         assert risk.first_identified_at == week_ago and risk.assignee_id == person.pk
-        # Misma evidencia: tampoco se mueve la valoración.
-        assert (risk.likelihood, risk.impact) == (old.likelihood, old.impact)
         note = risk.events.filter(kind=RiskEventKind.NOTE).get()
         assert old.title in note.message and "Es el mismo riesgo" in note.message
         assert not risk.events.filter(kind=RiskEventKind.CLOSED).exists()
@@ -1455,7 +1465,9 @@ def test_regrouped_vulnerabilities_keep_their_clock(monkeypatch):
         return {"risks": extra + data["risks"]}
 
     monkeypatch.setitem(llm_client.MOCK_GENERATORS, "RISK_ASSESSMENT", split)
-    risks.derive_risks(asset.pk)
+    # ``fresh`` en toda la prueba: reagrupar es lo que hace el modelo cuando se le pregunta, y
+    # con la misma evidencia ya no se le pregunta.
+    risks.derive_risks(asset.pk, fresh=True)
     assert {r.pk: r.key for r in Risk.objects.filter(pk__in=originals)} == originals
     born = list(Risk.objects.filter(asset=asset).exclude(pk__in=originals))
     assert len(born) == len(originals)
@@ -1472,8 +1484,8 @@ def test_regrouped_vulnerabilities_keep_their_clock(monkeypatch):
     # Un riesgo que ya tenía el plazo reiniciado lo recupera en la siguiente valoración, una vez.
     late = born[0]
     Risk.objects.filter(pk=late.pk).update(first_identified_at=timezone.now())
-    risks.derive_risks(asset.pk)
-    risks.derive_risks(asset.pk)
+    risks.derive_risks(asset.pk, fresh=True)
+    risks.derive_risks(asset.pk, fresh=True)
     late.refresh_from_db()
     assert late.first_identified_at == week_ago
     note = late.events.filter(kind=RiskEventKind.NOTE).get()
@@ -1482,9 +1494,9 @@ def test_regrouped_vulnerabilities_keep_their_clock(monkeypatch):
     # La valoración deja de producirlos: se cierran como reemplazados. Si vuelve a producirlos,
     # la línea de tiempo no dice que «vuelven a tener vulnerabilidades» (nunca dejaron de tenerlas).
     monkeypatch.setitem(llm_client.MOCK_GENERATORS, "RISK_ASSESSMENT", risks.mock_risks)
-    assert risks.derive_risks(asset.pk)["closed"] == len(born)
+    assert risks.derive_risks(asset.pk, fresh=True)["closed"] == len(born)
     monkeypatch.setitem(llm_client.MOCK_GENERATORS, "RISK_ASSESSMENT", split)
-    risks.derive_risks(asset.pk)
+    risks.derive_risks(asset.pk, fresh=True)
     late.refresh_from_db()
     assert late.status == RiskStatus.OPEN
     reopened = late.events.filter(kind=RiskEventKind.REOPENED).get()
@@ -1493,7 +1505,7 @@ def test_regrouped_vulnerabilities_keep_their_clock(monkeypatch):
     # Entre uno abierto y uno cerrado con la misma vulnerabilidad principal, el mismo riesgo es
     # el abierto.
     monkeypatch.setitem(llm_client.MOCK_GENERATORS, "RISK_ASSESSMENT", risks.mock_risks)
-    risks.derive_risks(asset.pk)
+    risks.derive_risks(asset.pk, fresh=True)
 
     def restated(payload):
         data = risks.mock_risks(payload)
@@ -1502,7 +1514,7 @@ def test_regrouped_vulnerabilities_keep_their_clock(monkeypatch):
         return data
 
     monkeypatch.setitem(llm_client.MOCK_GENERATORS, "RISK_ASSESSMENT", restated)
-    risks.derive_risks(asset.pk)
+    risks.derive_risks(asset.pk, fresh=True)
     assert set(
         Risk.objects.filter(asset=asset, status=RiskStatus.OPEN).values_list("pk", flat=True)
     ) == set(originals)
@@ -1512,3 +1524,151 @@ def test_regrouped_vulnerabilities_keep_their_clock(monkeypatch):
     assert all(
         r.status == RiskStatus.CLOSED for r in Risk.objects.filter(pk__in=[b.pk for b in born])
     )
+
+
+# --------------------------------------------------------------------------
+# Riesgos que siguen en pie (cierre de la revisión del 2026-11-16)
+# --------------------------------------------------------------------------
+
+
+def _sbom(asset, cve_id, title):
+    """Una vulnerabilidad sostenida de otro software: Grype la vio en el SBOM (versión exacta)."""
+    return findings.upsert_finding(
+        asset_id=asset.pk,
+        vulnerability_id=cve_id,
+        source="GRYPE",
+        title=title,
+        severity="HIGH",
+        evidence_summary="sbom",
+    ).finding
+
+
+def _three_scenarios():
+    """api-pagos con tres escenarios de software distinto: nginx, jackson-databind y spring-web."""
+    asset = _asset_with_vulns()
+    _sbom(asset, "CVE-2099-0101", "Deserialización insegura en jackson-databind 2.17.2")
+    _sbom(asset, "CVE-2099-0201", "Inyección de plantillas en spring-web 6.1.13")
+    consolidation.consolidate_asset(asset.pk)
+    return asset
+
+
+def _asked_risks(monkeypatch, **changes):
+    from apps.llm import client as llm_client
+
+    asked = []
+
+    def generator(payload):
+        asked.append(sorted(v["key"] for v in payload["vulnerabilities"]))
+        data = risks.mock_risks(payload)
+        for r in data["risks"]:
+            r.update(changes)
+        return data
+
+    monkeypatch.setitem(llm_client.MOCK_GENERATORS, "RISK_ASSESSMENT", generator)
+    return asked
+
+
+def _risk_rows(asset):
+    """Cada riesgo abierto por su vulnerabilidad, con todo lo que guarda la valoración."""
+    rows = {}
+    for risk in Risk.objects.filter(asset=asset, status=RiskStatus.OPEN):
+        keys = ",".join(sorted(risk.vulnerabilities.values_list("key", flat=True)))
+        rows[keys] = Risk.objects.filter(pk=risk.pk).values().get()
+    return rows
+
+
+def test_only_the_scenario_whose_evidence_changed_goes_to_the_model(monkeypatch):
+    """Con la misma evidencia el modelo repartía las vulnerabilidades de otra forma (api-pagos,
+    2026-11-17: trece en un riesgo, luego once) y la valoración se movía. Los riesgos cuya
+    evidencia no cambió siguen en pie, y al modelo solo se le da lo demás."""
+    from apps.detection.models import Finding
+
+    asset = _three_scenarios()
+    before = _risk_rows(asset)
+    assert set(before) == {"CVE-2025-23419", "CVE-2099-0101", "CVE-2099-0201"}
+    assert all(row["likelihood"] == 3 for row in before.values())
+
+    asked = _asked_risks(monkeypatch, likelihood=2)
+    result = consolidation.consolidate_asset(asset.pk)
+    assert not asked and result.kept == result.vulnerabilities and _risk_rows(asset) == before
+
+    # Una de jackson pasa a tener EPSS alto: inteligencia nueva para ese escenario y solo ese.
+    Finding.objects.filter(asset=asset, vulnerability_id="CVE-2099-0101").update(epss_score=0.6)
+    consolidation.consolidate_asset(asset.pk)
+    assert asked == [["CVE-2099-0101"]]
+    after = _risk_rows(asset)
+    assert after["CVE-2025-23419"] == before["CVE-2025-23419"]
+    assert after["CVE-2099-0201"] == before["CVE-2099-0201"]
+    changed = after["CVE-2099-0101"]
+    assert changed["id"] == before["CVE-2099-0101"]["id"] and changed["likelihood"] == 2
+    assert changed["evidence_fingerprint"] != before["CVE-2099-0101"]["evidence_fingerprint"]
+
+
+def test_a_new_vulnerability_reopens_only_the_scenario_of_its_software(monkeypatch):
+    asset = _three_scenarios()
+    before = _risk_rows(asset)
+
+    # Otra falla en jackson-databind: el modelo valora ese escenario entero, con ella dentro.
+    _sbom(asset, "CVE-2099-0102", "Lectura de archivos en jackson-databind 2.17.2")
+    asked = _asked_risks(monkeypatch)
+    consolidation.consolidate_asset(asset.pk)
+    assert asked == [["CVE-2099-0101", "CVE-2099-0102"]]
+    after = _risk_rows(asset)
+    assert after["CVE-2025-23419"] == before["CVE-2025-23419"]
+    assert after["CVE-2099-0201"] == before["CVE-2099-0201"]
+    assert after["CVE-2099-0101"]["id"] == before["CVE-2099-0101"]["id"]
+
+    # Una falla de un software que no estaba: los tres escenarios siguen en pie.
+    settled = _risk_rows(asset)
+    _sbom(asset, "CVE-2099-0301", "Desbordamiento de memoria en libxml2 2.9.14")
+    del asked[:]
+    consolidation.consolidate_asset(asset.pk)
+    assert asked == [["CVE-2099-0301"]]
+    after = _risk_rows(asset)
+    assert {key: after[key] for key in settled} == settled and "CVE-2099-0301" in after
+
+
+def test_another_model_values_the_risks_again(monkeypatch):
+    asset = _three_scenarios()
+    asked = _asked_risks(monkeypatch, likelihood=2)
+    assert risks.derive_risks(asset.pk)["kept"] == 3 and not asked
+    monkeypatch.setattr(risks, "active_model", lambda: "otro-modelo:13b")
+    result = risks.derive_risks(asset.pk)
+    assert result["kept"] == 0 and len(asked) == 1 and len(asked[0]) == 3
+    assert all(row["likelihood"] == 2 for row in _risk_rows(asset).values())
+    # Y lo que valoró ese modelo sigue en pie mientras sea el activo.
+    assert risks.derive_risks(asset.pk)["kept"] == 3 and len(asked) == 1
+
+
+def test_model_outage_leaves_the_risks_the_ai_valued(settings, monkeypatch):
+    """Con el modelo caído, la valoración por regla sustituía a la de la IA en todos los riesgos
+    del activo. Los que siguen en pie no se tocan."""
+    asset = _three_scenarios()
+    before = _risk_rows(asset)
+    settings.LLM_MOCK_MODE = False
+    monkeypatch.setattr("apps.llm.status.active_model_ready", lambda: False)
+    result = risks.derive_risks(asset.pk)
+    assert result["kept"] == 3 and result["by_rule"] == 0 and result["closed"] == 0
+    assert _risk_rows(asset) == before
+    assert all(row["assessment_source"] == StatusSource.AI for row in before.values())
+
+
+def test_a_risk_sharing_a_vulnerability_with_one_that_changed_does_not_stand():
+    asset = _three_scenarios()
+    context = assets_services.get_asset_context(asset.pk)
+    vulns = list(Vulnerability.objects.filter(asset=asset, status="CONFIRMED"))
+    standing = risks.standing_risks(asset.pk, vulns, context)
+    assert len(standing) == 3
+    nginx = Risk.objects.get(asset=asset, vulnerabilities__key="CVE-2025-23419")
+    # Otro riesgo abierto, sin valoración que conservar, expresa la misma vulnerabilidad: el
+    # modelo tiene que ver las dos caras del escenario.
+    other = Risk.objects.create(
+        asset=asset,
+        key="CONFIDENTIALITY:EXTERNAL:cve_2025_23419",
+        title="Fuga de información en api-pagos por nginx",
+        scenario="x",
+        first_identified_at=nginx.first_identified_at,
+    )
+    other.vulnerabilities.set(nginx.vulnerabilities.all())
+    standing = risks.standing_risks(asset.pk, vulns, context)
+    assert nginx.pk not in standing and len(standing) == 2

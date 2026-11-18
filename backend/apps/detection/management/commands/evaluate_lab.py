@@ -257,7 +257,8 @@ class Command(BaseCommand):
             ).count()
             plaus = {}
             for _ in range(runs):
-                consolidation.consolidate_asset(asset.pk, reason="estabilidad")
+                # ``fresh``: se mide cuánto varía el modelo, así que cada corrida le pregunta.
+                consolidation.consolidate_asset(asset.pk, reason="estabilidad", fresh=True)
                 for v in Vulnerability.objects.filter(asset=asset):
                     plaus.setdefault(v.key, []).append(v.plausibility)
             logs = InferenceLog.objects.filter(

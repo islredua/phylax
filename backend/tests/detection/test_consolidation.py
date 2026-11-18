@@ -964,3 +964,229 @@ def test_exact_version_in_kev_cannot_stay_in_verification(lab_cti, monkeypatch):
     consolidation.consolidate_asset(asset.pk)
     vuln = Vulnerability.objects.get(asset=asset, key="CVE-2025-23419")
     assert vuln.status == "LIKELY" and vuln.plausibility >= 0.7 and vuln.in_kev
+
+
+# --------------------------------------------------------------------------
+# Con la misma evidencia, la misma evaluación (cierre de la revisión del 2026-11-16)
+# --------------------------------------------------------------------------
+
+
+def _recording(monkeypatch, **changes):
+    """Modelo simulado que anota lo que se le pregunta y responde ``changes`` en cada ítem."""
+    from apps.llm import client as llm_client
+
+    asked = []
+
+    def generator(payload):
+        asked.append(payload)
+        out = consolidation.mock_assessment(payload)
+        for item in out["vulnerabilities"]:
+            item.update(changes)
+        return out
+
+    monkeypatch.setitem(llm_client.MOCK_GENERATORS, "VULN_ASSESSMENT", generator)
+    return asked
+
+
+def _rows(asset):
+    """Lo que la consolidación guarda de cada vulnerabilidad, salvo cuándo se vio por última vez."""
+    rows = {}
+    for row in Vulnerability.objects.filter(asset=asset).values():
+        for moving in ("last_seen_at", "updated_at"):
+            row.pop(moving)
+        rows[row["key"]] = row
+    return rows
+
+
+def _two_vulnerabilities():
+    asset = _nginx_asset()
+    cve = CveRecord.objects.get(pk="CVE-2025-23419")
+    _observe(asset, "CVE-2025-23419", "CTI_MATCH", cve=cve)
+    _observe(asset, "CVE-2099-0002", "NUCLEI", title="Otra", severity="HIGH")
+    return asset, cve
+
+
+def test_same_evidence_keeps_the_assessment_without_asking_the_model(lab_cti, monkeypatch):
+    """El modelo, preguntado dos veces por lo mismo, cambiaba explotabilidad, controles o
+    plausibilidad; con eso cambiaba la severidad y, detrás, la valoración del riesgo (api-pagos,
+    2026-11-17). Con la misma evidencia la evaluación se conserva y ni se le pregunta."""
+    from apps.detection import progress
+    from apps.detection.models import VulnerabilityEvent
+
+    asset, _ = _two_vulnerabilities()
+    asked = _recording(monkeypatch, exploitability="LOW")
+    first = consolidation.consolidate_asset(asset.pk)
+    assert first.llm_calls == 1 and first.kept == 0 and len(asked) == 1
+    before = _rows(asset)
+    assert len(before) == 2
+    assert all(len(row["evidence_fingerprint"]) == 64 for row in before.values())
+    assert all(row["factors"]["exploitability"] == "LOW" for row in before.values())
+    events = VulnerabilityEvent.objects.filter(vulnerability__asset=asset).count()
+    step = {s.key: s for s in progress.asset_pipeline(asset.pk)["steps"]}["consolidation"]
+    assert "sin cambios en la evidencia" not in step.detail
+
+    again = _recording(
+        monkeypatch, exploitability="HIGH", status="LIKELY_FALSE_POSITIVE", plausibility=0.2
+    )
+    result = consolidation.consolidate_asset(asset.pk)
+    assert not again and result.llm_calls == 0 and result.llm_ok
+    assert result.kept == result.vulnerabilities == 2 and result.by_rule == 0
+    assert _rows(asset) == before
+    assert VulnerabilityEvent.objects.filter(vulnerability__asset=asset).count() == events
+    # Quien pidió reevaluar ve que se hizo y por qué nada se movió.
+    step = {s.key: s for s in progress.asset_pipeline(asset.pk)["steps"]}["consolidation"]
+    assert step.state == "done" and "sin cambios en la evidencia" in step.detail
+
+    # Medir cuánto varía el modelo sigue siendo posible: ``fresh`` le pregunta por todo.
+    result = consolidation.consolidate_asset(asset.pk, fresh=True)
+    assert len(again) == 1 and result.kept == 0 and result.llm_calls == 1
+    assert all(row["factors"]["exploitability"] == "HIGH" for row in _rows(asset).values())
+
+
+def test_only_the_vulnerability_whose_evidence_changed_is_assessed_again(lab_cti, monkeypatch):
+    asset, cve = _two_vulnerabilities()
+    _recording(monkeypatch, exploitability="LOW")
+    consolidation.consolidate_asset(asset.pk)
+    before = _rows(asset)
+
+    # Otra herramienta confirma la primera: su evidencia cambió; la de la otra, no.
+    _observe(asset, "CVE-2025-23419", "NUCLEI", cve=cve)
+    asked = _recording(monkeypatch, exploitability="HIGH")
+    result = consolidation.consolidate_asset(asset.pk)
+    assert result.llm_calls == 1 and result.kept == 1 and result.vulnerabilities == 2
+    assert [g["key"] for g in asked[0]["rule_groups"]] == ["CVE-2025-23419"]
+    after = _rows(asset)
+    assert after["CVE-2099-0002"] == before["CVE-2099-0002"]
+    changed = after["CVE-2025-23419"]
+    assert changed["factors"]["exploitability"] == "HIGH"
+    assert changed["evidence_fingerprint"] != before["CVE-2025-23419"]["evidence_fingerprint"]
+    assert changed["inference_id"] != before["CVE-2025-23419"]["inference_id"]
+
+
+def test_context_profile_model_or_prompt_reopen_the_assessment(lab_cti, monkeypatch, make_user):
+    from apps.accounts.roles import ADMIN
+    from apps.detection import profile
+
+    asset, _ = _two_vulnerabilities()
+    asked = _recording(monkeypatch)
+    consolidation.consolidate_asset(asset.pk)
+    assert len(asked) == 1
+    assert consolidation.consolidate_asset(asset.pk).kept == 2 and len(asked) == 1
+
+    # El contexto del activo es evidencia.
+    asset.criticality = "CRITICO"
+    asset.save()
+    assert consolidation.consolidate_asset(asset.pk).kept == 0 and len(asked) == 2
+    assert consolidation.consolidate_asset(asset.pk).kept == 2 and len(asked) == 2
+
+    # El perfil de la organización también: el modelo lo lee para estimar el impacto.
+    profile.update_profile(user=make_user(ADMIN, mfa=True), fields={"sector": "Banca minorista"})
+    assert consolidation.consolidate_asset(asset.pk).kept == 0 and len(asked) == 3
+
+    # Otro modelo: quien lo cambia espera que su criterio se aplique.
+    monkeypatch.setattr(consolidation, "active_model", lambda: "otro-modelo:13b")
+    assert consolidation.consolidate_asset(asset.pk).kept == 0 and len(asked) == 4
+    assert consolidation.consolidate_asset(asset.pk).kept == 2 and len(asked) == 4
+
+    # Otro prompt: lo evaluado con la versión anterior no se conserva.
+    Vulnerability.objects.filter(asset=asset).update(prompt_version="v0")
+    assert consolidation.consolidate_asset(asset.pk).kept == 0 and len(asked) == 5
+
+
+def test_daily_epss_moves_the_score_but_not_the_assessment(lab_cti, monkeypatch):
+    asset = _nginx_asset()
+    cve = CveRecord.objects.get(pk="CVE-2025-23419")
+    finding = _observe(asset, "CVE-2025-23419", "CTI_MATCH", cve=cve)
+    Finding.objects.filter(pk=finding.pk).update(epss_score=0.02)
+    _recording(monkeypatch, exploitability="LOW")
+    consolidation.consolidate_asset(asset.pk)
+    before = Vulnerability.objects.get(asset=asset)
+
+    # El EPSS se publica cada día; mientras no cruce el umbral de «alto» no es evidencia nueva.
+    Finding.objects.filter(pk=finding.pk).update(epss_score=0.04)
+    asked = _recording(monkeypatch, exploitability="HIGH")
+    assert consolidation.consolidate_asset(asset.pk).kept == 1 and not asked
+    vuln = Vulnerability.objects.get(asset=asset)
+    assert vuln.epss_score == 0.04 and vuln.factors == before.factors
+    assert vuln.inference_id == before.inference_id and vuln.assessed_at == before.assessed_at
+    # El puntaje sí se pone al día con el dato de hoy, con los factores que ya tenía.
+    expected = scoring.contextual_score(
+        technical=vuln.technical_score,
+        criticality="ALTO",
+        exposure="INTERNET",
+        plausibility=vuln.plausibility,
+        exploitability="LOW",
+        data_sensitivity=vuln.factors["data_sensitivity"],
+        business_impact_level=vuln.factors["business_impact_level"],
+        compensating_controls=vuln.factors["compensating_controls"],
+        adjustment=vuln.adjustment,
+        in_kev=vuln.in_kev,
+        epss=0.04,
+    )
+    assert vuln.contextual_score == expected.score
+
+    # Cruza el umbral: es inteligencia nueva y el modelo vuelve a evaluar.
+    Finding.objects.filter(pk=finding.pk).update(epss_score=0.5)
+    assert consolidation.consolidate_asset(asset.pk).kept == 0 and len(asked) == 1
+    assert Vulnerability.objects.get(asset=asset).factors["exploitability"] == "HIGH"
+
+
+def test_a_mitigated_vulnerability_that_comes_back_is_assessed_again(lab_cti, monkeypatch):
+    asset = _nginx_asset()
+    other = _observe(asset, "CVE-2099-0002", "NUCLEI", title="Otra", severity="HIGH")
+    consolidation.consolidate_asset(asset.pk)
+    findings.mark_unreported([other.pk], "NUCLEI", reason="Ya no se reporta.", verified=True)
+    consolidation.consolidate_asset(asset.pk)
+    vuln = Vulnerability.objects.get(asset=asset)
+    assert vuln.status == VulnerabilityStatus.MITIGATED
+
+    # Vuelve a observarse igual que antes: reaparecer es un cambio y el modelo la evalúa.
+    _observe(asset, "CVE-2099-0002", "NUCLEI", title="Otra", severity="HIGH")
+    asked = _recording(monkeypatch)
+    result = consolidation.consolidate_asset(asset.pk)
+    assert result.kept == 0 and len(asked) == 1
+    vuln.refresh_from_db()
+    assert vuln.is_open and vuln.events.filter(kind=VulnerabilityEventKind.REOPENED).exists()
+
+
+def test_model_outage_does_not_downgrade_what_the_ai_already_assessed(
+    settings, monkeypatch, lab_cti
+):
+    """Antes, una consolidación con el modelo caído rehacía por regla todas las evaluaciones del
+    activo. Las que no cambiaron conservan la de la IA; solo lo nuevo queda por regla."""
+    asset, _ = _two_vulnerabilities()
+    consolidation.consolidate_asset(asset.pk)
+    before = _rows(asset)
+    assert all(row["assessment_source"] == StatusSource.AI for row in before.values())
+
+    settings.LLM_MOCK_MODE = False
+    monkeypatch.setattr("apps.llm.status.active_model_ready", lambda: False)
+    _observe(asset, "CVE-2099-0003", "NUCLEI", title="Nueva durante la caída", severity="HIGH")
+    result = consolidation.consolidate_asset(asset.pk)
+    assert result.kept == 2 and result.by_rule == 1 and result.llm_calls == 0
+    after = _rows(asset)
+    assert {key: after[key] for key in before} == before
+    assert after["CVE-2099-0003"]["assessment_source"] == StatusSource.RULE
+
+    # Vuelve el modelo: solo se le pregunta por la que quedó por regla.
+    settings.LLM_MOCK_MODE = True
+    asked = _recording(monkeypatch)
+    result = consolidation.consolidate_asset(asset.pk)
+    assert result.kept == 2 and result.llm_calls == 1
+    assert [g["key"] for g in asked[0]["rule_groups"]] == ["CVE-2099-0003"]
+
+
+def test_fingerprint_ignores_order_and_dates_but_not_the_evidence(lab_cti):
+    asset, _ = _two_vulnerabilities()
+    context = consolidation.assets_services.get_asset_context(asset.pk)
+    frame = consolidation.assessment_frame(asset.pk, context)
+    groups, _ = consolidation.build_groups(asset.pk)
+    group = next(g for g in groups if g.key == "CVE-2025-23419")
+    base = consolidation.evidence_fingerprint(group, frame)
+    assert len(base) == 64
+    again, _ = consolidation.build_groups(asset.pk)
+    assert base == consolidation.evidence_fingerprint(
+        next(g for g in again if g.key == "CVE-2025-23419"), frame
+    )
+    group.rule_flags.append("en KEV: explotación activa conocida")
+    assert base != consolidation.evidence_fingerprint(group, frame)

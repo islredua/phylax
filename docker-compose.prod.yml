@@ -31,12 +31,13 @@ services:
     volumes:
       - ./backend:/app:ro
       - static:/data/static
+    # Procesos, hilos, límite de tiempo y registro: backend/gunicorn.conf.py (gunicorn lo lee
+    # solo). No se ponen aquí: en este formato una línea más sangrada conserva su salto, y lo
+    # que quede después de «exec gunicorn …» ya no se ejecuta.
     command: >
       sh -c "python manage.py migrate --noinput &&
              python manage.py collectstatic --noinput &&
-             exec gunicorn atalaya.wsgi:application --bind 0.0.0.0:8000
-             --workers ${ATALAYA_WEB_WORKERS:-3} --threads 4 --timeout 60
-             --access-logfile - --error-logfile -"
+             exec gunicorn atalaya.wsgi:application"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/health/"]
       interval: 30s

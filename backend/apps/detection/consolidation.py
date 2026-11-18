@@ -199,6 +199,8 @@ class Group:
     # Estado mínimo cuando la evidencia es exacta (SBOM/Grype, versión exacta, varias fuentes).
     status_floor: str = ""
     exact_evidence: bool = False
+    # Huella de la evidencia del grupo (``evidence_fingerprint``); la pone la consolidación.
+    fingerprint: str = ""
 
     @property
     def lead(self):
@@ -592,6 +594,105 @@ def _validate(parsed, groups, index):
     return items, rejected
 
 
+# --------------------------------------------------------------------------
+# Con la misma evidencia, la misma evaluación
+# --------------------------------------------------------------------------
+
+
+def assessment_frame(asset_id, context):
+    """El marco en que el modelo evalúa cualquier vulnerabilidad del activo: el contexto del activo
+    y el perfil de la organización, tal como se le envían."""
+    from .profile import get_profile
+
+    asset = assets_services.get_asset_summary(asset_id)
+    profile = get_profile()
+    return [
+        context.criticality or "",
+        context.exposure or "",
+        context.environment or "",
+        context.business_role or "",
+        context.data_classification or "",
+        sorted(context.data_categories or ()),
+        asset.get("asset_type") or "",
+        clean(asset.get("description"), 300),
+        clean(profile.sector, 120),
+        clean(profile.description, 400),
+    ]
+
+
+def evidence_fingerprint(group, frame):
+    """Huella de lo que sustenta la evaluación de una vulnerabilidad: qué observaciones la forman
+    (fuente, severidad de la herramienta, software y versión), con qué inteligencia (CVSS, KEV,
+    EPSS alto o no), qué dicen las reglas del grupo y en qué marco se evalúa.
+
+    No entra lo que cambia sin que cambie la evidencia: el EPSS de cada día, las fechas, el orden
+    de las observaciones ni la redacción.
+    """
+    import hashlib
+    import json
+
+    high = float(getattr(settings, "DETECTION_EPSS_HIGH", 0.1))
+    observations = sorted(
+        json.dumps(
+            [
+                f.vulnerability_id,
+                sorted(f.sources or []),
+                str(f.severity or ""),
+                f.component.label if f.component else "",
+                f.cvss_score,
+                bool(f.in_kev),
+                (f.epss_score or 0) >= high,
+            ],
+            ensure_ascii=False,
+        )
+        for f in group.findings
+    )
+    rules = [
+        sorted(group.rule_flags),
+        group.plausibility_cap,
+        group.status_cap or "",
+        group.status_floor or "",
+    ]
+    payload = json.dumps([group.key, observations, rules, frame], ensure_ascii=False)
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def stands(vuln, fingerprint, model) -> bool:
+    """¿Sigue valiendo lo que la IA evaluó? Sí con la misma evidencia, el mismo modelo y el mismo
+    prompt. El modelo, preguntado dos veces por lo mismo, cambia explotabilidad, controles o
+    plausibilidad; con eso cambia la severidad y, detrás, la valoración del riesgo, sin que nada
+    haya cambiado en el activo.
+
+    Una que se dio por mitigada y vuelve a observarse se evalúa de nuevo: reaparecer es un cambio.
+    Otro modelo u otro prompt también: quien los cambia espera que su criterio se aplique.
+    """
+    return bool(
+        fingerprint
+        and vuln.evidence_fingerprint == fingerprint
+        and vuln.assessment_source == StatusSource.AI
+        and vuln.model == model
+        and vuln.prompt_version == PROMPT_VERSION
+        and (vuln.is_open or vuln.human_locked)
+    )
+
+
+def kept_item(vuln, group):
+    """La evaluación que ya tiene la vulnerabilidad, con la forma de un ítem del modelo."""
+    factors = vuln.factors or {}
+    return {
+        "finding_pks": [f.pk for f in group.findings],
+        "title": vuln.title,
+        "status": vuln.status,
+        "plausibility": vuln.plausibility,
+        "exploitability": factors.get("exploitability", "MEDIUM"),
+        "data_sensitivity": factors.get("data_sensitivity"),
+        "business_impact_level": factors.get("business_impact_level"),
+        "compensating_controls": factors.get("compensating_controls", "NONE"),
+        "adjustment": vuln.adjustment,
+        "adjustment_reason": vuln.adjustment_reason,
+    }
+
+
 def _key_for(item, groups_by_pk):
     """Clave estable de la vulnerabilidad: el CVE del grupo de su observación principal."""
     for pk in item["finding_pks"]:
@@ -624,10 +725,12 @@ def component_from_findings(asset_id, findings):
     return None
 
 
-def _apply_item(asset_id, item, group, context, *, by_rule, log_obj, now):
+def _apply_item(asset_id, item, group, context, *, by_rule, log_obj, now, kept=None):
     findings = list(Finding.objects.filter(pk__in=item["finding_pks"]).select_related("cve"))
     if not findings:
         return None
+    if kept is not None:
+        return _keep_assessment(asset_id, kept, item, group, context, findings, now)
     cvss = max((f.cvss_score for f in findings if f.cvss_score is not None), default=None)
     epss = max((f.epss_score for f in findings if f.epss_score is not None), default=None)
     in_kev = any(f.in_kev for f in findings)
@@ -637,20 +740,6 @@ def _apply_item(asset_id, item, group, context, *, by_rule, log_obj, now):
     ]
     plausibility = min(float(item["plausibility"]), group.plausibility_cap if group else 1.0)
     tech = scoring.technical_score(cvss=cvss, epss=epss, in_kev=in_kev, severity=lead.severity)
-    ctx = scoring.contextual_score(
-        technical=tech.score,
-        criticality=context.criticality,
-        exposure=context.exposure,
-        data_classification=context.data_classification,
-        plausibility=plausibility,
-        exploitability=item["exploitability"],
-        data_sensitivity=item["data_sensitivity"],
-        business_impact_level=item["business_impact_level"],
-        compensating_controls=item["compensating_controls"],
-        adjustment=item.get("adjustment", 0),
-        in_kev=in_kev,
-        epss=epss,
-    )
     status = item["status"]
     if plausibility <= LOW_PLAUSIBILITY and status in ("CONFIRMED", "LIKELY"):
         status = VulnerabilityStatus.LIKELY_FALSE_POSITIVE
@@ -676,6 +765,10 @@ def _apply_item(asset_id, item, group, context, *, by_rule, log_obj, now):
         # modelo no basta para descartarla. Piso acotado, como las anclas de riesgo.
         status = group.status_floor
         plausibility = max(plausibility, KEV_FLOOR_PLAUSIBILITY)
+    # El puntaje se calcula con la plausibilidad que se guarda (dos decimales, ya con los pisos de
+    # la evidencia): así recalcularlo desde lo guardado da siempre el mismo número.
+    plausibility = round(plausibility, 2)
+    ctx = _contextual(item, context, tech, plausibility, in_kev=in_kev, epss=epss)
     cve = next((f.cve for f in findings if f.cve_id), None)
     key = group.key if group else _key_for(item, {})
     # Textos: la IA escribe para la persona, así que deben estar en español. Lo que venga en
@@ -737,7 +830,7 @@ def _apply_item(asset_id, item, group, context, *, by_rule, log_obj, now):
     vuln.contextual_score = ctx.score
     vuln.score_breakdown = {"technical": tech.breakdown, "contextual": ctx.breakdown}
     vuln.algorithm_version = scoring.ALGORITHM_VERSION
-    vuln.plausibility = round(plausibility, 2)
+    vuln.plausibility = plausibility
     vuln.factors = {
         "exploitability": item["exploitability"],
         "data_sensitivity": item["data_sensitivity"],
@@ -752,6 +845,7 @@ def _apply_item(asset_id, item, group, context, *, by_rule, log_obj, now):
     vuln.model = (log_obj.model_responded or log_obj.model) if log_obj and not by_rule else ""
     vuln.prompt_version = PROMPT_VERSION if not by_rule else ""
     vuln.assessed_at = now
+    vuln.evidence_fingerprint = group.fingerprint if group else ""
     vuln.cvss_score, vuln.epss_score, vuln.in_kev, vuln.kev_due_at = cvss, epss, in_kev, kev_due
     vuln.environment = context.environment or ""
     vuln.last_seen_at = now
@@ -797,6 +891,65 @@ def _apply_item(asset_id, item, group, context, *, by_rule, log_obj, now):
             VulnerabilityEventKind.STATUS_AI,
             f"{VulnerabilityStatus(previous_status).label} → {vuln.get_status_display()}",
             by_rule=by_rule,
+        )
+    return vuln
+
+
+def _contextual(item, context, tech, plausibility, *, in_kev, epss):
+    return scoring.contextual_score(
+        technical=tech.score,
+        criticality=context.criticality,
+        exposure=context.exposure,
+        data_classification=context.data_classification,
+        plausibility=plausibility,
+        exploitability=item["exploitability"],
+        data_sensitivity=item["data_sensitivity"],
+        business_impact_level=item["business_impact_level"],
+        compensating_controls=item["compensating_controls"],
+        adjustment=item.get("adjustment", 0),
+        in_kev=in_kev,
+        epss=epss,
+    )
+
+
+def _keep_assessment(asset_id, vuln, item, group, context, findings, now):
+    """La evidencia es la de la última evaluación: no se le pregunta al modelo y se conserva lo que
+    evaluó (estado, plausibilidad, factores, ajuste y redacción). Lo que sí se pone al día es lo
+    que no decide el modelo: el puntaje con el EPSS de hoy, el detalle técnico y a qué
+    observaciones está ligada."""
+    cvss = max((f.cvss_score for f in findings if f.cvss_score is not None), default=None)
+    epss = max((f.epss_score for f in findings if f.epss_score is not None), default=None)
+    in_kev = any(f.in_kev for f in findings)
+    lead = sorted(findings, key=lambda f: scoring.SEVERITY_SCORE.get(f.severity, 0), reverse=True)[
+        0
+    ]
+    tech = scoring.technical_score(cvss=cvss, epss=epss, in_kev=in_kev, severity=lead.severity)
+    ctx = _contextual(item, context, tech, vuln.plausibility, in_kev=in_kev, epss=epss)
+    previous_score = vuln.contextual_score
+    vuln.cve = next((f.cve for f in findings if f.cve_id), None)
+    vuln.component = lead.component or component_from_findings(asset_id, findings)
+    vuln.technical_description = technical_description(findings)
+    vuln.severity = scoring.severity_for(ctx.score)
+    vuln.technical_score = tech.score
+    vuln.contextual_score = ctx.score
+    vuln.score_breakdown = {"technical": tech.breakdown, "contextual": ctx.breakdown}
+    vuln.algorithm_version = scoring.ALGORITHM_VERSION
+    vuln.rule_flags = list(group.rule_flags)
+    vuln.cvss_score, vuln.epss_score, vuln.in_kev = cvss, epss, in_kev
+    vuln.kev_due_at = next((f.kev_due_at for f in findings if f.kev_due_at), None)
+    vuln.environment = context.environment or ""
+    vuln.last_seen_at = now
+    vuln.save()
+    Finding.objects.filter(pk__in=[f.pk for f in findings]).update(consolidated=vuln)
+    if previous_score != ctx.score:
+        _event(
+            vuln,
+            VulnerabilityEventKind.ASSESSED,
+            "Puntaje recalculado; la evidencia no cambió y se conserva la evaluación de la IA",
+            technical=tech.score,
+            contextual=ctx.score,
+            plausibility=vuln.plausibility,
+            algorithm_version=scoring.ALGORITHM_VERSION,
         )
     return vuln
 
@@ -852,10 +1005,17 @@ class ConsolidationResult:
     llm_calls: int
     llm_ok: bool
     reason: str = ""
+    # Vulnerabilidades cuya evaluación se conservó porque su evidencia no cambió.
+    kept: int = 0
 
 
-def consolidate_asset(asset_id, *, requested_by=None, reason="", use_llm=True):
-    """Corre la consolidación completa del activo. Síncrona; la encola ``request_consolidation``."""
+def consolidate_asset(asset_id, *, requested_by=None, reason="", use_llm=True, fresh=False):
+    """Corre la consolidación completa del activo. Síncrona; la encola ``request_consolidation``.
+
+    Al modelo solo se le pregunta por lo que cambió: una vulnerabilidad cuya evidencia es la de su
+    última evaluación la conserva (``stands``). ``fresh`` lo evalúa todo de nuevo (sirve para
+    medir cuánto varía el modelo, no para el uso diario).
+    """
     from apps.llm.status import active_model_ready
 
     now = timezone.now()
@@ -867,9 +1027,36 @@ def consolidate_asset(asset_id, *, requested_by=None, reason="", use_llm=True):
     chunk_size = max(1, int(getattr(settings, "DETECTION_CONSOLIDATE_CHUNK", 25)))
     touched, by_rule_count, rejected_total, calls, llm_ok = [], 0, 0, 0, True
     use_llm = use_llm and (getattr(settings, "LLM_MOCK_MODE", False) or active_model_ready())
+    frame = assessment_frame(asset_id, context)
+    for group in groups:
+        group.fingerprint = evidence_fingerprint(group, frame)
+    standing = {}
+    if not fresh:
+        model = active_model()
+        fingerprints = {g.key: g.fingerprint for g in groups}
+        previous = Vulnerability.objects.filter(asset_id=asset_id, key__in=list(fingerprints))
+        standing = {v.key: v for v in previous if stands(v, fingerprints[v.key], model)}
+    with transaction.atomic():
+        for group in groups:
+            if group.key in standing:
+                vuln = standing[group.key]
+                _apply_item(
+                    asset_id,
+                    kept_item(vuln, group),
+                    group,
+                    context,
+                    by_rule=False,
+                    log_obj=None,
+                    now=now,
+                    kept=vuln,
+                )
+                touched.append(vuln.pk)
+    kept_count = len(touched)
     # Lotes: grupos completos hasta ``chunk_size`` observaciones por llamada.
     chunks, current, count = [], [], 0
     for group in groups:
+        if group.key in standing:
+            continue
         if current and count + len(group.findings) > chunk_size:
             chunks.append(current)
             current, count = [], 0
@@ -921,11 +1108,14 @@ def consolidate_asset(asset_id, *, requested_by=None, reason="", use_llm=True):
         resolved = _resolve_orphans(asset_id, touched, now)
     llm_ok = llm_ok and use_llm
     cache.set(_last_key(asset_id), now.isoformat(), None)
+    cache.set(
+        _outcome_key(asset_id), {"kept": kept_count, "assessed": len(touched) - kept_count}, None
+    )
     # Fase 5: las vulnerabilidades consolidadas se expresan como riesgos (ISO/IEC 27005).
     try:
         from . import risks
 
-        risks.derive_risks(asset_id, requested_by=requested_by, use_llm=use_llm)
+        risks.derive_risks(asset_id, requested_by=requested_by, use_llm=use_llm, fresh=fresh)
     except Exception:  # pragma: no cover - un fallo en riesgos no deshace la consolidación
         log.exception("derivación de riesgos del activo %s", asset_id)
     # Lo que quedó sin descripción en español (por regla, o inglés descartado) se redacta aparte,
@@ -935,7 +1125,15 @@ def consolidate_asset(asset_id, *, requested_by=None, reason="", use_llm=True):
 
         descriptions.queue_missing(asset_id, requested_by=requested_by)
     return ConsolidationResult(
-        len(groups), len(touched), by_rule_count, rejected_total, resolved, calls, llm_ok, reason
+        len(groups),
+        len(touched),
+        by_rule_count,
+        rejected_total,
+        resolved,
+        calls,
+        llm_ok,
+        reason,
+        kept_count,
     )
 
 
@@ -1021,6 +1219,15 @@ def clear_pending(asset_id):
     cache.delete(_pending_key(asset_id))
 
 
+def _outcome_key(asset_id):
+    return f"detection:consolidate:outcome:{asset_id}"
+
+
+def last_outcome(asset_id):
+    """Qué hizo la última consolidación: cuántas evaluaciones conservó y cuántas hizo de nuevo."""
+    return cache.get(_outcome_key(asset_id)) or {}
+
+
 def last_consolidated_at(asset_id):
     from datetime import datetime
 
@@ -1083,7 +1290,12 @@ def release_to_ai(vulnerability_id, *, user):
         vuln.status_source = StatusSource.AI
         vuln.status_by = None
         vuln.status_note = ""
-        vuln.save(update_fields=["status_source", "status_by", "status_note"])
+        # Sin huella no hay evaluación que conservar: la próxima consolidación le pregunta al
+        # modelo aunque la evidencia sea la misma (el estado que tiene lo puso una persona).
+        vuln.evidence_fingerprint = ""
+        vuln.save(
+            update_fields=["status_source", "status_by", "status_note", "evidence_fingerprint"]
+        )
         _event(vuln, VulnerabilityEventKind.NOTE, "El estado vuelve a decidirlo la IA", actor=user)
     return vuln
 

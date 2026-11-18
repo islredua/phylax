@@ -175,12 +175,35 @@ CSRF_TRUSTED_ORIGINS = [
 # no aplican a un nombre interno de la organización (se activan arriba si el despliegue lo quiere).
 SILENCED_SYSTEM_CHECKS = ["security.W005", "security.W021"]
 
-# --- Correo (password reset) ---
-# En desarrollo el correo se imprime en la consola del contenedor.
-EMAIL_BACKEND = os.environ.get(
-    "DJANGO_EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
+# --- Correo (restablecer contraseña y avisos) ---
+# Con ``DJANGO_EMAIL_HOST`` el correo sale por ese servidor SMTP. Sin él se imprime en la consola
+# del contenedor: sirve para desarrollar, pero nadie lo recibe (Administración › Sistema lo dice).
+EMAIL_HOST = os.environ.get("DJANGO_EMAIL_HOST", "").strip()
+EMAIL_BACKEND = os.environ.get("DJANGO_EMAIL_BACKEND", "").strip() or (
+    "apps.core.mail.EmailBackend"
+    if EMAIL_HOST
+    else "django.core.mail.backends.console.EmailBackend"
 )
+# CA interna que firma el certificado del servidor de correo (además de las públicas).
+EMAIL_CA_FILE = os.environ.get("DJANGO_EMAIL_CA_FILE", "").strip()
+# Cifrado: STARTTLS (lo habitual en el 587) o TLS desde el primer byte (465). Nunca los dos.
+EMAIL_USE_TLS = os.environ.get("DJANGO_EMAIL_USE_TLS", "0") == "1"
+EMAIL_USE_SSL = os.environ.get("DJANGO_EMAIL_USE_SSL", "0") == "1"
+if EMAIL_USE_TLS and EMAIL_USE_SSL:
+    raise ImproperlyConfigured(
+        "DJANGO_EMAIL_USE_TLS y DJANGO_EMAIL_USE_SSL no van juntos: STARTTLS (587) usa el "
+        "primero; TLS desde la conexión (465), el segundo."
+    )
+EMAIL_PORT = int(
+    os.environ.get("DJANGO_EMAIL_PORT", "").strip()
+    or (465 if EMAIL_USE_SSL else 587 if EMAIL_USE_TLS else 25)
+)
+EMAIL_HOST_USER = os.environ.get("DJANGO_EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("DJANGO_EMAIL_HOST_PASSWORD", "")
+# Un servidor de correo que no contesta no puede dejar colgada una petición ni a un trabajador.
+EMAIL_TIMEOUT = int(os.environ.get("DJANGO_EMAIL_TIMEOUT", "20") or 20)
 DEFAULT_FROM_EMAIL = os.environ.get("DJANGO_DEFAULT_FROM_EMAIL", "atalaya@localhost")
+SERVER_EMAIL = DEFAULT_FROM_EMAIL
 
 # --- Avisos (F3) ---
 # URL pública de Atalaya para los enlaces de los avisos (correo, webhook).

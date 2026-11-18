@@ -27,7 +27,7 @@
     {% for s in report.services %}
     <li class="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1 px-4 py-3 md:grid-cols-[16rem_7rem_minmax(0,1fr)] md:items-center" data-service="{{ s.key }}" data-state="{{ s.state }}">
       <div><p class="text-sm font-medium">{{ s.name }}</p><p class="text-xs text-muted">{{ s.role }}</p></div>
-      <div class="justify-self-end md:justify-self-start">{% state_pill s.state %}</div>
+      <div class="justify-self-end md:justify-self-start">{% state_pill s.state unknown=s.label %}</div>
       <div class="col-span-2 text-sm md:col-span-1">{{ s.detail }}{% if s.fix %}<p class="text-xs text-muted">{{ s.fix }}</p>{% endif %}</div>
     </li>
     {% endfor %}

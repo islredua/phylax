@@ -1128,6 +1128,67 @@ def evidence_fingerprint(vulns, context):
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
+def _same_assessor(risk, model) -> bool:
+    """¿Lo valoró la IA con este mismo modelo y este mismo prompt? Con otro modelo u otro prompt
+    la valoración anterior no se conserva: quien los cambia espera que su criterio se aplique."""
+    return (
+        risk.assessment_source == StatusSource.AI
+        and risk.model == model
+        and risk.prompt_version == PROMPT_VERSION
+    )
+
+
+def standing_risks(asset_id, vulns, context):
+    """Riesgos abiertos que siguen en pie tal como están: ``{pk: (riesgo, vulnerabilidades)}``.
+
+    Un riesgo sigue en pie cuando sus vulnerabilidades son las mismas, están en el mismo estado y
+    con la misma inteligencia, en el mismo contexto (la huella de su última valoración) y lo
+    valoró la IA con el modelo y el prompt de ahora. Al modelo no se le vuelve a preguntar por él:
+    preguntado dos veces por lo mismo reparte las vulnerabilidades de otra forma (trece en un
+    riesgo, luego once) y con el reparto cambian la huella y la valoración.
+
+    Deja de estar en pie en dos casos, porque entonces hay algo nuevo que decir de su escenario
+    y el modelo lo valora entero:
+
+    - llega al registro una vulnerabilidad de su misma familia (el mismo software, o debilidades
+      de configuración con la misma consecuencia);
+    - comparte alguna vulnerabilidad con un riesgo abierto que no sigue en pie.
+    """
+    sustained = {v.pk: v for v in vulns}
+    model = active_model()
+    open_risks = list(
+        Risk.objects.filter(asset_id=asset_id, status__in=RISK_OPEN_STATUSES).prefetch_related(
+            "vulnerabilities"
+        )
+    )
+    linked = {r.pk: [v.pk for v in r.vulnerabilities.all()] for r in open_risks}
+    standing = {}
+    for risk in open_risks:
+        pks = linked[risk.pk]
+        if not pks or not risk.evidence_fingerprint or not _same_assessor(risk, model):
+            continue
+        if any(pk not in sustained for pk in pks):
+            continue
+        members = [sustained[pk] for pk in pks]
+        if evidence_fingerprint(members, context) == risk.evidence_fingerprint:
+            standing[risk.pk] = (risk, members)
+    valued_by_ai = {
+        pk for r in open_risks if r.assessment_source == StatusSource.AI for pk in linked[r.pk]
+    }
+    newcomers = {_rule_group_key(v, context) for v in vulns if v.pk not in valued_by_ai}
+    while True:
+        loose = {pk for r in open_risks if r.pk not in standing for pk in linked[r.pk]}
+        released = [
+            pk
+            for pk, (_, members) in standing.items()
+            if any(v.pk in loose or _rule_group_key(v, context) in newcomers for v in members)
+        ]
+        if not released:
+            return standing
+        for pk in released:
+            del standing[pk]
+
+
 def _same_risk(asset_id, key, *, taken=(), planned=()):
     """El riesgo del activo que ya expresa esto, o ``None``.
 
@@ -1178,7 +1239,7 @@ def _known_since(asset_id, vulns, risk):
     return first if first and first < risk.first_identified_at else None
 
 
-def _apply(asset_id, item, context, *, by_rule, log_obj, now, taken=(), planned=()):
+def _apply(asset_id, item, context, *, by_rule, log_obj, now, taken=(), planned=(), fresh=False):
     vulns = list(
         Vulnerability.objects.filter(pk__in=item["vuln_pks"])
         .select_related("cve")
@@ -1195,8 +1256,9 @@ def _apply(asset_id, item, context, *, by_rule, log_obj, now, taken=(), planned=
     # Si la huella es la de la valoración anterior, esa se conserva.
     if (
         not by_rule
+        and not fresh
         and before is not None
-        and before.assessment_source == StatusSource.AI
+        and _same_assessor(before, log_obj.model_responded or log_obj.model)
         and before.evidence_fingerprint == fingerprint
         and (before.likelihood, before.impact) != (item["likelihood"], item["impact"])
     ):
@@ -1563,8 +1625,12 @@ def _narrate(items, data, vulns, context, asset_id, asset_name, requested_by):
             item["narrative_by_rule"] = True
 
 
-def derive_risks(asset_id, *, requested_by=None, use_llm=True):
-    """Deriva o actualiza los riesgos del activo desde sus vulnerabilidades abiertas."""
+def derive_risks(asset_id, *, requested_by=None, use_llm=True, fresh=False):
+    """Deriva o actualiza los riesgos del activo desde sus vulnerabilidades abiertas.
+
+    Los riesgos que siguen en pie (``standing_risks``) no se tocan; al modelo se le dan solo las
+    vulnerabilidades que no están en ninguno de ellos. ``fresh`` lo valora todo de nuevo.
+    """
     from django.conf import settings
 
     from apps.llm.status import active_model_ready
@@ -1585,6 +1651,14 @@ def derive_risks(asset_id, *, requested_by=None, use_llm=True):
         or (v.status == VulnerabilityStatus.NEEDS_VERIFICATION and v.plausibility > 0.5)
     ]
     touched, by_rule_count, llm_ok, rejected = [], 0, False, 0
+    sustained_pks = {v.pk for v in vulns}
+    standing = {} if fresh else standing_risks(asset_id, vulns, context)
+    touched.extend(standing)
+    # Lo que queda por valorar: lo que no está en ningún riesgo en pie.
+    reserved = {v.pk for _, members in standing.values() for v in members}
+    vulns = [v for v in vulns if v.pk not in reserved]
+    # Nada que preguntar y todo en pie: no es un fallo del modelo.
+    llm_ok = bool(standing) and not vulns
     if vulns:
         data, index = build_payload(asset_id, vulns, context)
         use_llm = use_llm and (getattr(settings, "LLM_MOCK_MODE", False) or active_model_ready())
@@ -1636,6 +1710,7 @@ def derive_risks(asset_id, *, requested_by=None, use_llm=True):
                     now=now,
                     taken=touched,
                     planned=planned,
+                    fresh=fresh,
                 )
                 if risk:
                     touched.append(risk.pk)
@@ -1654,9 +1729,10 @@ def derive_risks(asset_id, *, requested_by=None, use_llm=True):
                     touched.append(risk.pk)
                     by_rule_count += 1
     with transaction.atomic():
-        closed = _close_orphans(asset_id, touched, now, sustained_pks={v.pk for v in vulns})
+        closed = _close_orphans(asset_id, touched, now, sustained_pks=sustained_pks)
     return {
         "risks": len(touched),
+        "kept": len(standing),
         "by_rule": by_rule_count,
         "rejected": rejected,
         "closed": closed,

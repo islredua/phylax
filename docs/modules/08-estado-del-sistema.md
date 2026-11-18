@@ -25,6 +25,7 @@ Nada bloquea una petición normal.
 | Ollama | Último sondeo de `apps.llm.status` (beat, cada minuto) | No responde; modelo activo sin descargar; corre en CPU cuando el despliegue esperaba GPU |
 | Trabajadores | Registro que deja `refresh_system_status` (beat, cada minuto): quién responde, qué colas atiende, cuánto lleva en marcha y qué ejecuta | Ninguno atiende una cola |
 | Programador | El mismo registro es su latido | Sin latido en 3 min y el trabajador general sí responde |
+| Correo | Los ajustes (`DJANGO_EMAIL_*`) y un intento de conexión al servidor con espera de 2 s, que se recuerda un minuto | El servidor no abre conexión; el archivo de la CA no existe; fuera de desarrollo, el correo se queda en la consola («atención») |
 | Fuentes de inteligencia | `CtiSource` | Nunca sincronizada, última fallida o más de dos intervalos sin éxito |
 | Datos de escáner | Archivos del volumen `cti_cache` (ver abajo) | Ver abajo |
 | Disco | `shutil.disk_usage` de cada carpeta de datos | Menos del 15 % libre (aviso) o del 5 % |
@@ -42,6 +43,14 @@ línea del Resumen) no pregunta en vivo.
 
 **Modo síncrono.** Con `CELERY_TASK_ALWAYS_EAGER` (pruebas) no hay colas ni trabajadores: nada
 intenta conectarse y la pantalla lo dice.
+
+**Correo.** La fila dice por dónde sale («Sale por smtp.ejemplo.mx:587 (STARTTLS, con usuario)
+como atalaya@ejemplo.mx») y nunca muestra la contraseña. En desarrollo, con el correo en la
+consola, la píldora dice «solo consola» y no cuenta como problema; fuera de desarrollo sí
+(«nadie recibe el enlace para restablecer la contraseña ni los avisos por correo») y aparece en
+el resumen. La conexión de prueba solo comprueba que el servidor responde: que acepte el usuario,
+el cifrado y el certificado se comprueba con «Enviar prueba» en Administración › Avisos. Cómo
+configurarlo: `docs/operacion.md` §2.
 
 ## Cola del modelo (`system.model_queue`)
 
@@ -143,7 +152,7 @@ tres colas y lo entregado a un trabajador que aún no confirma):
 |---|---|
 | Escaneo «en cola» | Se vuelve a encolar |
 | Descubrimiento «en cola» | Se vuelve a encolar |
-| Descubrimiento «en ejecución» | Se cierra como interrumpido y avisa a la acción que lo pidió |
+| Descubrimiento «en ejecución» | Se cierra como interrumpido y avisa a la acción que lo pidió. También cuando el mensaje sigue entregado a un trabajador que murió (ver abajo) |
 | Sugerencia de criticidad sin respuesta | Se vuelve a pedir |
 | Borrador del perfil «generando» | Se vuelve a pedir |
 | Importación «procesando» | Se cierra con la indicación de volver a cargar el archivo |
@@ -152,6 +161,14 @@ tres colas y lo entregado a un trabajador que aún no confirma):
 Solo actúa sobre lo que lleva más de diez minutos pedido; si Redis no responde, o una cola tiene
 más de 5 000 mensajes, no toca nada. Volver a encolar no duplica: esas tareas reclaman su fila
 antes de trabajar. La tabla de todos los tipos de trabajo está en `docs/operacion.md` §8.
+
+**El trabajador murió a media ejecución.** Si al trabajador de descubrimiento lo matan de golpe
+(corte de luz, `docker kill`), Redis conserva su mensaje como «entregado» y no lo devuelve a la
+cola hasta pasada una hora; para entonces la tarea ya no hace nada, porque el descubrimiento no
+está «en cola». Durante esa hora seguía «en ejecución», con su rango o su activo bloqueado. El
+barrido pregunta a los trabajadores qué ejecutan (`recovery.executing_tasks`): si contestan y
+ninguno ejecuta ese descubrimiento en **dos pasadas seguidas**, lo cierra como interrumpido. Dos
+pasadas, por si una respuesta se perdió; si nadie contesta, no decide.
 
 ## Tareas de `beat`
 

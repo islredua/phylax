@@ -31,6 +31,8 @@ x-backend: &backend
     - ./experiments:/experiments
     - scan_results:/data/scan-results
     - cti_cache:/data/cti-cache
+    # CA interna de la organización (certificado del servidor de correo): DJANGO_EMAIL_CA_FILE.
+    - ./deploy/ca:/ca:ro
   depends_on:
     db:
       condition: service_healthy
