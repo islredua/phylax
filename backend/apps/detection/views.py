@@ -868,7 +868,11 @@ QUEUE_LABELS = (
 # El registro se abre por riesgo de la organización; con ``view=escenario``, o con cualquier
 # filtro que solo tiene sentido escenario por escenario, se abre la lista de escenarios.
 SCENARIO_VIEW = "escenario"
+RISK_VIEW = "riesgo"
 RISK_VIEW_PARAMS = {"level", "treatment", "view"}
+# La casilla de la matriz de riesgos. Solo con ``view=riesgo``: sin él esos dos parámetros son los
+# de la matriz de escenarios (Inicio, la ficha del activo) y abren la lista de escenarios.
+RISK_CELL_PARAMS = {"likelihood", "impact"}
 
 
 def risk_queue(query, current_pk=None, user=None):
@@ -932,11 +936,20 @@ class RiskRegisterView(Perm, PaginationMixin, ListView):
         """¿Toca la vista por riesgo? Solo si nadie pidió escenarios ni puso un filtro que
         solo se entiende escenario por escenario (un activo, un responsable, un plazo…)."""
         params = self.request.GET
+        view = params.get("view", "")
         active = {key for key, value in params.items() if value} - {"export"}
+        allowed = RISK_VIEW_PARAMS | (RISK_CELL_PARAMS if view == RISK_VIEW else set())
         return (
-            params.get("view") != SCENARIO_VIEW
-            and active <= RISK_VIEW_PARAMS
+            view != SCENARIO_VIEW
+            and active <= allowed
             and params.get("treatment", "") in ("", "none")
+        )
+
+    def cell(self):
+        """La casilla (probabilidad, impacto) pedida en la matriz de riesgos; ``None`` = todas."""
+        scale = {str(n): n for n in range(1, 6)}
+        return scale.get(self.request.GET.get("likelihood", "")), scale.get(
+            self.request.GET.get("impact", "")
         )
 
     def business(self):
@@ -945,8 +958,14 @@ class RiskRegisterView(Perm, PaginationMixin, ListView):
         found = business_risks.register(rules=policy.current())
         level = params.get("level") if params.get("level") in RiskLevel.values else ""
         undecided = params.get("treatment") == "none"
+        likelihood, impact = self.cell()
         shown = [
-            r for r in found if (not level or r.level == level) and (not undecided or r.undecided)
+            r
+            for r in found
+            if (not level or r.level == level)
+            and (not undecided or r.undecided)
+            and (likelihood is None or r.likelihood == likelihood)
+            and (impact is None or r.impact == impact)
         ]
         return shown, found
 
@@ -989,6 +1008,10 @@ class RiskRegisterView(Perm, PaginationMixin, ListView):
                 business=shown,
                 business_summary=business_risks.summary(found),
                 grid=business_risks.grid(found),
+                # Cada riesgo, en la casilla de su peor escenario.
+                risk_matrix=risks.matrix(found),
+                cell_filter=self.cell() if any(self.cell()) else None,
+                roles=business_risks.role_cards(found),
                 today=risks.today(user=self.request.user),
                 export_url=_export_url(self.request),
                 filters_active=filters_active(self.request.GET),
@@ -1118,6 +1141,7 @@ class BusinessRiskView(Perm, TemplateView):
             risk=self.risk,
             risks=self.risk.scenarios,
             brief=business_risks.describe(self.risk),
+            role_card=business_risks.role_card(self.risk.role),
             policy=self.rules,
             bulk_treatments=list(Risk._meta.get_field("treatment").choices),
             bulk_assign=BULK_ASSIGN,

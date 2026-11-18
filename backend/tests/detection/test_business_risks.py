@@ -157,6 +157,106 @@ def test_the_register_opens_by_risk_and_keeps_the_scenario_list(client, as_role)
     assert "Fuga de información en API" not in critical.split("data-business-risks")[1]
 
 
+def test_the_register_by_risk_keeps_the_five_by_five_matrix(client, as_role):
+    """La matriz probabilidad × impacto sigue en la vista por riesgo: cada riesgo en la casilla de
+    su peor escenario, y la casilla filtra la lista de riesgos (no la de escenarios)."""
+    _organization()
+    as_role(AUDITOR)
+    url = reverse("detection:risks")
+    response = client.get(url)
+    body = response.content.decode()
+    cells = {
+        (c["likelihood"], c["impact"]): len(c["risks"])
+        for row in response.context["risk_matrix"]
+        for c in row
+    }
+    # Pagos (fuga) vale por su peor escenario, 5 × 5; el 2 × 3 de pagos-01 no ocupa casilla.
+    assert cells[(5, 5)] == 1 and cells[(3, 4)] == 1 and cells[(4, 4)] == 1 and cells[(1, 2)] == 1
+    assert cells[(2, 3)] == 0 and sum(cells.values()) == 4
+    assert "data-risk-matrix" in body and "Matriz de riesgos" in body
+    assert "?likelihood=5&amp;impact=5&amp;view=riesgo" in body
+
+    picked = client.get(url + "?likelihood=5&impact=5&view=riesgo")
+    assert picked.context["by_risk"]
+    assert [r.title for r in picked.context["business"]] == ["Fuga de información en Pagos"]
+    assert "con su peor escenario en la casilla" in picked.content.decode()
+    # La matriz y el mapa siguen mostrando todo: el filtro es de la lista.
+    assert sum(len(c["risks"]) for row in picked.context["risk_matrix"] for c in row) == 4
+    # Sin «view=riesgo» la casilla es la de la matriz de escenarios (Inicio, la ficha del activo).
+    assert not client.get(url + "?likelihood=5&impact=5").context["by_risk"]
+
+
+def test_the_name_of_a_function_opens_what_it_is_and_which_assets_have_it(client, as_role):
+    """«API»: ¿qué es? El nombre de la función abre un cuadro con su descripción (la del
+    catálogo), lo que se puede perder en ella y sus activos, tengan riesgos o no."""
+    from apps.assets import catalogs
+    from apps.assets.models import CatalogEntry
+
+    _organization()
+    AssetFactory(name="pagos-sin-riesgo", business_role="PAGOS")
+    AssetFactory(name="pagos-retirado", business_role="PAGOS", status="RETIRED")
+    # La descripción viene sembrada para las funciones del catálogo inicial.
+    assert "interfaz de programación" in catalogs.get(catalogs.BUSINESS_ROLE, "API")["description"]
+
+    cards = {c["role"]: c for c in business_risks.role_cards(business_risks.register())}
+    pagos = cards["PAGOS"]
+    assert pagos["label"] == "Pagos" and "dinero" in pagos["description"]
+    assert [r.consequence for r in pagos["risks"]] == [LEAK, DOWN]
+    assert [(row["asset"].name, row["level"]) for row in pagos["assets"]] == [
+        ("pagos-02", RiskLevel.CRITICAL),
+        ("pagos-01", RiskLevel.HIGH),
+        ("pagos-sin-riesgo", ""),
+    ]
+    assert pagos["with_risk"] == 2
+    assert cards[""]["label"] == "Activos sin función de negocio" and cards[""]["description"]
+
+    as_role(AUDITOR)
+    body = client.get(reverse("detection:risks")).content.decode()
+    assert (
+        'data-dialog-open="funcion-pagos"' in body
+        and '<dialog class="modal" id="funcion-pagos"' in body
+    )
+    dialog = body.split('id="funcion-pagos"')[1].split("</dialog>")[0]
+    assert (
+        "mueven dinero" in dialog
+        and "pagos-sin-riesgo" in dialog
+        and "sin riesgos abiertos" in dialog
+    )
+    assert "pagos-retirado" not in dialog
+    assert reverse("detection:business_risk", args=[DOWN, "PAGOS"]) in dialog
+    assert "Administración › Catálogos" not in dialog  # el auditor no administra catálogos
+
+    # Una función sin descripción lo dice, y a quien puede escribirla le dice dónde.
+    CatalogEntry.objects.filter(kind="BUSINESS_ROLE", code="PAGOS").update(description="")
+    catalogs.invalidate()
+    as_role(ADMIN)
+    dialog = client.get(reverse("detection:risks")).content.decode()
+    dialog = dialog.split('id="funcion-pagos"')[1].split("</dialog>")[0]
+    assert "todavía no tiene descripción" in dialog and "Administración › Catálogos" in dialog
+
+    # La página de un riesgo lleva el mismo cuadro, con todos los riesgos de su función.
+    page = client.get(reverse("detection:business_risk", args=[LEAK, "PAGOS"])).content.decode()
+    assert 'data-dialog-open="funcion-pagos"' in page
+    assert "Interrupción del servicio" in page.split('id="funcion-pagos"')[1].split("</dialog>")[0]
+
+
+def test_assets_without_a_function_are_one_group_whether_empty_or_null(client, as_role):
+    """«Sin función» se guarda vacío o nulo según por dónde entró el activo: es el mismo grupo."""
+    vacio = AssetFactory(name="suelto-vacio", business_role="")
+    nulo = AssetFactory(name="suelto-nulo", business_role=None)
+    _scenario(vacio, LEAK, 2, 2)
+    worst = _scenario(nulo, LEAK, 4, 4)
+    (risk,) = business_risks.register()
+    assert risk.role == "" and len(risk.scenarios) == 2
+    assert business_risks.get(LEAK, business_risks.NO_ROLE).worst == worst
+    assert len(business_risks.of(worst).scenarios) == 2
+    card = business_risks.role_card(business_risks.NO_ROLE)
+    assert {row["asset"].name for row in card["assets"]} == {"suelto-vacio", "suelto-nulo"}
+    as_role(AUDITOR)
+    page = client.get(risk.url)
+    assert page.status_code == 200 and "suelto-nulo" in page.content.decode()
+
+
 def test_the_risk_page_lists_its_scenarios_and_decides_them_together(client, as_role):
     rows = _organization()
     user = as_role(OPERATOR)

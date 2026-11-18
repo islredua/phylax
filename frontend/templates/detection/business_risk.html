@@ -17,7 +17,7 @@
 {% block content %}
 <section class="card grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_auto]" data-business-risk>
   <dl class="flex flex-col gap-2 text-sm">
-    {% for label, text in brief %}<div class="grid grid-cols-1 gap-x-3 sm:grid-cols-[9rem_minmax(0,1fr)]"><dt class="kv-label sm:pt-0.5">{{ label }}</dt><dd class="text-ink">{{ text }}</dd></div>{% endfor %}
+    {% for label, text in brief %}<div class="grid grid-cols-1 gap-x-3 sm:grid-cols-[9rem_minmax(0,1fr)]"><dt class="kv-label sm:pt-0.5">{{ label }}</dt><dd class="text-ink">{{ text }}{% if label == "Dónde" %} <button type="button" class="term text-xs font-normal" data-dialog-open="{{ role_card.dialog_id }}" aria-haspopup="dialog">¿Qué es «{{ role_card.label }}»?</button>{% endif %}</dd></div>{% endfor %}
   </dl>
   <dl class="grid grid-cols-2 gap-x-6 gap-y-2 text-sm lg:w-80">
     <div><dt class="kv-label">Vulnerabilidades</dt><dd class="kv-value font-mono">{{ risk.vulnerabilities|miles }}{% if risk.kev %} <span class="font-sans text-xs text-critical">{{ risk.kev }} con explotación activa</span>{% endif %}</dd></div>
@@ -37,4 +37,5 @@
 {% else %}
 {% include "detection/_risk_rows.html" with software_link=True %}
 {% endif %}
+{% include "detection/_business_role_dialog.html" with card=role_card %}
 {% endblock %}

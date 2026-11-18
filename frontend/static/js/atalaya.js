@@ -371,7 +371,35 @@
     });
   }
 
+  // --- Cuadros modales (<dialog data-dialog>) ---------------------------------------------
+  // [data-dialog-open="id"] abre el <dialog> con ese id; [data-dialog-close] o un clic fuera de
+  // su caja lo cierran. Esc y devolver el foco a quien lo abrió ya los hace el navegador.
+  function initDialogs() {
+    document.addEventListener("click", function (e) {
+      var target = e.target;
+      if (!target || !target.closest) return;
+      var opener = target.closest("[data-dialog-open]");
+      if (opener) {
+        var dialog = document.getElementById(opener.getAttribute("data-dialog-open"));
+        if (dialog && typeof dialog.showModal === "function" && !dialog.open) {
+          e.preventDefault();
+          dialog.showModal();
+        }
+        return;
+      }
+      var closer = target.closest("[data-dialog-close]");
+      if (closer) {
+        var owner = closer.closest("dialog");
+        if (owner) owner.close();
+        return;
+      }
+      // El relleno está en la caja interior: si el clic cae en el <dialog>, fue en el telón.
+      if (target.matches("dialog[data-dialog]")) target.close();
+    });
+  }
+
   function init() {
+    initDialogs();
     document.querySelectorAll("[data-bulk]").forEach(initBulk);
     document.querySelectorAll("[data-queue]").forEach(initQueue);
     document.querySelectorAll("[data-nav]").forEach(initNav);

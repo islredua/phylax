@@ -3,9 +3,14 @@
 Registro por riesgo: lo que la organización puede perder en cada función de negocio. Recibe
 `business` (lista de `business_risks.BusinessRisk`, el más grave primero) y `grid` (el mapa función
 × consecuencia). Cada riesgo toma el nivel de su peor escenario y enlaza a su página, donde están
-sus escenarios (uno por activo) y se decide el tratamiento de todos a la vez.
+sus escenarios (uno por activo) y se decide el tratamiento de todos a la vez. Junto al mapa, la
+matriz 5×5 (`risk_matrix`) pone cada riesgo en la casilla de su peor escenario, y el nombre de cada
+función abre el cuadro que la explica (`roles`).
 {% endcomment %}
 {% if grid.rows %}
+{# El mapa dice dónde y qué; la matriz, qué tan probable y qué tan grave. En pantallas anchas van #}
+{# lado a lado (la matriz en una columna de ancho fijo, como en la vista por escenario). #}
+<div class="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_24rem] xl:items-start">
 <section class="card flex flex-col gap-2" data-risk-map>
   <h3 class="card-title mb-0">Mapa de riesgos <span class="font-normal text-muted">función de negocio × consecuencia</span></h3>
   <div class="table-wrap">
@@ -14,7 +19,7 @@ sus escenarios (uno por activo) y se decide el tratamiento de todos a la vez.
       <tbody>
         {% for row in grid.rows %}
         <tr>
-          <th scope="row" class="pr-1 text-left font-medium sm:whitespace-nowrap sm:pr-3">{{ row.label|capfirst }}</th>
+          <th scope="row" class="pr-1 text-left sm:whitespace-nowrap sm:pr-3"><button type="button" class="term" data-dialog-open="{{ row.dialog_id }}" aria-haspopup="dialog" title="Qué es esta función y qué activos la cumplen">{{ row.label|capfirst }}</button></th>
           {% for cell in row.cells %}
           {% if cell %}<td class="{{ cell.level|risk_cell_class }} rounded-sm px-1.5 py-1 font-semibold sm:px-2 sm:py-1.5"><a href="{{ cell.url }}" class="block text-inherit hover:underline" title="{{ cell.title }}: nivel {{ cell.level_label|lower }} por su peor escenario ({{ cell.worst.asset.name }}, {{ cell.likelihood }} × {{ cell.impact }} = {{ cell.score }})">{{ cell.level_label }} <span class="block text-xs font-normal">{{ cell.assets|length }}<span class="sm:hidden"> act.</span><span class="hidden sm:inline"> {{ cell.assets|length|pl:"-activo,activos" }}</span>{% if cell.undecided %}<span class="hidden sm:inline"> · {{ cell.undecided }} sin decidir</span>{% endif %}</span></a></td>{% else %}<td class="matrix-cell-empty rounded-sm px-1.5 py-1 text-center text-muted sm:px-2 sm:py-1.5" title="Ningún escenario abierto">—</td>{% endif %}
           {% endfor %}
@@ -23,8 +28,15 @@ sus escenarios (uno por activo) y se decide el tratamiento de todos a la vez.
       </tbody>
     </table>
   </div>
-  <p class="text-xs text-muted">Cada casilla es un riesgo: una consecuencia sobre una función de negocio, con el nivel de su peor escenario. Como mucho hay uno por función y consecuencia, por más activos o vulnerabilidades que se sumen.</p>
+  <p class="text-xs text-muted">Cada casilla es un riesgo: una consecuencia sobre una función de negocio, con el nivel de su peor escenario. Como mucho hay uno por función y consecuencia, por más activos o vulnerabilidades que se sumen. Pulsa el nombre de una función para ver qué es y qué activos la cumplen.</p>
 </section>
+<section class="card flex flex-col gap-2" data-risk-matrix>
+  <h3 class="card-title mb-0">Matriz de riesgos <span class="font-normal text-muted">probabilidad × impacto</span></h3>
+  {% include "detection/_risk_matrix.html" with matrix=risk_matrix compact=True cell_scope="&amp;view=riesgo" %}
+  <p class="text-xs text-muted">Cada riesgo está en la casilla de su peor escenario. Nivel = probabilidad × impacto: 1–4 bajo · 5–9 moderado · 10–14 alto · 15–19 muy alto · 20–25 crítico. Pulsa una casilla para ver sus riesgos.</p>
+</section>
+</div>
+{% for card in roles %}{% include "detection/_business_role_dialog.html" %}{% endfor %}
 {% endif %}
 <div class="table-wrap">
   <table class="data-table" data-business-risks>

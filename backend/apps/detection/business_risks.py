@@ -27,6 +27,8 @@ from django.db.models import Count, Q
 from django.urls import reverse
 
 from apps.assets import catalogs
+from apps.assets.enums import AssetStatus
+from apps.assets.models import Asset
 
 from . import policy, responsibles, risks
 from .models import RISK_OPEN_STATUSES, Risk, RiskConsequence, RiskLevel, RiskTreatment
@@ -36,6 +38,12 @@ NO_ROLE = "-"
 NO_ROLE_LABEL = "activos sin función de negocio"
 # «Fuga de información en Otro» no dice nada: el cajón de sastre del catálogo se nombra así.
 OTHER_ROLE, OTHER_ROLE_LABEL = "OTRO", "otros activos"
+NO_ROLE_HELP = (
+    "Activos a los que todavía no se les ha dado una función de negocio. Al dársela, sus riesgos "
+    "se suman a los de esa función."
+)
+# Los activos que el inventario tampoco lista: no cuentan como «activos con esta función».
+OUT_OF_INVENTORY = (AssetStatus.RETIRED, AssetStatus.IGNORED)
 CONSEQUENCE_LABEL = dict(RiskConsequence.choices)
 TREATMENT_LABEL = dict(RiskTreatment.choices)
 LEVEL_LABEL = dict(RiskLevel.choices)
@@ -152,6 +160,13 @@ class BusinessRisk:
         return [name for name, _ in names.most_common()]
 
 
+def _in_role(role) -> Q:
+    """Los escenarios de los activos de una función; «sin función» es tanto vacío como nulo."""
+    if role:
+        return Q(asset__business_role=role)
+    return Q(asset__business_role="") | Q(asset__business_role__isnull=True)
+
+
 def scenarios(queryset=None):
     """Escenarios abiertos en orden de trabajo, con lo que las listas necesitan de cada uno."""
     if queryset is None:
@@ -187,9 +202,7 @@ def get(consequence, role, rules=None) -> BusinessRisk | None:
     role = "" if role == NO_ROLE else role
     consequence = "" if consequence == NO_ROLE else consequence
     found = register(
-        Risk.objects.filter(
-            status__in=RISK_OPEN_STATUSES, consequence=consequence, asset__business_role=role
-        ),
+        Risk.objects.filter(_in_role(role), status__in=RISK_OPEN_STATUSES, consequence=consequence),
         rules,
     )
     return found[0] if found else None
@@ -202,9 +215,7 @@ def of(scenario) -> BusinessRisk:
     found = group(
         scenarios(
             Risk.objects.filter(
-                status__in=RISK_OPEN_STATUSES,
-                consequence=scenario.consequence,
-                asset__business_role=role,
+                _in_role(role), status__in=RISK_OPEN_STATUSES, consequence=scenario.consequence
             )
         )
     )
@@ -258,15 +269,77 @@ def grid(found) -> dict:
     columns += sorted(present - set(columns))
     rows = {}
     for risk in found:  # ya vienen del más grave al menos grave
-        row = rows.setdefault(risk.role, {"label": risk.role_label, "cells": {}})
+        row = rows.setdefault(
+            risk.role,
+            {"label": risk.role_label, "dialog_id": dialog_id(risk.role), "cells": {}},
+        )
         row["cells"][risk.consequence] = risk
     return {
         "columns": [(c, CONSEQUENCE_LABEL.get(c, c or "Sin consecuencia")) for c in columns],
-        "rows": [
-            {"label": row["label"], "cells": [row["cells"].get(c) for c in columns]}
-            for row in rows.values()
-        ],
+        "rows": [{**row, "cells": [row["cells"].get(c) for c in columns]} for row in rows.values()],
     }
+
+
+def dialog_id(role) -> str:
+    """El id del cuadro que explica una función de negocio (``role_cards``)."""
+    return f"funcion-{(role or 'sin-funcion').lower().replace('_', '-')}"
+
+
+def _card(role, here, assets) -> dict:
+    entry = catalogs.get(catalogs.BUSINESS_ROLE, role) if role else None
+    worst = {}
+    for risk in here:
+        for scenario in risk.scenarios:
+            rank = risks.LEVEL_ORDER.get(scenario.level, 9)
+            if rank < worst.get(scenario.asset_id, (99, ""))[0]:
+                worst[scenario.asset_id] = (rank, scenario.level)
+    # Los activos con escenarios van siempre (aunque el inventario ya no los liste) y primero.
+    listed = {a.pk: a for a in assets}
+    for risk in here:
+        for asset in risk.assets:
+            listed.setdefault(asset.pk, asset)
+    rows = sorted(
+        ({"asset": a, "level": worst.get(a.pk, (99, ""))[1]} for a in listed.values()),
+        key=lambda row: (worst.get(row["asset"].pk, (99, ""))[0], row["asset"].name.lower()),
+    )
+    label = BusinessRisk("", role).role_label
+    return {
+        "role": role,
+        "dialog_id": dialog_id(role),
+        "label": label[:1].upper() + label[1:],
+        "description": ((entry or {}).get("description") or "") if role else NO_ROLE_HELP,
+        "identity": bool(entry and entry["is_identity_control"]),
+        "risks": here,
+        "assets": rows,
+        "with_risk": len(worst),
+    }
+
+
+def role_cards(found) -> list[dict]:
+    """Lo que el registro explica de cada función de negocio que tiene riesgos: qué es (la
+    descripción del catálogo, que se edita en Administración), qué puede perder la organización
+    en ella y qué activos la cumplen, tengan riesgos abiertos o no."""
+    by_role = {}
+    for risk in found:
+        by_role.setdefault(risk.role, []).append(risk)
+    named = [role for role in by_role if role]
+    wanted = Q(business_role__in=named)
+    if "" in by_role:
+        wanted |= Q(business_role="") | Q(business_role__isnull=True)
+    assets = {}
+    if by_role:
+        inventory = Asset.objects.filter(wanted).exclude(status__in=OUT_OF_INVENTORY)
+        for asset in inventory.order_by("name"):
+            assets.setdefault(asset.business_role or "", []).append(asset)
+    return [_card(role, here, assets.get(role, [])) for role, here in by_role.items()]
+
+
+def role_card(role) -> dict:
+    """El cuadro de una sola función (la página de uno de sus riesgos), con todos sus riesgos."""
+    role = "" if role == NO_ROLE else (role or "")
+    found = register(Risk.objects.filter(_in_role(role), status__in=RISK_OPEN_STATUSES))
+    cards = role_cards(found)
+    return cards[0] if cards else _card(role, [], [])
 
 
 def describe(risk) -> list[tuple[str, str]]:

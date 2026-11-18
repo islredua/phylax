@@ -909,6 +909,7 @@ activo.
 - **No tiene tabla.** Se arma al leer con los escenarios abiertos (`business_risks.register`,
   `get`, `of`, `counts`). No hay nada que sincronizar cuando un activo cambia de función o un
   escenario se cierra, y el eje (hoy la función de negocio) se puede cambiar sin migrar datos.
+  Los activos sin función (vacía o nula, según por dónde entraron) forman un solo grupo.
 - **Su nivel es el de su peor escenario.** No se promedia ni se suma: un activo en nivel crítico
   no se compensa con tres en nivel bajo. La página del riesgo dice cuál es y cómo están los demás.
 - **Las decisiones viven en los escenarios.** Tratamiento, responsable y plazo son de cada
@@ -924,10 +925,29 @@ activo.
 
 - **Por riesgo** (lo normal): tarjetas (abiertos, críticos, muy altos, altos, con algo sin
   decidir, escenarios), el **mapa función de negocio × consecuencia** (cada casilla es un riesgo,
-  con el color de su nivel y cuántos activos abarca) y la lista de riesgos con su peor escenario,
-  activos, tratamiento («2 mitigar · 1 sin decidir»), plazo más próximo y responsables. Acepta
-  dos filtros: `?level=` (el nivel **del riesgo**) y `?treatment=none` (riesgos con algún
-  escenario sin decidir). «Exportar» da una fila por riesgo.
+  con el color de su nivel y cuántos activos abarca), la **matriz 5×5 de riesgos** y la lista de
+  riesgos con su peor escenario, activos, tratamiento («2 mitigar · 1 sin decidir»), plazo más
+  próximo y responsables. Filtros: `?level=` (el nivel **del riesgo**), `?treatment=none`
+  (riesgos con algún escenario sin decidir) y la casilla de la matriz. «Exportar» da una fila por
+  riesgo.
+  - **La matriz probabilidad × impacto no se fue con los dos niveles.** El mapa dice dónde y qué;
+    la matriz, qué tan probable y qué tan grave (un 5 × 4 y un 4 × 5 son los dos críticos y no
+    son lo mismo). En esta vista cada riesgo ocupa la casilla de su peor escenario
+    (`risks.matrix(found)`); pulsar una casilla filtra la lista de riesgos
+    (`?likelihood=5&impact=4&view=riesgo`). Sin `view=riesgo` esos dos parámetros siguen siendo
+    los de la matriz de escenarios (Inicio, la ficha del activo, la vista por escenario) y abren
+    la lista de escenarios.
+  - **El nombre de cada función se explica al pulsarlo** («API»: ¿qué es una API?). Abre un
+    cuadro (`business_risks.role_cards`, `_business_role_dialog.html`) con la descripción de la
+    función, lo que la organización puede perder en ella (sus riesgos, con nivel y enlace) y los
+    activos que la cumplen, tengan riesgos abiertos o no. La descripción es la del catálogo
+    (`CatalogEntry.description`, **Administración › Catálogos**); `assets.0013` la siembra para
+    las doce funciones iniciales, en palabras para quien no es técnico, sin tocar las que ya
+    tuvieran texto. Una función sin descripción lo dice y, a quien administra catálogos, le dice
+    dónde escribirla. La página de cada riesgo lleva el mismo cuadro («¿Qué es «API»?»).
+    Es el primer cuadro modal de la plataforma: `<dialog class="modal" data-dialog>`, que abre
+    cualquier `[data-dialog-open="<id>"]` y cierran `[data-dialog-close]`, Esc o un clic fuera
+    (`atalaya.js`, `initDialogs`); el foco vuelve a quien lo abrió.
 - **Por escenario** (`?view=escenario`, o cualquier filtro que solo se entiende escenario por
   escenario: activo, responsable, plazos, casilla de la matriz, estado): la lista de siempre, con
   filtros, colas de trabajo, decisión en lote, matriz 5×5 y «por responsable». Su CSV añade las

@@ -1,0 +1,45 @@
+{% load detection_tags inventory %}
+{% comment %}
+Cuadro que explica una función de negocio a quien no la conoce («API»: ¿qué es?). Recibe `card`
+(`business_risks.role_cards`): la descripción del catálogo, lo que la organización puede perder en
+esa función y los activos que la cumplen. Lo abre cualquier `[data-dialog-open="<card.dialog_id>"]`
+(atalaya.js); Esc, la ✕ o un clic fuera lo cierran.
+{% endcomment %}
+<dialog class="modal" id="{{ card.dialog_id }}" aria-labelledby="{{ card.dialog_id }}-titulo" data-dialog>
+  <div class="modal-box">
+    <div class="modal-head">
+      <div>
+        <p class="eyebrow mb-1">Función de negocio</p>
+        <h3 class="modal-title" id="{{ card.dialog_id }}-titulo">{{ card.label }}</h3>
+      </div>
+      <button type="button" class="btn-secondary btn-sm" data-dialog-close aria-label="Cerrar">✕</button>
+    </div>
+    <div class="modal-body">
+      <div>
+        {% if card.description %}<p>{{ card.description }}</p>
+        {% else %}<p class="text-muted">Esta función todavía no tiene descripción.{% if perms.assets.manage_catalogs %} Escríbela en <a href="{% url 'assets:catalogs' %}">Administración › Catálogos</a>: es lo que se lee aquí.{% endif %}</p>{% endif %}
+        {% if card.identity %}<p class="mt-1 text-xs text-muted">Es un componente de identidad o control: de él depende el acceso a otros sistemas, y por eso sus activos pesan más.</p>{% endif %}
+      </div>
+      {% if card.risks %}
+      <div>
+        <h4 class="modal-section">Qué puede perder la organización aquí</h4>
+        <ul class="flex flex-col gap-1.5">
+          {% for r in card.risks %}
+          <li class="flex flex-wrap items-center gap-x-2 gap-y-0.5">{% risk_level_badge r.level %} <a href="{{ r.url }}" class="font-medium">{{ r.consequence_label }}</a> <span class="text-xs text-muted">{{ r.assets|length|pl:"activo,activos" }} · {{ r.treatments }}</span></li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+      <div>
+        <h4 class="modal-section">Activos con esta función <span class="font-normal text-muted">{{ card.assets|length }}{% if card.with_risk != card.assets|length %} · {{ card.with_risk }} con riesgos abiertos{% endif %}</span></h4>
+        <ul class="flex flex-col gap-1.5">
+          {% for row in card.assets|slice:":12" %}
+          <li class="flex flex-wrap items-center gap-x-2 gap-y-0.5"><a href="{% url 'assets:detail' row.asset.pk %}?tab=riesgos">{{ row.asset.name }}</a> {% if row.level %}{% risk_level_badge row.level %}{% else %}<span class="text-xs text-muted">sin riesgos abiertos</span>{% endif %}</li>
+          {% endfor %}
+        </ul>
+        {% if card.assets|length > 12 %}<p class="mt-1 text-xs text-muted">y {{ card.assets|length|add:"-12" }} más.</p>{% endif %}
+      </div>
+      <p class="text-xs text-muted">{% if card.role %}La función de negocio se elige al editar cada activo. Lo que se pierde en una función se valora activo por activo y el riesgo toma el nivel del peor.{% else %}La función de negocio se elige al editar cada activo.{% endif %}{% if card.description and perms.assets.manage_catalogs %} La descripción se cambia en <a href="{% url 'assets:catalogs' %}">Administración › Catálogos</a>.{% endif %}</p>
+    </div>
+  </div>
+</dialog>
