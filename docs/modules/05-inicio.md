@@ -14,7 +14,7 @@ riesgos conforme a ISO/IEC 27005 y un modelo de lenguaje local que redacta para 
 | **Qué hago hoy** | `indicators.today()` | Al cargar |
 | **Indicadores** que el recorrido no cuenta (KEV y plazos CISA vencidos, activos, acciones por aprobar, fuentes de inteligencia) con delta frente a la última instantánea | `presentation.indicators.current()` (caché 60 s) | Sondeo HTMX cada 30 s |
 | **Tendencias** (riesgos por nivel; vulnerabilidades sostenidas y en KEV) | `HealthSnapshot` diaria, `indicators.trend()` | Instantánea del día cada hora (`beat`, minuto 5) |
-| **Riesgos que más pesan** + **matriz 5×5** | `indicators.top_risks()`, `detection.risks.matrix()` | Al cargar |
+| **Riesgos que más pesan** (riesgos de la organización, con su peor escenario) + **matriz 5×5 de escenarios** | `detection.business_risks.register()`, `detection.risks.matrix()` | Al cargar |
 | **Lectura del estado por IA** (resumen y qué urge a la vista; qué cambió, puntos clave y siguientes pasos plegados) | `presentation.narrative` → `HealthNarrative` | A lo sumo cada `narrative_every_minutes` (60) y solo si los datos cambiaron y el modelo está libre; botón «Regenerar» |
 | **Avisos** (riesgo crítico, plazo CISA vencido, KEV nuevo, acciones por aprobar, herramientas fallidas, fuente CTI sin sincronizar, modelo caído) | `indicators.alerts()` por reglas sobre eventos existentes, sin tabla nueva | Sondeo cada 30 s |
 | **Pulso del sistema** | `detection.activity.recent(12)` | Sondeo cada 30 s |
@@ -281,6 +281,34 @@ minutos. Dos correcciones en el flujo:
 - `detection.descriptions`: tras un rechazo la espera crece (30 min, 1 h, 2 h… hasta un día) antes
   de que el drenaje automático la vuelva a pedir; quien la pide desde el detalle no espera y al
   lograrse la redacción el historial se borra.
+
+## Inicio cuenta riesgos de la organización (2026-11-18)
+
+Desde que el registro tiene dos niveles (`03-deteccion-continua.md`, «El riesgo de la
+organización»), «riesgos abiertos» en Inicio es el número de **riesgos de la organización**: una
+consecuencia sobre una función de negocio. De ahí salen la cifra grande, el reparto por nivel,
+«sin tratamiento decidido» (riesgos con algún escenario sin decidir), «Riesgos que más pesan» y
+el reporte (`indicators.compute` → `business_risks.counts`). Debajo se dice cuántos escenarios
+hay (`risks.scenarios`, `risks.scenarios_untreated`), y la matriz 5×5 y los seguimientos vencidos
+siguen contando escenarios, que es donde se trabaja.
+
+**Una instantánea de antes no se compara con una de ahora.** Las instantáneas anteriores
+contaban el riesgo de cada activo: 43 en el laboratorio el 17 de noviembre, 23 el 18 con la
+misma exposición. Restarlas diría «20 riesgos menos». Por eso:
+
+- La instantánea guarda en qué unidad cuenta (lleva `risks.scenarios`);
+  `indicators.counts_business_risks(instantánea)` lo dice. Las anteriores no se reescriben.
+- `indicators.deltas()` deja en `None` las dos diferencias de riesgos cuando la instantánea
+  anterior es de la otra unidad (`risks_comparable` en falso). La cifra grande dice «sin
+  comparación con el 17 nov 2026: cambió la forma de contarlos»; las demás variaciones
+  (vulnerabilidades, KEV, acciones) se siguen comparando.
+- `indicators.trend()` no dibuja los riesgos de esos días (`other_unit`): la línea de riesgos por
+  nivel empieza el día del cambio y lo dice debajo; la de vulnerabilidades no se interrumpe.
+- En la lectura por IA, «qué cambió» lo escribe el código ese día (`narrative.settled`): el
+  modelo resumía la advertencia como «no hay con qué comparar riesgos o vulnerabilidades», que no
+  es cierto para las vulnerabilidades. El reporte ejecutivo lleva la misma frase.
+
+Al día siguiente la instantánea anterior ya es de la misma unidad y todo vuelve a compararse.
 
 ## Buscador global (`presentation/search.py`, revisión del 2026-11-16, N3)
 

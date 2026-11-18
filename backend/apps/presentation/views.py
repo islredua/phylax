@@ -62,7 +62,14 @@ def _charts(data, rows):
     levels = ["CRITICAL", "VERY_HIGH", "HIGH", "MODERATE", "LOW"]
     sources = data["observations"]["by_source"]
     priority = data["vulnerabilities"]["priority"]
+    # Si la ventana incluye días que contaban los riesgos en otra unidad, desde qué día valen.
+    counted = [r["day"] for r in rows if r["has_data"] and not r["other_unit"]]
     return {
+        "risks_since": (
+            (counted[0] if counted else timezone.localdate())
+            if any(r["other_unit"] for r in rows)
+            else None
+        ),
         "risk_series": [(f"level:{lvl}", level_label[lvl], LEVEL_COLORS[lvl]) for lvl in levels],
         "risk_legend": [(level_label[lvl], LEVEL_COLORS[lvl]) for lvl in levels],
         "vuln_series": [
@@ -435,7 +442,7 @@ class HomeView(TemplateView):
     def get_context_data(self, **kwargs):
         from django.core.cache import cache
 
-        from apps.detection import activity, risks
+        from apps.detection import activity, business_risks, risks
         from apps.detection.models import Risk
 
         from . import indicators, narrative
@@ -470,6 +477,7 @@ class HomeView(TemplateView):
             **stage_context(clean_stage(self.request.GET.get("etapa", "")), data, user),
             matrix=risks.matrix(open_risks),
             top_risks=top,
+            top_business=business_risks.register()[:5],
             alerts=indicators.alerts(data),
             pulse=activity.recent(limit=12) if blocks["activity"] else [],
             **narrative.reading(data, top),
@@ -649,7 +657,7 @@ class HomeReportView(PermissionRequiredMixin, View):
     raise_exception = True
 
     def get(self, request):
-        from apps.detection import risks
+        from apps.detection import business_risks, risks
         from apps.detection.models import Risk
 
         from . import indicators, narrative
@@ -666,6 +674,7 @@ class HomeReportView(PermissionRequiredMixin, View):
             "health_label": narrative.STATUS_LABEL.get(data["health"], data["health"]),
             "hero": hero_payload(data),
             "top_risks": top,
+            "top_business": business_risks.register()[:10],
             "alerts": indicators.alerts(data),
             "today": indicators.today(data),
             "alert_label": indicators.ALERT_LEVEL_LABEL,

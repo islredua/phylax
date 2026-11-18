@@ -1,0 +1,43 @@
+{% comment %}
+Barra de decisión en lote: el mismo tratamiento, o el mismo responsable, para los escenarios
+marcados en la tabla que la acompaña (dentro del mismo formulario, que apunta a `risk_bulk`).
+Recibe `bulk_treatments`, `bulk_assign`, `responsible_choices` y `policy`; `bulk_label` y
+`hint_empty` cambian el rótulo y la pista (la página del riesgo decide «para todo el riesgo»).
+{% endcomment %}
+<div class="card flex flex-wrap items-end gap-3 py-3" data-bulk data-bulk-hint-empty="{{ hint_empty|default:'Marca escenarios en la tabla para decidir el mismo tratamiento en todos o asignarles responsable.' }}" data-bulk-hint-action="Elige qué hacer con los marcados.">
+  <div>
+    <label class="form-label" for="risk-bulk-treatment">{{ bulk_label|default:"Para los marcados" }}</label>
+    <select id="risk-bulk-treatment" name="treatment" class="form-input w-auto" data-bulk-action required>
+      <option value="">Elige qué hacer…</option>
+      <option value="{{ bulk_assign }}" data-param="assign" data-require="risk-bulk-responsible" data-confirm="¿Cambiar el responsable de {n} escenarios? No decide su tratamiento.">Asignar responsable</option>
+      {% for value, label in bulk_treatments %}<option value="{{ value }}" data-param="{% if value == 'ACCEPT' %}accept{% else %}plan{% endif %}"{% if value == 'ACCEPT' %} data-require="risk-bulk-note"{% endif %} data-confirm="¿Registrar «{{ label|lower }}» en {n} escenarios? La decisión queda a tu nombre en cada uno.">{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="form-label" for="risk-bulk-responsible">Responsable</label>
+    <select id="risk-bulk-responsible" name="responsible" class="form-input w-auto max-w-56" data-bulk-optional>
+      <option value="">Cada uno conserva el suyo</option>
+      {% for value, label in responsible_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+    </select>
+  </div>
+  <div data-reveal-for="risk-bulk-responsible" data-reveal-value="other">
+    <label class="form-label" for="risk-bulk-owner">Equipo o persona sin cuenta</label>
+    <input id="risk-bulk-owner" name="owner" class="form-input" maxlength="120" placeholder="Infraestructura, proveedor…">
+  </div>
+  <div data-bulk-param="plan">
+    <label class="form-label" for="risk-bulk-date">Fecha compromiso</label>
+    <input id="risk-bulk-date" name="target_date" type="date" class="form-input w-auto" data-bulk-optional aria-describedby="risk-bulk-date-help">
+    <p class="form-help" id="risk-bulk-date-help">Vacía: el plazo de la política de cada escenario.</p>
+  </div>
+  <div data-bulk-param="accept">
+    <label class="form-label" for="risk-bulk-review">Revisar el</label>
+    <input id="risk-bulk-review" name="review_at" type="date" class="form-input w-auto" data-bulk-optional aria-describedby="risk-bulk-review-help">
+    <p class="form-help" id="risk-bulk-review-help">Vacía: en {{ policy.accept_review_days }} días.</p>
+  </div>
+  <div class="grow">
+    <label class="form-label" for="risk-bulk-note">Nota (obligatoria para aceptar)</label>
+    <input id="risk-bulk-note" name="note" class="form-input" maxlength="2000" placeholder="Por qué se decide así" data-bulk-optional>
+  </div>
+  <button type="submit" class="btn-secondary" data-bulk-submit>Aplicar a <span data-bulk-count>los</span> marcados</button>
+  <p class="w-full text-xs text-muted" data-bulk-hint>Marca escenarios en la tabla para decidir el mismo tratamiento en todos.</p>
+</div>

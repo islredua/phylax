@@ -184,13 +184,19 @@ def test_register_and_detail_pages(client, as_role):
     as_role(OPERATOR)
     asset = _asset_with_vulns()
     risk = Risk.objects.get(asset=asset)
-    body = client.get("/detection/").content.decode()
-    assert risk.headline in body and "Matriz de los riesgos" in body and "api-pagos" in body
+    # La portada del registro es por riesgo de la organización; el escenario está en su lista.
+    assert "data-business-risks" in client.get("/detection/").content.decode()
+    body = client.get("/detection/?view=escenario").content.decode()
+    assert risk.headline in body and "Matriz de los escenarios" in body and "api-pagos" in body
     assert "Sin tratamiento decidido" in body and "sin decidir" in body and "Hoy" in body
     body = client.get(f"/detection/?asset={asset.pk}").content.decode()
     assert f"Riesgos de {asset.name}" in body and "Reevaluar con IA" in body
-    assert client.get("/detection/?level=LOW").context["paginator"].count == 0
-    assert client.get("/detection/?treatment=none").context["paginator"].count == 1
+    assert client.get("/detection/?level=LOW&view=escenario").context["paginator"].count == 0
+    listed = client.get("/detection/?treatment=none&view=escenario")
+    assert listed.context["paginator"].count == 1
+    # Los mismos filtros, por riesgo: ninguno de nivel bajo y uno con algo sin decidir.
+    assert client.get("/detection/?level=LOW").context["business"] == []
+    assert len(client.get("/detection/?treatment=none").context["business"]) == 1
     body = client.get(f"/detection/risks/{risk.pk}/").content.decode()
     for text in (
         "Detalles",
@@ -748,7 +754,7 @@ def test_intelligence_summary_counts_kev_epss_and_sources(client, as_role):
         "vencido",
     ):
         assert text in body, text
-    listing = client.get("/detection/").content.decode()
+    listing = client.get("/detection/?view=escenario").content.decode()
     assert "Explotación activa" in listing and "<th" in listing and "Inteligencia</th>" in listing
     html = client.get(f"/detection/risks/{risk.pk}/report/").content.decode()
     md = client.get(f"/detection/risks/{risk.pk}/report/?format=md").content.decode()
@@ -762,7 +768,7 @@ def test_rule_risks_without_kev_say_so_and_payload_carries_intelligence(client, 
     risks.derive_risks(asset.pk, use_llm=False, fresh=True)
     risk = Risk.objects.filter(asset=asset, status="OPEN").first()
     assert "Ninguna de sus vulnerabilidades aparece en el catálogo" in risk.intelligence_summary
-    body = client.get("/detection/").content.decode()
+    body = client.get("/detection/?view=escenario").content.decode()
     assert "sin explotación conocida" in body
     vulns = list(Vulnerability.objects.filter(asset=asset).select_related("cve"))
     context = SimpleNamespace(
@@ -1114,6 +1120,47 @@ def test_lay_text_removes_what_the_narrative_validator_forbids():
     assert not technical_tokens(out)
 
 
+def test_the_writer_can_name_the_asset_and_gets_words_instead_of_acronyms():
+    """Con el ensayo del reparto por consecuencia fallaron 6 de 36 redacciones: el validador
+    prohibía trozos del nombre del propio activo («info», de un software llamado «decoy-info»,
+    casaba dentro de «información») y el modelo copiaba «PII» de las categorías de datos."""
+    from apps.llm.schemas import narrative_validator, technical_tokens
+
+    def flaw(label):
+        return SimpleNamespace(component_id=1, component=SimpleNamespace(label=label), title="")
+
+    words = risks._forbidden_words(
+        [flaw("decoy-info 1.0.0"), flaw("log4j-core 2.14.1")], "decoy-info"
+    )
+    # El software ajeno sigue prohibido; el nombre del activo y sus partes, no.
+    assert {"log4j-core", "log4j", "core", "2.14.1"} <= set(words)
+    assert not {"decoy-info", "decoy", "info"} & {w.lower() for w in words}
+    # Y lo prohibido se busca como palabra entera: «core» no es «decoro».
+    paragraphs = {
+        "asset_paragraph": "decoy-info es un equipo señuelo que guarda información de prueba con datos personales y sirve para detectar a quien entra sin permiso a la red interna.",
+        "scenario_paragraph": "Una pieza que registra la actividad del servidor tiene una falla que permitiría a un atacante leer la información del equipo sin el menor decoro ni dejar rastro.",
+        "likelihood_paragraph": "La falla ya se usa en ataques reales y el equipo es alcanzable desde la red interna, así que la probabilidad es alta.",
+        "impact_paragraph": "Se expondría información de prueba y se perdería la capacidad de detectar intrusos, sin pérdidas directas de dinero.",
+    }
+    narrative_validator(words).model_validate(paragraphs)
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="core"):
+        narrative_validator(words).model_validate(
+            {
+                **paragraphs,
+                "scenario_paragraph": paragraphs["scenario_paragraph"].replace(
+                    "Una pieza", "El core de registro"
+                ),
+            }
+        )
+    # Lo que el redactor recibe del activo ya no trae siglas que luego se le prohíben.
+    out = risks.lay_text("Guarda PII de asegurados; el EPSS es alto y figura en KEV (KEV).")
+    assert not technical_tokens(out) and "datos personales" in out
+    assert "figura en el catálogo de explotación activa" in out
+    assert risks.DATA_CATEGORY_WORDS["PII"] == "datos personales"
+
+
 def test_polish_paragraph_drops_cut_and_repeated_sentences():
     text = (
         "El servicio cobra las primas. En resumen, el riesgo es crítico. Otra idea útil. "
@@ -1260,7 +1307,7 @@ def test_lists_lead_with_what_tells_risks_apart(client, as_role):
     made = {title: risk(f"k{n}", title) for n, title in enumerate(cases)}
     for title, subject in cases.items():
         assert made[title].subject == subject, title
-    body = client.get("/detection/").content.decode()
+    body = client.get("/detection/?view=escenario").content.decode()
     first = made["Compromiso del api-pagos por Log4Shell en log4j-core"]
     # El enlace de la fila es el software o la vía de ataque; la consecuencia va debajo.
     link = f'<a href="/detection/risks/{first.pk}/" class="font-medium"'

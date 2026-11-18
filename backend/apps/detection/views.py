@@ -5,7 +5,7 @@ from django.contrib.auth.mixins import PermissionRequiredMixin
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Case, Count, FloatField, IntegerField, Max, Q, Value, When
 from django.db.models.functions import Coalesce
-from django.http import HttpResponseRedirect
+from django.http import Http404, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
@@ -25,6 +25,7 @@ from . import (
     actions,
     activity,
     automation,
+    business_risks,
     consolidation,
     descriptions,
     events,
@@ -61,6 +62,7 @@ from .forms import (
 )
 from .models import (
     OPEN_STATUSES,
+    RISK_OPEN_STATUSES,
     VULN_OPEN_STATUSES,
     Action,
     DetectionEvent,
@@ -68,8 +70,10 @@ from .models import (
     FindingSeverity,
     PlannedAction,
     Risk,
+    RiskConsequence,
     RiskEvent,
     RiskEventKind,
+    RiskLevel,
     Vulnerability,
     VulnerabilityStatus,
 )
@@ -855,12 +859,16 @@ def filter_risks(params, user=None):
 
 QUEUE_LIMIT = 500
 QUEUE_LABELS = (
-    ("mine", "riesgos a tu nombre"),
-    ("policy_overdue", "riesgos fuera del plazo de la política"),
-    ("kev_overdue", "riesgos con plazo de CISA vencido"),
-    ("overdue", "riesgos con seguimiento vencido"),
-    ("treatment", "riesgos sin tratamiento decidido"),
+    ("mine", "escenarios a tu nombre"),
+    ("policy_overdue", "escenarios fuera del plazo de la política"),
+    ("kev_overdue", "escenarios con plazo de CISA vencido"),
+    ("overdue", "escenarios con seguimiento vencido"),
+    ("treatment", "escenarios sin tratamiento decidido"),
 )
+# El registro se abre por riesgo de la organización; con ``view=escenario``, o con cualquier
+# filtro que solo tiene sentido escenario por escenario, se abre la lista de escenarios.
+SCENARIO_VIEW = "escenario"
+RISK_VIEW_PARAMS = {"level", "treatment", "view"}
 
 
 def risk_queue(query, current_pk=None, user=None):
@@ -881,7 +889,11 @@ def risk_queue(query, current_pk=None, user=None):
         return None
     pks = list(risks.triage_order(qs).values_list("pk", flat=True)[:QUEUE_LIMIT])
     list_url = f"{reverse('detection:risks')}?{query}"
-    label = next((text for key, text in QUEUE_LABELS if f"{key}=" in query), "riesgos de la lista")
+    if "view=" not in query:
+        list_url += f"{'&' if query else ''}view={SCENARIO_VIEW}"
+    label = next(
+        (text for key, text in QUEUE_LABELS if f"{key}=" in query), "escenarios de la lista"
+    )
 
     def url_for(pk):
         return f"{reverse('detection:risk', args=[pk])}?cola={quote(query, safe='')}#tratamiento"
@@ -903,27 +915,87 @@ def risk_queue(query, current_pk=None, user=None):
 
 
 class RiskRegisterView(Perm, PaginationMixin, ListView):
-    """Registro de riesgos (ISO/IEC 27005) con la matriz 5×5 de los riesgos listados."""
+    """Registro de riesgos (ISO/IEC 27005), en dos vistas.
+
+    **Por riesgo** (lo normal): lo que la organización puede perder en cada función de negocio
+    (``business_risks``), con su mapa función × consecuencia. **Por escenario**: el riesgo en
+    cada activo, que es donde se trabaja (filtros, colas, decisión en lote, matriz 5×5).
+    """
 
     permission_required = "detection.view_risk"
     template_name = "detection/risks.html"
     context_object_name = "risks"
     paginate_by = 25
 
+    @property
+    def by_risk(self):
+        """¿Toca la vista por riesgo? Solo si nadie pidió escenarios ni puso un filtro que
+        solo se entiende escenario por escenario (un activo, un responsable, un plazo…)."""
+        params = self.request.GET
+        active = {key for key, value in params.items() if value} - {"export"}
+        return (
+            params.get("view") != SCENARIO_VIEW
+            and active <= RISK_VIEW_PARAMS
+            and params.get("treatment", "") in ("", "none")
+        )
+
+    def business(self):
+        """Los riesgos de la organización que se listan y todos los abiertos (para el mapa)."""
+        params = self.request.GET
+        found = business_risks.register(rules=policy.current())
+        level = params.get("level") if params.get("level") in RiskLevel.values else ""
+        undecided = params.get("treatment") == "none"
+        shown = [
+            r for r in found if (not level or r.level == level) and (not undecided or r.undecided)
+        ]
+        return shown, found
+
     def get_queryset(self):
         qs, self.filter_form = filter_risks(self.request.GET, user=self.request.user)
-        return risks.triage_order(qs)
+        return risks.triage_order(qs) if not self.by_risk else qs.none()
 
     def get(self, request, *args, **kwargs):
         if exports.wants_csv(request):
+            if self.by_risk:
+                return exports.csv_response(
+                    "riesgos",
+                    exports.BUSINESS_RISK_COLUMNS,
+                    exports.business_risk_rows(self.business()[0]),
+                )
             # «Exportar lo filtrado»: la misma consulta y el mismo orden que la lista, sin paginar.
             return exports.csv_response(
-                "riesgos", exports.RISK_COLUMNS, exports.risk_rows(self.get_queryset())
+                "escenarios", exports.RISK_COLUMNS, exports.risk_rows(self.get_queryset())
             )
         return super().get(request, *args, **kwargs)
 
+    def _view_url(self, view):
+        """La otra vista del registro. Al cambiar de vista se sueltan los filtros: los de una
+        no significan lo mismo en la otra."""
+        base = reverse("detection:risks")
+        return f"{base}?view={SCENARIO_VIEW}" if view == SCENARIO_VIEW else base
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        context.update(
+            by_risk=self.by_risk,
+            risk_view_url=self._view_url(""),
+            scenario_view_url=self._view_url(SCENARIO_VIEW),
+            open_scenarios=Risk.objects.filter(status__in=RISK_OPEN_STATUSES).count(),
+            open_risks=business_risks.counts()["open"],
+        )
+        if self.by_risk:
+            shown, found = self.business()
+            context.update(
+                business=shown,
+                business_summary=business_risks.summary(found),
+                grid=business_risks.grid(found),
+                today=risks.today(user=self.request.user),
+                export_url=_export_url(self.request),
+                filters_active=filters_active(self.request.GET),
+                level_filter=self.request.GET.get("level", ""),
+                undecided_filter=self.request.GET.get("treatment") == "none",
+            )
+            return context
         asset_id = (
             self.filter_form.cleaned_data.get("asset") if self.filter_form.is_valid() else None
         )
@@ -938,6 +1010,8 @@ class RiskRegisterView(Perm, PaginationMixin, ListView):
             summary=risks.summary(asset_id),
             matrix=risks.matrix(listed),
             asset_id=asset_id,
+            # Lo que cada enlace de la página debe conservar: el activo o la vista por escenario.
+            scope=f"&asset={asset_id}" if asset_id else f"&view={SCENARIO_VIEW}",
             asset=listed[0].asset if asset_id and listed else None,
             consolidation_pending=consolidation.is_pending(asset_id) if asset_id else False,
             today=risks.today(asset_id, user=self.request.user),
@@ -979,6 +1053,8 @@ class RiskDetailView(Perm, TemplateView):
             # Fecha compromiso propuesta: el plazo de la política mientras se pueda cumplir.
             suggested_target=risk.target_date or (due.date if due and not due.overdue else None),
             risk=risk,
+            # El riesgo de la organización al que pertenece este escenario.
+            business=business_risks.of(risk),
             evidence=risks.evidence(risk),
             intel=intel,
             timeline=risk.events.select_related("actor").order_by("-occurred_at", "-id"),
@@ -1002,6 +1078,50 @@ class RiskDetailView(Perm, TemplateView):
                     "residual_impact": risk.residual_impact,
                 }
             ),
+        )
+        return context
+
+
+class BusinessRiskView(Perm, TemplateView):
+    """Un riesgo de la organización: una consecuencia sobre una función de negocio, con sus
+    escenarios (uno por activo). Aquí se decide el tratamiento de todos a la vez; cada decisión
+    queda en su escenario (``RiskBulkView``)."""
+
+    permission_required = "detection.view_risk"
+    template_name = "detection/business_risk.html"
+
+    def get(self, request, *args, **kwargs):
+        consequence, role = kwargs["consequence"], kwargs["role"]
+        if consequence not in RiskConsequence.values and consequence != business_risks.NO_ROLE:
+            raise Http404("No existe esa consecuencia.")
+        self.rules = policy.current()
+        self.risk = business_risks.get(consequence, role, self.rules)
+        if self.risk is None:
+            # Una función que el catálogo no conoce no es un riesgo que se resolvió: no existe.
+            if role != business_risks.NO_ROLE and not catalogs.get(catalogs.BUSINESS_ROLE, role):
+                raise Http404("No existe esa función de negocio.")
+            gone = business_risks.BusinessRisk(
+                "" if consequence == business_risks.NO_ROLE else consequence,
+                "" if role == business_risks.NO_ROLE else role,
+            )
+            messages.info(
+                request,
+                f"«{gone.title}» ya no tiene escenarios abiertos: se resolvieron o sus activos "
+                "cambiaron de función.",
+            )
+            return HttpResponseRedirect(reverse("detection:risks"))
+        return super().get(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context.update(
+            risk=self.risk,
+            risks=self.risk.scenarios,
+            brief=business_risks.describe(self.risk),
+            policy=self.rules,
+            bulk_treatments=list(Risk._meta.get_field("treatment").choices),
+            bulk_assign=BULK_ASSIGN,
+            responsible_choices=responsibles.choices(),
         )
         return context
 
@@ -1118,7 +1238,7 @@ class RiskBulkView(Perm, View):
         ids = request.POST.getlist("ids")
         form = RiskBulkForm(request.POST)
         if not ids:
-            messages.error(request, "Marca al menos un riesgo.")
+            messages.error(request, "Marca al menos un escenario.")
             return HttpResponseRedirect(back)
         if not form.is_valid():
             messages.error(request, "Elige el tratamiento y revisa las fechas.")
@@ -1169,7 +1289,7 @@ class RiskBulkView(Perm, View):
                 )
             messages.success(
                 request,
-                f"{done} riesgo{'s' if done != 1 else ''} → {label}{extra}, decidido por ti.",
+                f"{done} escenario{'s' if done != 1 else ''} → {label}{extra}, decidido por ti.",
             )
         for reason, group in failed.items():
             messages.error(
@@ -1188,7 +1308,7 @@ class RiskBulkView(Perm, View):
         """«Asignar responsable» en lote: no decide el tratamiento de ninguno."""
         choice = data["responsible"] or (responsibles.OTHER if data["owner"] else "")
         if not choice:
-            messages.error(request, "Elige a quién asignar los riesgos marcados.")
+            messages.error(request, "Elige a quién asignar los escenarios marcados.")
             return HttpResponseRedirect(back)
         try:
             changed = responsibles.assign(ids, user=request.user, choice=choice, text=data["owner"])
@@ -1199,10 +1319,10 @@ class RiskBulkView(Perm, View):
         if changed:
             messages.success(
                 request,
-                f"{changed} riesgo{'s' if changed != 1 else ''} → responsable: {label}.",
+                f"{changed} escenario{'s' if changed != 1 else ''} → responsable: {label}.",
             )
         else:
-            messages.info(request, f"Los riesgos marcados ya tenían ese responsable ({label}).")
+            messages.info(request, f"Los escenarios marcados ya tenían ese responsable ({label}).")
         return HttpResponseRedirect(back)
 
 

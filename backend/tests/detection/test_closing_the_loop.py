@@ -511,7 +511,7 @@ def test_register_shows_who_carries_what_and_filters_mine(client, as_role, make_
     orphan = _risk_of(_nginx_asset("web-sin", "10.9.0.13"))
     responsibles.assign([theirs.pk], user=None, choice=str(colleague.pk))
 
-    page = client.get("/detection/")
+    page = client.get("/detection/?view=escenario")
     body = page.content.decode()
     assert "Por responsable" in body and "sin responsable" in body
     # El responsable va en la celda del tratamiento: una columna más no cabe a 1440 px.
@@ -528,8 +528,8 @@ def test_register_shows_who_carries_what_and_filters_mine(client, as_role, make_
     # Inicio también: es donde la persona llega.
     home = client.get("/")
     first = home.context["today"][0]
-    assert first["text"] == "riesgo a tu nombre (1 sin decidir)" and first["work_url"]
-    assert "riesgo a tu nombre" in home.content.decode()
+    assert first["text"] == "escenario de riesgo a tu nombre (1 sin decidir)"
+    assert first["work_url"] and "escenario de riesgo a tu nombre" in home.content.decode()
 
     assert [r.pk for r in client.get("/detection/?mine=1").context["risks"]] == [mine.pk]
     assert [r.pk for r in client.get("/detection/?owner=colega").context["risks"]] == [theirs.pk]
@@ -592,7 +592,7 @@ def test_bulk_assign_does_not_decide_the_treatment(client, as_role, make_user):
     colleague = make_user(OPERATOR, username="colega")
     first = _risk_of(_nginx_asset("web-a", "10.9.0.21"))
     second = _risk_of(_nginx_asset("web-b", "10.9.0.22"))
-    body = client.get("/detection/").content.decode()
+    body = client.get("/detection/?view=escenario").content.decode()
     assert "Asignar responsable" in body and "Cada uno conserva el suyo" in body
     ids = [str(first.pk), str(second.pk)]
     response = client.post(
@@ -600,7 +600,7 @@ def test_bulk_assign_does_not_decide_the_treatment(client, as_role, make_user):
         {"ids": ids, "treatment": "ASSIGN", "responsible": str(colleague.pk)},
         follow=True,
     )
-    assert "2 riesgos → responsable: colega." in response.content.decode()
+    assert "2 escenarios → responsable: colega." in response.content.decode()
     first.refresh_from_db(), second.refresh_from_db()
     assert first.assignee == colleague and second.assignee == colleague
     assert first.treatment == "" and first.status == RiskStatus.OPEN
@@ -635,12 +635,12 @@ def test_risk_list_exports_what_is_filtered(client, as_role, make_user):
     owner = make_user(OPERATOR, username="ana")
     first = _risk_of(_nginx_asset("web-a", "10.9.0.31", technical_owner=owner))
     second = _risk_of(_nginx_asset("web-b", "10.9.0.32"))
-    body = client.get("/detection/").content.decode()
-    assert "Exportar la lista" in body and "?export=csv" in body
+    body = client.get("/detection/?view=escenario").content.decode()
+    assert "Exportar la lista" in body and "export=csv" in body
     body = client.get(f"/detection/?asset={first.asset_id}&owner=ana").content.decode()
     assert "Exportar lo filtrado" in body and "owner=ana" in body.split("data-export")[0][-300:]
 
-    rows = _csv(client.get("/detection/?export=csv"))
+    rows = _csv(client.get("/detection/?export=csv&view=escenario"))
     assert {r["activo"] for r in rows} == {"web-a", "web-b"}
     mine = next(r for r in rows if r["activo"] == "web-a")
     assert mine["responsable"] == "ana"

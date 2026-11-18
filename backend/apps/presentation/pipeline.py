@@ -480,8 +480,10 @@ def compute(*, since, data) -> dict:
         "risks": {
             "open": r["open"],
             "critical": r["critical"],
+            # La IA valora escenarios (el riesgo en cada activo), no los riesgos que los reúnen.
+            "scenarios": r.get("scenarios", r["open"]),
             "by_ai": r["by_ai"],
-            "by_rule": r["open"] - r["by_ai"],
+            "by_rule": max(r.get("scenarios", r["open"]) - r["by_ai"], 0),
             "treated": r["treated"],
             "untreated": r["untreated"],
         },

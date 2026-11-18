@@ -66,6 +66,8 @@ def build_payload(data=None, now=None) -> dict:
     rows = indicators.trend(today=timezone.localdate(now))
     with_data = [r for r in rows if r["has_data"]]
     first, last = (with_data[0], with_data[-1]) if with_data else (None, None)
+    # Los riesgos, solo entre días que los cuentan igual (``indicators.counts_business_risks``).
+    risk_days = [r for r in with_data if not r["other_unit"]]
     top = indicators.top_risks()
     assets = dict(data["assets"])
     assets["high_criticality_assets"] = assets.pop("critical")
@@ -94,8 +96,8 @@ def build_payload(data=None, now=None) -> dict:
         },
         "trend": {
             "days_with_data": len(with_data),
-            "risks_open_first": first["risks_open"] if first else None,
-            "risks_open_last": last["risks_open"] if last else None,
+            "risks_open_first": risk_days[0]["risks_open"] if risk_days else None,
+            "risks_open_last": risk_days[-1]["risks_open"] if risk_days else None,
             "vulns_sustained_first": first["vulns_sustained"] if first else None,
             "vulns_sustained_last": last["vulns_sustained"] if last else None,
         },
@@ -204,6 +206,11 @@ DELTA_NOUNS = (
 NO_BASELINE_TEXT = (
     "Todavía no hay una instantánea anterior con la que comparar; las tendencias empiezan hoy."
 )
+# La instantánea anterior contaba el riesgo de cada activo: no se resta de la de ahora.
+OTHER_UNIT_TEXT = (
+    " Los riesgos no se comparan con los de esa fecha: entonces se contaba el riesgo de cada "
+    "activo y ahora el de la organización (una consecuencia sobre una función de negocio)."
+)
 
 
 def _join(items) -> str:
@@ -221,18 +228,31 @@ def changes_text(payload) -> str:
     deltas = payload["deltas"]
     if not deltas.get("available"):
         return NO_BASELINE_TEXT
+    other_unit = deltas.get("risks_comparable") is False
     moved, still = [], []
     for key, singular, plural in DELTA_NOUNS:
+        if other_unit and key.startswith("risks_"):
+            continue
         delta = deltas.get(key) or 0
         if delta:
             moved.append(f"{_n(abs(delta), singular, plural)} {'más' if delta > 0 else 'menos'}")
         else:
             still.append(plural)
     since = deltas["since"]
+    note = OTHER_UNIT_TEXT if other_unit else ""
     if not moved:
-        return f"Sin cambios desde el {since} en {_join(still)}."
+        return f"Sin cambios desde el {since} en {_join(still)}.{note}"
     text = f"Desde el {since} hay {_join(moved)}"
-    return text + (f"; sin cambio en {_join(still)}." if still else ".")
+    return text + (f"; sin cambio en {_join(still)}." if still else ".") + note
+
+
+def _scenarios_fact(r) -> str:
+    """«; son 36 escenarios (cada riesgo en cada activo)»: el dato que explica por qué hay menos
+    riesgos que filas en el registro por escenario. Vacío en datos anteriores a los dos niveles."""
+    scenarios = r.get("scenarios")
+    if scenarios is None:
+        return ""
+    return f"; son {scenarios} escenarios (un escenario es el riesgo en un activo concreto)"
 
 
 def facts_text(payload, *, for_model=False) -> str:
@@ -248,7 +268,8 @@ def facts_text(payload, *, for_model=False) -> str:
     lines = [
         f"Semáforo del sistema: {ind['health']}.",
         f"Riesgos abiertos: {r['open']} ({levels}); críticos: {r['critical']}; "
-        f"sin tratamiento: {r['untreated']}; en {r['assets_with_risk']} activos.",
+        f"sin tratamiento: {r['untreated']}; en {r['assets_with_risk']} activos"
+        f"{_scenarios_fact(r)}.",
         f"Vulnerabilidades sostenidas: {v['sustained']} ({v['confirmed']} confirmadas, "
         f"{v['needs_verification']} por verificar); con explotación activa (KEV): {v['in_kev']}; "
         f"con plazo de CISA vencido: {v['kev_overdue']}.",
@@ -446,6 +467,7 @@ def coherent(parsed, payload) -> tuple[bool, str]:
         r"(\d+)\s+riesgos?\s+moderados?": {by_level.get("MODERATE", 0)},
         r"(\d+)\s+riesgos?\s+bajos?": {by_level.get("LOW", 0)},
         r"(\d+)\s+(?:riesgos?\s+)?sin\s+tratamiento": {r["untreated"]},
+        r"(\d+)\s+escenarios?": {r.get("scenarios", -1), r.get("scenarios_untreated", -1)},
         # «27 vulnerabilidades sostenidas con explotación activa» habla de las que están en KEV,
         # no del total de sostenidas: el calificativo cambia qué cifra corresponde.
         sustained: {v["sustained"]},
@@ -652,12 +674,25 @@ def validator_for(payload):
     class CoherentNarrative(ExecNarrativeOutput):
         @model_validator(mode="after")
         def _coherent(self):
-            ok, note = coherent(self.model_dump(), payload)
+            ok, note = coherent(settled(self.model_dump(), payload), payload)
             if not ok:
                 raise ValueError(f"la narrativa no coincide con los datos del sistema: {note}")
             return self
 
     return CoherentNarrative
+
+
+def settled(parsed, payload) -> dict:
+    """La lectura del modelo con lo que el código escribe por él.
+
+    Frente a una instantánea que contaba los riesgos en otra unidad, «qué cambió» lo pone el
+    código: el modelo resumía la advertencia como «no hay con qué comparar», que no es cierto
+    para lo demás, o restaba las dos cifras.
+    """
+    parsed = dict(parsed)
+    if (payload.get("deltas") or {}).get("risks_comparable") is False:
+        parsed["changes"] = changes_text(payload)
+    return parsed
 
 
 def generate(*, requested_by=None, force=False, use_llm=True, data=None) -> HealthNarrative | None:
@@ -686,9 +721,10 @@ def generate(*, requested_by=None, force=False, use_llm=True, data=None) -> Heal
             requested_by=requested_by,
         )
         if log_obj.parsed_ok:
-            ok, note = coherent(log_obj.parsed, payload)
+            candidate = settled(log_obj.parsed, payload)
+            ok, note = coherent(candidate, payload)
             if ok:
-                parsed, by_rule = dict(log_obj.parsed), False
+                parsed, by_rule = candidate, False
                 # «Qué hizo el sistema» son cifras exactas: las pone el código.
                 parsed["achievements"] = achievements_text(payload)
             else:

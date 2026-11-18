@@ -70,6 +70,7 @@ SECTIONS = (
                 "detection:risks",
                 ("detection.view_risk",),
                 (
+                    "detection:business_risk",
                     "detection:risk",
                     "detection:risk_report",
                     "detection:risk_treatment",

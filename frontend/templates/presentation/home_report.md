@@ -33,11 +33,19 @@ Siguientes pasos:
 | Acciones por aprobar | {{ data.actions.pending_approval }} | {{ data.actions.done_window }} ejecutadas en la ventana |
 | Observaciones | {{ data.observations.total }} | {{ data.observations.multi_source }} con más de una fuente |
 {% if deltas.available %}
-Frente al {{ deltas.since|fecha_corta }}: riesgos abiertos {{ deltas.risks_open|stringformat:"+d" }}, críticos {{ deltas.risks_critical|stringformat:"+d" }}, vulnerabilidades sostenidas {{ deltas.vulns_sustained|stringformat:"+d" }}, en KEV {{ deltas.vulns_kev|stringformat:"+d" }}.
+Frente al {{ deltas.since|fecha_corta }}: {% if deltas.risks_comparable %}riesgos abiertos {{ deltas.risks_open|stringformat:"+d" }}, críticos {{ deltas.risks_critical|stringformat:"+d" }}, {% endif %}vulnerabilidades sostenidas {{ deltas.vulns_sustained|stringformat:"+d" }}, en KEV {{ deltas.vulns_kev|stringformat:"+d" }}.{% if not deltas.risks_comparable %} Los riesgos no se comparan con los de esa fecha: entonces se contaba el riesgo de cada activo y ahora el de la organización.{% endif %}
 {% endif %}
 ## Riesgos principales
 
-| Riesgo | Activo | P × I | Nivel | Inteligencia | Tratamiento |
+Un riesgo es una consecuencia sobre una función de negocio; reúne un escenario por activo y toma el nivel del peor.
+
+| Riesgo | Activos | Peor escenario | P × I | Nivel | Tratamiento |
+|---|---|---|---|---|---|
+{% for r in top_business %}| {{ r.title }} | {{ r.assets|length }} | {{ r.worst.asset.name }} | {{ r.likelihood }} × {{ r.impact }} | {{ r.level_label }} | {{ r.treatments }} |
+{% endfor %}
+## Escenarios que más pesan
+
+| Escenario | Activo | P × I | Nivel | Inteligencia | Tratamiento |
 |---|---|---|---|---|---|
 {% for r in top_risks %}| {{ r.title }} | {{ r.asset.name }} | {{ r.likelihood }} × {{ r.impact }} | {{ r.get_level_display }} | {{ r.intelligence_summary|default:"—"|plain }} | {% if r.treatment %}{{ r.get_treatment_display }}{% else %}sin decidir{% endif %} |
 {% endfor %}

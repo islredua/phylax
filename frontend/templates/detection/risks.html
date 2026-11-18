@@ -4,12 +4,12 @@
 {% block toolbar %}
 <div class="toolbar">
   <div class="flex flex-wrap items-center gap-2">
-    <h2>{% if asset %}Riesgos de {{ asset.name }}{% else %}Registro de riesgos{% endif %} <span class="ml-1 font-mono text-xs font-normal text-muted">{{ paginator.count|miles }}</span></h2>
-    <span class="text-xs text-muted">escenarios de amenaza según ISO/IEC 27005, derivados de las vulnerabilidades consolidadas</span>
+    <h2>{% if asset %}Riesgos de {{ asset.name }}{% else %}Registro de riesgos{% endif %} <span class="ml-1 font-mono text-xs font-normal text-muted">{% if by_risk %}{{ business|length|miles }}{% else %}{{ paginator.count|miles }}{% endif %}</span></h2>
+    <span class="text-xs text-muted">{% if by_risk %}lo que la organización puede perder en cada función de negocio (ISO/IEC 27005){% else %}escenarios: el riesgo en cada activo, derivado de sus vulnerabilidades consolidadas{% endif %}</span>
     {% if consolidation_pending %}<span class="badge-primary">la IA está reevaluando</span>{% endif %}
   </div>
   <div class="page-actions">
-    {% if paginator.count %}<a href="{{ export_url }}" class="btn-secondary btn-sm" data-export title="Descarga en CSV los {{ paginator.count|miles }} riesgos de esta lista, con los filtros puestos">Exportar {% if filters_active %}lo filtrado{% else %}la lista{% endif %}</a>{% endif %}
+    {% if by_risk %}{% if business %}<a href="{{ export_url }}" class="btn-secondary btn-sm" data-export title="Descarga en CSV los {{ business|length|miles }} riesgos de esta lista, uno por fila">Exportar {% if filters_active %}lo filtrado{% else %}la lista{% endif %}</a>{% endif %}{% elif paginator.count %}<a href="{{ export_url }}" class="btn-secondary btn-sm" data-export title="Descarga en CSV los {{ paginator.count|miles }} escenarios de esta lista, con los filtros puestos">Exportar {% if filters_active %}lo filtrado{% else %}la lista{% endif %}</a>{% endif %}
     {% if asset_id %}
       {% if perms.detection.request_evaluation %}<form method="post" action="{% url 'detection:asset_consolidate' asset_id %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn-secondary btn-sm" type="submit" title="Vuelve a consolidar vulnerabilidades y a derivar riesgos con la IA">Reevaluar con IA</button></form>{% endif %}
       <a href="{% url 'detection:panel' %}?asset={{ asset_id }}" class="btn-secondary btn-sm">Vulnerabilidades</a>
@@ -20,48 +20,68 @@
 {% endblock %}
 {% block content %}
 {% if today %}{% include "detection/_today.html" with title="Hoy" %}{% endif %}
+{% if not asset_id %}
+<nav class="subtabs" aria-label="Cómo ver el registro">
+  <a href="{{ risk_view_url }}" class="subtab {% if by_risk %}subtab-active{% endif %}"{% if by_risk %} aria-current="true"{% endif %} title="Lo que la organización puede perder en cada función de negocio: una fila por consecuencia y función">Por riesgo <span class="font-mono text-xs">{{ open_risks|miles }}</span></a>
+  <a href="{{ scenario_view_url }}" class="subtab {% if not by_risk %}subtab-active{% endif %}"{% if not by_risk %} aria-current="true"{% endif %} title="El riesgo en cada activo: donde se valora, se asigna y se da seguimiento">Por escenario <span class="font-mono text-xs">{{ open_scenarios|miles }}</span></a>
+</nav>
+{% endif %}
+{% if by_risk %}
+<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+  <a href="{{ risk_view_url }}" class="card hover:no-underline"><p class="stat-label">Riesgos abiertos</p><p class="stat-value">{{ business_summary.open|miles }}</p></a>
+  <a href="?level=CRITICAL" class="card hover:no-underline"><p class="stat-label">Críticos</p><p class="stat-value {% if business_summary.critical %}text-critical{% endif %}">{{ business_summary.critical|miles }}</p></a>
+  <a href="?level=VERY_HIGH" class="card hover:no-underline"><p class="stat-label">Muy altos</p><p class="stat-value {% if business_summary.very_high %}text-critical{% endif %}">{{ business_summary.very_high|miles }}</p></a>
+  <a href="?level=HIGH" class="card hover:no-underline"><p class="stat-label">Altos</p><p class="stat-value {% if business_summary.high %}text-high{% endif %}">{{ business_summary.high|miles }}</p></a>
+  <a href="?treatment=none" class="card hover:no-underline" title="Riesgos con algún escenario sin tratamiento decidido"><p class="stat-label">Con algo sin decidir</p><p class="stat-value {% if business_summary.undecided %}text-high{% endif %}">{{ business_summary.undecided|miles }}</p></a>
+  <a href="{{ scenario_view_url }}" class="card hover:no-underline" title="El riesgo en cada activo: abre la lista de escenarios"><p class="stat-label">Escenarios</p><p class="stat-value">{{ business_summary.scenarios|miles }} <span class="text-xs font-normal text-muted">en {{ business_summary.assets|pl:"activo,activos" }}</span></p></a>
+</div>
+{% if filters_active %}<p class="text-sm">Mostrando {{ business|length|pl:"riesgo,riesgos" }}{% if level_filter %} de nivel <strong class="font-medium">{{ level_filter|risk_level_label|lower }}</strong>{% endif %}{% if undecided_filter %} con algún escenario sin decidir{% endif %}. <a href="{{ risk_view_url }}" class="ml-1 text-xs">quitar ✕</a></p>{% endif %}
+{% include "detection/_business_risks.html" %}
+<p class="text-xs text-muted">Un riesgo reúne los escenarios de los activos con la misma función de negocio que llevan a la misma consecuencia y toma el nivel del peor. El tratamiento se decide en la página de cada riesgo, para todos sus escenarios a la vez; el seguimiento, el responsable y el plazo se llevan <a href="{{ scenario_view_url }}">escenario por escenario</a>.</p>
+{% else %}
 {# Números generales y matriz lado a lado solo en pantallas anchas: nueve tarjetas en tres filas de #}
 {# tres y la matriz en una columna de ancho fijo (con `auto` la nota de la matriz no partía línea y #}
 {# aplastaba las tarjetas). Por debajo de `xl` la matriz baja y las tarjetas usan todo el ancho. #}
 <div class="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_24rem] xl:items-start">
   <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
-    <a href="?status={% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Abiertos</p><p class="stat-value">{{ summary.open|miles }}</p></a>
-    <a href="?level=CRITICAL{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Críticos</p><p class="stat-value {% if summary.critical %}text-critical{% endif %}">{{ summary.critical|miles }}</p></a>
-    <a href="?level=VERY_HIGH{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Muy altos</p><p class="stat-value {% if summary.very_high %}text-critical{% endif %}">{{ summary.very_high|miles }}</p></a>
-    <a href="?kev_overdue=1{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline" title="Riesgos con alguna vulnerabilidad en KEV cuyo plazo de remediación de CISA ya venció"><p class="stat-label">Plazo CISA vencido</p><p class="stat-value {% if summary.kev_overdue %}text-critical{% endif %}">{{ summary.kev_overdue|miles }}</p></a>
-    <a href="?treatment=none{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Sin tratamiento decidido</p><p class="stat-value {% if summary.untreated %}text-high{% endif %}">{{ summary.untreated|miles }}</p></a>
-    <a href="?policy_overdue=1{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline" title="Sin decidir o en tratamiento, con el plazo que fija la política de la organización para su nivel ya vencido"><p class="stat-label">Fuera de plazo</p><p class="stat-value {% if summary.policy_overdue %}text-critical{% endif %}">{{ summary.policy_overdue|miles }}</p></a>
-    <a href="?overdue=1{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline" title="Tratamientos con fecha compromiso vencida y aceptaciones con revisión vencida"><p class="stat-label">Seguimiento vencido</p><p class="stat-value {% if summary.overdue %}text-critical{% endif %}">{{ summary.overdue|miles }}</p></a>
-    <a href="?status=ACCEPTED{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline"><p class="stat-label">Aceptados</p><p class="stat-value">{{ summary.accepted|miles }}</p></a>
-    <a href="?status=CLOSED{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="card hover:no-underline" title="Riesgos que la valoración ya no sostiene; cada uno conserva el motivo del cierre"><p class="stat-label">Cerrados</p><p class="stat-value">{{ summary.closed|miles }}{% if summary.closed_week %} <span class="text-xs font-normal text-muted">{{ summary.closed_week|miles }} esta semana</span>{% endif %}</p></a>
+    <a href="?status={{ scope }}" class="card hover:no-underline"><p class="stat-label">Abiertos</p><p class="stat-value">{{ summary.open|miles }}</p></a>
+    <a href="?level=CRITICAL{{ scope }}" class="card hover:no-underline"><p class="stat-label">Críticos</p><p class="stat-value {% if summary.critical %}text-critical{% endif %}">{{ summary.critical|miles }}</p></a>
+    <a href="?level=VERY_HIGH{{ scope }}" class="card hover:no-underline"><p class="stat-label">Muy altos</p><p class="stat-value {% if summary.very_high %}text-critical{% endif %}">{{ summary.very_high|miles }}</p></a>
+    <a href="?kev_overdue=1{{ scope }}" class="card hover:no-underline" title="Escenarios con alguna vulnerabilidad en KEV cuyo plazo de remediación de CISA ya venció"><p class="stat-label">Plazo CISA vencido</p><p class="stat-value {% if summary.kev_overdue %}text-critical{% endif %}">{{ summary.kev_overdue|miles }}</p></a>
+    <a href="?treatment=none{{ scope }}" class="card hover:no-underline"><p class="stat-label">Sin tratamiento decidido</p><p class="stat-value {% if summary.untreated %}text-high{% endif %}">{{ summary.untreated|miles }}</p></a>
+    <a href="?policy_overdue=1{{ scope }}" class="card hover:no-underline" title="Sin decidir o en tratamiento, con el plazo que fija la política de la organización para su nivel ya vencido"><p class="stat-label">Fuera de plazo</p><p class="stat-value {% if summary.policy_overdue %}text-critical{% endif %}">{{ summary.policy_overdue|miles }}</p></a>
+    <a href="?overdue=1{{ scope }}" class="card hover:no-underline" title="Tratamientos con fecha compromiso vencida y aceptaciones con revisión vencida"><p class="stat-label">Seguimiento vencido</p><p class="stat-value {% if summary.overdue %}text-critical{% endif %}">{{ summary.overdue|miles }}</p></a>
+    <a href="?status=ACCEPTED{{ scope }}" class="card hover:no-underline"><p class="stat-label">Aceptados</p><p class="stat-value">{{ summary.accepted|miles }}</p></a>
+    <a href="?status=CLOSED{{ scope }}" class="card hover:no-underline" title="Escenarios que la valoración ya no sostiene; cada uno conserva el motivo del cierre"><p class="stat-label">Cerrados</p><p class="stat-value">{{ summary.closed|miles }}{% if summary.closed_week %} <span class="text-xs font-normal text-muted">{{ summary.closed_week|miles }} esta semana</span>{% endif %}</p></a>
   </div>
   <section class="card flex flex-col gap-2">
-    <h3 class="card-title mb-0">Matriz de los riesgos listados</h3>
+    <h3 class="card-title mb-0">Matriz de los escenarios listados</h3>
     {% include "detection/_risk_matrix.html" with matrix=matrix compact=True %}
-    <p class="text-xs text-muted">Nivel = probabilidad × impacto: 1–4 bajo · 5–9 moderado · 10–14 alto · 15–19 muy alto · 20–25 crítico. Pulsa una casilla para ver sus riesgos.</p>
+    <p class="text-xs text-muted">Nivel = probabilidad × impacto: 1–4 bajo · 5–9 moderado · 10–14 alto · 15–19 muy alto · 20–25 crítico. Pulsa una casilla para ver sus escenarios.</p>
   </section>
 </div>
 <form method="get" id="filtros" data-filter-form class="card grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6 lg:items-end">
+  {% if not asset_id %}<input type="hidden" name="view" value="escenario">{% endif %}
   {% for field in filter_form %}{% if field.widget_type == 'hidden' %}{{ field }}{% elif field.widget_type == 'checkbox' %}
   <label class="flex items-center gap-2 pb-2 text-sm">{{ field }} {{ field.label }}</label>
   {% else %}
   <div class="{% if field.name == 'q' %}lg:col-span-2{% endif %}"><label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}</div>
   {% endif %}{% endfor %}
-  <div class="flex gap-2"><button type="submit" class="btn-primary">Filtrar</button><a href="{% url 'detection:risks' %}{% if asset_id %}?asset={{ asset_id }}{% endif %}" class="btn-secondary">Limpiar</a></div>
+  <div class="flex gap-2"><button type="submit" class="btn-primary">Filtrar</button><a href="{% url 'detection:risks' %}{% if asset_id %}?asset={{ asset_id }}{% else %}?view=escenario{% endif %}" class="btn-secondary">Limpiar</a></div>
 </form>
 {% if owners %}
 <details class="card fold"{% if filter_form.owner.value or filter_form.mine.value or filter_form.unassigned.value %} open{% endif %}>
   <summary>Por responsable: quién lleva qué y cuánto tiene vencido ({{ owners|length }})</summary>
-  <p class="mt-2 text-xs text-muted">El responsable de un riesgo es quien se le asignó; si nadie lo hizo, quien lleva el activo. Solo quien tiene cuenta lo ve en «a mi nombre» y recibe el aviso.</p>
+  <p class="mt-2 text-xs text-muted">El responsable de un escenario es quien se le asignó; si nadie lo hizo, quien lleva el activo. Solo quien tiene cuenta lo ve en «a mi nombre» y recibe el aviso.</p>
   <div class="table-wrap mt-3">
     <table class="data-table">
-      <thead><tr><th scope="col">Responsable</th><th scope="col">Riesgos abiertos</th><th scope="col">Críticos</th><th scope="col">Seguimiento vencido</th><th scope="col"></th></tr></thead>
+      <thead><tr><th scope="col">Responsable</th><th scope="col">Escenarios abiertos</th><th scope="col">Críticos</th><th scope="col">Seguimiento vencido</th><th scope="col"></th></tr></thead>
       <tbody>
         {% for o in owners %}
         <tr{% if o.mine %} class="bg-primary-soft/40"{% endif %} data-responsible="{% if o.nobody %}nobody{% elif o.mine %}mine{% else %}other{% endif %}">
           <td class="font-medium">{% if o.nobody %}<span class="text-high">Sin responsable</span>{% else %}{{ o.owner }}{% if o.mine %} <span class="badge-primary">tú</span>{% elif not o.has_account %} <span class="badge-neutral">sin cuenta</span>{% endif %}{% if o.inherited %}<p class="text-xs font-normal text-muted">{{ o.inherited }} por {% if o.inherited == 1 %}su activo{% else %}sus activos{% endif %}</p>{% endif %}{% endif %}</td>
           <td class="font-mono">{{ o.total }}</td><td class="font-mono {% if o.critical %}text-critical{% endif %}">{{ o.critical }}</td><td class="font-mono {% if o.overdue %}text-critical{% endif %}">{{ o.overdue }}</td>
-          <td class="text-right"><a href="?{% if o.nobody %}unassigned=1{% elif o.mine %}mine=1{% else %}owner={{ o.owner|urlencode }}{% endif %}{% if asset_id %}&amp;asset={{ asset_id }}{% endif %}" class="btn-secondary btn-sm">{% if o.nobody %}Verlos{% elif o.mine %}Los míos{% else %}Sus riesgos{% endif %}</a></td>
+          <td class="text-right"><a href="?{% if o.nobody %}unassigned=1{% elif o.mine %}mine=1{% else %}owner={{ o.owner|urlencode }}{% endif %}{{ scope }}" class="btn-secondary btn-sm">{% if o.nobody %}Verlos{% elif o.mine %}Los míos{% else %}Sus escenarios{% endif %}</a></td>
         </tr>
         {% endfor %}
       </tbody>
@@ -70,52 +90,17 @@
 </details>
 {% endif %}
 
-<p class="text-xs text-muted">Orden de trabajo: primero el nivel (crítico → bajo), luego el puntaje probabilidad × impacto y, a igualdad, el riesgo más antiguo. El plazo de cada riesgo sale de la <a href="{% url 'detection:policy' %}">política de la organización</a>: crítico {{ policy.critical_days }} días, muy alto {{ policy.very_high_days }}, alto {{ policy.high_days }}, moderado {{ policy.moderate_days }} y bajo {{ policy.low_days }}, contados desde que se detectó la más antigua de sus vulnerabilidades más graves.</p>
+<p class="text-xs text-muted">Orden de trabajo: primero el nivel (crítico → bajo), luego el puntaje probabilidad × impacto y, a igualdad, el escenario más antiguo. El plazo de cada escenario sale de la <a href="{% url 'detection:policy' %}">política de la organización</a>: crítico {{ policy.critical_days }} días, muy alto {{ policy.very_high_days }}, alto {{ policy.high_days }}, moderado {{ policy.moderate_days }} y bajo {{ policy.low_days }}, contados desde que se detectó la más antigua de sus vulnerabilidades más graves.</p>
 {% if perms.detection.work_findings and risks %}
 <form method="post" action="{% url 'detection:risk_bulk' %}" class="flex flex-col gap-2" data-no-busy>
   {% csrf_token %}
   <input type="hidden" name="next" value="{{ request.get_full_path }}">
-  <div class="card flex flex-wrap items-end gap-3 py-3" data-bulk data-bulk-hint-empty="Marca riesgos en la tabla para decidir el mismo tratamiento en todos o asignarles responsable." data-bulk-hint-action="Elige qué hacer con los marcados.">
-    <div>
-      <label class="form-label" for="risk-bulk-treatment">Para los marcados</label>
-      <select id="risk-bulk-treatment" name="treatment" class="form-input w-auto" data-bulk-action required>
-        <option value="">Elige qué hacer…</option>
-        <option value="{{ bulk_assign }}" data-param="assign" data-require="risk-bulk-responsible" data-confirm="¿Cambiar el responsable de {n} riesgos? No decide su tratamiento.">Asignar responsable</option>
-        {% for value, label in bulk_treatments %}<option value="{{ value }}" data-param="{% if value == 'ACCEPT' %}accept{% else %}plan{% endif %}"{% if value == 'ACCEPT' %} data-require="risk-bulk-note"{% endif %} data-confirm="¿Registrar «{{ label|lower }}» en {n} riesgos? La decisión queda a tu nombre en cada uno.">{{ label }}</option>{% endfor %}
-      </select>
-    </div>
-    <div>
-      <label class="form-label" for="risk-bulk-responsible">Responsable</label>
-      <select id="risk-bulk-responsible" name="responsible" class="form-input w-auto max-w-56" data-bulk-optional>
-        <option value="">Cada uno conserva el suyo</option>
-        {% for value, label in responsible_choices %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
-      </select>
-    </div>
-    <div data-reveal-for="risk-bulk-responsible" data-reveal-value="other">
-      <label class="form-label" for="risk-bulk-owner">Equipo o persona sin cuenta</label>
-      <input id="risk-bulk-owner" name="owner" class="form-input" maxlength="120" placeholder="Infraestructura, proveedor…">
-    </div>
-    <div data-bulk-param="plan">
-      <label class="form-label" for="risk-bulk-date">Fecha compromiso</label>
-      <input id="risk-bulk-date" name="target_date" type="date" class="form-input w-auto" data-bulk-optional aria-describedby="risk-bulk-date-help">
-      <p class="form-help" id="risk-bulk-date-help">Vacía: el plazo de la política de cada riesgo.</p>
-    </div>
-    <div data-bulk-param="accept">
-      <label class="form-label" for="risk-bulk-review">Revisar el</label>
-      <input id="risk-bulk-review" name="review_at" type="date" class="form-input w-auto" data-bulk-optional aria-describedby="risk-bulk-review-help">
-      <p class="form-help" id="risk-bulk-review-help">Vacía: en {{ policy.accept_review_days }} días.</p>
-    </div>
-    <div class="grow">
-      <label class="form-label" for="risk-bulk-note">Nota (obligatoria para aceptar)</label>
-      <input id="risk-bulk-note" name="note" class="form-input" maxlength="2000" placeholder="Por qué se decide así" data-bulk-optional>
-    </div>
-    <button type="submit" class="btn-secondary" data-bulk-submit>Aplicar a <span data-bulk-count>los</span> marcados</button>
-    <p class="w-full text-xs text-muted" data-bulk-hint>Marca riesgos en la tabla para decidir el mismo tratamiento en todos.</p>
-  </div>
+  {% include "detection/_risk_bulk.html" %}
   {% include "detection/_risk_rows.html" with bulk=True %}
 </form>
 {% else %}
 {% include "detection/_risk_rows.html" %}
 {% endif %}
 {% include "_pagination.html" %}
+{% endif %}
 {% endblock %}

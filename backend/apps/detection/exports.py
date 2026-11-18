@@ -30,6 +30,27 @@ RISK_COLUMNS = [
     "valorado_el",
     "identificado_el",
     "vulnerabilidades",
+    "funcion_de_negocio",
+    "riesgo_de_la_organizacion",
+]
+# El registro por riesgo de la organización (``business_risks``): una fila por consecuencia y
+# función de negocio, con el nivel de su peor escenario.
+BUSINESS_RISK_COLUMNS = [
+    "riesgo",
+    "consecuencia",
+    "funcion_de_negocio",
+    "nivel",
+    "probabilidad",
+    "impacto",
+    "peor_escenario",
+    "activos",
+    "escenarios",
+    "escenarios_sin_decidir",
+    "tratamiento",
+    "plazo_mas_proximo",
+    "responsables",
+    "vulnerabilidades",
+    "con_explotacion_activa",
 ]
 VULNERABILITY_COLUMNS = [
     "activo",
@@ -61,10 +82,33 @@ def _date(value):
     return value.isoformat() if value else ""
 
 
+def business_risk_rows(found):
+    """Una fila por riesgo de la organización (lista de ``business_risks.BusinessRisk``)."""
+    for risk in found:
+        due = risk.deadline
+        yield [
+            risk.title,
+            risk.consequence_label,
+            risk.role_label,
+            risk.level_label,
+            risk.likelihood,
+            risk.impact,
+            risk.worst.asset.name,
+            "; ".join(asset.name for asset in risk.assets),
+            len(risk.scenarios),
+            risk.undecided,
+            risk.treatments,
+            _date(due.date) if due else "",
+            "; ".join(risk.responsibles),
+            risk.vulnerabilities,
+            risk.kev,
+        ]
+
+
 def risk_rows(queryset):
     from apps.core.templatetags.ui import fecha
 
-    from . import policy, responsibles
+    from . import business_risks, policy, responsibles
 
     rules = policy.current()
     for risk in responsibles.with_people(queryset).prefetch_related("vulnerabilities"):
@@ -89,6 +133,10 @@ def risk_rows(queryset):
             fecha(risk.assessed_at) if risk.assessed_at else "",
             fecha(risk.first_identified_at),
             "; ".join(v.key for v in risk.vulnerabilities.all()),
+            business_risks.BusinessRisk("", risk.asset.business_role or "").role_label,
+            business_risks.BusinessRisk(
+                risk.consequence or "", risk.asset.business_role or ""
+            ).title,
         ]
 
 

@@ -9,7 +9,6 @@ las consultas; ``snapshot_today()`` persiste el día en ``HealthSnapshot`` para 
 
 from __future__ import annotations
 
-from collections import Counter
 from datetime import timedelta
 from statistics import mean
 
@@ -146,15 +145,24 @@ def compute(now=None) -> dict:
     assets_with_open_risk = set(risks.values_list("asset_id", flat=True))
     vulns_block["unverified_exploitable"] = unverified.count()
     vulns_block["unverified_assets_without_risk"] = len(exposed_assets - assets_with_open_risk)
-    by_level = Counter(risks.values_list("level", flat=True))
+    # Lo que Inicio llama «riesgo» es el de la organización: una consecuencia sobre una función
+    # de negocio (``business_risks``). Su nivel es el de su peor escenario y está sin decidir
+    # mientras alguno de sus escenarios lo esté. Los escenarios (el riesgo en cada activo, la
+    # unidad de trabajo) se cuentan aparte.
+    from apps.detection import business_risks
+
+    organization = business_risks.counts(risks)
+    by_level = organization["by_level"]
     risks_block = {
-        "open": risks.count(),
+        "open": organization["open"],
         "by_level": {lvl: by_level.get(lvl, 0) for lvl in LEVELS},
         "critical": by_level.get(RiskLevel.CRITICAL, 0),
         "very_high": by_level.get(RiskLevel.VERY_HIGH, 0),
         "high": by_level.get(RiskLevel.HIGH, 0),
-        "untreated": risks.filter(treatment="").count(),
-        "treated": risks.exclude(treatment="").count(),
+        "untreated": organization["undecided"],
+        "treated": organization["open"] - organization["undecided"],
+        "scenarios": risks.count(),
+        "scenarios_untreated": risks.filter(treatment="").count(),
         "followup_overdue": risks.filter(
             Q(status="TREATED", target_date__lt=today) | Q(status="ACCEPTED", review_at__lt=today)
         ).count(),
@@ -294,12 +302,36 @@ def health_status(data) -> str:
 # --------------------------------------------------------------------------
 
 SNAPSHOT_KEYS = (
-    ("risks", ("open", "by_level", "critical", "very_high", "high", "untreated")),
+    (
+        "risks",
+        (
+            "open",
+            "by_level",
+            "critical",
+            "very_high",
+            "high",
+            "untreated",
+            # Con estas dos la instantánea dice en qué unidad cuenta (``counts_business_risks``).
+            "scenarios",
+            "scenarios_untreated",
+        ),
+    ),
     ("vulnerabilities", ("sustained", "confirmed", "in_kev", "kev_overdue", "described")),
     ("assets", ("total", "with_criticality", "scanned_window")),
     ("actions", ("pending_approval",)),
     ("observations", ("total", "by_source")),
 )
+
+
+def counts_business_risks(snapshot) -> bool:
+    """¿Esta instantánea cuenta riesgos de la organización?
+
+    Hasta el 2026-11-18 «riesgos abiertos» era el riesgo de cada activo; desde entonces es una
+    consecuencia sobre una función de negocio (``business_risks``), que da menos filas con la
+    misma exposición. Son unidades distintas: una instantánea de antes no se resta de una de
+    ahora ni se dibuja en la misma línea, o el cambio de unidad se leería como una mejora.
+    """
+    return "scenarios" in ((snapshot or {}).get("risks") or {})
 
 
 def snapshot_today(data=None, now=None) -> HealthSnapshot:
@@ -325,12 +357,15 @@ def trend(days=None, today=None) -> list[dict]:
     for i in range(days):
         day = start + timedelta(days=i)
         d = snaps.get(day)
+        same_unit = counts_business_risks(d)
         rows.append(
             {
                 "day": day,
                 "has_data": d is not None,
-                "risks_open": (d or {}).get("risks", {}).get("open"),
-                "risks_by_level": (d or {}).get("risks", {}).get("by_level", {}),
+                # El día tiene datos, pero sus riesgos se contaban en otra unidad.
+                "other_unit": d is not None and not same_unit,
+                "risks_open": d["risks"].get("open") if same_unit else None,
+                "risks_by_level": d["risks"].get("by_level", {}) if same_unit else {},
                 "vulns_sustained": (d or {}).get("vulnerabilities", {}).get("sustained"),
                 "vulns_kev": (d or {}).get("vulnerabilities", {}).get("in_kev"),
                 "health": (d or {}).get("health"),
@@ -340,17 +375,26 @@ def trend(days=None, today=None) -> list[dict]:
 
 
 def deltas(data, today=None) -> dict:
-    """Diferencias frente a la última instantánea anterior a hoy (``None`` si no hay)."""
+    """Diferencias frente a la última instantánea anterior a hoy (``None`` si no hay).
+
+    Si esa instantánea contaba los riesgos en otra unidad (``counts_business_risks``), sus dos
+    diferencias quedan en ``None`` y ``risks_comparable`` en falso: no hay resta que valga.
+    """
     today = today or timezone.localdate()
     previous = HealthSnapshot.objects.filter(day__lt=today).order_by("-day").first()
     if previous is None:
         return {"available": False}
     p = previous.data
+    same_unit = counts_business_risks(p)
+    prior = p.get("risks", {})
     return {
         "available": True,
         "since": previous.day,
-        "risks_open": data["risks"]["open"] - p.get("risks", {}).get("open", 0),
-        "risks_critical": data["risks"]["critical"] - p.get("risks", {}).get("critical", 0),
+        "risks_comparable": same_unit,
+        "risks_open": data["risks"]["open"] - prior.get("open", 0) if same_unit else None,
+        "risks_critical": (
+            data["risks"]["critical"] - prior.get("critical", 0) if same_unit else None
+        ),
         "vulns_sustained": data["vulnerabilities"]["sustained"]
         - p.get("vulnerabilities", {}).get("sustained", 0),
         "vulns_kev": data["vulnerabilities"]["in_kev"]
@@ -594,7 +638,7 @@ def today(data=None, user=None) -> list[dict]:
         "vulnerabilidades con el plazo de CISA vencido",
         url=f"{panel_url}?in_kev=1&overdue=1",
         query="kev_overdue=1",
-        work="Atender sus riesgos",
+        work="Atender sus escenarios",
         view="Ver vulnerabilidades",
     )
     add(
@@ -608,8 +652,8 @@ def today(data=None, user=None) -> list[dict]:
     add(
         "high",
         r.get("followup_overdue", 0),
-        "riesgo con fecha compromiso o revisión vencida",
-        "riesgos con fecha compromiso o revisión vencida",
+        "escenario de riesgo con fecha compromiso o revisión vencida",
+        "escenarios de riesgo con fecha compromiso o revisión vencida",
         query="overdue=1",
         work="Actualizar seguimiento",
     )

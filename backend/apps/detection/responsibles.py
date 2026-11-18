@@ -301,8 +301,8 @@ def today_item(user, asset_id=None) -> dict | None:
     return {
         "level": "critical" if mine["overdue"] else "high" if mine["undecided"] else "medium",
         "count": mine["total"],
-        "singular": f"riesgo a tu nombre{tail}",
-        "plural": f"riesgos a tu nombre{tail}",
+        "singular": f"escenario de riesgo a tu nombre{tail}",
+        "plural": f"escenarios de riesgo a tu nombre{tail}",
         "query": "mine=1",
         "work": "Atender uno a uno",
     }

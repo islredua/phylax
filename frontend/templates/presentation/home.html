@@ -50,7 +50,8 @@
         <div class="hidden h-52" data-chart-wrap="risk_trend"><canvas data-chart="risk_trend" aria-label="Tendencia de riesgos abiertos por nivel" role="img"></canvas></div>
         {% endif %}
         <p class="legend mt-2">{% for _k, label, color in charts.risk_series %}<span><span class="legend-dot" style="background:{{ color }}"></span> {{ label }}</span>{% endfor %}</p>
-        <details class="fold mt-2 text-xs"><summary>Ver datos</summary><div class="table-wrap mt-1"><table class="data-table"><thead><tr><th scope="col">Día</th>{% for _k, label, _c in charts.risk_series %}<th scope="col">{{ label }}</th>{% endfor %}</tr></thead><tbody>{% for r in charts.rows %}{% if r.has_data %}<tr><td>{{ r.day|fecha }}</td>{% for k, _l, _c in charts.risk_series %}<td class="font-mono">{{ r.risks_by_level|get_level:k }}</td>{% endfor %}</tr>{% endif %}{% endfor %}{% if not has_trend %}<tr><td colspan="6" class="table-empty">Aún no hay instantáneas.</td></tr>{% endif %}</tbody></table></div></details>
+        {% if charts.risks_since %}<p class="mt-1 text-xs text-muted" data-risks-since>La línea empieza el {{ charts.risks_since|fecha_corta }}: hasta entonces se contaba el riesgo de cada activo y desde ese día el de la organización, y las dos cifras no se comparan.</p>{% endif %}
+        <details class="fold mt-2 text-xs"><summary>Ver datos</summary><div class="table-wrap mt-1"><table class="data-table"><thead><tr><th scope="col">Día</th>{% for _k, label, _c in charts.risk_series %}<th scope="col">{{ label }}</th>{% endfor %}</tr></thead><tbody>{% for r in charts.rows %}{% if r.has_data and not r.other_unit %}<tr><td>{{ r.day|fecha }}</td>{% for k, _l, _c in charts.risk_series %}<td class="font-mono">{{ r.risks_by_level|get_level:k }}</td>{% endfor %}</tr>{% endif %}{% endfor %}{% if not has_trend %}<tr><td colspan="6" class="table-empty">Aún no hay instantáneas.</td></tr>{% endif %}</tbody></table></div></details>
       </section>
       <section class="card">
         <h2 class="card-title">Vulnerabilidades sostenidas y explotación activa</h2>
@@ -69,16 +70,16 @@
       <h2 class="card-title">Riesgos que más pesan</h2>
       <div class="table-wrap">
         <table class="data-table">
-          <thead><tr><th scope="col">Riesgo</th><th scope="col">Activo</th><th scope="col" class="col-md">Inteligencia</th><th scope="col" class="col-lg">P × I</th><th scope="col">Nivel</th><th scope="col">Tratamiento</th></tr></thead>
+          <thead><tr><th scope="col">Riesgo</th><th scope="col">Activos</th><th scope="col" class="col-md" title="El escenario que le da el nivel al riesgo">Peor escenario</th><th scope="col" class="col-lg">P × I</th><th scope="col">Nivel</th><th scope="col">Tratamiento</th></tr></thead>
           <tbody>
-            {% for r in top_risks %}
+            {% for r in top_business %}
             <tr>
-              <td><a href="{% url 'detection:risk' r.pk %}" target="_blank" rel="noopener" class="font-medium">{{ r.title|truncatechars:80 }}</a></td>
-              <td><a href="{% url 'assets:detail' r.asset_id %}" target="_blank" rel="noopener">{{ r.asset.name }}</a></td>
-              <td class="col-md text-xs">{% intel_badges r as badges %}{% if badges %}{{ badges }}{% else %}<span class="text-muted">sin explotación conocida</span>{% endif %}</td>
+              <td><a href="{{ r.url }}" target="_blank" rel="noopener" class="font-medium">{{ r.title }}</a></td>
+              <td class="whitespace-nowrap text-xs">{{ r.assets|length|pl:"activo,activos" }}</td>
+              <td class="col-md text-xs"><a href="{% url 'detection:risk' r.worst.pk %}" target="_blank" rel="noopener">{{ r.worst.asset.name }}</a> {% intel_badges r.worst as badges %}{{ badges }}</td>
               <td class="col-lg font-mono text-xs whitespace-nowrap">{{ r.likelihood }} × {{ r.impact }}</td>
               <td>{% risk_level_badge r.level %}</td>
-              <td class="text-xs">{% if r.treatment %}{{ r.get_treatment_display }}{% else %}<a href="{% url 'detection:risk' r.pk %}#tratamiento" target="_blank" rel="noopener" class="text-medium">sin decidir →</a>{% endif %}</td>
+              <td class="text-xs">{% if r.undecided == r.scenarios|length %}<a href="{{ r.url }}#tratamiento" target="_blank" rel="noopener" class="text-medium">sin decidir →</a>{% else %}{{ r.treatments }}{% endif %}</td>
             </tr>
             {% empty %}<tr><td colspan="6" class="table-empty">No hay riesgos abiertos.</td></tr>{% endfor %}
           </tbody>
@@ -92,9 +93,9 @@
 
   <div class="flex flex-col gap-4">
     <section class="card flex flex-col gap-2">
-      <h2 class="card-title mb-0">Matriz de riesgos</h2>
+      <h2 class="card-title mb-0">Matriz de escenarios</h2>
       {% include "detection/_risk_matrix.html" with matrix=matrix compact=True newtab=True %}
-      <p class="text-xs text-muted">{{ data.risks.open|pl:"riesgo abierto,riesgos abiertos" }} en {{ data.risks.assets_with_risk|pl:"activo,activos" }}; {{ data.risks.untreated }} sin tratamiento decidido. <a href="{% url 'detection:risks' %}" target="_blank" rel="noopener" class="out">Abrir la matriz navegable</a></p>
+      <p class="text-xs text-muted">Cada riesgo tiene un escenario por activo, con su propia probabilidad e impacto: {{ data.risks.open|pl:"riesgo abierto,riesgos abiertos" }}{% if data.risks.scenarios %}, {{ data.risks.scenarios|pl:"escenario,escenarios" }}{% endif %} en {{ data.risks.assets_with_risk|pl:"activo,activos" }}; {{ data.risks.untreated|pl:"riesgo,riesgos" }} con algo sin decidir. <a href="{% url 'detection:risks' %}" target="_blank" rel="noopener" class="out">Abrir la matriz navegable</a></p>
     </section>
     {% include "presentation/_home_alerts.html" %}
     {% if blocks.activity %}{% include "presentation/_home_pulse.html" %}{% endif %}

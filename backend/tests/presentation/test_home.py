@@ -42,8 +42,8 @@ def as_role(client, make_user):
     return login
 
 
-def _asset_with_risk(name="api-pagos"):
-    asset = AssetFactory(name=name, criticality="CRITICO", exposure="DMZ")
+def _asset_with_risk(name="api-pagos", **extra):
+    asset = AssetFactory(name=name, criticality="CRITICO", exposure="DMZ", **extra)
     ServiceFactory(asset=asset, port=443, product="nginx", version="1.27.3")
     components.refresh_components(asset.pk)
     findings.apply_matches(matching.reconcile_assets([asset.pk]))
@@ -107,7 +107,7 @@ def test_snapshot_trend_and_deltas():
         day=today - timedelta(days=1),
         data={
             "health": "GREEN",
-            "risks": {"open": 0, "critical": 0},
+            "risks": {"open": 0, "critical": 0, "scenarios": 0},
             "vulnerabilities": {"sustained": 0, "in_kev": 0},
             "actions": {"pending_approval": 0},
         },
@@ -115,6 +115,7 @@ def test_snapshot_trend_and_deltas():
     data = indicators.compute()
     snap = indicators.snapshot_today(data)
     assert snap.day == today and snap.data["risks"]["open"] == data["risks"]["open"]
+    assert snap.data["risks"]["scenarios"] == data["risks"]["scenarios"]
     rows = indicators.trend(days=7)
     assert len(rows) == 7 and rows[-1]["day"] == today and rows[-1]["has_data"]
     assert rows[-2]["risks_open"] == 0 and rows[0]["has_data"] is False
@@ -124,6 +125,53 @@ def test_snapshot_trend_and_deltas():
     # Volver a tomar la instantánea del mismo día la sobrescribe, no la duplica.
     indicators.snapshot_today(data)
     assert HealthSnapshot.objects.filter(day=today).count() == 1
+
+
+def test_a_snapshot_that_counted_risks_per_asset_is_not_compared(client, as_role):
+    """Antes de los dos niveles «riesgos abiertos» era el riesgo de cada activo. Esa cifra no se
+    resta de la de ahora ni entra en la línea de tendencia: el cambio de unidad se leería como
+    una mejora que no ocurrió. Lo demás (vulnerabilidades) sí se sigue comparando."""
+    _asset_with_risk()
+    today = timezone.localdate()
+    HealthSnapshot.objects.create(
+        day=today - timedelta(days=1),
+        data={
+            "health": "RED",
+            "risks": {"open": 43, "critical": 9, "by_level": {"CRITICAL": 9, "HIGH": 34}},
+            "vulnerabilities": {"sustained": 5, "in_kev": 1},
+            "actions": {"pending_approval": 0},
+        },
+    )
+    data = indicators.compute()
+    assert indicators.counts_business_risks(indicators.snapshot_today(data).data)
+
+    d = indicators.deltas(data)
+    assert d["available"] and d["risks_comparable"] is False
+    assert d["risks_open"] is None and d["risks_critical"] is None
+    assert d["vulns_sustained"] == data["vulnerabilities"]["sustained"] - 5
+
+    before, now = indicators.trend(days=7)[-2:]
+    assert before["has_data"] and before["other_unit"] and before["vulns_sustained"] == 5
+    assert before["risks_open"] is None and before["risks_by_level"] == {}
+    assert not now["other_unit"] and now["risks_open"] == data["risks"]["open"]
+
+    payload = narrative.build_payload(data)
+    assert payload["trend"]["risks_open_first"] == data["risks"]["open"]
+    changes = narrative.changes_text(payload)
+    said, _, note = changes.partition(" Los riesgos no se comparan con los de esa fecha")
+    assert note and "riesgo" not in said and "sostenida" in said
+
+    # En la lectura, «qué cambió» lo escribe el código ese día: el modelo no resta las dos cifras.
+    story = narrative.generate(force=True)
+    assert not story.by_rule and story.changes == changes
+
+    as_role(OPERATOR)
+    body = client.get("/").content.decode()
+    assert "cambió la forma de contarlos" in body and "data-risks-since" in body
+    assert "frente al" not in body.split('data-hero-count="open"')[1].split("</a>")[0]
+    report = client.get("/home/report/?format=md").content.decode()
+    assert "Los riesgos no se comparan con los de esa fecha" in report
+    assert "riesgos abiertos +" not in report and "riesgos abiertos -" not in report
 
 
 def test_alerts_are_derived_from_events():
@@ -265,7 +313,7 @@ def test_home_renders_executive_view_with_blocks_and_downloads(client, as_role):
         "Riesgos abiertos por nivel",
         "Vulnerabilidades sostenidas y explotación activa",
         "Riesgos que más pesan",
-        "Matriz de riesgos",
+        "Matriz de escenarios",
         "Avisos",
         "Pulso del sistema",
         "Qué hago hoy",
@@ -1035,7 +1083,9 @@ def test_headline_always_carries_the_current_figures(client, as_role):
     assert narrative.reading(data)["narrative_changes"] == []
     assert narrative.live_headline(story, data).startswith("1 riesgo abierto, ")
 
-    _asset_with_risk("segundo")
+    # Otro activo con otra función de negocio: otro riesgo de la organización (en la misma
+    # función sería un escenario más del mismo riesgo).
+    _asset_with_risk("segundo", business_role="PAGOS")
     Risk.objects.update(level=RiskLevel.CRITICAL, likelihood=5, impact=5)
     indicators.invalidate()
     data = indicators.current()

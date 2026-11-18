@@ -29,6 +29,8 @@
 </div>
 {% endif %}
 {% if risk.cause %}<p class="-mt-2 text-sm text-ink-soft" title="{{ risk.title }}">{{ risk.headline }}</p>{% endif %}
+{# A qué riesgo de la organización pertenece este escenario y dónde se corrige. #}
+<p class="-mt-2 text-xs text-muted" data-business-of>Escenario del riesgo {% if business.scenarios %}<a href="{{ business.url }}" class="font-medium" title="El riesgo de la organización: esta consecuencia en todos los activos con la misma función de negocio">{{ business.title }}</a> · {{ business.assets|length|pl:"activo,activos" }}{% else %}<span class="font-medium">{{ business.title }}</span>{% endif %} · <a href="{% url 'detection:panel' %}?asset={{ risk.asset_id }}" title="Las vulnerabilidades de {{ risk.asset.name }} agrupadas por el software que hay que actualizar o corregir">software a corregir en {{ risk.asset.name }}</a></p>
 {% if closure %}
 <div class="alert-info" role="status">
   <strong>Riesgo cerrado el {{ closure.at|fecha }}:</strong> {{ closure.message }}.
@@ -130,7 +132,7 @@
       <p class="text-xs text-muted">Decidido por <span class="font-mono">{{ risk.decided_by.get_username|default:"—" }}</span> el {{ risk.decided_at|fecha }}.{% if risk.treatment_note %} «{{ risk.treatment_note }}»{% endif %}</p>
       {% if risk.residual_level %}<p class="text-sm">Riesgo residual: {% risk_level_badge risk.residual_level %} <span class="font-mono text-xs text-muted">{{ risk.residual_likelihood }} × {{ risk.residual_impact }}</span></p>{% endif %}
       {% elif closure %}<p class="text-xs text-muted">Se cerró sin tratamiento decidido: no hace falta decidir nada mientras siga cerrado.</p>
-      {% else %}<p class="text-xs text-muted">Nadie ha decidido todavía qué hacer con este riesgo. La IA no decide tratamientos.</p>{% endif %}
+      {% else %}<p class="text-xs text-muted">Nadie ha decidido todavía qué hacer con este escenario. La IA no decide tratamientos.</p>{% endif %}
       {% if deadline %}
       <div class="rounded border border-line bg-canvas px-3 py-2 text-sm" data-deadline="{{ deadline.state }}">
         <p>Plazo según la política: <strong class="font-medium">{{ deadline.date|fecha }}</strong> <span class="{% if deadline.state == 'late' %}badge-critical{% elif deadline.state == 'ok' %}badge-neutral{% else %}badge-high{% endif %}">{{ deadline.when }}</span></p>
@@ -178,7 +180,7 @@
     <section class="card flex flex-col gap-2" id="responsable">
       <h3 class="card-title mb-0">Responsable</h3>
       {% if responsible %}
-      <p class="text-sm"><strong class="font-medium"><a href="{% url 'detection:risks' %}?owner={{ responsible.label|urlencode }}" title="Todos los riesgos de este responsable">{{ responsible.label }}</a></strong>{% if responsible.note %} <span class="badge-neutral">{{ responsible.note }}</span>{% endif %}</p>
+      <p class="text-sm"><strong class="font-medium"><a href="{% url 'detection:risks' %}?owner={{ responsible.label|urlencode }}" title="Todos los escenarios de este responsable">{{ responsible.label }}</a></strong>{% if responsible.note %} <span class="badge-neutral">{{ responsible.note }}</span>{% endif %}</p>
       <p class="text-xs text-muted">{% if responsible.inherited %}Nadie lo asignó en el riesgo: responde quien lleva el activo{% if responsible.has_account %} y lo ve en «a mi nombre»{% endif %}.{% elif responsible.has_account %}Asignado{% if risk.assigned_by %} por <span class="font-mono">{{ risk.assigned_by.get_username }}</span>{% endif %}{% if risk.assigned_at %} el {{ risk.assigned_at|fecha }}{% endif %}. Lo ve en «a mi nombre» y recibe el aviso.{% else %}Sin cuenta en la plataforma: no recibe avisos ni lo ve en «a mi nombre».{% endif %}</p>
       {% else %}
       <p class="text-sm {% if closure %}text-muted{% else %}text-high{% endif %}">Sin responsable: ni el riesgo ni el activo tienen uno.</p>

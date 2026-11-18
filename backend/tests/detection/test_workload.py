@@ -341,11 +341,11 @@ def test_risk_pages_show_the_policy_deadline_and_propose_it_as_commitment(client
     assert "venció hace 15 días" in body and "Ya venció" in body
     assert 'name="target_date" type="date" class="form-input" value=""' in body
 
-    page = client.get("/detection/")
+    page = client.get("/detection/?view=escenario")
     body = page.content.decode()
     assert "vence en 7 días" in body and "venció hace 15 días" in body
     assert "Fuera de plazo" in body and page.context["summary"]["policy_overdue"] == 1
-    assert "riesgo fuera del plazo que fija la política" in body
+    assert "escenario fuera del plazo que fija la política" in body
     only = client.get("/detection/?policy_overdue=1")
     assert [r.pk for r in only.context["risks"]] == [late.pk]
     item = next(i for i in risks.today() if "fuera del plazo" in i["text"])
@@ -367,7 +367,7 @@ def test_bulk_treatment_decides_several_risks_with_the_policy_deadline(client, a
     closed = _risk(asset, "LOW", days_ago=1, key="closed", status=RiskStatus.CLOSED)
     today = timezone.localdate()
 
-    body = client.get("/detection/").content.decode()
+    body = client.get("/detection/?view=escenario").content.decode()
     assert "Para los marcados" in body and body.count('name="ids"') == 3
     assert 'data-require="risk-bulk-note"' in body
 
@@ -378,7 +378,7 @@ def test_bulk_treatment_decides_several_risks_with_the_policy_deadline(client, a
         follow=True,
     )
     body = response.content.decode()
-    assert "2 riesgos → mitigar · compromiso según el plazo de la política" in body
+    assert "2 escenarios → mitigar · compromiso según el plazo de la política" in body
     assert "1 no se cambió: su plazo según la política ya venció" in body
     assert "1 no se cambió: está cerrado y no admite tratamiento" in body
     (
@@ -405,7 +405,7 @@ def test_bulk_treatment_decides_several_risks_with_the_policy_deadline(client, a
         },
         follow=True,
     )
-    assert "3 riesgos → transferir · responsable: Proveedor" in response.content.decode()
+    assert "3 escenarios → transferir · responsable: Proveedor" in response.content.decode()
     late.refresh_from_db(), other.refresh_from_db()
     assert late.treatment == "TRANSFER" and late.target_date == target
     assert other.owner == "Proveedor"
@@ -424,7 +424,7 @@ def test_bulk_treatment_decides_several_risks_with_the_policy_deadline(client, a
     assert fresh.review_at == today + datetime.timedelta(days=180)
 
     assert (
-        "Marca al menos un riesgo"
+        "Marca al menos un escenario"
         in client.post(
             "/detection/risks/bulk/", {"treatment": "MITIGATE"}, follow=True
         ).content.decode()
@@ -433,4 +433,4 @@ def test_bulk_treatment_decides_several_risks_with_the_policy_deadline(client, a
     assert (
         client.post("/detection/risks/bulk/", {"ids": ids, "treatment": "AVOID"}).status_code == 403
     )
-    assert 'name="ids"' not in client.get("/detection/").content.decode()
+    assert 'name="ids"' not in client.get("/detection/?view=escenario").content.decode()

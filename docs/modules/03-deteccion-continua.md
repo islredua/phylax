@@ -356,8 +356,9 @@ párrafo a partir de agregados sin IP ni nombres de equipo; el admin lo edita.
 
 Desde la revisión del 2026-11-16 (N1, N2) el módulo ya no es una sola sección «Detección»: sus
 pantallas se reparten por lo que la persona viene a hacer. Las rutas (`/detection/…`) no cambian.
-**Riesgos** (sección propia, portada de `/detection/`: registro ISO/IEC 27005 con matriz 5×5 de
-los riesgos listados, filtros por nivel, estado y tratamiento) · **Vulnerabilidades**
+**Riesgos** (sección propia, portada de `/detection/`: registro ISO/IEC 27005 en dos vistas, «por
+riesgo» de la organización con su mapa función × consecuencia y «por escenario» con la matriz 5×5
+y los filtros por nivel, estado y tratamiento; ver «El riesgo de la organización») · **Vulnerabilidades**
 (`/detection/vulnerabilities/`: consolidadas, ordenadas por puntaje contextual, con resumen y
 filtros; su segunda pestaña es Observaciones, la capa cruda con filtros, enlace a su vulnerabilidad
 y «Registrar observación») · **Operación** (Actividad, el flujo en vivo con una fila por acción y
@@ -663,7 +664,11 @@ Las listas de riesgos y de vulnerabilidades tienen «Exportar lo filtrado» (`?e
 misma URL): el CSV trae lo que la lista muestra con sus filtros, sin paginar; la de
 vulnerabilidades, una fila por vulnerabilidad aunque la lista esté agrupada por software. Las
 columnas son las mismas que la descarga de Inicio, más el responsable efectivo y su origen en los
-riesgos. Quien puede ver la lista puede exportarla.
+riesgos. Quien puede ver la lista puede exportarla. En Riesgos, la vista por riesgo exporta una
+fila por riesgo de la organización (`exports.BUSINESS_RISK_COLUMNS`: consecuencia, función, nivel,
+peor escenario, activos, escenarios sin decidir, tratamiento, plazo más próximo, responsables) y
+la vista por escenario una fila por escenario, con la función de negocio y el riesgo al que
+pertenece.
 
 ## Estructura y lectura (revisión del 2026-11-16, bloque 5)
 
@@ -848,6 +853,118 @@ vulnerabilidades **más graves** (las que le dan el nivel): corregir lo viejo y 
 reloj con lo que quede; que llegue algo menor no lo mueve. `first_identified_at` sigue diciendo
 desde cuándo existe el escenario (`risks._known_since` lo hereda del riesgo anterior más antiguo
 que ya tenía alguna de sus vulnerabilidades).
+
+**Medido (2026-11-18, copia del laboratorio, modelo real, tres pasadas seguidas sin cambiar
+nada entre una y otra; la copia venía de las cinco pasadas de la tabla anterior):**
+
+| Pasada | Tiempo | Llamadas al modelo | Escenarios abiertos | Valorados por IA | Vulnerabilidades en más de un riesgo | Eventos de riesgo |
+|---|---|---|---|---|---|---|
+| Antes (reparto del modelo) | — | — | 48 (42 claves distintas) | 48 | 1 | — |
+| 1 (prompt nuevo: valora todo) | 18 min | 36 de valoración (una con reintento) y 36 de redacción | 36 | 36 | 0 | 88 |
+| 2 | 11 s | 0 | 36 | 36 | 0 | 0 |
+| 3 | 12 s | 0 | 36 | 36 | 0 | 0 |
+
+De los 48 riesgos anteriores, 25 continuaron en su escenario (con su historia) y 23 se cerraron
+como reemplazados; 11 escenarios son filas nuevas. Los 36 escenarios quedan en 16 activos: 11 de
+fuga de información, 15 de alteración y 10 de interrupción.
+
+En esa primera pasada **6 de las 36 redacciones para la dirección** no pasaron el validador en
+tres intentos (antes: 4 de 157) y esos escenarios quedaron con la descripción por regla. Dos
+causas, ya corregidas en el flujo (`risks._forbidden_words`, `schemas.narrative_validator`,
+`risks.lay_text`): el validador prohibía trozos del nombre del propio activo cuando su software
+se llama igual («info», de `decoy-info`, casaba dentro de «información»; ahora nunca se prohíbe
+el nombre del activo y lo prohibido se busca como palabra entera), y el modelo copiaba la sigla
+«PII» de las categorías de datos (ahora recibe «datos personales»).
+
+Comprobado después con el modelo real, valorando de nuevo los 36 escenarios de la copia
+(`derive_risks(…, fresh=True)`, 21 min): **ninguna redacción fallida** (antes 6 de 36). Lo que
+no cambió es el costo: 29 de las 36 necesitaron reintento. Repetida cada petición una sola vez,
+el primer intento pasa en 10 de 36; lo que el validador rechaza es casi siempre el párrafo del
+escenario, porque el modelo nombra el software y su versión («Apache», «2.4.49», «lodash») o
+copia un identificador o una sigla («CVE-2021-41773», «XSS», «DoS») que le llegan en el título y
+en las fallas, y el reintento, que le dice qué palabras quitar, lo arregla. Queda como mejora:
+darle al redactor el software ya descrito por lo que hace.
+
+Esa misma pasada dice cuánto se mueve el modelo cuando se le obliga a valorar de nuevo con la
+misma evidencia: 12 de los 36 escenarios cambiaron de valoración y 8 de nivel (el reparto por
+nivel quedó casi igual: 9 críticos, 9 muy altos, 6 altos, 12 moderados; los riesgos de la
+organización siguieron siendo 23). Por eso la valoración se conserva mientras la evidencia no
+cambie («Con la misma evidencia, la misma valoración») y valorar todo de nuevo (`fresh`) queda
+para medir al modelo, no para el flujo normal.
+
+### El riesgo de la organización: una consecuencia sobre una función de negocio (`detection/business_risks.py`)
+
+Un escenario dice qué puede pasarle a **un** activo. Lo que una dirección decide es otra cosa:
+qué puede perder la organización en una **función de negocio** (pagos, API, correo…). Es el
+nivel en que las normas le hablan a quien decide: ISO/IEC 27005:2022 separa los escenarios
+basados en eventos de los basados en activos, NIST IR 8286 agrega los riesgos de los sistemas en
+el registro de la organización y MAGERIT presenta a la dirección el riesgo repercutido sobre los
+servicios.
+
+**Un riesgo es una consecuencia sobre una función de negocio** y reúne los escenarios abiertos
+de los activos que cumplen esa función (`Asset.business_role`): «Fuga de información en Pagos»,
+«Interrupción del servicio en Correo». Dentro de cada riesgo hay, por tanto, un escenario por
+activo.
+
+- **No tiene tabla.** Se arma al leer con los escenarios abiertos (`business_risks.register`,
+  `get`, `of`, `counts`). No hay nada que sincronizar cuando un activo cambia de función o un
+  escenario se cierra, y el eje (hoy la función de negocio) se puede cambiar sin migrar datos.
+- **Su nivel es el de su peor escenario.** No se promedia ni se suma: un activo en nivel crítico
+  no se compensa con tres en nivel bajo. La página del riesgo dice cuál es y cómo están los demás.
+- **Las decisiones viven en los escenarios.** Tratamiento, responsable y plazo son de cada
+  escenario. La página del riesgo abre con todos sus escenarios marcados y la barra «Para todo
+  el riesgo»: decidir ahí es decidirlos a la vez (`RiskBulkView`, la misma decisión en lote del
+  registro, cada una a nombre de quien decide). Un activo que entra después llega sin decidir:
+  nadie aceptó lo que todavía no existía.
+- **Cuántos puede haber.** Como mucho tres por función de negocio en uso, por más activos o
+  vulnerabilidades que se sumen. En el laboratorio (16 activos con escenarios, 9 funciones)
+  son **23 riesgos** para 36 escenarios y 756 vulnerabilidades sostenidas.
+
+**Pantallas.** El registro (`/detection/`) tiene dos vistas:
+
+- **Por riesgo** (lo normal): tarjetas (abiertos, críticos, muy altos, altos, con algo sin
+  decidir, escenarios), el **mapa función de negocio × consecuencia** (cada casilla es un riesgo,
+  con el color de su nivel y cuántos activos abarca) y la lista de riesgos con su peor escenario,
+  activos, tratamiento («2 mitigar · 1 sin decidir»), plazo más próximo y responsables. Acepta
+  dos filtros: `?level=` (el nivel **del riesgo**) y `?treatment=none` (riesgos con algún
+  escenario sin decidir). «Exportar» da una fila por riesgo.
+- **Por escenario** (`?view=escenario`, o cualquier filtro que solo se entiende escenario por
+  escenario: activo, responsable, plazos, casilla de la matriz, estado): la lista de siempre, con
+  filtros, colas de trabajo, decisión en lote, matriz 5×5 y «por responsable». Su CSV añade las
+  columnas `funcion_de_negocio` y `riesgo_de_la_organizacion`.
+
+La página del riesgo (`/detection/risks/business/<consecuencia>/<función>/`) lo resume en tres
+líneas escritas por código (qué puede pasar, dónde, por qué tiene ese nivel), lista sus
+escenarios con enlace al **software a corregir** de cada activo y lleva la decisión conjunta. La
+ficha de cada escenario dice a qué riesgo pertenece. Si un riesgo se queda sin escenarios
+abiertos, su dirección devuelve al registro con un aviso.
+
+**Quién cuenta qué.** Inicio habla de riesgos de la organización: la cifra grande, el reparto
+por nivel, «sin tratamiento decidido» (riesgos con algún escenario sin decidir), «Riesgos que más
+pesan» y la tendencia (`indicators.compute` → `business_risks.counts`). La matriz 5×5 y «Hoy»
+del registro cuentan **escenarios**, que son la unidad de trabajo, y lo dicen. Las instantáneas
+anteriores contaban el riesgo de cada activo y no se reescriben ni se comparan con las de ahora
+(en el laboratorio habría sido «de 43 a 23» sin que bajara nada): la cifra de Inicio lo dice, la
+línea de tendencia empieza el día del cambio y la lectura no resta las dos cifras
+(`05-inicio.md`, «Inicio cuenta riesgos de la organización»). En la ficha de un activo, «N
+riesgos» sigue siendo exacto: cada escenario del activo pertenece a un riesgo distinto.
+
+**En el laboratorio (2026-11-18, por la cola real, modelo real):** los 19 activos con
+vulnerabilidades se consolidaron con el código nuevo, sin tocar un dato a mano.
+
+| Pasada | Tiempo | Llamadas al modelo | Escenarios | Riesgos | Eventos de riesgo |
+|---|---|---|---|---|---|
+| Antes | — | — | 43 riesgos por activo (reparto del modelo) | — | — |
+| 1 | 16 min | 36 de valoración (todas al primer intento), 36 de redacción (29 con reintento, ninguna fallida), 10 de evaluación de vulnerabilidades | 36 en 16 activos, los 36 por IA | 23 (6 críticos, 5 muy altos, 5 altos, 7 moderados) | 85: 25 riesgos continúan en su escenario, 18 se cierran como reemplazados, 11 escenarios nuevos |
+| 2 | 2 min | 3 evaluaciones de vulnerabilidades que el modelo había dejado sin responder, y con ellas la valoración y la redacción de sus 3 escenarios | 36 | 23 | 0 |
+| 3 | 25 s | 0 | 36 | 23 | 0 |
+| 4 | 25 s | 0 | 36 | 23 | 0 |
+
+Ninguna vulnerabilidad queda en más de un riesgo abierto (756 sostenidas en los 36 escenarios).
+La segunda pasada no es inestabilidad del reparto: es el pendiente ya conocido de las
+vulnerabilidades que el modelo deja sin responder y que se le vuelven a preguntar en la
+siguiente consolidación; al cambiar su evaluación cambia la evidencia de su escenario y este se
+valora otra vez (aquí, con el mismo resultado).
 
 ### Actividad por acción (`activity.threads`, P7)
 

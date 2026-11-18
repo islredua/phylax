@@ -351,7 +351,7 @@ def test_register_orders_by_level_then_score_and_links_matrix_cells(client, as_r
         level="HIGH",
         first_identified_at=low.first_identified_at,
     )
-    response = client.get("/detection/")
+    response = client.get("/detection/?view=escenario")
     listed = list(response.context["risks"])
     assert listed[0].pk == high.pk and listed[1].pk == low.pk  # alto antes que moderado con 5×1
     body = response.content.decode()
@@ -375,10 +375,10 @@ def test_today_block_lists_what_to_decide(client, as_role):
     Risk.objects.filter(pk=risk.pk).update(level="CRITICAL")
     items = risks.today()
     texts = [i["text"] for i in items]
-    assert any("riesgo crítico sin tratamiento" in t for t in texts)
+    assert any("escenario crítico sin tratamiento" in t for t in texts)
     assert all("(s)" not in t for t in texts)
     body = client.get("/detection/").content.decode()
-    assert "riesgo crítico sin tratamiento decidido" in body and "Decidir" in body
+    assert "escenario crítico sin tratamiento decidido" in body and "Decidir" in body
     # Un activo crítico con candidatos explotables por verificar y sin riesgo aparece en «Hoy».
     Risk.objects.filter(pk=risk.pk).update(status="CLOSED")
     vuln = Vulnerability.objects.get(asset=asset)
@@ -405,7 +405,8 @@ def test_today_button_starts_a_work_queue_that_moves_to_the_next_risk(client, as
     Risk.objects.update(level="CRITICAL")
     item = next(i for i in risks.today() if "críticos sin tratamiento" in i["text"])
     assert item["count"] == 2 and item["action"] == "Decidir tratamiento"
-    assert item["url"] == "/detection/?level=CRITICAL&treatment=none"
+    # «Hoy» cuenta escenarios (la unidad de trabajo) y abre su lista, no la vista por riesgo.
+    assert item["url"] == "/detection/?level=CRITICAL&treatment=none&view=escenario"
     body = client.get("/detection/").content.decode()
     assert "Decidir tratamiento →" in body and "today-grid" in body
     page = client.get(item["work_url"])
@@ -425,7 +426,9 @@ def test_today_button_starts_a_work_queue_that_moves_to_the_next_risk(client, as
     assert response["Location"].startswith(f"/detection/risks/{other.pk}/?cola=")
     # El último de la cola devuelve a la lista con el aviso de cola terminada.
     response = client.post(f"/detection/risks/{other.pk}/treatment/", data, follow=True)
-    assert response.redirect_chain[-1][0] == "/detection/?level=CRITICAL&treatment=none"
+    assert (
+        response.redirect_chain[-1][0] == "/detection/?level=CRITICAL&treatment=none&view=escenario"
+    )
     assert "Cola terminada" in response.content.decode()
     # Una cola inválida o ajena no rompe la ficha.
     assert client.get(f"/detection/risks/{other.pk}/?cola=level%3DNOPE").status_code == 200
@@ -681,7 +684,7 @@ def test_list_filters_can_fold_on_phones(client, as_role):
     formulario y atalaya.js lo deja tras un botón (sin JavaScript se ve entero)."""
     as_role(ADMIN)
     for path in (
-        "/detection/",
+        "/detection/?view=escenario",
         "/detection/vulnerabilities/",
         "/detection/observations/",
         "/inventory/",

@@ -13,7 +13,7 @@ por CSS y home-charts.js refresca las cifras en sitio cada minuto.
       <h2 id="hero-titulo" class="hero-headline" data-hero-headline>{% if headline %}{{ headline|plain }}{% else %}Estado de la organización{% endif %}</h2>
       <a href="{% url 'detection:risks' %}" target="_blank" rel="noopener" class="hero-figure hover:no-underline" title="Abrir el registro de riesgos (se abre en otra pestaña)">
         <span class="hero-number" data-hero-count="open">{{ hero.open|miles }}</span>
-        <span class="hero-number-label">{{ hero.open|pl:"-riesgo abierto,riesgos abiertos" }}{% if deltas.available %} <span class="text-sm">{{ deltas.risks_open|delta }}</span><span class="block text-xs text-muted">frente al {{ deltas.since|fecha_corta }}</span>{% endif %}</span>
+        <span class="hero-number-label">{{ hero.open|pl:"-riesgo abierto,riesgos abiertos" }}{% if deltas.available and deltas.risks_comparable %} <span class="text-sm">{{ deltas.risks_open|delta }}</span><span class="block text-xs text-muted">frente al {{ deltas.since|fecha_corta }}</span>{% elif deltas.available %}<span class="block text-xs text-muted" title="El {{ deltas.since|fecha_corta }} se contaba el riesgo de cada activo; ahora, el de la organización: una consecuencia sobre una función de negocio. Las dos cifras no se restan.">sin comparación con el {{ deltas.since|fecha_corta }}: cambió la forma de contarlos</span>{% endif %}</span>
       </a>
     </div>
     <div class="hero-levels">

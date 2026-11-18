@@ -71,20 +71,28 @@
   <div class="kpi"><div class="l">Sin tratamiento</div><div class="v">{{ data.risks.untreated }}</div><div class="muted">riesgos abiertos sin decisión</div></div>
   <div class="kpi"><div class="l">Detección → valoración</div><div class="v">{% if data.timing.detect_to_assess_hours is not None %}{{ data.timing.detect_to_assess_hours }} h{% else %}—{% endif %}</div><div class="muted">tiempo medio</div></div>
 </div>
-{% if deltas.available %}<p class="muted" style="font-size:9pt">Frente al {{ deltas.since|fecha_corta }}: riesgos abiertos {{ deltas.risks_open|stringformat:"+d" }}, críticos {{ deltas.risks_critical|stringformat:"+d" }}, vulnerabilidades sostenidas {{ deltas.vulns_sustained|stringformat:"+d" }}, en KEV {{ deltas.vulns_kev|stringformat:"+d" }}.</p>{% endif %}
+{% if deltas.available %}<p class="muted" style="font-size:9pt">Frente al {{ deltas.since|fecha_corta }}: {% if deltas.risks_comparable %}riesgos abiertos {{ deltas.risks_open|stringformat:"+d" }}, críticos {{ deltas.risks_critical|stringformat:"+d" }}, {% endif %}vulnerabilidades sostenidas {{ deltas.vulns_sustained|stringformat:"+d" }}, en KEV {{ deltas.vulns_kev|stringformat:"+d" }}.{% if not deltas.risks_comparable %} Los riesgos no se comparan con los de esa fecha: entonces se contaba el riesgo de cada activo y ahora el de la organización.{% endif %}</p>{% endif %}
 
 <h2>Tendencia de riesgos abiertos por nivel</h2>
 {% legend charts.risk_legend %}
 {% svg_trend charts.rows charts.risk_series 760 180 %}
+{% if charts.risks_since %}<p class="muted" style="font-size:9pt">La línea empieza el {{ charts.risks_since|fecha_corta }}: hasta entonces se contaba el riesgo de cada activo y desde ese día el de la organización, y las dos cifras no se comparan.</p>{% endif %}
 <div class="two">
   <div><h2>Riesgos abiertos por nivel</h2>{% svg_bars charts.level_bars 380 %}</div>
   <div><h2>Priorización contextual frente a CVSS</h2>{% legend charts.priority_legend %}{% svg_compare charts.priority_groups 380 150 %}</div>
 </div>
 
 <h2>Riesgos principales</h2>
+<p class="muted" style="font-size:9pt">Un riesgo es una consecuencia sobre una función de negocio; reúne un escenario por activo y toma el nivel del peor.</p>
 <table>
-  <thead><tr><th>Riesgo</th><th>Activo</th><th>P × I</th><th>Nivel</th><th>Inteligencia</th><th>Tratamiento</th></tr></thead>
-  <tbody>{% for r in top_risks %}<tr><td>{{ r.title }}</td><td>{{ r.asset.name }}</td><td>{{ r.likelihood }} × {{ r.impact }}</td><td><span class="badge lvl-{{ r.level }}">{{ r.get_level_display }}</span></td><td>{{ r.intelligence_summary|default:"—"|plain }}</td><td>{% if r.treatment %}{{ r.get_treatment_display }}{% else %}sin decidir{% endif %}</td></tr>{% empty %}<tr><td colspan="6" class="muted">No hay riesgos abiertos.</td></tr>{% endfor %}</tbody>
+  <thead><tr><th>Riesgo</th><th>Activos</th><th>Peor escenario</th><th>P × I</th><th>Nivel</th><th>Tratamiento</th></tr></thead>
+  <tbody>{% for r in top_business %}<tr><td>{{ r.title }}</td><td>{{ r.assets|length }}</td><td>{{ r.worst.asset.name }}</td><td>{{ r.likelihood }} × {{ r.impact }}</td><td><span class="badge lvl-{{ r.level }}">{{ r.level_label }}</span></td><td>{{ r.treatments }}</td></tr>{% empty %}<tr><td colspan="6" class="muted">No hay riesgos abiertos.</td></tr>{% endfor %}</tbody>
+</table>
+
+<h2>Escenarios que más pesan</h2>
+<table>
+  <thead><tr><th>Escenario</th><th>Activo</th><th>P × I</th><th>Nivel</th><th>Inteligencia</th><th>Tratamiento</th></tr></thead>
+  <tbody>{% for r in top_risks %}<tr><td>{{ r.title }}</td><td>{{ r.asset.name }}</td><td>{{ r.likelihood }} × {{ r.impact }}</td><td><span class="badge lvl-{{ r.level }}">{{ r.get_level_display }}</span></td><td>{{ r.intelligence_summary|default:"—"|plain }}</td><td>{% if r.treatment %}{{ r.get_treatment_display }}{% else %}sin decidir{% endif %}</td></tr>{% empty %}<tr><td colspan="6" class="muted">No hay escenarios abiertos.</td></tr>{% endfor %}</tbody>
 </table>
 
 <h2>Del ruido a la decisión: lo que el sistema hizo por sí solo</h2>

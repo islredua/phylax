@@ -478,7 +478,15 @@ corrigió lo que esas comprobaciones encontraron.
   uno. Diez de los trece salen de cómo le llegan los datos: las seis vulnerabilidades más graves
   una a una y el resto resumido por software. En la copia, cinco pasadas sin cambios llevaron los
   abiertos de 36 a 48. Agrupando por código (un riesgo por activo y software, y las debilidades
-  de configuración del activo juntas) serían 33 en los dos casos. **Pendiente de decisión.**
+  de configuración del activo juntas) serían 33 en los dos casos. **Decidido y resuelto
+  (2026-11-18):** el modelo ya no agrupa. Un escenario es un activo y una consecuencia (que sale
+  del vector CVSS), y encima va el riesgo de la organización: una consecuencia sobre una función
+  de negocio, con el nivel de su peor escenario. En la copia, con el modelo real: 48 → 36
+  escenarios y 23 riesgos, ninguna vulnerabilidad en dos riesgos, y la segunda y la tercera
+  pasada sin una llamada ni un cambio. En el laboratorio, por la cola real: 43 → 36 escenarios y
+  23 riesgos; la tercera y la cuarta pasada, sin una llamada. Detalle en
+  `03-deteccion-continua.md` («Un escenario por activo y consecuencia» y «El riesgo de la
+  organización»).
 - **El modelo deja sin responder entre el 10 % y el 16 % de las vulnerabilidades de una pasada**
   (112 de 1 053 en el laboratorio, 166 en la copia); quedan por regla hasta la siguiente
   consolidación del activo. Volver a preguntar por ellas dentro de la misma consolidación

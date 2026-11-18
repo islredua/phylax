@@ -1367,9 +1367,14 @@ def strip_recommendations(details):
     return strip_empty_labels(_TRAILING_RECOMMENDATIONS.sub("", details or "").rstrip())
 
 
-def _forbidden_words(vulns):
+def _forbidden_words(vulns, asset_name=""):
     """Nombres y versiones del software del riesgo, que la redacción para la dirección no puede
-    usar («log4j-core», «log4j», «2.14.1»)."""
+    usar («log4j-core», «log4j», «2.14.1»).
+
+    Nunca el nombre del propio activo ni sus partes: hay equipos cuyo software se llama como
+    ellos («agente-portal», «decoy-info») y la redacción tiene que poder nombrar al activo."""
+    own = (asset_name or "").lower()
+    own = {own, *(part for part in re.split(r"[-_.\s]+", own) if part)}
     words = set()
     for v in vulns:
         label = software_label(v)
@@ -1381,7 +1386,7 @@ def _forbidden_words(vulns):
         if len(parts) > 1 and any(ch.isdigit() for ch in parts[-1]):
             words.add(parts[-1])
         words.update(x for x in re.split(r"[-_.]", parts[0]) if len(x) > 3)
-    return sorted(words, key=str.lower)
+    return sorted((w for w in words if w.lower() not in own), key=str.lower)
 
 
 HOW_DETECTED = {
@@ -1398,10 +1403,23 @@ _LAY_REPLACEMENTS = (
         "la agencia de ciberseguridad de Estados Unidos",
     ),
     (re.compile(r"\bCISA\b"), "esa agencia"),
-    (re.compile(r"\s*\(KEV\)"), ""),
-    (re.compile(r"\s*\(SBOM\)"), ""),
+    (re.compile(r"\s*\((?:KEV|EPSS|SBOM|PII)\)"), ""),
+    (re.compile(r"\bPII\b"), "datos personales"),
+    (re.compile(r"\bdel EPSS\b"), "de la probabilidad de explotación"),
+    (re.compile(r"\b(?:el |la )?EPSS\b"), "la probabilidad de explotación"),
+    (re.compile(r"\bdel KEV\b"), "del catálogo de explotación activa"),
+    (re.compile(r"\b(?:el )?KEV\b"), "el catálogo de explotación activa"),
     (re.compile(r" es de \d+(?:\.\d+)? %, "), " es "),
 )
+
+
+DATA_CATEGORY_WORDS = {
+    "PII": "datos personales",
+    "FINANCIERO": "datos financieros",
+    "CLINICO": "datos clínicos",
+    "CREDENCIALES": "credenciales de acceso",
+    "PROPIEDAD_INTELECTUAL": "propiedad intelectual",
+}
 
 
 def lay_text(text):
@@ -1417,7 +1435,17 @@ def narrative_payload(data, item, vulns, context):
     likelihood, impact = item["likelihood"], item["impact"]
     return {
         "organization": data["organization"],
-        "asset": {**data["asset"], "exposure": _exposure_words(context)},
+        # Con palabras y sin siglas: el redactor copia lo que recibe («PII») y el validador lo
+        # rechaza.
+        "asset": {
+            **data["asset"],
+            "description": lay_text(data["asset"].get("description") or ""),
+            "exposure": _exposure_words(context),
+            "data_categories": [
+                DATA_CATEGORY_WORDS.get(code, str(code).lower())
+                for code in data["asset"].get("data_categories") or []
+            ],
+        },
         "risk": {
             "title": item["title"],
             "consequence": CONSEQUENCE_LABEL.get(item.get("consequence", ""), ""),
@@ -1427,12 +1455,14 @@ def narrative_payload(data, item, vulns, context):
             "level": dict(RiskLevel.choices)[risk_level_for(likelihood, impact)],
         },
         # Sin el «Sustento:» (KEV/EPSS): la probabilidad se redacta desde `intelligence`.
-        "what_the_flaws_allow": _clean(_SUPPORT_BLOCK.sub("", item.get("details", "")), 1500),
+        "what_the_flaws_allow": lay_text(
+            _clean(_SUPPORT_BLOCK.sub("", item.get("details", "")), 1500)
+        ),
         "flaws": [_clean(v.summary or v.title, 220) for v in _payload_order(vulns)[:5]],
         "flaw_count": len(vulns),
         "how_detected": [HOW_DETECTED.get(x, x.lower()) for x in sources],
         "intelligence": lay_text(intelligence(vulns)["plain"]),
-        "forbidden_words": _forbidden_words(vulns),
+        "forbidden_words": _forbidden_words(vulns, data["asset"].get("name") or ""),
     }
 
 
@@ -1962,7 +1992,8 @@ def today(asset_id=None, user=None):
     from . import policy, responsibles
     from .views import risk_queue
 
-    suffix = f"&asset={asset_id}" if asset_id else ""
+    # Lo que espera a una persona son escenarios (el riesgo en un activo): se listan como tales.
+    suffix = f"&asset={asset_id}" if asset_id else "&view=escenario"
     base = reverse("detection:risks")
     panel = reverse("detection:panel")
     open_qs = Risk.objects.filter(status__in=RISK_OPEN_STATUSES)
@@ -2001,32 +2032,32 @@ def today(asset_id=None, user=None):
     add(
         "critical",
         open_qs.filter(level=RiskLevel.CRITICAL, treatment="").count(),
-        "riesgo crítico sin tratamiento decidido",
-        "riesgos críticos sin tratamiento decidido",
+        "escenario crítico sin tratamiento decidido",
+        "escenarios críticos sin tratamiento decidido",
         query="level=CRITICAL&treatment=none",
         work="Decidir tratamiento",
     )
     add(
         "critical",
         open_qs.filter(kev_overdue_filter()).distinct().count(),
-        "riesgo con plazo de remediación de CISA vencido",
-        "riesgos con plazo de remediación de CISA vencido",
+        "escenario con plazo de remediación de CISA vencido",
+        "escenarios con plazo de remediación de CISA vencido",
         query="kev_overdue=1",
         work="Atender uno a uno",
     )
     add(
         "critical",
         open_qs.filter(policy.overdue_filter()).count(),
-        "riesgo fuera del plazo que fija la política de la organización",
-        "riesgos fuera del plazo que fija la política de la organización",
+        "escenario fuera del plazo que fija la política de la organización",
+        "escenarios fuera del plazo que fija la política de la organización",
         query="policy_overdue=1",
         work="Atender uno a uno",
     )
     add(
         "high",
         open_qs.filter(followup_overdue_filter()).count(),
-        "riesgo con fecha compromiso o revisión vencida",
-        "riesgos con fecha compromiso o revisión vencida",
+        "escenario con fecha compromiso o revisión vencida",
+        "escenarios con fecha compromiso o revisión vencida",
         query="overdue=1",
         work="Actualizar seguimiento",
     )
@@ -2052,8 +2083,8 @@ def today(asset_id=None, user=None):
     add(
         "medium",
         open_qs.filter(treatment="").exclude(level=RiskLevel.CRITICAL).count(),
-        "riesgo más espera una decisión de tratamiento",
-        "riesgos más esperan una decisión de tratamiento",
+        "escenario más espera una decisión de tratamiento",
+        "escenarios más esperan una decisión de tratamiento",
         query="treatment=none",
         work="Decidir tratamiento",
     )

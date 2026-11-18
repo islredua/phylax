@@ -380,13 +380,15 @@ def narrative_validator(forbidden_words):
     """``RiskNarrativeOutput`` que además rechaza los nombres de software y versiones del riesgo:
     el modelo debe nombrar cada pieza por lo que hace, no por cómo se llama."""
     words = [w for w in dict.fromkeys(forbidden_words) if w and len(w) > 2]
+    # Palabra entera: «info» (de un software llamado «decoy-info») no es «información».
+    patterns = [(w, re.compile(rf"(?<!\w){re.escape(w)}(?!\w)", re.IGNORECASE)) for w in words]
 
     class _Narrative(RiskNarrativeOutput):
         @field_validator(*NARRATIVE_FIELDS)
         @classmethod
         def _no_software_names(cls, value):
-            low = value.lower()
-            hits = [w for w in words if w.lower() in low] + _VERSION_TOKEN.findall(value)
+            hits = [w for w, pattern in patterns if pattern.search(value)]
+            hits += _VERSION_TOKEN.findall(value)
             if hits:
                 found = ", ".join(f"«{h}»" for h in dict.fromkeys(hits))
                 raise ValueError(
