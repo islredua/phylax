@@ -1,5 +1,5 @@
 {% load inventory l10n %}
-<p class="stage-lead">Atalaya usa un modelo de lenguaje que corre en {% if flow.ai.local %}este equipo: los datos de la organización no salen a ningún servicio externo de IA{% else %}el servidor configurado por la administración{% endif %}. El modelo nunca escribe sin comprobación: cada respuesta debe cumplir un esquema y pasar un validador; si falla se reintenta y, si vuelve a fallar, decide una regla.</p>
+<p class="stage-lead">La IA es un modelo de lenguaje que corre en {% if flow.ai.local %}este equipo, sin enviar datos a servicios externos{% else %}el servidor configurado por la administración{% endif %}. Cada respuesta se comprueba con un validador; si falla se reintenta y, si vuelve a fallar, decide una regla.</p>
 <div class="tiles tiles-4">
   <div class="tile"><p class="tile-value tile-value-text">{{ flow.ai.model }}</p><p class="tile-label">{% if flow.ai.available is False %}<span class="badge-critical">no responde</span> las evaluaciones corren por regla{% else %}<span class="badge-low">en línea</span>{% endif %}{% if flow.ai.accelerator %} · {{ flow.ai.accelerator|upper }}{% endif %}</p></div>
   <div class="tile tile-accent"><p class="tile-value">{{ flow.ai.calls|miles }}</p><p class="tile-label">inferencias en {{ window_days }} días{% if flow.ai.calls %} · {{ flow.ai.gpu_pct|floatformat:0 }} % en GPU{% endif %}</p></div>
@@ -23,4 +23,4 @@
     </tbody>
   </table>
 </div>
-<p class="mt-2 text-xs text-muted">Se cuentan las llamadas de las tareas de esta tabla hechas con sus instrucciones vigentes. No entran aquí la redacción de las explicaciones de cada vulnerabilidad (su resultado está en la etapa Vulnerabilidades) ni la de la lectura de esta pantalla, ni las llamadas con instrucciones ya corregidas o de prueba; todas quedan en el registro. «Aceptadas» son las respuestas que pasaron el validador, a la primera o tras un reintento. Las rechazadas no se pierden: esa decisión la toma la regla y queda marcada como tal; un texto que el modelo no logra se vuelve a pedir más tarde, cada vez más espaciado.</p>
+<p class="mt-2 text-xs text-muted">La tabla cuenta las llamadas hechas con las instrucciones vigentes de cada tarea. No incluye la redacción de las explicaciones de vulnerabilidades ni la lectura de esta pantalla, ni las llamadas con instrucciones anteriores o de prueba. «Aceptadas» son las respuestas que pasaron el validador, a la primera o tras un reintento; las rechazadas las resuelve una regla y quedan marcadas.</p>

@@ -1,5 +1,5 @@
 {% load inventory l10n %}
-<p class="stage-lead">Un reporte es un dato crudo: «este activo tiene este software» más «este software tiene esta falla». Puede nacer del cruce de la inteligencia con el inventario, de un escaneo, o de ambos. Cuando dos fuentes coinciden, la confianza sube.</p>
+<p class="stage-lead">Un reporte de evidencia indica que un activo tiene un software con una falla conocida. Sale del cruce con la inteligencia, de un escaneo o de ambos; cuando dos fuentes coinciden, la confianza es mayor.</p>
 <div class="tiles tiles-4">
   <div class="tile"><p class="tile-value">{{ flow.observations.total|miles }}</p><p class="tile-label">{{ flow.observations.total|pl:"-reporte vigente,reportes vigentes" }}</p></div>
   <div class="tile tile-accent"><p class="tile-value">{{ flow.observations.intel_only_pct|floatformat:0 }} %</p><p class="tile-label">se encontraron sin escanear, solo cruzando inteligencia con inventario</p></div>
@@ -22,4 +22,4 @@
     </tbody>
   </table>
 </div>
-<p class="mt-2 text-xs text-muted">Cada fila es una combinación exacta: un reporte cuenta una sola vez. Las filas resaltadas son las que dos fuentes confirmaron.</p>
+<p class="mt-2 text-xs text-muted">Cada fila es una combinación de fuentes y cada reporte se cuenta una sola vez. Las filas resaltadas son las confirmadas por dos fuentes.</p>

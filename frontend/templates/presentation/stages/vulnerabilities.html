@@ -1,5 +1,5 @@
 {% load inventory l10n %}
-<p class="stage-lead">El modelo local revisa los reportes de cada activo y decide cuáles se sostienen como vulnerabilidades de verdad: versión, exposición y evidencias. Después las prioriza con explotación real y la criticidad del activo, no solo con la severidad teórica.</p>
+<p class="stage-lead">El modelo local revisa los reportes de cada activo y determina cuáles aplican, según la versión, la exposición y la evidencia. La prioridad considera la explotación conocida y la criticidad del activo, además de la severidad.</p>
 <div class="stage-grid">
   <div>
     <p class="stage-sub">Qué tan firme es cada una <span class="font-normal text-muted">(estado puesto por IA; una persona puede corregirlo)</span></p>
@@ -27,6 +27,6 @@
       </li>
       {% endfor %}
     </ul>
-    <p class="stage-note mt-3">Por severidad teórica, {{ cvss_total|miles }} serían críticas o altas. Al ponderar explotación conocida, probabilidad de explotación, criticidad del activo y exposición, Atalaya deja {{ flow.vulnerabilities.prioritized|miles }}: la diferencia es trabajo que el equipo deja de perseguir. {{ flow.vulnerabilities.in_kev|miles }} tienen explotación activa conocida.</p>
+    <p class="stage-note mt-3">Solo por severidad, {{ cvss_total|miles }} serían críticas o altas. Al considerar la explotación conocida, la probabilidad de explotación, la criticidad del activo y la exposición quedan {{ flow.vulnerabilities.prioritized|miles }}. {{ flow.vulnerabilities.in_kev|miles }} tienen explotación activa conocida.</p>
   </div>
 </div>

@@ -92,7 +92,7 @@ texto se escapa siempre; solo se insertan `<a>` con URLs del sistema.
 
 ## Pruebas
 
-`tests/presentation/test_home.py` (54 pruebas, sin red ni modelo): conteos de indicadores,
+`tests/presentation/test_home.py` (55 pruebas, sin red ni modelo): conteos de indicadores,
 semáforo por reglas acotadas, caché e invalidación, instantánea/tendencia/deltas, avisos, ventana
 configurable, narrativa por regla coherente, rechazo de semáforo incorrecto y cifras inventadas,
 generación con mock y omisión si nada cambió, caída a regla por incoherencia o modelo apagado,
@@ -464,7 +464,7 @@ línea del inventario a vulnerabilidades y riesgos, porque se valoran con el con
   contra toda la inteligencia y después va al planificador (`events._triage_asset`), que es el
   camino inventario → cruce → planificador que ya está dibujado. «Cambios o revisiones» y no
   solo «cambios»: por ese lado entran también la evaluación pedida a mano y la revisión por
-  tiempo. El panel lo explica en su primera frase y su cifra lleva el mismo reparto.
+  tiempo. La primera cifra del panel lleva el mismo reparto.
 - **Línea punteada «contexto de cada activo»** del inventario a vulnerabilidades y riesgos. No
   es algo que pase de una etapa a otra, por eso no lleva cifra y tiene trazo propio (leyenda:
   «lo que se consulta al valorar»): la criticidad, la exposición, la función de negocio y la
@@ -476,6 +476,37 @@ línea del inventario a vulnerabilidades y riesgos, porque se valoran con el con
 Pruebas: `test_the_diagram_says_what_feeds_what_and_where_the_ai_works` (unidades y línea de
 contexto), `test_every_scan_is_counted_once_under_who_asked_for_it` (cobertura) y
 `test_each_recent_decision_says_who_decided_and_who_asked` (reparto del planificador).
+
+### Los paneles abren con una definición corta
+
+El panel de decisiones abría con cinco oraciones (qué le llega al planificador, qué hace el
+modelo, qué pasa si su respuesta no cumple el esquema, la regla fija y quién decide cuando una
+persona pide evaluar). El usuario lo leyó como texto «muy redactado por IA» y demasiado largo
+para Inicio y para presentar, «donde no conviene tener tanto texto, sino indicadores», y
+propuso la forma «El planificador es el módulo que se encarga de…».
+
+- Los nueve paneles (las ocho etapas y la IA local) abren con qué es la etapa y qué hace, en
+  una o dos oraciones llanas: entre 26 y 45 palabras con los datos del laboratorio. Ejemplo:
+  «El planificador es el módulo que decide qué hacer con las señales que el cruce no resuelve
+  por sí solo. Con la señal y los datos del activo, el modelo local elige una acción de una
+  lista fija y anota el motivo.»
+- Lo que la frase larga explicaba ya lo dicen las cifras y las etiquetas del panel: por dónde
+  llegó cada señal y cuántas decidió el modelo o una regla (las dos primeras cifras), y quién
+  decidió y quién pidió cada evaluación (cada fila de «Últimas decisiones» y la ficha de la
+  acción).
+- Las notas secundarias también se acortaron y perdieron los remates: en el cruce, «Cómo
+  decide» dice los tres desenlaces de una señal de inteligencia (se descarta, se registra un
+  reporte sin escanear, pasa al planificador); «Lo que sigue es tuyo» es ahora «Pendiente de
+  una persona»; la nota de vulnerabilidades ya no dice que «la diferencia es trabajo que el
+  equipo deja de perseguir»; la nota al pie de la IA dice qué cuenta la tabla y qué es
+  «aceptada», sin el detalle de los reintentos espaciados.
+- `test_stage_panels_open_with_a_short_definition` vigila el largo: cada panel tiene una sola
+  frase de apertura de 10 a 45 palabras.
+
+Solo se revisaron los paneles del diagrama de Inicio. **Pendiente**, a petición del usuario:
+revisar con el mismo criterio los textos fijos del resto de la plataforma (las demás secciones
+de Inicio, Riesgos, Vulnerabilidades, Inventario, Operación, Administración, las fichas de
+detalle y los reportes).
 
 ### Comprobado
 

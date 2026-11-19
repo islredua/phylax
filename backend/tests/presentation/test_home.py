@@ -813,10 +813,10 @@ def test_stage_panels_explain_how_the_platform_works(client, as_role):
     _asset_with_risk()
     expected = {
         "signals": ("Espejo local de inteligencia", "Qué llegó en"),
-        "match": ("Así se cruza la inteligencia con el inventario", "Por qué se descartaron"),
+        "match": ("El cruce compara cada señal", "Cómo decide", "Por qué se descartaron"),
         "decisions": ("Límites que acotan la automatización", "Qué decidió"),
         "inventory": (
-            "El inventario es la otra entrada",
+            "El inventario reúne los activos",
             "Qué hace aquí la IA",
             "Por qué vuelve a entrar",
         ),
@@ -826,8 +826,8 @@ def test_stage_panels_explain_how_the_platform_works(client, as_role):
             "Severidad teórica frente a prioridad real",
             "Qué tan firme es cada una",
         ),
-        "risks": ("ISO/IEC 27005", "Lo que sigue es tuyo"),
-        "ai": ("Qué hace el modelo y qué tan bien", "no salen a ningún servicio externo"),
+        "risks": ("ISO/IEC 27005", "Pendiente de una persona"),
+        "ai": ("Qué hace el modelo y qué tan bien", "sin enviar datos a servicios externos"),
     }
     for key, marks in expected.items():
         html = client.get(f"/home/block/stage/?etapa={key}").content.decode()
@@ -1000,6 +1000,23 @@ def _scans_of_every_origin(asset, user):
     )
     for _ in range(2):  # el calendario: un rango entero y nadie detrás
         DiscoveryRun.objects.create(network_range=rng, profile="HOST_SWEEP", status="SUCCEEDED")
+
+
+def test_stage_panels_open_with_a_short_definition(client, as_role):
+    """Inicio y su modo de presentación llevan indicadores, no párrafos: cada panel abre con una
+    definición corta de la etapa (qué es y qué hace) y deja el detalle a sus cifras."""
+    import re
+
+    from apps.presentation.views import STAGE_KEYS
+
+    as_role(OPERATOR)
+    _asset_with_risk()
+    for key in STAGE_KEYS:
+        html = client.get(f"/home/block/stage/?etapa={key}").content.decode()
+        leads = re.findall(r'<p class="stage-lead">(.*?)</p>', html, flags=re.S)
+        assert len(leads) == 1, key
+        words = re.sub(r"<[^>]+>", " ", leads[0]).split()
+        assert 10 <= len(words) <= 45, (key, len(words))
 
 
 def test_every_scan_is_counted_once_under_who_asked_for_it(client, as_role):
@@ -1218,7 +1235,7 @@ def test_each_recent_decision_says_who_decided_and_who_asked(client, as_role, ma
     html = client.get("/home/block/stage/?etapa=decisions").content.decode()
     assert html.count("decidió la IA") == 2 and html.count("decidió una regla, sin IA") == 1
     assert f"señal: evaluación pedida a mano (la pidió {user.get_username()})" in html
-    assert "quien pide la evaluación no decide qué se hace" in html
+    assert "El planificador es el módulo que decide qué hacer" in html
     assert "del modelo · 1 por una regla, sin IA" in html
     # La tarjeta del diagrama dice cuántas eligió la IA cuando alguna fue por regla.
     station = next(

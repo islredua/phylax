@@ -1,5 +1,5 @@
 {% load inventory detection_tags l10n %}
-<p class="stage-lead">Las vulnerabilidades de cada activo se reparten por la consecuencia a la que llevan (fuga de información, alteración, interrupción): cada reparto es un escenario, que la IA valora por probabilidad e impacto conforme a ISO/IEC 27005. Los escenarios de los activos con la misma función de negocio forman un riesgo, con el nivel del peor. Hasta aquí llega la automatización: el tratamiento lo decide una persona.</p>
+<p class="stage-lead">Un riesgo agrupa los escenarios de los activos con la misma función de negocio. Cada escenario reúne las vulnerabilidades de un activo con la misma consecuencia, y la IA lo valora por probabilidad e impacto (ISO/IEC 27005). El tratamiento lo decide una persona.</p>
 <div class="tiles tiles-3">
   <div class="tile"><p class="tile-value">{{ flow.risks.open|miles }}</p><p class="tile-label">{{ flow.risks.open|pl:"-riesgo abierto,riesgos abiertos" }} · {{ flow.risks.critical|miles }} de nivel crítico</p></div>
   <div class="tile"><p class="tile-value">{{ flow.risks.by_ai|miles }}</p><p class="tile-label">{{ flow.risks.by_ai|pl:"-escenario valorado,escenarios valorados" }} por IA · {{ flow.risks.by_rule|miles }} por regla</p></div>
@@ -17,7 +17,7 @@
   </div>
   <div class="stage-note">
     {% if work %}
-    <p><strong>Lo que sigue es tuyo.</strong> {{ work.count|miles }} {{ work.text }}.</p>
+    <p><strong>Pendiente de una persona.</strong> {{ work.count|miles }} {{ work.text }}.</p>
     <p class="mt-2"><a href="{{ work.work_url }}" target="_blank" rel="noopener" class="btn-primary btn-sm">{{ work.action }} →</a></p>
     {% else %}
     <p>No hay riesgos esperando una decisión de tratamiento.</p>
