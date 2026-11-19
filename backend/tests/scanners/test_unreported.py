@@ -36,11 +36,11 @@ def scan(monkeypatch):
     asset = AssetFactory()
     AssetIdentifierFactory(asset=asset, value="10.7.0.10")
 
-    def run(stdout, profile="cves", targets=("10.7.0.10",)):
+    def run(stdout, profile="cves", targets=("10.7.0.10",), truncated=False):
         monkeypatch.setattr(
             services,
             "run_command",
-            lambda argv, *, timeout=None, env=None: CommandResult(stdout, "", 0, 0.1),
+            lambda argv, *, timeout=None, env=None: CommandResult(stdout, "", 0, 0.1, truncated),
         )
         execution = services.request_execution(
             tool="NUCLEI", profile=profile, asset_id=asset.pk, targets=list(targets)
@@ -72,6 +72,9 @@ def _last_note(finding):
         ("all", [], "http", True),  # el que lo corre todo no necesita etiquetas
         ("cves", [], "http", False),  # sin etiquetas conocidas no se puede afirmar
         ("inventado", ["cve"], "http", False),
+        # Las de comparador global no las corre ningún perfil: su silencio no dice nada.
+        ("cves-web", ["global-matchers", "exposure"], "http", False),
+        ("all", ["global-matchers"], "http", False),
     ],
 )
 def test_profile_coverage(profile, tags, kind, covered):
@@ -111,6 +114,23 @@ def test_silence_counts_only_when_the_pass_could_see_it(scan, monkeypatch):
     scan(NUCLEI.splitlines()[3], profile="cves-network", targets=["10.7.0.10:22"])
     ssh.refresh_from_db()
     assert ssh.status == FindingStatus.REOPENED and ssh.unseen == {}
+
+
+def test_a_cut_output_says_nothing_about_what_it_did_not_report(scan):
+    """Un escaneo cuya salida se cortó en el límite termina como exitoso. Lo que falta pudo traer
+    cualquiera de las observaciones anteriores, así que su silencio no cuenta para cerrarlas."""
+    asset = scan.asset
+    scan(NUCLEI)
+    cut = scan("", profile="all", truncated=True)
+    assert cut.output_incomplete and cut.output_cut == {"limit_mb": 50}
+    for key in (APACHE, NGINX, SSH):
+        finding = _finding(asset, key)
+        assert finding.unseen == {} and finding.is_open, key
+        assert "recortó su salida al llegar al límite" in _last_note(finding)
+    # La misma pasada con la salida completa sí cuenta.
+    whole = scan("", profile="all")
+    assert not whole.output_incomplete
+    assert all(_finding(asset, key).unseen == {"NUCLEI": 1} for key in (APACHE, NGINX, SSH))
 
 
 def test_port_outside_the_targets_is_not_reviewed(scan):

@@ -66,6 +66,10 @@ class ToolExecution(UUIDModel):
     # Hosts externos que las plantillas consultaron durante el escaneo (RDAP, inquilino Azure...):
     # {host: {"count": n, "templates": [...]}}. Se permite, pero queda registrado para evaluarlo.
     external_hosts = models.JSONField(default=dict, blank=True, db_default={})
+    # Lo que no se guardó de la salida. ``limit_mb``: se alcanzó el límite total y puede faltar
+    # parte de lo que reportó la herramienta. ``repeated``: {plantilla: líneas} que pasaron del
+    # tope por plantilla (``per_template``); repiten una detección que sí quedó guardada.
+    output_cut = models.JSONField(default=dict, blank=True, db_default={})
 
     class Meta:
         ordering = ["-created_at"]
@@ -82,6 +86,15 @@ class ToolExecution(UUIDModel):
     @property
     def external_queries(self):
         return sum(v.get("count", 0) for v in (self.external_hosts or {}).values())
+
+    @property
+    def output_incomplete(self):
+        """``True`` si la salida se cortó en el límite total: su silencio no dice nada."""
+        return bool((self.output_cut or {}).get("limit_mb"))
+
+    @property
+    def repeated_lines(self):
+        return sum(((self.output_cut or {}).get("repeated") or {}).values())
 
     @property
     def duration_s(self):

@@ -102,6 +102,7 @@ def _execution_entry(execution) -> Entry:
                 if execution.external_queries
                 else ""
             )
+            + (" · salida recortada" if execution.output_incomplete else "")
         ),
         url=reverse("detection:execution", args=[execution.pk]),
         thread=str(execution.action.event_id) if execution.action_id else "",

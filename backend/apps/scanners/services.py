@@ -280,7 +280,13 @@ def _settle_unreported(execution, reported_ids, source, observed_at):
     ref = str(execution.pk)
     others = findings.open_findings(execution.asset_id).exclude(pk__in=reported_ids)
     mine = list(others.filter(sources__contains=[source]))
-    covered, skipped = _coverage(execution, mine, source)
+    if execution.output_incomplete:
+        # La salida se cortó en el límite: lo que falta pudo traer cualquiera de estas, así que
+        # esta pasada no cuenta como «ya no la reporta» para ninguna.
+        reason = f"{label} recortó su salida al llegar al límite y no dice si sigue ahí."
+        covered, skipped = [], ({reason: [finding.pk for finding in mine]} if mine else {})
+    else:
+        covered, skipped = _coverage(execution, mine, source)
     closed = 0
     if covered:
         closed = findings.mark_unreported(
@@ -315,6 +321,7 @@ def execute(execution_id):
         execution.save(update_fields=["argv", "updated_at"])  # evidencia aunque falle
         result = run_command(argv, env=_registry_env(execution))
         execution.exit_code = result.exit_code
+        execution.output_cut = result.output_cut
         execution.raw_output.save(f"{execution.pk}.txt", ContentFile(result.stdout), save=False)
         execution.output_tail = (result.stdout[-4000:] + "\n" + result.stderr[-2000:]).strip()
         if execution.tool == Tool.GRYPE and result.exit_code not in (0, 1):
@@ -326,7 +333,8 @@ def execute(execution_id):
             if execution.tool == Tool.NUCLEI
             else parse_grype_json(result.stdout)
         )
-        execution.raw_results = len(parsed)
+        # Las líneas repetidas que no se guardaron también son resultados de la herramienta.
+        execution.raw_results = len(parsed) + sum(result.repeated.values())
         parsed, execution.external_hosts = split_foreign(execution, parsed)
         # Sin activo no se ingiere nada: se cuentan vulnerabilidades distintas reportadas.
         execution.findings_seen = len({p.vulnerability_id for p in parsed})

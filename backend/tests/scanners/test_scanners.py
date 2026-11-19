@@ -71,7 +71,10 @@ def test_nuclei_argv_is_fixed_and_validates_targets(settings):
     argv = profiles.build_nuclei_argv("cves", ["10.7.0.10", "10.7.0.11"])
     assert argv[0] == "/usr/local/bin/nuclei" and "-jsonl" in argv and "-silent" in argv
     assert "-no-interactsh" in argv  # nada sale a servidores OOB externos
-    assert "-omit-raw" in argv  # sin cuerpos crudos: una plantilla global no inunda la salida
+    assert "-omit-raw" in argv  # sin cuerpos crudos en el JSONL
+    # Las plantillas de comparador global no corren en ningún perfil.
+    assert argv[argv.index("-exclude-tags") + 1] == "global-matchers"
+    assert "global-matchers" in profiles.build_nuclei_argv("all", ["10.7.0.10"])
     assert argv[argv.index("-tags") + 1] == "cve"
     assert argv.count("-target") == 2 and "10.7.0.11" in argv
     with pytest.raises(ValidationError):
@@ -444,10 +447,135 @@ def test_execute_counts_distinct_findings_and_logs_external_hosts(fake_tool):
     assert waf.evidence.count() == 2  # dos URL distintas del mismo activo
 
 
-def test_oversized_output_is_truncated_on_a_line_boundary_instead_of_failing():
+def test_oversized_output_is_truncated_on_a_line_boundary_instead_of_failing(monkeypatch):
     from apps.scanners import runner
 
-    data = b'{"a":1}\n{"b":2}\n{"c":3}\n'
-    kept, truncated = runner.truncate_lines(data, limit=18)
-    assert kept == b'{"a":1}\n{"b":2}\n' and truncated
-    assert runner.truncate_lines(data, limit=100) == (data, False)
+    monkeypatch.setattr(runner, "MAX_OUTPUT_BYTES", 18)
+    limiter = runner.OutputLimiter()
+    for line in (b'{"a":1}\n', b'{"b":2}\n', b'{"c":3}\n', b'{"d":4}\n'):
+        limiter.feed(line)
+    assert limiter.output == b'{"a":1}\n{"b":2}\n' and limiter.truncated
+    roomy = runner.OutputLimiter()
+    monkeypatch.setattr(runner, "MAX_OUTPUT_BYTES", 100)
+    roomy.feed(b'{"a":1}\n')
+    assert roomy.output == b'{"a":1}\n' and not roomy.truncated
+
+
+def _result_line(template, host="10.7.0.10:80", **extra):
+    return (
+        json.dumps(
+            {
+                "template-id": template,
+                "info": {"name": template, "severity": "info"},
+                "type": "http",
+                "host": host,
+                "matched-at": f"http://{host}/",
+                **extra,
+            }
+        ).encode()
+        + b"\n"
+    )
+
+
+def test_a_noisy_template_does_not_push_out_what_the_others_report(monkeypatch):
+    """Corrida limpia del 2026-11-18: en crm-legacy y decoy-info una plantilla de patrones escribió
+    miles de líneas, la salida pasó de 50 MB y lo que venía después (WordPress, PHP, phpinfo) se
+    perdió. Con el tope por plantilla el ruido se cuenta y lo demás queda guardado."""
+    from apps.scanners import runner
+
+    monkeypatch.setattr(runner, "MAX_LINES_PER_TEMPLATE", 3)
+    limiter = runner.OutputLimiter(jsonl=True)
+    for _ in range(500):
+        limiter.feed(_result_line("secrets-patterns-pii"))
+    limiter.feed(_result_line("secrets-patterns-pii", host="10.7.0.11:80"))  # otro objetivo
+    limiter.feed(b"esto no es json\n")
+    limiter.feed(_result_line("wordpress-detect", **{"extracted-results": ["4.7"]}))
+    kept = [json.loads(line) for line in limiter.output.splitlines() if line.startswith(b"{")]
+    assert [item["template-id"] for item in kept] == [
+        *["secrets-patterns-pii"] * 4,  # tres del primer objetivo y la del segundo
+        "wordpress-detect",
+    ]
+    assert limiter.repeated == {"secrets-patterns-pii": 497} and not limiter.truncated
+    assert b"esto no es json" in limiter.output
+    # Sin JSONL no hay plantillas que contar: la salida de otra herramienta no se toca.
+    plain = runner.OutputLimiter()
+    for _ in range(10):
+        plain.feed(_result_line("secrets-patterns-pii"))
+    assert plain.output.count(b"\n") == 10 and not plain.repeated
+
+
+def test_a_huge_line_is_compacted_and_keeps_its_detection(monkeypatch):
+    """nuclei copia en ``curl-command`` la petición entera: una plantilla que manda un cuerpo de
+    28 MB dejaba líneas de 28 MB. La línea se guarda sin ese texto y la detección no se pierde."""
+    from apps.scanners import runner
+
+    huge = _result_line(
+        "CVE-2026-0001",
+        **{"extracted-results": ["5.6.29"], "curl-command": "curl -d '" + "x:\n" * 400_000 + "'"},
+    )
+    assert len(huge) > 1_000_000
+    limiter = runner.OutputLimiter(jsonl=True)
+    limiter.feed(huge)
+    limiter.feed(_result_line("php-detect"))
+    lines = limiter.output.splitlines()
+    assert len(lines) == 2 and len(lines[0]) < runner.MAX_LINE_BYTES
+    item = json.loads(lines[0])
+    assert item["template-id"] == "CVE-2026-0001" and item["extracted-results"] == ["5.6.29"]
+    assert item["matched-at"] == "http://10.7.0.10:80/"
+    assert item["curl-command"].endswith(runner.CUT_MARK)
+    assert not limiter.truncated and not limiter.repeated
+    # Y el parser la lee igual que a cualquier otra.
+    found = parsers.parse_nuclei_jsonl(limiter.output.decode())
+    assert [f.vulnerability_id.upper() for f in found] == [
+        "NUCLEI:CVE-2026-0001",
+        "NUCLEI:PHP-DETECT",
+    ]
+    # Una línea enorme que ni siquiera es JSON tampoco se come el límite.
+    broken = runner.OutputLimiter(jsonl=True)
+    broken.feed(b"{" + b"x" * 500_000 + b"\n")
+    assert len(broken.output) <= runner.MAX_LINE_BYTES + 1
+
+
+def test_run_command_bounds_jsonl_output_while_reading(monkeypatch, tmp_path):
+    from apps.scanners import runner
+
+    monkeypatch.setattr(runner, "MAX_LINES_PER_TEMPLATE", 2)
+    out = tmp_path / "salida.jsonl"
+    out.write_bytes(_result_line("ruidosa") * 6 + _result_line("CVE-2026-0001"))
+    tool = tmp_path / "nuclei.sh"
+    tool.write_text(f"#!/bin/sh\ncat {out}\necho aviso >&2\n")
+    tool.chmod(0o755)
+    result = run_command([str(tool), "-jsonl"], timeout=5)
+    assert result.stdout.count('"ruidosa"') == 4  # dos líneas, con el nombre dos veces en cada una
+    assert "CVE-2026-0001" in result.stdout and not result.truncated
+    assert result.repeated == {"ruidosa": 4}
+    assert result.output_cut == {"repeated": {"ruidosa": 4}, "per_template": 2}
+    assert "4 líneas repetidas sin guardar" in result.stderr and "aviso" in result.stderr
+    # La misma salida de una herramienta que no escribe JSONL se guarda entera.
+    whole = run_command([str(tool)], timeout=5)
+    assert whole.stdout.count("\n") == 7 and whole.output_cut == {}
+    # Una línea que no cabe en memoria se descarta sin leer, y la salida queda como incompleta.
+    monkeypatch.setattr(runner, "HARD_LINE_BYTES", 64)
+    partial = run_command([str(tool), "-jsonl"], timeout=5)
+    assert partial.truncated and partial.stdout == ""
+    assert "7 líneas de más de" in partial.stderr
+
+
+def test_execution_records_what_was_not_stored(monkeypatch):
+    asset = _scannable_asset()
+    monkeypatch.setattr(
+        services,
+        "run_command",
+        lambda argv, *, timeout=None, env=None: CommandResult(
+            stdout=REAL, stderr="", exit_code=0, duration_s=0.1, repeated={"ruidosa": 7}
+        ),
+    )
+    execution = services.request_execution(
+        tool="NUCLEI", profile="cves", asset_id=asset.pk, targets=["10.7.0.10:80"]
+    )
+    execution.refresh_from_db()
+    assert execution.status == "SUCCEEDED" and not execution.output_incomplete
+    assert execution.output_cut == {"repeated": {"ruidosa": 7}, "per_template": 200}
+    assert execution.repeated_lines == 7
+    # Las líneas repetidas también son resultados crudos de la herramienta.
+    assert execution.raw_results == len(parsers.parse_nuclei_jsonl(REAL)) + 7

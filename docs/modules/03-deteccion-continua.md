@@ -221,7 +221,9 @@ cabeceras, credenciales por defecto, exposición de información). El flujo:
    según nmap» («4», «2.2.X - 2.3.X» → tope 0.5) o «paquete de distribución: posible parche
    retroportado» («9.2p1 Debian 2+deb12u10» → tope 0.6), ambas con tope de estado
    `NEEDS_VERIFICATION` (`rule_status_cap`): la IA no puede afirmar `CONFIRMED` hasta que otra
-   fuente lo vea de verdad. Las mismas señales bajan la confianza del emparejamiento CTI a `LOW`
+   fuente lo vea de verdad. El tope vale en los dos sentidos: si el modelo responde
+   `LIKELY_FALSE_POSITIVE` con plausibilidad mayor de 0.3 (`LOW_PLAUSIBILITY`), queda en
+   `NEEDS_VERIFICATION`; si la baja a 0.3 o menos, su descarte se respeta. Las mismas señales bajan la confianza del emparejamiento CTI a `LOW`
    (`apps.cti.versions.precision`, `is_distro_package`). Una versión imprecisa se empareja por el
    intervalo que deja abierto (`implied_interval`: «3.X - 4.X» → [3, 5)): si todo el intervalo cae
    en el rango afectado coincide; si solo se solapa, coincide con confianza `LOW` (puede ser); si
@@ -321,6 +323,42 @@ De paso salió de `settings.py` y de `.env.example` el bloque `SCORING_WEIGHTS`
 
 Tras desplegar el cambio, `manage.py rescore_vulnerabilities` pone al día las vulnerabilidades
 abiertas con la versión nueva.
+
+### Lo que encontró la corrida limpia del 2026-11-18
+
+El laboratorio se corrió desde cero sobre `c20abf3` (`experiments/corrida-limpia-20261118/`):
+104.1 min de punta a punta, 860 vulnerabilidades, 35 riesgos. `evaluate_lab` dio 8 de 12 casos
+sembrados (precisión 1.0). Los cuatro que faltaban venían de dos defectos del flujo.
+
+**Salida de nuclei recortada (crm-legacy, decoy-info).** La salida pasó de 50 MB, se guardó hasta
+ahí y el escaneo terminó como exitoso. Lo que venía después se perdió: WordPress 4.7, PHP,
+phpinfo, cabeceras. En crm-legacy quedaron 116 vulnerabilidades donde antes había 299.
+
+| Escaneo | Salida | Líneas de `secrets-patterns-pii` | Línea mayor |
+|---|---|---|---|
+| crm-legacy | 32.7 MB, recortada | 2 979 de 2 979 | 27.9 MB |
+| decoy-info | 47.7 MB, recortada | 12 019 de 12 019 | 27.9 MB |
+| portal-rh | 13.3 MB, completa | 9 591 de 9 605 | 0.4 MB |
+
+Las plantillas de comparador global escriben una línea por cada respuesta que casa con sus
+patrones y copian en `curl-command` la petición que la provocó. La plantilla de CVE-2026-109618
+(llegó con la actualización de plantillas del 17 y 18 de noviembre) manda un cuerpo de 28 MB; dos
+líneas así llenan el límite. El 10 de noviembre los mismos escaneos escribían 10 626 y 33 753
+líneas y cabían.
+
+Arreglo, en dos partes. Esas plantillas ya no corren (nuclei las dejó apagadas salvo que se
+pidan desde la 3.3.7; aquí corre la 3.3.5). Y la salida se acota al leerla, por línea y por
+plantilla, para que ninguna otra plantilla pueda desplazar a las demás. Comprobado con la
+herramienta real: sin las plantillas de comparador global crm-legacy devuelve 28 líneas (36 KB) y
+decoy-info 19 (23 KB), con WordPress 4.7, PHP 5.6.29 y phpinfo; y las tres salidas guardadas de
+esa noche, pasadas por el lector nuevo, quedan en 319, 232 y 384 KB sin perder ninguna detección.
+
+**«Probable falso positivo» donde las reglas marcan duda (portal-rh, file-server).** En
+CVE-2017-9841 («software no observado: phpunit») y en las 25 de Samba «3.X - 4.X» («versión
+imprecisa según nmap»), entre ellas CVE-2017-7494, el tope de estado era `NEEDS_VERIFICATION` y
+el modelo respondió `LIKELY_FALSE_POSITIVE` con plausibilidad 0.5. El tope solo se aplicaba
+cuando el modelo decía `CONFIRMED` o `LIKELY`. Ahora vale en los dos sentidos (punto 1 de arriba).
+El puntaje no cambia, porque depende de la plausibilidad y no del estado.
 
 ## H3. Riesgos (`detection/risks.py`, ISO/IEC 27005:2022)
 
@@ -1633,9 +1671,16 @@ ventana no operativa y los guardarraíles.
   miraría primero en una web, más la identificación de tecnología que alimenta el inventario); si no, todos los puertos TCP abiertos con `cves-network` (`-exclude-type
   http,headless`): una plantilla HTTP contra SMB o SSH espera el tiempo límite y miles de ellas
   convertían 2 min en media hora. `exposure`/`misconfig` sueltos por etiquetas. El JSONL va sin
-  petición/respuesta crudas (`-omit-raw`): una plantilla con comparador global volcaba el HTML de
-  cada respuesta y llenaba 50 MB antes de las detecciones útiles; si aun así la salida excede el
-  límite, se recorta en un salto de línea y se declara en `output_tail`, no se pierde la ejecución.
+  petición/respuesta crudas (`-omit-raw`) y ningún perfil corre las plantillas de comparador
+  global (`-exclude-tags global-matchers`, `NUCLEI_EXCLUDED_TAGS`): no prueban nada por sí mismas,
+  aplican sus patrones a cada respuesta de las demás y escriben una línea por coincidencia.
+- La salida de la herramienta se acota mientras se lee (`scanners/runner.py`, `OutputLimiter`).
+  Con JSONL, una línea mayor de 64 KB se guarda con sus textos largos recortados y de cada
+  plantilla y objetivo se guardan 200 líneas; las que sobran repiten la misma detección y solo se
+  cuentan. El límite total de 50 MB queda de último recurso: al llegar a él se deja de guardar en
+  un salto de línea. `ToolExecution.output_cut` guarda lo que no se guardó. Un escaneo que llegó
+  al límite termina como exitoso pero su página y Actividad lo dicen («salida recortada»), y su
+  silencio no cuenta para dar por corregida ninguna observación anterior.
 - La reconciliación de componentes de SBOM contra NVD depende de que el SBOM traiga CPE o un nombre
   que coincida; el análisis fino lo hace Grype (`REANALYZE_SBOM`). Grype suele reportar el aviso
   GHSA: el hallazgo se identifica por el CVE relacionado (para deduplicar con la CTI) y el GHSA queda

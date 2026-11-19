@@ -529,6 +529,41 @@ def test_imprecise_versions_match_as_low_confidence_when_ranges_overlap(lab_cti)
     assert any("imprecisa" in f for f in vuln.rule_flags)
 
 
+def test_doubt_marked_by_the_rules_is_not_discarded_by_the_model(lab_cti, monkeypatch):
+    """Corrida limpia del 2026-11-18: en file-server (Samba «3.X - 4.X») y en portal-rh (PHPUnit,
+    que nmap no ve) las reglas marcaban «queda en verificación» y el modelo respondió «probable
+    falso positivo» con plausibilidad 0.5. El tope solo se aplicaba si decía «confirmada» o
+    «probable», y 26 vulnerabilidades quedaron descartadas, dos de ellas sembradas."""
+    from apps.detection import matching
+
+    asset = AssetFactory(criticality="ALTO")
+    ServiceFactory(
+        asset=asset, port=8080, product="nginx", version="1.X - 2.X", cpe="cpe:/a:f5:nginx"
+    )
+    components.refresh_components(asset.pk)
+    findings.apply_matches(matching.reconcile_assets([asset.pk]))
+
+    _recording(monkeypatch, status="LIKELY_FALSE_POSITIVE", plausibility=0.5)
+    consolidation.consolidate_asset(asset.pk)
+    vuln = Vulnerability.objects.get(asset=asset, key="CVE-2025-23419")
+    assert any("imprecisa" in f for f in vuln.rule_flags)
+    assert vuln.status == VulnerabilityStatus.NEEDS_VERIFICATION and vuln.plausibility == 0.5
+
+    # Si el modelo la descarta de verdad (plausibilidad baja), su estado se respeta.
+    _recording(monkeypatch, status="LIKELY_FALSE_POSITIVE", plausibility=0.2)
+    consolidation.consolidate_asset(asset.pk, fresh=True)
+    vuln.refresh_from_db()
+    assert vuln.status == VulnerabilityStatus.LIKELY_FALSE_POSITIVE and vuln.plausibility == 0.2
+
+    # Sin duda marcada por las reglas, lo que diga el modelo queda como lo dijo.
+    other = _nginx_asset()
+    _observe(other, "CVE-2099-0002", "NUCLEI", title="Otra", severity="HIGH")
+    _recording(monkeypatch, status="LIKELY_FALSE_POSITIVE", plausibility=0.5)
+    consolidation.consolidate_asset(other.pk)
+    free = Vulnerability.objects.get(asset=other, key="CVE-2099-0002")
+    assert not free.rule_flags and free.status == VulnerabilityStatus.LIKELY_FALSE_POSITIVE
+
+
 def test_assessment_schema_tolerates_percent_plausibility_and_out_of_range_adjustment():
     from apps.llm.schemas import VulnerabilityItem
 

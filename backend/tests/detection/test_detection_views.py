@@ -295,6 +295,37 @@ def test_activity_feed_and_detail_pages(client, as_role, fake_tool):
     execution = action.executions.get()
     exec_body = client.get(f"/detection/executions/{execution.pk}/").content.decode()
     assert "-jsonl" in exec_body and "CVE-2021-41773" in exec_body
+    assert "data-output-cut" not in exec_body and "data-output-repeated" not in exec_body
+    assert "salida recortada" not in body.lower() and "output_incomplete" not in action.result
+
+
+def test_a_cut_scan_output_is_visible_in_its_page_and_in_the_feed(client, as_role, monkeypatch):
+    """Un escaneo cuya salida se cortó en el límite termina como exitoso (corrida limpia del
+    2026-11-18): quien lo abre, o lo ve en Actividad, tiene que enterarse."""
+    as_role(OPERATOR)
+    asset = _asset()
+    monkeypatch.setattr(
+        scanners,
+        "run_command",
+        lambda argv, timeout=None, env=None: CommandResult(
+            NUCLEI, "", 0, 0.1, truncated=True, repeated={"secrets-patterns-pii": 11819}
+        ),
+    )
+    event, batch = events.ingest_asset_event(EventKind.MANUAL_EVALUATION, asset.pk)
+    events.process_batch(batch.pk)
+    action = PlannedAction.objects.get(event=event)
+    execution = action.executions.get()
+    assert execution.status == "SUCCEEDED" and execution.output_incomplete
+    body = client.get(f"/detection/executions/{execution.pk}/").content.decode()
+    assert "data-output-cut" in body and "Pasó de 50 MB y se guardó hasta ese punto." in body
+    assert "Puede faltar parte de lo que encontró la herramienta." in body
+    assert "data-output-repeated" in body and "secrets-patterns-pii 11819" in body
+    assert "Se guardan hasta 200 líneas por plantilla y objetivo." in body
+    feed = client.get("/detection/activity/?kind=execution").content.decode()
+    assert "salida recortada" in feed
+    assert action.result["output_incomplete"] is True
+    action_body = client.get(f"/detection/actions/{action.pk}/").content.decode()
+    assert "salida recortada: sí" in action_body
 
 
 def test_activity_shows_one_row_per_action_with_its_steps_folded(client, as_role, fake_tool):

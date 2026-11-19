@@ -487,6 +487,7 @@ RECONCILIATION_LABELS = {
     "reopened": "Reportes reabiertos",
     "execution": "Ejecución",
     "watch": "Vigilancia",
+    "output_incomplete": "Salida recortada",
 }
 
 

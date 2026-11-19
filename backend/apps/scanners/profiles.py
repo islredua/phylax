@@ -28,6 +28,12 @@ NUCLEI_PROFILES = {
     "misconfig": ["-tags", "misconfig"],
     "all": [],
 }
+# Plantillas que ningún perfil corre. Las de comparador global («global-matchers») no prueban nada
+# por sí mismas: aplican sus patrones (secretos, datos personales) a cada respuesta que reciben
+# las demás plantillas y escriben una línea por coincidencia, con la petición que la provocó. En un
+# sitio con PHP llenaron el límite de salida antes de que aparecieran las detecciones. nuclei las
+# dejó apagadas salvo que se pidan desde la 3.3.7.
+NUCLEI_EXCLUDED_TAGS = ("global-matchers",)
 NUCLEI_COMMON = [
     "-jsonl",
     "-silent",
@@ -35,10 +41,10 @@ NUCLEI_COMMON = [
     "-disable-update-check",
     # Sin interactsh: nada de pruebas fuera de banda contra servidores externos (nada sale).
     "-no-interactsh",
-    # Sin petición/respuesta crudas en el JSONL: una plantilla de patrones con comparador global
-    # (secrets-patterns-pii) volcaba el HTML completo de cada respuesta y llenaba 50 MB antes de
-    # que aparecieran las detecciones útiles; la evidencia que guardamos no usa el cuerpo crudo.
+    # Sin petición/respuesta crudas en el JSONL: la evidencia que guardamos no usa el cuerpo crudo.
     "-omit-raw",
+    "-exclude-tags",
+    ",".join(NUCLEI_EXCLUDED_TAGS),
     "-rate-limit",
     "50",
     "-timeout",
@@ -56,7 +62,7 @@ def nuclei_covers(profile, tags=(), kind="") -> bool:
     ellas. Sin etiquetas conocidas solo responde que sí el perfil que lo corre todo.
     """
     args = NUCLEI_PROFILES.get(profile)
-    if args is None:
+    if args is None or set(NUCLEI_EXCLUDED_TAGS) & {str(tag) for tag in tags}:
         return False
     wanted = excluded = None
     for flag, value in zip(args[::2], args[1::2], strict=False):

@@ -497,6 +497,8 @@ def on_execution_finished(execution):
         "raw_results": execution.raw_results,
         "external_queries": execution.external_queries,
         "tool_status": execution.status,
+        # Solo si pasó: una línea «salida recortada: no» en cada escaneo no dice nada.
+        **({"output_incomplete": True} if execution.output_incomplete else {}),
     }
     action.save()
     if action.asset_id and ok:
@@ -517,6 +519,7 @@ def on_execution_finished(execution):
                 if execution.external_queries
                 else ""
             )
+            + (" · salida recortada" if execution.output_incomplete else "")
         ),
         **action.result,
     )

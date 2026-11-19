@@ -747,6 +747,17 @@ def _apply_item(asset_id, item, group, context, *, by_rule, log_obj, now, kept=N
         status = VulnerabilityStatus.LIKELY_FALSE_POSITIVE
     elif group and group.status_cap and status in ("CONFIRMED", "LIKELY"):
         status = group.status_cap
+    elif (
+        group
+        and group.status_cap
+        and status == VulnerabilityStatus.LIKELY_FALSE_POSITIVE
+        and plausibility > LOW_PLAUSIBILITY
+    ):
+        # Las reglas marcan duda, no descarte (versión imprecisa, software que nmap no ve), y el
+        # modelo la da por falsa sin bajar la plausibilidad: su propio número dice que puede ser
+        # cierta. El tope vale en los dos sentidos y queda en verificación. Si el modelo la baja
+        # a ``LOW_PLAUSIBILITY`` o menos, su «probable falso positivo» se respeta.
+        status = group.status_cap
     elif group and group.status_floor and status == VulnerabilityStatus.NEEDS_VERIFICATION:
         # Versión exacta del producto dentro del rango afectado (o SBOM, o varias fuentes) y el
         # modelo aun así duda: la evidencia manda y la vulnerabilidad queda «probable». Sin el
