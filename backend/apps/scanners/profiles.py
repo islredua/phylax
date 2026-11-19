@@ -1,0 +1,149 @@
+"""Perfiles fijos de nuclei y Grype: el usuario nunca pasa parámetros crudos.
+
+Cada perfil construye un ``argv`` como lista (``shell=False``) a partir de objetivos
+validados: IPs con ``ipaddress``, referencias de imagen con la normalización del inventario
+y rutas de SBOM dentro de ``MEDIA_ROOT``. Cualquier otra cosa se rechaza.
+"""
+
+from __future__ import annotations
+
+import ipaddress
+import os
+
+from django.conf import settings
+from django.core.exceptions import ValidationError
+
+from apps.assets.normalization import normalize_image_ref
+
+# Categoría del planificador → etiquetas de plantillas de nuclei.
+NUCLEI_PROFILES = {
+    "cves": ["-tags", "cve"],
+    # Equipos con servicio web: CVE más exposiciones (phpinfo, paneles sin autenticación,
+    # credenciales por defecto, cabeceras): es lo que una persona miraría primero en una web.
+    # «tech» identifica el software y su versión (WordPress, etc.) para alimentar el inventario.
+    "cves-web": ["-tags", "cve,exposure,panel,default-login,misconfig,tech"],
+    # Equipos sin servicio web: solo plantillas de red/TLS/JS; las HTTP cuelgan contra SMB o SSH.
+    "cves-network": ["-tags", "cve", "-exclude-type", "http,headless"],
+    "exposure": ["-tags", "exposure,panel,default-login,misconfig"],
+    "misconfig": ["-tags", "misconfig"],
+    "all": [],
+}
+# Plantillas que ningún perfil corre. Las de comparador global («global-matchers») no prueban nada
+# por sí mismas: aplican sus patrones (secretos, datos personales) a cada respuesta que reciben
+# las demás plantillas y escriben una línea por coincidencia, con la petición que la provocó. En un
+# sitio con PHP llenaron el límite de salida antes de que aparecieran las detecciones. nuclei las
+# dejó apagadas salvo que se pidan desde la 3.3.7.
+NUCLEI_EXCLUDED_TAGS = ("global-matchers",)
+NUCLEI_COMMON = [
+    "-jsonl",
+    "-silent",
+    "-no-color",
+    "-disable-update-check",
+    # Sin interactsh: nada de pruebas fuera de banda contra servidores externos (nada sale).
+    "-no-interactsh",
+    # Sin petición/respuesta crudas en el JSONL: la evidencia que guardamos no usa el cuerpo crudo.
+    "-omit-raw",
+    "-exclude-tags",
+    ",".join(NUCLEI_EXCLUDED_TAGS),
+    "-rate-limit",
+    "50",
+    "-timeout",
+    "10",
+    "-severity",
+    "info,low,medium,high,critical",
+]
+
+
+def nuclei_covers(profile, tags=(), kind="") -> bool:
+    """¿Este perfil vuelve a correr una plantilla con esas etiquetas y de ese tipo?
+
+    Sirve para saber si una pasada pudo ver una observación anterior: ``cves-network`` no corre
+    plantillas HTTP y ``cves`` no corre las de exposición, así que su silencio no dice nada de
+    ellas. Sin etiquetas conocidas solo responde que sí el perfil que lo corre todo.
+    """
+    args = NUCLEI_PROFILES.get(profile)
+    if args is None or set(NUCLEI_EXCLUDED_TAGS) & {str(tag) for tag in tags}:
+        return False
+    wanted = excluded = None
+    for flag, value in zip(args[::2], args[1::2], strict=False):
+        if flag == "-tags":
+            wanted = set(value.split(","))
+        elif flag == "-exclude-type":
+            excluded = set(value.split(","))
+    if wanted is not None and not wanted & {str(tag) for tag in tags}:
+        return False
+    return not (excluded and kind in excluded)
+
+
+GRYPE_PROFILES = {"image": [], "sbom": []}
+GRYPE_COMMON = ["-o", "json", "--quiet"]
+
+
+def validate_ip(value):
+    try:
+        return ipaddress.ip_address(str(value).strip()).compressed
+    except ValueError as exc:
+        raise ValidationError(f"Objetivo inválido para nuclei: {value!r}") from exc
+
+
+def split_host_port(value):
+    """``(ip, puerto|None)`` a partir de ``ip``, ``ip:puerto`` o ``[ipv6]:puerto``."""
+    value = str(value).strip()
+    host, port = value, None
+    if value.startswith("["):
+        host, _, rest = value[1:].partition("]")
+        if rest:
+            if not rest.startswith(":"):
+                raise ValidationError(f"Objetivo inválido para nuclei: {value!r}")
+            port = rest[1:]
+    elif value.count(":") == 1:
+        host, _, port = value.partition(":")
+    if port is not None:
+        if not port.isdigit() or not 1 <= int(port) <= 65535:
+            raise ValidationError(f"Puerto inválido en el objetivo: {value!r}")
+        port = int(port)
+    return validate_ip(host), port
+
+
+def validate_host_target(value):
+    """Objetivo de red para nuclei: una IP validada, opcionalmente con puerto (``ip:puerto``)."""
+    host, port = split_host_port(value)
+    if port is None:
+        return host
+    return f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
+
+
+def validate_sbom_path(value):
+    root = os.path.realpath(settings.MEDIA_ROOT)
+    path = os.path.realpath(os.path.join(root, str(value)))
+    if not path.startswith(root + os.sep) or not os.path.isfile(path):
+        raise ValidationError("El SBOM no existe o está fuera del almacenamiento de Atalaya.")
+    return path
+
+
+def validate_image_ref(value):
+    value = str(value)
+    ref, _, digest = value.partition("@")
+    normalized = normalize_image_ref(ref)
+    return f"{normalized}@{digest}" if digest else normalized
+
+
+def build_nuclei_argv(category, targets):
+    if category not in NUCLEI_PROFILES:
+        raise ValidationError(f"Perfil de nuclei desconocido: {category}")
+    if not targets:
+        raise ValidationError("nuclei necesita al menos un objetivo.")
+    argv = [settings.NUCLEI_BIN, *NUCLEI_COMMON, *NUCLEI_PROFILES[category]]
+    if settings.NUCLEI_TEMPLATES_DIR:
+        argv += ["-templates", settings.NUCLEI_TEMPLATES_DIR]
+    for target in targets:
+        argv += ["-target", validate_host_target(target)]
+    return argv
+
+
+def build_grype_argv(kind, target):
+    if kind == "sbom":
+        return [settings.GRYPE_BIN, f"sbom:{validate_sbom_path(target)}", *GRYPE_COMMON]
+    if kind == "image":
+        return [settings.GRYPE_BIN, f"registry:{validate_image_ref(target)}", *GRYPE_COMMON]
+    raise ValidationError(f"Perfil de Grype desconocido: {kind}")

@@ -1,0 +1,26 @@
+{% load inventory l10n %}
+<p class="stage-lead">La IA es un modelo de lenguaje que corre en {% if flow.ai.local %}este equipo, sin enviar datos a servicios externos{% else %}el servidor configurado por la administración{% endif %}. Cada respuesta se comprueba con un validador; si falla se reintenta y, si vuelve a fallar, decide una regla.</p>
+<div class="tiles tiles-4">
+  <div class="tile"><p class="tile-value tile-value-text">{{ flow.ai.model }}</p><p class="tile-label">{% if flow.ai.available is False %}<span class="badge-critical">no responde</span> las evaluaciones corren por regla{% else %}<span class="badge-low">en línea</span>{% endif %}{% if flow.ai.accelerator %} · {{ flow.ai.accelerator|upper }}{% endif %}</p></div>
+  <div class="tile tile-accent"><p class="tile-value">{{ flow.ai.calls|miles }}</p><p class="tile-label">inferencias en {{ window_days }} días{% if flow.ai.calls %} · {{ flow.ai.gpu_pct|floatformat:0 }} % en GPU{% endif %}</p></div>
+  <div class="tile"><p class="tile-value">{{ flow.ai.ok_pct|floatformat:0 }} %</p><p class="tile-label">aceptadas por el validador · {{ flow.ai.rejected|miles }} rechazadas y resueltas por regla</p></div>
+  <div class="tile"><p class="tile-value">{{ flow.ai.hours }} h</p><p class="tile-label">de cómputo{% if flow.ai.tokens_per_second %} · {{ flow.ai.tokens_per_second }} tokens por segundo{% endif %}</p></div>
+</div>
+<p class="stage-sub">Qué hace el modelo y qué tan bien</p>
+<div class="table-wrap">
+  <table class="data-table ai-table">
+    <thead><tr><th scope="col">Tarea</th><th scope="col" class="text-right">Llamadas</th><th scope="col">Aceptadas<span class="hidden sm:inline"> por el validador</span></th><th scope="col" class="hidden text-right sm:table-cell">Tiempo medio</th></tr></thead>
+    <tbody>
+      {% for task in flow.ai.tasks %}
+      <tr>
+        <td>{{ task.label }}</td>
+        <td class="text-right font-mono">{{ task.calls|miles }}</td>
+        <td><span class="ai-meter"><span class="bar-track"><span class="bar-fill{% if task.ok_pct < 70 %} bar-fill-warn{% endif %}" style="width:{{ task.ok_pct|unlocalize }}%"></span></span><span class="font-mono">{{ task.ok_pct|floatformat:0 }} %</span>{% if task.rejected %}<span class="text-muted">{{ task.rejected|miles }} por regla</span>{% endif %}</span></td>
+        <td class="hidden text-right font-mono whitespace-nowrap sm:table-cell">{{ task.avg_seconds }} s</td>
+      </tr>
+      {% empty %}<tr><td colspan="4" class="table-empty">El modelo no ha recibido ninguna tarea en este periodo.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="mt-2 text-xs text-muted">La tabla cuenta las llamadas hechas con las instrucciones vigentes de cada tarea. No incluye la redacción de las explicaciones de vulnerabilidades ni la lectura de esta pantalla, ni las llamadas con instrucciones anteriores o de prueba. «Aceptadas» son las respuestas que pasaron el validador, a la primera o tras un reintento; las rechazadas las resuelve una regla y quedan marcadas.</p>

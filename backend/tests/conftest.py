@@ -13,7 +13,7 @@ PASSWORD = "Atalaya-Pruebas-2026!"
 
 
 @pytest.fixture(autouse=True)
-def _isolated_infrastructure(settings, tmp_path):
+def _isolated_infrastructure(settings, tmp_path, monkeypatch):
     """Pruebas sin Redis ni workers: caché en memoria, media temporal y tareas Celery síncronas.
 
     Celery (namespace CELERY) lee los settings de Django en vivo, así que se
@@ -24,6 +24,11 @@ def _isolated_infrastructure(settings, tmp_path):
     settings.MEDIA_ROOT = str(tmp_path / "media")
     settings.CELERY_TASK_ALWAYS_EAGER = True
     settings.CELERY_TASK_EAGER_PROPAGATES = True
+    # Ninguna prueba sale a internet: las fuentes CTI solo se usan con un cliente simulado.
+    settings.CTI_ONLINE = False
+    # Ni abre conexiones a los activos: «¿el puerto responde?» se decide en cada prueba que lo
+    # necesita (por defecto, sí responde).
+    monkeypatch.setattr("apps.scanners.services._reachable", lambda *a, **k: True)
     from django.core.cache import cache
 
     cache.clear()

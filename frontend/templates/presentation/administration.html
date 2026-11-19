@@ -1,6 +1,17 @@
 {% extends "base.html" %}
 {% block title %}Administración{% endblock %}
 {% block content %}
+{% if system %}
+{% if system.eager %}{% elif system.state == 'ok' %}
+<a href="{% url 'system' %}" class="alert-success flex flex-wrap items-center justify-between gap-2 hover:no-underline" data-system-state="ok"><span><strong class="font-semibold">Sistema en marcha.</strong> Servicios, trabajadores, fuentes y datos de escáner al día.</span><span class="text-xs">Ver el estado del sistema →</span></a>
+{% else %}
+<a href="{% url 'system' %}" class="{% if system.state == 'down' %}alert-error{% else %}alert-warning{% endif %} flex flex-wrap items-center justify-between gap-2 hover:no-underline" data-system-state="{{ system.state }}">
+  <span><strong class="font-semibold">Sistema: {{ system.problems|length|pl:"cosa requiere,cosas requieren" }} atención.</strong> {% for p in system.problems|slice:":3" %}{{ p.name }}{% if not forloop.last %} · {% endif %}{% endfor %}{% if system.problems|length > 3 %} y {{ system.problems|length|add:"-3" }} más{% endif %}</span>
+  <span class="text-xs">Ver el estado del sistema →</span>
+</a>
+{% endif %}
+{% endif %}
+{% include "presentation/_onboarding.html" with groups=onboarding_groups %}
 {% if user_stats %}
 <section class="flex flex-col gap-2">
   <div class="toolbar">
@@ -10,7 +21,7 @@
   <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
     <a href="{% url 'users:list' %}?status=active" class="card hover:no-underline"><p class="stat-label">Usuarios activos</p><p class="stat-value">{{ user_stats.active }}</p></a>
     <a href="{% url 'users:list' %}?status=active&amp;mfa=no" class="card hover:no-underline"><p class="stat-label">Activos sin MFA</p><p class="stat-value {% if user_stats.without_mfa %}text-medium{% endif %}">{{ user_stats.without_mfa }}</p></a>
-    <a href="{% url 'users:list' %}?status=active" class="card hover:no-underline"><p class="stat-label">Contraseñas temporales pendientes</p><p class="stat-value {% if user_stats.temp_passwords %}text-medium{% endif %}">{{ user_stats.temp_passwords }}</p></a>
+    <a href="{% url 'users:list' %}?status=active&amp;temp=1" class="card hover:no-underline"><p class="stat-label">Contraseñas temporales pendientes</p><p class="stat-value {% if user_stats.temp_passwords %}text-medium{% endif %}">{{ user_stats.temp_passwords }}</p></a>
     <a href="{% url 'users:list' %}?status=inactive" class="card hover:no-underline"><p class="stat-label">Usuarios inactivos</p><p class="stat-value">{{ user_stats.inactive }}</p></a>
   </div>
 </section>
@@ -32,7 +43,7 @@
       <tbody>
         {% for entry in notable_events %}
         <tr>
-          <td class="font-mono text-xs whitespace-nowrap text-ink-soft">{{ entry.timestamp|date:"Y-m-d H:i:s" }}</td>
+          <td class="font-mono text-xs whitespace-nowrap text-ink-soft">{{ entry.timestamp|momento }}</td>
           <td>{% include "accounts/_event_badge.html" %}</td>
           <td class="font-mono text-xs">{% if entry.user %}{{ entry.user.get_username }}{% else %}{{ entry.metadata.username|default:"—" }}{% endif %}</td>
           <td class="font-mono text-xs">{{ entry.ip_address|default:"—" }}</td>

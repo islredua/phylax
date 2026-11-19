@@ -1,4 +1,5 @@
-# Multi-stage build para imagen de desarrollo
+# Una sola imagen para desarrollo (runserver, el CMD) y para el perfil de producción
+# (docker-compose.prod.yml la arranca con gunicorn).
 FROM python:3.12-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -17,6 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential \
       libpq-dev \
       libcap2-bin \
+      unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # nmap como usuario no root: capabilities de archivo para raw sockets (-sS, -O).
@@ -24,12 +26,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # nmap no se ejecuta. Sin capabilities, Atalaya lo detecta y degrada a -sT.
 RUN setcap cap_net_raw,cap_net_admin,cap_net_bind_service+eip /usr/bin/nmap
 
-# nuclei: descarga del release oficial de ProjectDiscovery
+# nuclei: descarga del release oficial de ProjectDiscovery (falla el build si no se instala:
+# el ejecutor del Módulo 3 lo necesita en worker-discovery).
 RUN NUCLEI_VERSION=3.3.5 && \
-    curl -L "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/nuclei_${NUCLEI_VERSION}_linux_amd64.zip" -o /tmp/nuclei.zip && \
-    unzip /tmp/nuclei.zip -d /usr/local/bin/ && \
+    curl -fsSL "https://github.com/projectdiscovery/nuclei/releases/download/v${NUCLEI_VERSION}/nuclei_${NUCLEI_VERSION}_linux_amd64.zip" -o /tmp/nuclei.zip && \
+    unzip -o /tmp/nuclei.zip nuclei -d /usr/local/bin/ && \
     chmod +x /usr/local/bin/nuclei && \
-    rm /tmp/nuclei.zip || true
+    rm /tmp/nuclei.zip
 
 # Grype: instalador oficial de Anchore
 RUN curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
@@ -44,9 +47,10 @@ RUN pip install -r requirements.txt
 COPY . .
 
 # Usuario sin privilegios (uid 1000, coincide con el usuario típico de WSL/Linux para
-# los bind mounts). Los volúmenes de datos se crean con su propiedad.
+# los bind mounts). Los volúmenes de datos se crean con su propiedad; /data/static recibe los
+# estáticos de collectstatic en el perfil de producción.
 RUN useradd --uid 1000 --create-home --shell /usr/sbin/nologin atalaya \
-    && mkdir -p /data/media /data/scan-results /data/cti-cache \
+    && mkdir -p /data/media /data/scan-results /data/cti-cache /data/static \
     && chown -R atalaya:atalaya /data
 USER atalaya
 

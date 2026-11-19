@@ -1,0 +1,30 @@
+{% load detection_tags inventory %}
+{% comment %}
+«Qué es» un software (`software.for_component`): lo único de la corrección que escribe la IA, una
+vez por software. Mientras se escribe, el bloque se consulta solo cada 5 s. Una persona con permiso
+de trabajo puede corregirlo; con el texto vacío vuelve a escribirlo la IA.
+{% endcomment %}
+<section class="card" id="que-es"{% if card.what_pending and not card.what %} hx-get="{% url 'detection:software_description' component.pk %}" hx-trigger="every 5s" hx-swap="outerHTML"{% endif %}>
+  <h3 class="card-title">Qué es {{ card.name }}</h3>
+  {% if card.what %}
+  <p class="text-ink-soft" data-what>{{ card.what.summary }}</p>
+  <p class="mt-2 text-xs text-muted">{% if card.what.source == 'HUMAN' %}<span class="badge-neutral">por una persona</span> Escrito por <span class="font-mono">{{ card.what.edited_by.get_username|default:"—" }}</span> el {{ card.what.described_at|fecha }}; la IA ya no lo cambia.{% else %}<span class="badge-primary">por IA</span> Lo escribió el modelo local el {{ card.what.described_at|fecha }} y vale para todos los activos que tienen este software. Puede equivocarse: si no es eso, corrígelo.{% endif %}</p>
+  {% elif card.what_pending %}
+  <p class="text-muted"><span class="badge-primary">la IA está redactando</span> En unos segundos aparecerá aquí, en una o dos frases, qué es este software y para qué sirve.</p>
+  {% elif card.what_unknown %}
+  <p class="text-muted">La IA no reconoció este software y prefirió no describirlo.{% if perms.detection.work_findings %} Si sabes qué es, escríbelo abajo: servirá a quien abra esta corrección.{% endif %}</p>
+  {% else %}
+  <p class="text-muted">Sin descripción todavía: la IA la escribirá en cuanto el modelo esté disponible.</p>
+  {% endif %}
+  {% if perms.detection.work_findings and not card.what_pending or perms.detection.work_findings and card.what %}
+  <details class="fold mt-3"><summary>{% if card.what %}Corregir la descripción{% else %}Escribir la descripción{% endif %}</summary>
+    <form method="post" action="{% url 'detection:software_description' component.pk %}" class="mt-2 flex flex-col gap-2">
+      {% csrf_token %}
+      <label class="form-label" for="what-text">Qué es y para qué sirve, en una o dos frases para quien no es técnico</label>
+      <textarea id="what-text" name="summary" class="form-input" rows="3" maxlength="600">{{ card.what.summary }}</textarea>
+      <p class="form-help">Queda a tu nombre y vale para todos los activos con este software. Déjalo vacío para que la IA lo vuelva a escribir.</p>
+      <div><button class="btn-secondary btn-sm" type="submit">Guardar descripción</button></div>
+    </form>
+  </details>
+  {% endif %}
+</section>

@@ -1,0 +1,562 @@
+# Módulo 5 · Inicio: estado de la organización
+
+Inicio (`/`) es la vista ejecutiva de Atalaya. Responde en una pantalla a tres preguntas: ¿cómo está
+la organización?, ¿qué cambió y qué urge?, ¿qué hizo el sistema por sí solo? Es la pantalla que
+demuestra el alcance del proyecto: detección continua con inteligencia de amenazas, valoración de
+riesgos conforme a ISO/IEC 27005 y un modelo de lenguaje local que redacta para quien dirige.
+
+## Qué muestra
+
+| Bloque | Fuente | Actualización |
+|---|---|---|
+| **Gráfica maestra**: semáforo, titular con las cifras vigentes, riesgos abiertos por nivel y el diagrama «Cómo trabaja la detección» (ocho etapas en tres columnas, sus conexiones y la franja de la IA local) | `views.hero_payload`, `presentation.pipeline.compute` | Al cargar y cada 60 s (`/home/charts.json`) |
+| **Panel de la etapa** elegida (señales, inventario, cruce con el inventario, decisiones, escaneos, observaciones, vulnerabilidades, riesgos, IA local) | `views.stage_context`, `presentation/stages/<etapa>.html` | Al abrirlo (`/home/block/stage/?etapa=…`) |
+| **Qué hago hoy** | `indicators.today()` | Al cargar |
+| **Indicadores** que el recorrido no cuenta (KEV y plazos CISA vencidos, activos, acciones por aprobar, fuentes de inteligencia) con delta frente a la última instantánea | `presentation.indicators.current()` (caché 60 s) | Sondeo HTMX cada 30 s |
+| **Tendencias** (riesgos por nivel; vulnerabilidades sostenidas y en KEV) | `HealthSnapshot` diaria, `indicators.trend()` | Instantánea del día cada hora (`beat`, minuto 5) |
+| **Riesgos que más pesan** (riesgos de la organización, con su peor escenario) + **matriz 5×5 de escenarios** | `detection.business_risks.register()`, `detection.risks.matrix()` | Al cargar |
+| **Lectura del estado por IA** (resumen y qué urge a la vista; qué cambió, puntos clave y siguientes pasos plegados) | `presentation.narrative` → `HealthNarrative` | A lo sumo cada `narrative_every_minutes` (60) y solo si los datos cambiaron y el modelo está libre; botón «Regenerar» |
+| **Avisos** (riesgo crítico, plazo CISA vencido, KEV nuevo, acciones por aprobar, herramientas fallidas, fuente CTI sin sincronizar, modelo caído) | `indicators.alerts()` por reglas sobre eventos existentes, sin tabla nueva | Sondeo cada 30 s |
+| **Pulso del sistema** | `detection.activity.recent(12)` | Sondeo cada 30 s |
+| **Descargas** | reporte ejecutivo HTML imprimible / Markdown (`/home/report/`), CSV de riesgos abiertos y de vulnerabilidades sostenidas (`/home/export/<kind>.csv`) | Al pedirlas |
+
+Las gráficas de Inicio son dinámicas: Chart.js 4.4.1 vendorizado en `frontend/static/vendor`
+(MIT, sin CDN) y `frontend/static/js/home-charts.js` leen `/home/charts.json` al cargar y cada 60 s,
+actualizan las series en sitio con animación, muestran tooltips al pasar el cursor y, al hacer clic
+en un punto, abren en otra pestaña la lista que lo sustenta (riesgos filtrados por nivel,
+vulnerabilidades en KEV). Cada gráfica tiene debajo un «Ver datos» con la tabla, que es lo que
+queda sin JavaScript. El reporte imprimible usa SVG generado en el servidor (`presentation_tags`:
+`svg_trend`, `svg_bars`, `svg_compare`, `legend`) porque no corre scripts. Los colores de nivel son
+fijos por identidad (crítico rojo, muy alto naranja, alto ámbar, moderado marino, bajo verde) y las
+fuentes también (inteligencia marino, nuclei naranja, Grype verde).
+
+**Narrativa enlazada.** `presentation.links.Linker` (una instancia por petición, filtro `linkify`)
+convierte las menciones del texto en enlaces: títulos de riesgos abiertos → detalle del riesgo;
+nombres de activos → ficha del activo; claves CVE → detalle de la vulnerabilidad si está vigente;
+«N riesgos críticos / muy altos / altos / abiertos» → registro de riesgos filtrado; «explotación
+activa», «KEV», «plazo de CISA» → vulnerabilidades en KEV; «acciones por aprobar» → cola;
+«decisiones», «escaneos» → actividad; «sincronizaciones de inteligencia», «NVD», «EPSS» → fuentes;
+«activos» → inventario. El semáforo enlaza al registro de riesgos (críticos si está en rojo). El
+texto se escapa siempre; solo se insertan `<a>` con URLs del sistema.
+
+## Permisos
+
+- Sin `detection.view_risk` la pantalla solo muestra la tarjeta de la cuenta (rol, 2FA, sesiones).
+- Fragmentos, reporte y CSV de riesgos exigen `detection.view_risk`; el CSV de vulnerabilidades,
+  `detection.view_vulnerability`; el pulso, `detection.view_detectionevent`.
+- La configuración (Administración → Portada) exige `presentation.change_presentationsettings`,
+  que solo tiene el rol admin (`ADMIN_MANAGED_MODELS`). `HealthSnapshot` y `HealthNarrative` las
+  escribe el sistema (`IMMUTABLE_MODELS`).
+
+## Configuración (Administración → Portada)
+
+`PresentationSettings` (una fila):
+
+| Campo | Por defecto | Efecto |
+|---|---|---|
+| `trend_days` | 30 (7–365) | Ventana de tendencias, deltas y «lo que hizo el sistema» |
+| `narrative_every_minutes` | 60 (15–1440) | Cadencia máxima de la narrativa por IA |
+
+## Narrativa ejecutiva (`EXEC_NARRATIVE`, prompt `exec_narrative/v2`)
+
+> Desde la revisión del 2026-11-16 (más abajo) el modelo ya no escribe «qué hizo el sistema», no
+> ve la automatización ni las cifras casi iguales a «sostenidas», y el titular de Inicio lleva
+> siempre las cifras vigentes. Los pasos siguientes describen el mecanismo general.
+
+1. `build_payload()` arma la entrada: perfil de la organización, indicadores, deltas, tendencia,
+   cinco riesgos principales (título, activo, nivel, lectura de inteligencia, recomendaciones),
+   automatización y estado de las fuentes CTI. `payload_hash()` es la huella (sin las horas de
+   modelo, que cambian solas).
+2. El esquema exige `status` (GREEN/YELLOW/RED), `headline`, `summary`, `changes`, `urgent`,
+   `achievements`, `highlights` (2–5) y `next_steps` (2–4); todo en español (`looks_spanish`).
+3. `coherent()` compara la salida con los datos: el semáforo no puede bajar de RED si hay riesgos
+   críticos o plazos CISA vencidos ni subir a RED sin ellos; toda cifra citada debe existir en la
+   entrada (se toleran años); no se habla «de los datos» sino de la organización. Si falla, se
+   guarda la narrativa por regla (`rule_narrative`) con la etiqueta «Redactado por regla».
+4. Cadencia: `beat` ejecuta `refresh_health_narrative` cada 10 min; `maybe_refresh()` encola la
+   generación solo si pasó la cadencia (`due`) y la cola `llm` no tiene trabajo prioritario
+   (`llm_busy`: inspecciona la lista Redis `llm` y las tareas activas/reservadas; la criticidad,
+   el planificador, la consolidación y los riesgos bloquean; las descripciones y la propia
+   narrativa no). La tarea `generate_health_narrative` corre en la cola `llm` y no genera nada
+   si la huella no cambió.
+5. En la primera visita sin narrativa se muestra la regla al instante y se pide la de IA.
+   «Regenerar» fuerza una nueva (respetando que el modelo esté libre) y la tarjeta se sondea
+   cada 10 s hasta que llega.
+
+## Tareas de `beat`
+
+| Entrada | Tarea | Cuándo |
+|---|---|---|
+| `home-health-snapshot` | `presentation.tasks.snapshot_health` | minuto 5 de cada hora |
+| `home-health-narrative` | `presentation.tasks.refresh_health_narrative` | cada 10 min |
+
+## Pruebas
+
+`tests/presentation/test_home.py` (55 pruebas, sin red ni modelo): conteos de indicadores,
+semáforo por reglas acotadas, caché e invalidación, instantánea/tendencia/deltas, avisos, ventana
+configurable, narrativa por regla coherente, rechazo de semáforo incorrecto y cifras inventadas,
+generación con mock y omisión si nada cambió, caída a regla por incoherencia o modelo apagado,
+cadencia y cola ocupada, pantallas por permiso, fragmentos, reporte y CSV, botón Regenerar,
+pantalla de configuración y tareas de `beat`. Del recorrido: conteos por etapa coherentes con los
+indicadores, cada panel con y sin JavaScript, enlaces en pestaña nueva, estado vacío, enlaces
+según permisos, recorrido en el reporte, lo que el modelo ve, coherencia con calificativos y
+titular con cifras vigentes. Del diagrama: cada escaneo contado una vez bajo quien lo pidió, las
+conexiones con la cifra del recorrido, la IA marcada en sus etapas y el inventario como etapa.
+
+## Resultados con el modelo real (2026-11-08, qwen2.5:7b-instruct-q4_K_M, laboratorio de 20 activos)
+
+Procedimiento: `narrative.generate(force=True)` desde `manage.py shell` contra los datos del
+laboratorio, repetido tras cada ajuste, hasta que la salida fuera coherente al primer intento.
+
+| Iteración | Qué salió mal | Corrección en el flujo |
+|---|---|---|
+| 1 | El modelo copió el ejemplo del prompt («3 riesgos críticos… Log4Shell… api-pagos») con 1 crítico real | Ejemplo con cifras y nombres retirado del prompt; `coherent()` compara «<n> riesgos críticos/abiertos/muy altos» con los conteos del sistema y rechaza nombres de los ejemplos antiguos si no están en los datos |
+| 2 | «15 riesgos críticos»: leyó `assets.critical` (activos de criticidad alta) como riesgos críticos | Clave renombrada a `high_criticality_assets`; bloque `facts` en español con los hechos calculados; la coherencia va dentro del validador para que el reintento reciba la causa |
+| 3 | Titular «13 riesgos críticos» (abiertos ≠ críticos) en el primer intento, corregido en el segundo | Forma del titular con las dos cifras separadas («<abiertos> riesgos abiertos, <críticos> críticos; …») |
+| 4 | «escaneado activos durante 56 horas» (conteo leído como horas) | Frase de automatización en `facts` («56 escaneos ejecutados (conteo, no horas)…») |
+
+Resultado final: 5 de 5 generaciones consecutivas coherentes al primer intento (6–9 s cada una),
+titular «13 riesgos abiertos, 1 crítico; fuga de información en api-pagos», cifras todas presentes
+en la entrada, activos nombrados solo los de `top_risks`. La narrativa por regla aparece al instante
+en la primera visita y se sustituye por la de IA cuando el modelo queda libre.
+
+## Revisión del 2026-11-16: gráfica maestra primero, texto después
+
+Orden de lectura de Inicio (lo visual arriba, el texto abajo; divulgación progresiva):
+
+1. **Gráfica maestra** (`_home_hero.html`, `views.hero_payload`): estado de salud y titular, la
+   cifra principal (riesgos abiertos, con su variación), el reparto por nivel en una barra
+   segmentada y el embudo «Del ruido a la decisión» (observaciones → vulnerabilidades sostenidas →
+   prioridad crítica o alta → riesgos abiertos → riesgos críticos). Se dibuja en el servidor, entra
+   animada por CSS (respeta `prefers-reduced-motion`) y `home-charts.js` la refresca en sitio cada
+   minuto con el mismo JSON de las gráficas (`hero`). Cada etapa y cada tramo abre su lista. El
+   ancho de las barras va en escala de raíz cuadrada y la cifra exacta siempre va escrita. La
+   gráfica de barras «Riesgos abiertos por nivel» se retiró: duplicaba la barra segmentada.
+2. **Qué hago hoy** (`detection/_today.html`, compartido con Riesgos): tarjetas compactas en
+   rejilla. Cada una separa **ver** (el texto y el enlace abren la lista filtrada, con un nombre
+   que dice lo que hace) de **hacer** (el botón primario). La primera tarjeta, si la persona
+   lleva riesgos, es «N riesgos a tu nombre»: los asignados a ella y los heredados de sus activos
+   (`detection.responsibles.today_item`, la misma del registro de riesgos).
+3. Indicadores, tendencias y comparativas.
+4. La **lectura del estado** redactada por la IA, lo que el sistema hizo solo y la tabla de riesgos.
+
+**Los botones hacen lo que dicen.** «Decidir tratamiento», «Atender uno a uno» y «Actualizar
+seguimiento» abren una **cola de trabajo** (`detection.views.risk_queue`): el primer riesgo de esa
+lista, ya en su formulario de tratamiento (`?cola=<filtros>#tratamiento`), con una banda que dice
+la posición («3 de 9»), permite saltar al siguiente o salir a la lista y, al registrar el
+tratamiento, lleva al siguiente riesgo; al terminar vuelve a la lista con el aviso de cola
+terminada. Lo que no tiene una acción directa (aprobar acciones, verificar candidatas, fuentes sin
+sincronizar) ofrece solo el enlace, nombrado como lo que es.
+
+## Revisión del 2026-11-16 (segunda parte): Inicio cuenta todo lo que hace la plataforma
+
+**El recorrido «Del ruido a la decisión»** (desde el 2026-11-18 se llama «Cómo trabaja la
+detección» y se dibuja como diagrama: ver más abajo)**.** El embudo de cinco barras se sustituyó por siete
+estaciones que siguen el lazo completo, cada una con su cifra, quién actúa y el dato que la matiza:
+
+| Estación | Qué cuenta | Quién actúa | Periodo |
+|---|---|---|---|
+| Señales recibidas | `DetectionEvent` (CVE nuevo o modificado, EPSS, KEV, cambios del inventario) | Fuentes | ventana |
+| Tocan al inventario | las que el cruce no descartó (resueltas por reconciliación + enviadas al planificador + pendientes) | Regla | ventana |
+| Decisiones | `PlannerDecision` (modelo o regla de respaldo) y sus aprobaciones; las acciones que pidió una persona no cuentan | IA local | ventana |
+| Escaneos | nmap (`DiscoveryRun`), nuclei y Grype (`ToolExecution`), completados o fallidos | Automatización | ventana |
+| Evidencia | `Finding` vigentes (reportes) y su combinación de fuentes | Regla | hoy |
+| Vulnerabilidades | sostenidas, estado puesto por IA o regla, prioridad contextual | IA local | hoy |
+| Riesgos abiertos | por nivel, valorados por IA o regla, con o sin tratamiento | IA + persona | hoy |
+
+Debajo va la franja del **motor de IA local** (modelo, estado, inferencias, porcentaje aceptado por
+el validador, horas de cómputo y si corre en este equipo) y la línea **«Ahora»** (escaneos en curso,
+cola del modelo, señales por procesar y modo de automatización). No es un Sankey ni un embudo de
+barras comparables: las unidades cambian de una etapa a otra, así que cada estación muestra su
+cifra exacta y no una barra que sugiera una proporción falsa.
+
+Todo sale de `presentation/pipeline.py` (`compute(since, data)`), con una sola ventana
+(`trend_days`) y conteos agregados en la base (sin recorrer filas). `indicators.compute()` lo
+guarda en `data["pipeline"]` y deriva de ahí `observations`, `automation` y `llm`, de modo que
+«escaneos» o «decisiones» significan lo mismo en el recorrido, en el reporte y en el texto.
+
+**Detalle dentro de Inicio.** Cada estación es un enlace que abre su panel debajo del recorrido,
+sin salir de la página: con HTMX cambia `#etapa` y, fuera de banda, las estaciones (la abierta
+queda marcada y su enlace pasa a cerrarla); sin JavaScript es `?etapa=<clave>` y la página vuelve
+con el panel abierto. Los paneles explican **cómo** trabaja cada etapa:
+
+- *Señales*: qué llegó por tipo y el espejo local de inteligencia (CVE, KEV, sincronizaciones).
+- *Cruce con el inventario*: cuántas se descartaron por regla y por qué motivo, cuántas se
+  resolvieron sin escanear y cuántas pasaron al planificador; el texto dice cómo se cruza un CVE
+  con productos y versiones.
+- *Decisiones*: del modelo o de la regla de respaldo, qué acción eligió, las tres últimas con su
+  motivo y los límites que acotan la automatización (modo, ventana de trabajo pesado, topes por hora).
+  Las acciones que pidió una persona (comprobar una corrección, un escaneo desde una
+  vulnerabilidad) no son decisiones del planificador: se dicen aparte («aparte, 2 acciones pedidas
+  por una persona») y no entran en el total, en «por la regla de respaldo», en «aprobadas sin
+  intervención» ni en las últimas decisiones (`pipeline.decisions`, 2026-11-18).
+- *Escaneos*: ejecuciones por herramienta (completadas y fallidas), duración media y cobertura.
+- *Evidencia*: matriz de combinaciones de fuentes (una fila por combinación exacta, así cada
+  reporte cuenta una vez): cuánto se encontró solo cruzando inteligencia con inventario, cuánto
+  confirmaron dos fuentes y cuánto solo podía ver un escaneo.
+- *Vulnerabilidades*: qué tan firme es cada una, cuántas valoró la IA y cuántas la regla, y
+  severidad teórica (CVSS) frente a prioridad real.
+- *Riesgos*: valorados por IA o regla, cuántos tienen tratamiento y lo que sigue para la persona.
+- *IA local*: qué tareas hace el modelo, cuántas llamadas, porcentaje aceptado por el validador y
+  tiempo medio por tarea; dice que los datos no salen del equipo cuando `OLLAMA_BASE_URL` es local.
+
+**Qué inferencias cuentan** (`pipeline.counted_inferences`). Las cifras de la IA local (franja del
+motor, panel, reporte y `data["llm"]`) dicen cómo responde el modelo hoy, así que solo cuentan las
+llamadas hechas con las instrucciones vigentes de cada tarea (`pipeline.prompt_versions()`, que lee
+el `PROMPT_VERSION` de cada módulo). Quedan fuera, sin borrar nada del registro `InferenceLog`:
+
+- las llamadas con una versión de instrucciones anterior (ya corregida);
+- las corridas de diagnóstico o evaluación: llevan otra versión (por convención `probe`) o una
+  referencia `eval:…` (`eval_criticality`);
+- las tareas de redacción de `HIDDEN_AI_TASKS`, cuyo resultado ya se muestra donde corresponde y
+  cuyo número de llamadas no le dice nada a quien mira la pantalla: la lectura del estado
+  (`EXEC_NARRATIVE`; la tarjeta sigue diciendo quién la redactó) y la explicación de cada
+  vulnerabilidad (`VULN_DESCRIBE`; la etapa «Vulnerabilidades» dice cuántas tienen explicación y
+  acciones redactadas por IA). Al salir `VULN_DESCRIBE`, que era el 81 % de las llamadas, el total
+  del laboratorio pasó de 4,514 inferencias y 7.0 h a 837 y 2.7 h: son las de decisión y
+  valoración, y el panel lo dice.
+
+Una tarea que el módulo aún no conoce se cuenta entera. El porcentaje nunca redondea a 100 % si
+hubo algún rechazo. Para validar un prompt con el modelo real sin ensuciar los indicadores, basta
+registrar las corridas con `prompt_version="probe"`.
+
+Los enlaces de cada panel respetan los permisos del rol (`stage_context`): quien no puede abrir la
+pantalla de destino no recibe el enlace.
+
+**Pestaña nueva.** Inicio es un tablero vivo, así que todo lo que lleva a otra pantalla se abre en
+otra pestaña (`target="_blank" rel="noopener"`), con una flecha ↗ en los enlaces de texto
+(`a.out`) y el aviso en la cabecera y para lectores de pantalla: titulares, niveles, «Qué hago
+hoy», indicadores, tabla de riesgos, matriz, avisos, pulso, enlaces de la narrativa
+(`Linker.render`) y clics en las gráficas. `_today.html` y `_risk_matrix.html` se comparten con
+Riesgos y solo abren pestaña nueva cuando Inicio los incluye con `newtab=True`. Quedan en la misma
+pestaña las descargas y «Configurar».
+
+**Menos repetición.** Se retiraron la tarjeta «Lo que el sistema hizo por sí solo» y las gráficas
+de fuentes y de priorización (ahora son paneles de etapa), y los indicadores bajaron de ocho a los
+cuatro que el recorrido no muestra. La lectura por IA deja a la vista el resumen y lo que urge; el
+resto se despliega.
+
+**Estado vacío.** Sin activos, el recorrido lo dice y enlaza al inventario; con activos pero sin
+señales en la ventana, explica que la siguiente sincronización lo pone en marcha. Todos los paneles
+se dibujan con cero datos.
+
+**Modo presentación.** El botón «Presentar» lleva la gráfica maestra a pantalla completa y recorre
+las ocho etapas cada 10 s (flechas para avanzar o retroceder, Esc para salir). Solo aparece con
+JavaScript y pantalla completa disponibles.
+
+**Reporte ejecutivo.** La sección «Lo que el sistema hizo por sí solo» es ahora la tabla del
+recorrido con las mismas cifras que Inicio, en HTML y en Markdown.
+
+### La lectura por IA: por qué se rechazaba y qué cambió
+
+En siete días el validador rechazó 87 de 91 lecturas. Dos causas, las dos corregidas en el flujo:
+
+| Causa | Corrección |
+|---|---|
+| El modelo citaba como «sostenidas» una cifra casi igual que también recibía (`total`, `new_window`, consolidadas en la ventana) | `model_view()`: el modelo ve una cifra por concepto y no recibe la automatización ni el recorrido. «Qué hizo el sistema» lo arma el código (`achievements_text`) y el esquema del modelo ya no lo pide (`EXEC_NARRATIVE_MODEL_SCHEMA`, prompt `v2`) |
+| El validador rechazaba frases correctas: «27 vulnerabilidades sostenidas con explotación activa (KEV)» se leía como «27 sostenidas», y «3 riesgos abiertos menos» como un conteo | `coherent()` lee cada cifra con su calificativo, comprueba campo por campo y en «qué cambió» admite la variación que calculó el sistema |
+
+| Con una instantánea anterior disponible, el modelo escribió «no hay datos anteriores para comparar» (lectura real por el flujo, prompt `v2`) | `changes_text()` escribe la variación en palabras («3 riesgos abiertos menos; sin cambio en…») y va en `facts` como línea «Cambios»; `coherent()` rechaza negar la instantánea cuando existe y lee «N … más/menos» como variación en cualquier campo |
+
+Resultado con el modelo real (qwen2.5:7b-instruct-q4_K_M, datos del laboratorio y una variante con
+otra cifra de sostenidas): 12 de 12 lecturas válidas al primer intento antes de la regla de
+«Cambios» y 8 de 8 después (5 al primer intento, 3 al segundo), todas con «qué cambió» correcto.
+En seis lecturas de un solo intento, la única rechazada citó «28 activos» (leyó como activos las
+28 vulnerabilidades explotables sin verificar): el validador hizo su trabajo y el reintento la
+corrige.
+
+**Titular siempre vigente.** La lectura se redacta a lo sumo cada `narrative_every_minutes`; entre
+una y otra el titular decía «39 riesgos abiertos» junto a la cifra viva «36». `live_headline()`
+pone las cifras de ahora y conserva la frase del modelo (si lo que urgía ya no está entre los
+riesgos que más pesan, nombra el que más pesa ahora); `changed_since()` compara las cifras clave con
+las que el modelo recibió y la tarjeta lo dice («Cambió desde esta lectura: riesgos abiertos
+39 → 36»). El semáforo de Inicio y del reporte es el del sistema (`data.health`), no el guardado
+con la lectura. La huella (`payload_hash`) se calcula sobre lo que el modelo lee, así que nuevas
+señales o más cómputo no piden otra lectura.
+
+### Descripciones de vulnerabilidades: reintento acotado
+
+El panel de IA local dejó ver que `VULN_DESCRIBE` acumulaba rechazos: 16 vulnerabilidades sumaban
+662 llamadas fallidas (una sola, 140) porque el drenaje de `beat` volvía a pedirlas cada dos
+minutos. Dos correcciones en el flujo:
+
+- `llm.language.looks_spanish` ignora lo que va entre acentos graves (comandos, rutas, opciones) y
+  reconoce los verbos con que empieza una instrucción: «Comprobar si hay actualizaciones
+  disponibles: `wp core update`» se rechazaba por la palabra «update». Las 662 respuestas guardadas
+  pasan ahora el validador y el inglés real se sigue rechazando.
+- `detection.descriptions`: tras un rechazo la espera crece (30 min, 1 h, 2 h… hasta un día) antes
+  de que el drenaje automático la vuelva a pedir; quien la pide desde el detalle no espera y al
+  lograrse la redacción el historial se borra.
+
+## Inicio cuenta riesgos de la organización (2026-11-18)
+
+Desde que el registro tiene dos niveles (`03-deteccion-continua.md`, «El riesgo de la
+organización»), «riesgos abiertos» en Inicio es el número de **riesgos de la organización**: una
+consecuencia sobre una función de negocio. De ahí salen la cifra grande, el reparto por nivel,
+«sin tratamiento decidido» (riesgos con algún escenario sin decidir), «Riesgos que más pesan» y
+el reporte (`indicators.compute` → `business_risks.counts`). Debajo se dice cuántos escenarios
+hay (`risks.scenarios`, `risks.scenarios_untreated`), y la matriz 5×5 y los seguimientos vencidos
+siguen contando escenarios, que es donde se trabaja.
+
+**Una instantánea de antes no se compara con una de ahora.** Las instantáneas anteriores
+contaban el riesgo de cada activo: 43 en el laboratorio el 17 de noviembre, 23 el 18 con la
+misma exposición. Restarlas diría «20 riesgos menos». Por eso:
+
+- La instantánea guarda en qué unidad cuenta (lleva `risks.scenarios`);
+  `indicators.counts_business_risks(instantánea)` lo dice. Las anteriores no se reescriben.
+- `indicators.deltas()` deja en `None` las dos diferencias de riesgos cuando la instantánea
+  anterior es de la otra unidad (`risks_comparable` en falso). La cifra grande dice «sin
+  comparación con el 17 nov 2026: cambió la forma de contarlos»; las demás variaciones
+  (vulnerabilidades, KEV, acciones) se siguen comparando.
+- `indicators.trend()` no dibuja los riesgos de esos días (`other_unit`): la línea de riesgos por
+  nivel empieza el día del cambio y lo dice debajo; la de vulnerabilidades no se interrumpe.
+- En la lectura por IA, «qué cambió» lo escribe el código ese día (`narrative.settled`): el
+  modelo resumía la advertencia como «no hay con qué comparar riesgos o vulnerabilidades», que no
+  es cierto para las vulnerabilidades. El reporte ejecutivo lleva la misma frase.
+
+Al día siguiente la instantánea anterior ya es de la misma unidad y todo vuelve a compararse.
+
+## «Cómo trabaja la detección»: un diagrama y no una fila (2026-11-18)
+
+El recorrido se dibujaba como siete estaciones en fila con una flecha entre cada par, bajo el
+título «Del ruido a la decisión». Dos objeciones del usuario al revisarlo:
+
+- **El título sonaba a publicidad.** Ahora dice lo que hay: «Cómo trabaja la detección», con el
+  subtítulo «Qué entra, qué se comprueba y qué resulta». El reporte ejecutivo lo llama «Cómo
+  trabajó la detección» y deja de decir «por sí solo».
+- **La fila daba a entender una secuencia** (fuentes → cruce → IA → nmap) **que no existe.**
+  Medido en el laboratorio (30 días): de 225 escaneos, 22 salieron de una decisión del
+  planificador, 111 los pidió una persona, 4 el calendario de descubrimiento y 88 no conservan
+  quién los pidió (su señal o su decisión se borró); ninguno nació de una señal de inteligencia
+  (las 23 acciones ante un CVE nuevo fueron todas reconciliaciones). Y 1 004 de los 1 101
+  reportes de evidencia vienen del cruce de inteligencia con inventario, sin escanear nada.
+
+### Qué se dibuja
+
+Tres columnas y ocho etapas (`views.FLOW_GROUPS`); el inventario pasa a ser una etapa, porque es
+la otra entrada del cruce:
+
+| Columna | Etapas |
+|---|---|
+| **Entra** | Señales recibidas · Activos en el inventario |
+| **Se comprueba** | Tocan al inventario (el cruce) · Decisiones del planificador · Escaneos |
+| **Resulta** | Evidencia · Vulnerabilidades · Riesgos abiertos |
+
+Las conexiones (`views.FLOW_LINKS`) dicen qué alimenta a qué, cada una con su cifra y la
+unidad de esa cifra:
+
+| De → a | Rótulo | Qué cuenta | Laboratorio |
+|---|---|---|---|
+| Señales → cruce | «N señales de inteligencia» | señales de las fuentes | 13 282 |
+| Inventario → cruce | «N cambios del inventario» | lo del inventario que entró como señal | 26 |
+| Cruce → evidencia | «N reportes sin escanear» | reportes que dio el cruce (`observations.from_match`) | 1 004 |
+| Cruce → decisiones | «N señales al planificador» | lo que el cruce no resuelve solo | 47 |
+| Decisiones → escaneos | «N escaneos» | escaneos pedidos por una decisión (`scans.by_planner`) | 22 |
+| Escaneos → evidencia | «N reportes por escaneo» | reportes con nuclei o Grype entre sus fuentes (`observations.with_tool`) | 180 |
+| Escaneos → inventario | «lo que descubren vuelve al inventario» | el retorno, en línea discontinua | — |
+| Inventario → vulnerabilidades y riesgos | «contexto de cada activo» | lo que se consulta al valorar, en línea punteada | — |
+| Evidencia → vulnerabilidades → riesgos | sin rótulo | la única parte en secuencia | — |
+
+**Los indicadores de la fila se conservan.** Cada tarjeta sigue llevando quién actúa, la cifra,
+lo que cuenta, el dato que la matiza y su periodo; el bloque de la IA local, sus inferencias, el
+porcentaje aceptado, las horas de cómputo y si corre en este equipo; y la línea «Ahora» sigue
+al pie. (El bloque de la IA se redujo después a una franja; el porcentaje, las horas y el
+reparto por tarea quedaron en su panel: ver «La IA local, una franja».)
+
+**Dónde trabaja la IA local** (`views.FLOW_AI`), que antes solo se veía en la franja inferior:
+
+- Las tarjetas donde decide o valora el modelo (Decisiones, Vulnerabilidades) llevan el tono del
+  bloque de la IA.
+- Las cuatro etapas donde trabaja llevan su marca y lo que hace ahí: sugiere la criticidad de
+  cada activo (Inventario), elige qué comprobar ante cada señal (Decisiones), valora si cada una
+  aplica y la explica (Vulnerabilidades), y agrupa, valora y redacta (Riesgos).
+- La IA tiene su franja dentro del diagrama (ver «La IA local, una franja»). Al pasar por ella
+  se resaltan las etapas donde trabaja.
+
+### Cómo se dibuja
+
+- La disposición depende del ancho **de la tarjeta**, no de la ventana (hay menú lateral):
+  consultas de contenedor sobre `.hero-flow`. Desde 54rem, el diagrama (rejilla de siete pistas
+  con `subgrid` para que las filas casen entre columnas); desde 40rem, tres columnas sin líneas;
+  por debajo, los grupos apilados con sus tarjetas a dos columnas.
+- Las líneas las traza `static/js/home-flow.js` en un SVG sobre las tarjetas: el servidor pinta
+  un rótulo por conexión con de qué etapa sale, a cuál llega y por qué lado
+  (`data-out="right:0.5"`), y el script mide las tarjetas y dibuja. Solo cuando la hoja de
+  estilos lo pide (`--flow-links: 1`). Todo se coloca en proporción al mapa, así que vale igual
+  con el zoom de «Presentar». Se vuelve a trazar al cambiar el tamaño y, en el mismo paso, cuando
+  HTMX repone `#flow` (no se ve un instante sin líneas).
+- **Sin líneas no se pierde la relación** (pantalla angosta, sin JavaScript, lector de
+  pantalla): cada tarjeta dice con texto de dónde le llega lo suyo (`origin`: «1 004 del cruce,
+  sin escanear · 180 de escaneos»). Con las líneas dibujadas ese texto se oculta a la vista,
+  salvo en Escaneos y en Decisiones del planificador, donde quién los pidió o por dónde llegó
+  cada señal no cabe en una línea del dibujo.
+- No hay líneas hacia la IA: serían cuatro cruces sobre el resto. La marca en cada tarjeta dice
+  lo mismo sin enredar el dibujo.
+- Bajo la segunda fila de tarjetas hay dos carriles (`LANE` en `home-flow.js`, como fracción del
+  hueco hasta la franja de la IA): arriba el retorno y debajo el contexto. El retorno llega al
+  inventario por su derecha y el contexto sale por su izquierda, así que no se cruzan. El
+  contexto es una sola línea que al final se abre hacia las dos etapas que valoran: son dos
+  conexiones con la misma salida y solo la primera lleva rótulo (`FLOW_LABEL_AT` lo pone cerca
+  del final para que no pise el del retorno).
+- Al pasar por una etapa se resaltan sus conexiones. `home-charts.js` refresca cada minuto
+  también las cifras de las conexiones y las de cada tarea de la IA.
+
+### Datos nuevos (`presentation/pipeline.py`)
+
+- `scans()` añade quién pidió cada escaneo terminado (`_scan_origins`): **por una persona** si
+  tiene solicitante o cuelga de una acción pedida a mano (`PlannerDecision.BY_PERSON`); **por
+  decisión** si cuelga de una acción del planificador; **por calendario** si es un
+  descubrimiento de un rango entero sin solicitante ni acción; **sin origen registrado** lo que
+  queda (se muestra aparte, no se reparte). Las cuatro suman el total. El panel de Escaneos lo
+  muestra en «Quién los pidió».
+- `observations()` añade `from_match` y `with_tool`.
+- `inventory()` es nueva: activos por origen (descubiertos o dados de alta), productos de
+  software, con SBOM, criticidad propuesta por la IA o fijada por una persona y cambios que
+  entraron como señal. Su panel (`stages/inventory.html`) explica qué hace ahí la IA y por qué
+  lo que descubre un escaneo vuelve a entrar.
+- `decisions()` añade `from_cti` y `from_inventory`: por dónde le llegó al planificador cada
+  señal sobre la que decidió.
+- La clave de la caché pasó a `home:indicators:v2`, y a `v3` con los campos del planificador:
+  un proceso con el código anterior no debe servir a este un bloque sin los campos nuevos.
+
+### Quién decidió cada decisión
+
+La tarjeta dice «IA local · 47 decisiones», pero no todas son del modelo: en el laboratorio, 43
+las eligió el modelo y 4 una regla del planificador (tres veces la regla corrigió al modelo ante
+un SBOM nuevo, y una resolvió sin consultarlo una evaluación pedida a mano). El usuario abrió
+la primera de «Últimas decisiones», leyó «Evaluación pedida por una persona» y preguntó por qué
+una decisión de la IA decía que la había decidido una persona. Desde entonces:
+
+- La tarjeta lo reparte cuando alguna fue por regla: «IA: decidió 43 de 47 · 4 por regla».
+- Cada fila de «Últimas decisiones» dice quién decidió («decidió la IA» o «decidió una regla,
+  sin IA») y ante qué señal; si la señal fue una petición, quién la hizo («señal: evaluación
+  pedida a mano (la pidió *usuario*)»; sin permiso para abrir las decisiones, «una persona»).
+- El panel explica que pedir una evaluación no es decidir qué se hace, y su cifra dice «por
+  una regla, sin IA» (no toda regla es «de respaldo»).
+
+El conteo no cambia: una evaluación pedida sí pasa por el planificador, a diferencia de una
+acción pedida a mano, que se cuenta aparte. Pruebas:
+`test_each_recent_decision_says_who_decided_and_who_asked` (Inicio) y
+`test_asking_for_an_evaluation_is_not_deciding_what_to_do` (ficha de la acción).
+
+### Lo que no se leía bien: unidades, cobertura, planificador y contexto
+
+El usuario leyó el diagrama y preguntó dos cosas que el dibujo dejaba entender mal: que 1 101
+eran señales que pasaban directo a evidencia, y que solo 22 escaneos significaba que no todo el
+inventario pasaba por escaneo. Al aprobar los retoques pidió además que se viera el
+planificador (que recibe de las fuentes y también cuando algo del inventario cambia) y una
+línea del inventario a vulnerabilidades y riesgos, porque se valoran con el contexto del activo.
+
+- **Cada cifra de una conexión lleva su unidad.** «1 004 sin escanear» pasó a «1 004 reportes
+  sin escanear»; «22» a «22 escaneos»; «47 al planificador» a «47 señales al planificador». Una
+  señal y un reporte de evidencia no son lo mismo: los 1 004 reportes salen de 298 señales de
+  inteligencia y de los cambios de software, porque un CVE puede tocar varios activos y cada
+  cambio vuelve a cruzar el activo contra todos los CVE conocidos.
+- **La tarjeta «Escaneos» dice la cobertura**: «20 de 21 activos escaneados · 6 fallidos»
+  (`scans.assets_covered` de `assets_total`, que ya se calculaban para el panel). El 22 es solo
+  lo que pidió el planificador; si el inventario está cubierto lo dice cuántos activos tienen
+  algún escaneo.
+- **El planificador se nombra y dice por dónde le llega lo suyo.** La tarjeta es «Decisiones
+  del planificador» y muestra siempre su origen, repartido: «23 por inteligencia · 24 por
+  cambios o revisiones del inventario». No se añadió una línea directa del inventario al
+  planificador porque no existe ese atajo: un cambio del inventario vuelve a cruzar el activo
+  contra toda la inteligencia y después va al planificador (`events._triage_asset`), que es el
+  camino inventario → cruce → planificador que ya está dibujado. «Cambios o revisiones» y no
+  solo «cambios»: por ese lado entran también la evaluación pedida a mano y la revisión por
+  tiempo. La primera cifra del panel lleva el mismo reparto.
+- **Línea punteada «contexto de cada activo»** del inventario a vulnerabilidades y riesgos. No
+  es algo que pase de una etapa a otra, por eso no lleva cifra y tiene trazo propio (leyenda:
+  «lo que se consulta al valorar»): la criticidad, la exposición, la función de negocio y la
+  clasificación de los datos del activo entran en la valoración de cada vulnerabilidad
+  (`consolidation`) y en el impacto y la probabilidad de cada riesgo (`risks`). Sin líneas, lo
+  dicen las tarjetas: «De la evidencia, reunida por activo y valorada con su contexto» y «De
+  las vulnerabilidades y el contexto de cada activo».
+
+Pruebas: `test_the_diagram_says_what_feeds_what_and_where_the_ai_works` (unidades y línea de
+contexto), `test_every_scan_is_counted_once_under_who_asked_for_it` (cobertura) y
+`test_each_recent_decision_says_who_decided_and_who_asked` (reparto del planificador).
+
+### Los paneles abren con una definición corta
+
+El panel de decisiones abría con cinco oraciones (qué le llega al planificador, qué hace el
+modelo, qué pasa si su respuesta no cumple el esquema, la regla fija y quién decide cuando una
+persona pide evaluar). El usuario lo leyó como texto «muy redactado por IA» y demasiado largo
+para Inicio y para presentar, «donde no conviene tener tanto texto, sino indicadores», y
+propuso la forma «El planificador es el módulo que se encarga de…».
+
+- Los nueve paneles (las ocho etapas y la IA local) abren con qué es la etapa y qué hace, en
+  una o dos oraciones llanas: entre 26 y 45 palabras con los datos del laboratorio. Ejemplo:
+  «El planificador es el módulo que decide qué hacer con las señales que el cruce no resuelve
+  por sí solo. Con la señal y los datos del activo, el modelo local elige una acción de una
+  lista fija y anota el motivo.»
+- Lo que la frase larga explicaba ya lo dicen las cifras y las etiquetas del panel: por dónde
+  llegó cada señal y cuántas decidió el modelo o una regla (las dos primeras cifras), y quién
+  decidió y quién pidió cada evaluación (cada fila de «Últimas decisiones» y la ficha de la
+  acción).
+- Las notas secundarias también se acortaron y perdieron los remates: en el cruce, «Cómo
+  decide» dice los tres desenlaces de una señal de inteligencia (se descarta, se registra un
+  reporte sin escanear, pasa al planificador); «Lo que sigue es tuyo» es ahora «Pendiente de
+  una persona»; la nota de vulnerabilidades ya no dice que «la diferencia es trabajo que el
+  equipo deja de perseguir»; la nota al pie de la IA dice qué cuenta la tabla y qué es
+  «aceptada», sin el detalle de los reintentos espaciados.
+- `test_stage_panels_open_with_a_short_definition` vigila el largo: cada panel tiene una sola
+  frase de apertura de 10 a 45 palabras.
+
+Solo se revisaron los paneles del diagrama de Inicio. **Pendiente**, a petición del usuario:
+revisar con el mismo criterio los textos fijos del resto de la plataforma (las demás secciones
+de Inicio, Riesgos, Vulnerabilidades, Inventario, Operación, Administración, las fichas de
+detalle y los reportes).
+
+### La IA local, una franja
+
+El bloque de la IA bajo las tarjetas llevaba cuatro renglones: estado y modelo; inferencias,
+porcentaje aceptado, horas de cómputo y «todo en este equipo»; el reparto «por tarea» con cinco
+cifras; y una nota sobre lo que no entra en la cuenta. El usuario lo vio cargado: «pone ahí
+todos los números cuando al darle clic los vuelve a mostrar». Todo eso está en el panel que
+abre (cifras y tabla por tarea), y lo que hace la IA en cada etapa lo dice ya cada tarjeta.
+
+- Es una franja de una línea: estado, modelo, «en este equipo» si el modelo es local, las
+  inferencias de la ventana y «Cómo trabaja». El estado se queda porque, si el modelo no
+  responde, las evaluaciones corren por regla y conviene verlo sin abrir nada.
+- El porcentaje aceptado, las horas, el reparto por tarea y la nota están solo en el panel.
+  `hero.engine` ya no los lleva, y `pipeline.AI_TASK_SHORT` (el nombre corto de cada tarea, que
+  solo usaba el bloque) se quitó.
+- La línea «Ahora» y la leyenda subieron a su lado: van con la franja en `.flow-base`, que en
+  la disposición ancha ocupa el hueco a la izquierda de «Riesgos abiertos» (la franja arriba y
+  la leyenda abajo, a la altura de la tarjeta). El diagrama termina donde termina esa tarjeta.
+- Medido en el laboratorio, el diagrama pierde unos 45 px de alto a 1440 px y unos 180 px en
+  teléfono. A lo ancho gana poco porque el alto de esa fila lo fija «Riesgos abiertos»; lo
+  que cambia ahí es cuánto hay que leer.
+
+Prueba: `test_the_diagram_says_what_feeds_what_and_where_the_ai_works` comprueba que la franja
+lleva solo el estado y las inferencias, que «Ahora» y la leyenda van con ella y que el
+porcentaje y las horas siguen en el panel.
+
+### Comprobado
+
+En el laboratorio, con el navegador a 1440, 1280 y 1100 px, en teléfono (390 px), con un panel
+abierto, con el zoom de pantalla completa y reponiendo `#flow` como lo hace HTMX. Los retoques
+de arriba, a 1440, 1280 y 1200 px, en teléfono, con el panel de decisiones abierto y con el
+zoom de pantalla completa. La franja de la IA, a 1440, 1200 y 1100 px, en teléfono y con el zoom
+de pantalla completa. No se probó
+el botón «Presentar» en una pantalla completa real ni el estado vacío a la vista (sí por
+pruebas).
+
+## Buscador global (`presentation/search.py`, revisión del 2026-11-16, N3)
+
+Sobre la barra lateral hay un campo «Buscar activo, IP, CVE…» (la tecla `/` lo enfoca; en
+teléfono va dentro del menú). `/search/?q=` recorre, en este orden, **activos**, **riesgos**
+(abiertos y cerrados, los abiertos primero), **vulnerabilidades** abiertas y, cuando el texto
+parece un CVE, el **catálogo de CVE** (el espejo local, que responde «¿nos afecta?» aunque
+ningún activo lo tenga: «en 3 activos» o «no se observa en ningún activo»).
+
+- Cada grupo usa **el mismo filtro que su lista** (`filter_assets`, `filter_risks`,
+  `filter_vulnerabilities`): muestra los seis primeros y «Ver los N en la lista» abre esa lista
+  con el mismo texto y la misma cuenta.
+- Cada grupo respeta el permiso de su lista; quien no puede ver una lista no ve su grupo.
+- Estados: sin texto (ejemplos), menos de dos caracteres, nada coincide (y si era un CVE exacto
+  que el catálogo no conoce, lo dice) y resultados.
+- No es un enlace más de la barra: una sección oculta del registro de navegación le da título
+  («Buscar») y migas.
+
+Pruebas: `tests/presentation/test_search.py`.

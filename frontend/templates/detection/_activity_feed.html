@@ -1,0 +1,46 @@
+{% load detection_tags %}
+{# Se refresca cada 10 s: es la ventana a «el sistema está trabajando solo». En «Todo» cada fila es un hilo (evento → decisión → acción → herramienta) con sus pasos plegados; atalaya.js conserva abiertos los que la persona desplegó. #}
+<div id="activity-feed" hx-get="{% url 'detection:activity' %}?kind={{ kind }}{% if show_filtered %}&filtered=1{% endif %}" hx-trigger="every 10s" hx-select="#activity-feed tbody" hx-target="find tbody" hx-swap="outerHTML" class="table-wrap" data-keep-open>
+  <table class="data-table">
+    <thead><tr><th scope="col">Cuándo</th><th scope="col">Qué</th><th scope="col">Sobre</th><th scope="col">{% if threads is not None %}Qué resultó{% else %}Detalle{% endif %}</th></tr></thead>
+    <tbody>
+      {% if threads is not None %}
+      {% for t in threads %}
+      <tr class="row-top" data-thread="{{ t.key|default:'suelto' }}">
+        <td class="text-xs whitespace-nowrap text-ink-soft">{{ t.at|hace }}</td>
+        <td>
+          {% if t.head.url %}<a href="{{ t.head.url }}" class="font-medium">{{ t.head.label }}</a>{% else %}<span class="font-medium">{{ t.head.label }}</span>{% endif %}
+          {% include "detection/_activity_badge.html" with e=t.head %}
+        </td>
+        <td class="text-xs">{{ t.head.subject|default:"—" }}</td>
+        <td class="text-xs text-ink-soft">
+          {{ t.summary|legible|truncatechars:160 }}
+          {% if t.steps|length > 1 %}
+          <details class="mt-1" id="hilo-{{ t.key }}">
+            <summary class="cursor-pointer text-muted">{{ t.steps|length }} pasos</summary>
+            <ol class="mt-1 flex flex-col gap-1 border-l border-line-soft pl-3">
+              {% for e in t.steps %}
+              <li><span class="font-mono text-muted">{{ e.at|momento }}</span> · {% if e.url %}<a href="{{ e.url }}">{{ e.label }}</a>{% else %}{{ e.label }}{% endif %} {% include "detection/_activity_badge.html" %}{% if e.text %}<span class="block text-muted">{{ e.text|legible|truncatechars:200 }}</span>{% endif %}</li>
+              {% endfor %}
+            </ol>
+          </details>
+          {% endif %}
+        </td>
+      </tr>
+      {% empty %}<tr><td colspan="4" class="table-empty">Aún no hay actividad. Sincroniza una fuente CTI, confirma un activo o pide una evaluación.</td></tr>{% endfor %}
+      {% else %}
+      {% for e in entries %}
+      <tr>
+        <td class="text-xs whitespace-nowrap text-ink-soft">{{ e.at|hace }}</td>
+        <td>
+          {% if e.url %}<a href="{{ e.url }}" class="font-medium">{{ e.label }}</a>{% else %}<span class="font-medium">{{ e.label }}</span>{% endif %}
+          {% include "detection/_activity_badge.html" %}
+        </td>
+        <td class="text-xs">{{ e.subject|default:"—" }}</td>
+        <td class="text-xs text-ink-soft">{{ e.text|legible|truncatechars:160 }}</td>
+      </tr>
+      {% empty %}<tr><td colspan="4" class="table-empty">Aún no hay actividad de este tipo.</td></tr>{% endfor %}
+      {% endif %}
+    </tbody>
+  </table>
+</div>

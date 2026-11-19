@@ -3,6 +3,11 @@
 #   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
 services:
   ollama:
+    environment:
+      # Un solo hilo de inferencia: la caché KV baja de 896 MiB a 224 MiB y el modelo de 7B
+      # cabe entero en los 8 GiB de la GPU sin desbordar a RAM compartida (WDDM/WSL2).
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_FLASH_ATTENTION: "1"
     deploy:
       resources:
         reservations:

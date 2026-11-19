@@ -1,0 +1,57 @@
+{% load detection_tags %}
+{% comment %}
+Registro por riesgo: lo que la organización puede perder en cada función de negocio. Recibe
+`business` (lista de `business_risks.BusinessRisk`, el más grave primero) y `grid` (el mapa función
+× consecuencia). Cada riesgo toma el nivel de su peor escenario y enlaza a su página, donde están
+sus escenarios (uno por activo) y se decide el tratamiento de todos a la vez. Junto al mapa, la
+matriz 5×5 (`risk_matrix`) pone cada riesgo en la casilla de su peor escenario, y el nombre de cada
+función abre el cuadro que la explica (`roles`).
+{% endcomment %}
+{% if grid.rows %}
+{# El mapa dice dónde y qué; la matriz, qué tan probable y qué tan grave. En pantallas anchas van #}
+{# lado a lado (la matriz en una columna de ancho fijo, como en la vista por escenario). #}
+<div class="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_24rem] xl:items-start">
+<section class="card flex flex-col gap-2" data-risk-map>
+  <h3 class="card-title mb-0">Mapa de riesgos <span class="font-normal text-muted">función de negocio × consecuencia</span></h3>
+  <div class="table-wrap">
+    <table class="w-full border-separate border-spacing-0.5 text-xs sm:border-spacing-1 sm:text-sm" aria-label="Riesgos por función de negocio y consecuencia">
+      <thead><tr><th scope="col" class="text-left text-xs font-medium text-muted">Función de negocio</th>{% for code, label in grid.columns %}<th scope="col" class="text-left text-xs font-medium text-muted">{{ label }}</th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for row in grid.rows %}
+        <tr>
+          <th scope="row" class="pr-1 text-left sm:whitespace-nowrap sm:pr-3"><button type="button" class="term" data-dialog-open="{{ row.dialog_id }}" aria-haspopup="dialog" title="Qué es esta función y qué activos la cumplen">{{ row.label|capfirst }}</button></th>
+          {% for cell in row.cells %}
+          {% if cell %}<td class="{{ cell.level|risk_cell_class }} rounded-sm px-1.5 py-1 font-semibold sm:px-2 sm:py-1.5"><a href="{{ cell.url }}" class="block text-inherit hover:underline" title="{{ cell.title }}: nivel {{ cell.level_label|lower }} por su peor escenario ({{ cell.worst.asset.name }}, {{ cell.likelihood }} × {{ cell.impact }} = {{ cell.score }})">{{ cell.level_label }} <span class="block text-xs font-normal">{{ cell.assets|length }}<span class="sm:hidden"> act.</span><span class="hidden sm:inline"> {{ cell.assets|length|pl:"-activo,activos" }}</span>{% if cell.undecided %}<span class="hidden sm:inline"> · {{ cell.undecided }} sin decidir</span>{% endif %}</span></a></td>{% else %}<td class="matrix-cell-empty rounded-sm px-1.5 py-1 text-center text-muted sm:px-2 sm:py-1.5" title="Ningún escenario abierto">—</td>{% endif %}
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p class="text-xs text-muted">Cada casilla es un riesgo: una consecuencia sobre una función de negocio, con el nivel de su peor escenario. Como mucho hay uno por función y consecuencia, por más activos o vulnerabilidades que se sumen. Pulsa el nombre de una función para ver qué es y qué activos la cumplen.</p>
+</section>
+<section class="card flex flex-col gap-2" data-risk-matrix>
+  <h3 class="card-title mb-0">Matriz de riesgos <span class="font-normal text-muted">probabilidad × impacto</span></h3>
+  {% include "detection/_risk_matrix.html" with matrix=risk_matrix compact=True cell_scope="&amp;view=riesgo" %}
+  <p class="text-xs text-muted">Cada riesgo está en la casilla de su peor escenario. Nivel = probabilidad × impacto: 1–4 bajo · 5–9 moderado · 10–14 alto · 15–19 muy alto · 20–25 crítico. Pulsa una casilla para ver sus riesgos.</p>
+</section>
+</div>
+{% for card in roles %}{% include "detection/_business_role_dialog.html" %}{% endfor %}
+{% endif %}
+<div class="table-wrap">
+  <table class="data-table" data-business-risks>
+    <thead><tr><th scope="col">Riesgo</th><th scope="col" title="El de su peor escenario: probabilidad × impacto">Nivel</th><th scope="col" class="col-md">Activos</th><th scope="col">Tratamiento</th><th scope="col" class="col-md" title="El plazo más próximo de sus escenarios según la política de la organización">Plazo</th><th scope="col" class="col-lg">A cargo de</th></tr></thead>
+    <tbody>
+      {% for r in business %}
+      <tr>
+        <td><a href="{{ r.url }}" class="font-medium">{{ r.title }}</a><p class="text-xs text-muted">{{ r.scenarios|length|pl:"escenario,escenarios" }} · {{ r.vulnerabilities|miles }} {{ r.vulnerabilities|pl:"-vulnerabilidad,vulnerabilidades" }}{% if r.kev %} · <span class="text-critical">{{ r.kev }} con explotación activa</span>{% endif %}</p></td>
+        <td class="whitespace-nowrap">{% risk_level_badge r.level %} <span class="font-mono text-xs text-muted" title="Probabilidad × impacto de su peor escenario ({{ r.worst.asset.name }})">{{ r.likelihood }}×{{ r.impact }}={{ r.score }}</span></td>
+        <td class="col-md text-xs">{% for a in r.assets|slice:":3" %}<a href="{% url 'assets:detail' a.pk %}?tab=riesgos">{{ a.name }}</a>{% if not forloop.last %}, {% endif %}{% endfor %}{% if r.assets|length > 3 %} <span class="text-muted">y {{ r.assets|length|add:"-3" }} más</span>{% endif %}</td>
+        <td class="text-xs">{% if r.undecided == r.scenarios|length %}<a href="{{ r.url }}#tratamiento" class="text-high">sin decidir →</a>{% else %}{{ r.treatments }}{% endif %}</td>
+        <td class="col-md text-xs">{% with d=r.deadline %}{% if d %}<span class="whitespace-nowrap {% if d.state == 'late' %}text-critical{% elif d.state == 'today' or d.state == 'soon' %}text-high{% else %}text-muted{% endif %}" title="Plazo de la política: {{ d.date|fecha }} · {{ d.rule }}">{{ d.when }}</span>{% if r.overdue > 1 %}<p class="text-critical">{{ r.overdue }} escenarios vencidos</p>{% endif %}{% else %}<span class="text-muted">—</span>{% endif %}{% endwith %}</td>
+        <td class="col-lg text-xs text-ink-soft">{{ r.responsibles|slice:":2"|join:", " }}{% if r.responsibles|length > 2 %} y {{ r.responsibles|length|add:"-2" }} más{% endif %}</td>
+      </tr>
+      {% empty %}<tr><td colspan="6" class="table-empty">{% if filters_active %}Ningún riesgo cumple este filtro. <a href="{% url 'detection:risks' %}">Ver todos</a>{% else %}Sin riesgos abiertos. Los riesgos se arman solos con los escenarios que se derivan de las vulnerabilidades consolidadas de cada activo.{% endif %}</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>

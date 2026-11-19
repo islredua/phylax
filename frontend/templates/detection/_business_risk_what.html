@@ -1,0 +1,33 @@
+{% load detection_tags inventory %}
+{% comment %}
+«Qué puede pasar» en un riesgo de la organización (`business_risk_texts.context_of`): una frase
+que la IA arma con la descripción de los activos del riesgo y sus datos, y que dice qué se
+perdería. Dónde y por qué debilidad lo escribe el código (`_business_risk_systems.html`). Mientras
+no la hay, el significado general de la consecuencia, que antes era todo. Mientras se escribe, el
+bloque se consulta solo cada 5 s. Quien trabaja los riesgos puede corregir el texto; con el texto
+vacío vuelve a escribirlo la IA.
+{% endcomment %}
+<div id="riesgo-que-puede-pasar" data-risk-what{% if what.pending and not what.text %} hx-get="{{ what.url }}" hx-trigger="every 5s" hx-swap="outerHTML"{% endif %}>
+  {% if what.text %}
+  <p class="text-ink" data-risk-text>{{ what.text.summary }}</p>
+  <p class="mt-1 text-xs text-muted">{% if what.text.source == 'HUMAN' %}<span class="badge-neutral">por una persona</span> Lo escribió <span class="font-mono">{{ what.text.edited_by.get_username|default:"—" }}</span> el {{ what.text.described_at|fecha }}; la IA ya no lo cambia.{% if what.stale %} <strong class="text-medium">Desde entonces cambiaron los activos del riesgo o sus causas: conviene revisarlo.</strong>{% endif %}{% else %}<span class="badge-primary">por IA</span> Lo armó el modelo local el {{ what.text.described_at|fecha }} con la descripción de los activos del riesgo, y lo vuelve a escribir cuando cambian. Puede equivocarse: si no es así, corrígelo.{% endif %}</p>
+  {% if what.general %}<p class="mt-1 text-xs text-muted" data-risk-general>En general: {{ what.general }}.</p>{% endif %}
+  {% else %}
+  <p class="text-ink" data-risk-general>{{ what.general|capfirst }}.</p>
+  {% if what.pending %}<p class="mt-1 text-xs text-muted"><span class="badge-primary">la IA está redactando</span> Eso es lo que significa en general. En unos segundos dirá aquí qué se perdería en este riesgo: qué información o qué trabajo, y de quién.</p>
+  {% elif what.missing %}<p class="mt-1 text-xs text-muted">Es el significado general. Para decir qué pasaría aquí falta la descripción de los activos del riesgo (Inventario › el activo › Editar) o un perfil de la organización que diga a qué se dedica.</p>
+  {% else %}<p class="mt-1 text-xs text-muted">Es el significado general: la IA dirá qué pasaría aquí en cuanto el modelo esté disponible.</p>{% endif %}
+  {% endif %}
+  {% if perms.detection.work_findings %}{% if what.text or not what.pending %}
+  <details class="fold mt-1"><summary>{% if what.text %}Corregir el texto{% else %}Escribir el texto{% endif %}</summary>
+    <form method="post" action="{{ what.url }}" class="mt-2 flex flex-col gap-2">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ request.get_full_path }}">
+      <label class="form-label" for="riesgo-que-puede-pasar-texto">Qué se perdería en este riesgo, en una o dos frases para quien no es técnico</label>
+      <textarea id="riesgo-que-puede-pasar-texto" name="summary" class="form-input" rows="4" maxlength="1000">{{ what.text.summary }}</textarea>
+      <p class="form-help">Queda a tu nombre. Déjalo vacío para que la IA lo vuelva a escribir.</p>
+      <div><button class="btn-secondary btn-sm" type="submit">Guardar texto</button></div>
+    </form>
+  </details>
+  {% endif %}{% endif %}
+</div>

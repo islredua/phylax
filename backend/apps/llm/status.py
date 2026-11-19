@@ -141,9 +141,22 @@ def set_active_model(model, *, user):
 
 
 def active_model_ready():
-    """``True`` si el modelo activo está descargado (o no se sabe aún / modo simulado)."""
+    """``True`` si Ollama responde y el modelo activo está descargado (o no se sabe aún / modo
+    simulado). Con el servidor caído la IA no puede trabajar aunque el modelo exista."""
+    if get_status().get("available") is False:
+        return False
     installed = installed_models()
     return installed is None or active_model() in installed
+
+
+def unavailable_reason():
+    """Frase para la interfaz cuando la IA no puede trabajar; ``""`` si puede."""
+    if get_status().get("available") is False:
+        return "El servidor LLM (Ollama) no responde"
+    installed = installed_models()
+    if installed is not None and active_model() not in installed:
+        return f"El modelo activo «{active_model()}» no está descargado en Ollama"
+    return ""
 
 
 SMALL_MODEL_BILLIONS = 3.0

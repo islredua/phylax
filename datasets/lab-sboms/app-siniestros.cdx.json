@@ -1,0 +1,49 @@
+{
+ "bomFormat": "CycloneDX",
+ "specVersion": "1.5",
+ "version": 1,
+ "metadata": {
+  "timestamp": "2026-11-07T00:00:00Z",
+  "tools": {
+   "components": [
+    {
+     "type": "application",
+     "author": "Atalaya",
+     "name": "lab-handwritten",
+     "version": "1"
+    }
+   ]
+  },
+  "component": {
+   "type": "application",
+   "name": "app-siniestros",
+   "version": "2.0.1"
+  }
+ },
+ "components": [
+  {
+   "type": "library",
+   "name": "pillow",
+   "version": "8.1.0",
+   "purl": "pkg:pypi/pillow@8.1.0"
+  },
+  {
+   "type": "library",
+   "name": "flask",
+   "version": "3.0.3",
+   "purl": "pkg:pypi/flask@3.0.3"
+  },
+  {
+   "type": "library",
+   "name": "werkzeug",
+   "version": "3.0.4",
+   "purl": "pkg:pypi/werkzeug@3.0.4"
+  },
+  {
+   "type": "library",
+   "name": "jinja2",
+   "version": "3.1.4",
+   "purl": "pkg:pypi/jinja2@3.1.4"
+  }
+ ]
+}

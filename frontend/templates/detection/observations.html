@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% load detection_tags inventory %}
+{% block title %}Evidencia{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <div class="flex flex-wrap items-center gap-2">
+    <h2>Evidencia <span class="ml-1 font-mono text-xs font-normal text-muted">{{ paginator.count|miles }}</span></h2>
+    <span class="text-xs text-muted">un reporte por cada cosa que dijo una herramienta, la reconciliación CTI o una persona; la IA los consolida en <a href="{% url 'detection:panel' %}{% if asset_id %}?asset={{ asset_id }}{% endif %}">vulnerabilidades</a></span>
+  </div>
+  <div class="page-actions">
+    {% if perms.detection.work_findings %}<a href="{% url 'detection:observation_new' %}{% if asset_id %}?asset={{ asset_id }}{% endif %}" class="btn-primary btn-sm">Registrar evidencia</a>{% endif %}
+    {% if asset_id %}<a href="{% url 'assets:detail' asset_id %}" class="btn-secondary btn-sm">← Activo</a>{% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block content %}
+<p class="text-sm text-ink-soft">Los reportes <strong>nunca se borran</strong>: son la materia prima, lo que dijo cada fuente sin interpretar. Lo único que les cambia es su situación: <strong>vigente</strong> mientras alguna fuente lo sigue viendo, <strong>ya no se observa</strong> cuando todas dejan de verlo (la versión cambió, el puerto se cerró o la herramienta lo revisó y no lo reportó) y <strong>reapareció</strong> si vuelve. Confirmar, descartar como falso positivo o aceptar el riesgo se decide en la vulnerabilidad que lo consolida.</p>
+
+{% if component %}<p class="alert-info text-sm" data-evidence-of>Solo los reportes de <strong>{{ component.label }}</strong> en {{ component.asset.name }}. <a href="{% url 'detection:observations' %}?asset={{ component.asset_id }}">Ver todos los del activo</a></p>{% endif %}
+
+<form method="get" id="filtros" data-filter-form class="card grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-6 lg:items-end">
+  {% for field in filter_form %}{% if not field.is_hidden %}
+  <div class="{% if field.name == 'q' %}lg:col-span-2{% endif %}">
+    <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}
+  </div>
+  {% else %}{{ field }}{% endif %}{% endfor %}
+  <div class="flex gap-2"><button type="submit" class="btn-primary">Filtrar</button><a href="{% url 'detection:observations' %}{% if asset_id %}?asset={{ asset_id }}{% endif %}" class="btn-secondary">Limpiar</a></div>
+</form>
+
+{% include "detection/_observation_rows.html" %}
+{% include "_pagination.html" %}
+{% endblock %}

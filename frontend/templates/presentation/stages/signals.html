@@ -1,0 +1,27 @@
+{% load inventory l10n %}
+<p class="stage-lead">Una señal es un aviso que recibe la plataforma: un CVE publicado o actualizado por una fuente de inteligencia, o un cambio en el inventario. Todas se cruzan con el inventario antes de llegar al modelo.</p>
+<div class="stage-grid">
+  <div>
+    <p class="stage-sub">Qué llegó en {{ window_days }} días</p>
+    <ul class="bars">
+      {% for row in kinds %}
+      <li class="bar-row"><span class="bar-label">{{ row.label }}</span><span class="bar-track"><span class="bar-fill" style="width:{{ row.width|unlocalize }}%"></span></span><span class="bar-value">{{ row.value|miles }}</span></li>
+      {% empty %}<li class="text-sm text-muted">Todavía no ha llegado ninguna señal en este periodo.</li>
+      {% endfor %}
+    </ul>
+  </div>
+  <div>
+    <p class="stage-sub">Espejo local de inteligencia</p>
+    <div class="tiles">
+      <div class="tile"><p class="tile-value">{{ cti.cves|default:0|miles }}</p><p class="tile-label">CVE en el espejo</p></div>
+      <div class="tile"><p class="tile-value">{{ cti.in_kev|default:0|miles }}</p><p class="tile-label">con explotación activa conocida (KEV)</p></div>
+      <div class="tile"><p class="tile-value">{{ syncs|miles }}</p><p class="tile-label">sincronizaciones en {{ window_days }} días</p></div>
+    </div>
+    <ul class="stage-list">
+      {% for src in sources %}
+      <li><span class="font-mono text-ink">{{ src.kind }}</span> {% if not src.enabled %}<span class="badge-neutral">desactivada</span>{% elif src.stale %}<span class="badge-medium">sin sincronizar</span>{% else %}<span class="badge-low">al día</span>{% endif %} <span class="text-muted">{% if src.at %}última descarga {{ src.at|fecha_corta }} {{ src.at|hora }}{% else %}nunca se ha descargado{% endif %}</span></li>
+      {% empty %}<li class="text-muted">No hay fuentes de inteligencia configuradas.</li>
+      {% endfor %}
+    </ul>
+  </div>
+</div>

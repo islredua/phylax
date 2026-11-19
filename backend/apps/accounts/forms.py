@@ -9,26 +9,46 @@ from django.contrib.auth.forms import (
     SetPasswordForm,
 )
 
+PASSWORD_HELP = (
+    "Mínimo 12 caracteres. No uses tu nombre, tu correo ni una contraseña que ya hayas usado "
+    "en otro sitio."
+)
+
 
 class StyledFormMixin:
-    """Aplica la clase ``form-input`` (frontend/tailwind/input.css) a cada widget."""
+    """Aplica la clase ``form-input`` (frontend/tailwind/input.css) a cada widget y textos
+    propios en español (los de Django hablan de usted y mezclan términos)."""
+
+    labels: dict[str, str] = {}
+    help_texts: dict[str, str] = {}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        for field in self.fields.values():
+        for name, field in self.fields.items():
             field.widget.attrs.setdefault("class", "form-input")
+            if name in self.labels:
+                field.label = self.labels[name]
+            if name in self.help_texts:
+                field.help_text = self.help_texts[name]
 
 
 class LoginForm(StyledFormMixin, AuthenticationForm):
-    pass
+    labels = {"username": "Usuario", "password": "Contraseña"}
+    error_messages = {
+        "invalid_login": "Usuario o contraseña incorrectos. Revisa mayúsculas y minúsculas.",
+        "inactive": "Esta cuenta está desactivada.",
+    }
 
 
 class StyledPasswordResetForm(StyledFormMixin, PasswordResetForm):
-    pass
+    labels = {"email": "Correo electrónico"}
+    help_texts = {"email": "Te enviaremos un enlace para elegir una contraseña nueva."}
 
 
 class StyledSetPasswordForm(StyledFormMixin, SetPasswordForm):
-    pass
+    labels = {"new_password1": "Contraseña nueva", "new_password2": "Repite la contraseña nueva"}
+    help_texts = {"new_password1": PASSWORD_HELP, "new_password2": ""}
+    error_messages = {"password_mismatch": "Las dos contraseñas no coinciden."}
 
 
 class MFACodeForm(StyledFormMixin, forms.Form):
@@ -47,7 +67,17 @@ class MFACodeForm(StyledFormMixin, forms.Form):
 
 
 class StyledPasswordChangeForm(StyledFormMixin, PasswordChangeForm):
-    pass
+    labels = {
+        "old_password": "Contraseña actual",
+        "new_password1": "Contraseña nueva",
+        "new_password2": "Repite la contraseña nueva",
+    }
+    help_texts = {"new_password1": PASSWORD_HELP, "new_password2": ""}
+    error_messages = {
+        **PasswordChangeForm.error_messages,
+        "password_mismatch": "Las dos contraseñas no coinciden.",
+        "password_incorrect": "La contraseña actual no es correcta.",
+    }
 
 
 class CurrentPasswordMixin:

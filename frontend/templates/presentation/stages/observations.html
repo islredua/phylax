@@ -1,0 +1,25 @@
+{% load inventory l10n %}
+<p class="stage-lead">Un reporte de evidencia indica que un activo tiene un software con una falla conocida. Sale del cruce con la inteligencia, de un escaneo o de ambos; cuando dos fuentes coinciden, la confianza es mayor.</p>
+<div class="tiles tiles-4">
+  <div class="tile"><p class="tile-value">{{ flow.observations.total|miles }}</p><p class="tile-label">{{ flow.observations.total|pl:"-reporte vigente,reportes vigentes" }}</p></div>
+  <div class="tile tile-accent"><p class="tile-value">{{ flow.observations.intel_only_pct|floatformat:0 }} %</p><p class="tile-label">se encontraron sin escanear, solo cruzando inteligencia con inventario</p></div>
+  <div class="tile"><p class="tile-value">{{ flow.observations.multi_source|miles }}</p><p class="tile-label">confirmados por dos fuentes a la vez</p></div>
+  <div class="tile"><p class="tile-value">{{ flow.observations.scan_only|miles }}</p><p class="tile-label">vistos solo por un escaneo (lo que la inteligencia no puede saber sin tocar el activo)</p></div>
+</div>
+<p class="stage-sub">Qué combinación de fuentes dio cada reporte</p>
+<div class="table-wrap">
+  <table class="combo">
+    <thead><tr>{% for col in flow.observations.columns %}<th scope="col" class="combo-src">{{ col.label }}</th>{% endfor %}<th scope="col" class="combo-n">Reportes</th><th scope="col"><span class="sr-only">Proporción</span></th></tr></thead>
+    <tbody>
+      {% for row in flow.observations.combos %}
+      <tr{% if row.multi %} class="combo-multi"{% endif %}>
+        {% for mark in row.marks %}<td class="combo-src"><span class="combo-dot{% if mark %} is-on{% endif %}" aria-hidden="true"></span><span class="sr-only">{% if mark %}sí{% else %}no{% endif %}</span></td>{% endfor %}
+        <td class="combo-n">{{ row.value|miles }} <span class="text-muted">· {{ row.pct }} %</span></td>
+        <td class="combo-bar"><span class="bar-track"><span class="bar-fill" style="width:{{ row.width|unlocalize }}%"></span></span></td>
+      </tr>
+      {% empty %}<tr><td colspan="{{ flow.observations.columns|length|add:2 }}" class="table-empty">Todavía no hay reportes.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="mt-2 text-xs text-muted">Cada fila es una combinación de fuentes y cada reporte se cuenta una sola vez. Las filas resaltadas son las confirmadas por dos fuentes.</p>

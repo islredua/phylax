@@ -119,7 +119,26 @@ stateDiagram-v2
 
 - Confirmar sin criticidad programa una sugerencia automática del LLM (ver abajo).
 - `IGNORED`: el descubrimiento actualiza `last_seen` pero no lo devuelve a la cola ni a objetivos.
-- `STALE` solo aplica a activos observados alguna vez (`last_seen` no nulo); `ATALAYA_ASSET_STALE_DAYS`.
+- `STALE` aplica a activos observados alguna vez (`last_seen` no nulo) y a los dados de alta a mano
+  cuya última verificación de alcance falló hace más de `ATALAYA_ASSET_STALE_DAYS`.
+- **Autorización por equipo** (`services.authorize_host`): dar de alta un equipo ya dice que la
+  organización lo tiene y quiere vigilarlo, así que el formulario trae marcada «Autorizar el escaneo
+  de este equipo». Si la IP no cae en un rango registrado, al guardar se crea un rango de un solo
+  host (/32 o /128) con el usuario como autorizante, fecha, referencia (la escrita o «Alta manual de
+  X por Y el día Z») y caducidad opcional; todo el resto del sistema (sonda, descubrimiento,
+  detección) lo trata como cualquier rango. Reglas: una IP enrutable globalmente exige referencia
+  escrita (un error de captura apuntaría a un tercero); una IP cubierta por un rango registrado
+  pero caducado o fuera de alcance no se «salta» con un /32: se renueva ese rango. Autorizar un
+  equipo requiere `discovery.run_discovery` (Analista); «Registrar también la red completa (/24)»
+  es un paso opcional que exige `assets.manage_scope` y una referencia. La importación CSV ofrece
+  la misma opción para todo el archivo (referencia: el nombre del archivo, quién y cuándo).
+- **Alcance desde Atalaya** (`reachable`, `reachability_checked_at`): el formulario de alta ofrece
+  «Verificar alcance», una sonda rápida en `worker-discovery` (ICMP/SYN a pocos puertos, tope de
+  segundos; `DISCOVERY_PROBE_*`) que informa si la IP responde, qué puertos abre y si la MAC o el
+  nombre ya pertenecen a otro activo. Es informativa: nunca bloquea el alta. El resultado se copia al
+  activo al guardarlo; la importación CSV sondea en segundo plano los activos nuevos con IP autorizada
+  y cualquier escaneo dirigido u observación por descubrimiento lo actualiza. Lista y detalle muestran
+  la insignia «no responde».
 - `RETIRED` nunca se borra físicamente. Fusionar mueve identificadores, servicios (conservando el
   `last_seen` más reciente), SBOM, sugerencias e hijos, y resuelve los conflictos asociados.
 
@@ -219,11 +238,89 @@ carecer de entorno y función hasta confirmarse.
 ## Interfaz
 
 Sección **Inventario** (Activos · Por confirmar · Clasificación · Conflictos · Imágenes ·
-Importar/Exportar), sección **Descubrimiento** (Rangos de red · Ejecuciones) y pestañas
-**LLM**, **Catálogos** y **Registries** en Administración. Migas de pan en todas las
-pantallas (ADR-007). El detalle de una ejecución de descubrimiento muestra la salida legible
-de nmap (`-oN`) en vivo. Detalle de activo con subpestañas Resumen, Identificadores,
-Servicios, SBOM, Sugerencias LLM, Historial y Descubrimientos (Hallazgos y Riesgo reservados).
+Rangos de red · Descubrimiento · Importar/Exportar) y pestañas **LLM**, **Catálogos** y
+**Registros de imágenes** en Administración. El descubrimiento no es una sección aparte: es el
+mecanismo que llena el inventario y sus pantallas (rangos y ejecuciones de nmap) viven en esa
+sección. Migas de pan en todas las pantallas (ADR-007). Las correcciones de la revisión UX del
+2026-11-09 (A1–A12, F6, F7) fijaron estas reglas:
+
+- **Activos.** Orden por cabecera (`?sort=criticality|-criticality|name|last_seen|…`; las
+  criticidades se ordenan por rango, no alfabéticamente, y los sin clasificar van juntos). Chips
+  de estado con `{% querystring %}`: conservan los demás filtros. Filtro y chip **«Revisar IA · N»**
+  (`?criticality=llm_auto`): activos cuya criticidad la aplicó la IA sin que nadie la revise. La
+  barra de acciones en lote se pliega a una pista hasta que se marca algo (`bulk-idle`). Estado
+  vacío distinto con y sin filtros, con enlaces a Descubrimiento e Importar.
+- **Detalle del activo.** Nueve pestañas: Resumen, Riesgos, Vulnerabilidades, Evidencia (`?tab=observaciones`),
+  **Servicios y escaneos** (servicios + las ejecuciones que lo tocaron; `?tab=descubrimientos`
+  sigue abriendo aquí), Identificadores, SBOM, **Criticidad (IA)** y Historial. Las listas de
+  riesgos, vulnerabilidades y reportes de evidencia muestran los 20 más recientes con «Ver todas en
+  Vulnerabilidades» / «Ver todos en Evidencia». Cabecera con una sola
+  marca de criticidad («Alto · por IA, sin revisar»); Ignorar/Restaurar/Retirar en el menú
+  «Más acciones», cada uno con su consecuencia. «Autorizado para escaneo» (alcance) y
+  «Conectividad desde Atalaya» (sondeo) son dos filas distintas; el botón es «Comprobar
+  conectividad». La tarjeta de sugerencia pliega la telemetría del modelo (ms, tok/s,
+  acelerador) en «detalles técnicos». El historial muestra booleanos como «sí/no».
+- **Alta y confirmación.** Formulario por secciones: Identidad, Identificadores (etiquetas
+  `sr-only`), **Contexto para la IA** (plegable, marcado «recomendado») y Autorización de
+  escaneo. Un error de autorización cae en su campo (`authorization_reference` o
+  `authorize_scan`), no como error general. Confirmar tiene «Cancelar» y conserva `next`.
+- **Confirmación en lote (F6).** `POST /inventory/confirm/bulk/` con `ids[]`, `environment` y
+  `business_role` (heredados por todos; el nombre y tipo observados se conservan). Disponible en
+  «Por confirmar» y en el detalle de una ejecución, con el entorno del rango preseleccionado.
+  Cada activo confirmado dispara el escaneo de servicios (si su IP está autorizada; la petición
+  es idempotente: si el planificador ya lo encoló por el evento de confirmación, se reutiliza
+  ese escaneo en lugar de lanzar un segundo nmap) y, si no
+  hubo escaneo, la sugerencia de criticidad.
+- **Descubrimiento.** La lista permite **lanzar** sobre cualquier rango con autorización vigente
+  (`POST /discovery/runs/launch/`) y filtrar por estado (`active`, `SUCCEEDED`, `FAILED`,
+  `CANCELLED`), perfil y rango. El detalle de una ejecución pone primero los hosts con una
+  columna **Progreso** («escaneando servicios…», «la IA calcula la criticidad…», badge de
+  criticidad o «sin criticidad»), el contador «N sin criticidad · clasificación» (excluye los que
+  tienen algo en curso), la barra de confirmación en lote y, plegada, la evidencia técnica (argv y
+  salida de nmap). El modo de nmap se muestra como «con/sin privilegios». Cancelar pide
+  confirmación.
+- **Rangos.** Un rango con autorización caducada ofrece **«Renovar autorización»**
+  (`range_edit?renovar=1`, con aviso y foco en «Vigente hasta») en lugar de «Descubrir»; el
+  vigente ofrece «Descubrir» (barrido) desde la fila. Estados vacíos con el siguiente paso en Por
+  confirmar, Rangos, Ejecuciones, Imágenes, Registros y Conflictos.
+- **Importación (A8).** Campo opcional **Referencia de la autorización**; si se deja vacío se
+  anota archivo, usuario y fecha (`csv_io.authorize_reference`). La pantalla lista cada columna
+  con su significado y los **valores aceptados** generados desde los catálogos y enumeraciones
+  (`csv_io.column_help`).
+- **Clasificación (A9).** Explica que la IA aplica la criticidad sola cuando el activo no tenía
+  ninguna; contadores «Sugerencias por decidir», «Calculadas por IA sin revisar» (enlaza a
+  `?criticality=llm_auto`), «Sin criticidad» y «Fallidas en 24 h».
+- **LLM caído (F7).** `llm.status.active_model_ready()` es falso también cuando Ollama no
+  responde y `unavailable_reason()` da el motivo. Las pantallas lo muestran («El servidor LLM
+  (Ollama) no responde; la criticidad se puede fijar a mano editando el activo»), el botón de
+  sugerencia queda deshabilitado y el proceso del activo marca el paso de criticidad como fallido
+  con la misma razón.
+- **Administración (A11, A12).** «Registros de imágenes» y «Restablecer MFA» en lugar de
+  anglicismos; en LLM el error de cada inferencia se ve en la fila y los comandos de descarga van
+  en un plegable; «Contraseñas temporales pendientes» enlaza a `/users/?status=active&temp=1`
+  (filtro nuevo); Seguridad muestra las 10 sesiones más recientes y pide confirmación antes de
+  cerrar las demás; la bitácora y los conflictos muestran los metadatos como clave → valor en
+  español (filtros `clave` y `valor`); Catálogos muestra «0» y los identificadores requeridos con
+  su etiqueta; la verificación MFA dice que el código de respaldo va en el mismo campo.
+- **Postura en la lista de activos (revisión del 2026-11-16, P9).** La lista dice de cada
+  activo su **Riesgo** (el nivel más alto entre sus riesgos abiertos y cuántos son, con enlace a
+  ellos; solo para quien puede ver el registro de riesgos) y su **Último escaneo** (el más
+  reciente entre servicios, nuclei y Grype; «nunca» si ninguna herramienta lo ha revisado), y
+  deja ordenar por ambos: el primer clic en «Riesgo» trae lo peor primero y, a igual nivel, el
+  que más riesgos tiene; los nunca escaneados van primero al ordenar de menos a más reciente
+  (`assets.views.with_posture`, `list_columns`). Una etiqueta que llevan todos los activos de la
+  página se dice una vez sobre la tabla en lugar de repetirse en cada fila.
+- **Descubrimiento por lanzamiento (P8).** Pedir el escaneo de servicios de varios activos de
+  una vez crea una ejecución por activo en el mismo instante; en la lista eran N filas iguales.
+  Ahora son una fila («19 activos en un lanzamiento») con la suma de lo que encontraron, el
+  estado de todas («17 completados · 2 fallidos») y cada ejecución dentro, a un clic. Un
+  lanzamiento se reconoce por cómo nace: misma persona, mismo perfil y menos de 60 s entre una
+  ejecución y la siguiente (`discovery.views.group_launches`); no hizo falta cambiar el modelo
+  y agrupa igual lo ya registrado. El descubrimiento de un rango es siempre una fila. Si el
+  activo de una ejecución ya no está en el inventario, la fila dice la dirección que se escaneó.
+- **Filtros plegados en teléfono (P11).** Las listas marcan su formulario de filtros
+  (`data-filter-form`) y, por debajo de 640 px, `atalaya.js` lo deja tras un botón «Filtros · N
+  aplicados». Sin JavaScript el formulario se ve entero.
 
 ## Autorización
 
@@ -236,7 +333,7 @@ Servicios, SBOM, Sugerencias LLM, Historial y Descubrimientos (Hallazgos y Riesg
 | Exportar CSV | ✔ | ✔ | ✔ |
 | Lanzar descubrimiento (`discovery.run_discovery`) | ✔ | ✔ | — |
 | Rangos y alcance (`assets.manage_scope`) | ✔ | — | — |
-| Registries y tokens (`assets.manage_registries`) | ✔ | — | — |
+| Registros de imágenes y tokens (`assets.manage_registries`) | ✔ | — | — |
 | Catálogos (`assets.manage_catalogs`) | ✔ | — | — |
 | Modelo LLM del sistema (`llm.manage_llm`) | ✔ | — | — |
 

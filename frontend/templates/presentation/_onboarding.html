@@ -1,0 +1,40 @@
+{% comment %}
+Puesta en marcha (apps.presentation.onboarding): lo esencial y lo recomendado, cada pendiente con
+su enlace. Completa, se pliega en una línea.
+{% endcomment %}
+{% if onboarding.complete %}
+<details class="fold" id="puesta-en-marcha">
+  <summary class="text-sm">Puesta en marcha completa <span class="pill-ok">{{ onboarding.total }} de {{ onboarding.total }}</span></summary>
+  <ul class="mt-2 flex flex-col gap-1 text-sm text-ink-soft">{% for item in onboarding.items %}<li><span aria-hidden="true" class="text-low">✓</span> {{ item.title }}</li>{% endfor %}</ul>
+</details>
+{% else %}
+<section class="card flex flex-col gap-3" id="puesta-en-marcha" aria-labelledby="onboarding-title">
+  <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+    <div>
+      <h2 class="card-title mb-0" id="onboarding-title">Puesta en marcha</h2>
+      <p class="text-xs text-muted">Lo que falta para que la plataforma haga su trabajo. Cada pendiente lleva a su pantalla.</p>
+    </div>
+    <div class="flex min-w-48 items-center gap-2">
+      <div class="bar-track h-2 grow" role="img" aria-label="{{ onboarding.summary }}"><span class="bar-fill" style="width: {{ onboarding.percent }}%"></span></div>
+      <span class="font-mono text-xs whitespace-nowrap text-ink-soft">{{ onboarding.summary }}</span>
+    </div>
+  </div>
+  {% for label, hint, items in groups %}
+  <div>
+    <h3 class="eyebrow">{{ label }} <span class="font-sans text-xs font-normal normal-case tracking-normal text-muted">· {{ hint }}</span></h3>
+    <ul class="mt-1 flex flex-col divide-y divide-line-soft">
+      {% for item in items %}
+      <li class="flex flex-wrap items-start gap-x-3 gap-y-1 py-2" data-onboarding="{{ item.key }}" data-done="{{ item.done|yesno:'1,0' }}">
+        {% if item.done %}<span class="mt-0.5 w-4 shrink-0 text-center text-low" aria-hidden="true">✓</span><span class="sr-only">Listo:</span>{% else %}<span class="mt-0.5 w-4 shrink-0 text-center {% if item.essential %}text-critical{% else %}text-medium{% endif %}" aria-hidden="true">○</span><span class="sr-only">Pendiente:</span>{% endif %}
+        <div class="min-w-0 grow basis-64">
+          <p class="text-sm {% if item.done %}text-ink-soft{% else %}font-medium text-ink{% endif %}">{{ item.title }}</p>
+          <p class="text-xs {% if item.done %}text-muted{% else %}text-ink-soft{% endif %}">{{ item.detail }}</p>
+        </div>
+        {% if not item.done and item.can_open %}<a href="{{ item.url }}" class="btn-secondary btn-sm shrink-0">{{ item.action }}</a>{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endfor %}
+</section>
+{% endif %}

@@ -3,6 +3,10 @@
 #   scripts/compose.sh up -d      # detecta GPU NVIDIA y añade docker-compose.gpu.yml
 #   docker compose up -d          # equivalente sin GPU (Ollama en CPU)
 #
+# Este archivo es el entorno de **desarrollo y laboratorio** (runserver, código montado). Para
+# uso real se suma docker-compose.prod.yml (ATALAYA_PROFILE=prod scripts/compose.sh up -d):
+# proxy con TLS, gunicorn y ningún puerto interno publicado. Ver docs/operacion.md.
+#
 # Ningún servicio interno (Redis, Ollama, workers) publica puertos: solo la red
 # atalaya-net los alcanza (STRIDE Information Disclosure).
 
@@ -27,6 +31,8 @@ x-backend: &backend
     - ./experiments:/experiments
     - scan_results:/data/scan-results
     - cti_cache:/data/cti-cache
+    # CA interna de la organización (certificado del servidor de correo): DJANGO_EMAIL_CA_FILE.
+    - ./deploy/ca:/ca:ro
   depends_on:
     db:
       condition: service_healthy
@@ -54,8 +60,9 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    # Solo en el propio equipo (psql, respaldos a mano); el perfil de producción lo quita.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -66,7 +73,12 @@ services:
     image: redis:7.4.1-alpine
     container_name: atalaya-redis
     restart: unless-stopped
-    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    # La cola de Celery vive aquí: con el registro de solo-añadir (un fsync por segundo) las
+    # tareas encoladas sobreviven a un reinicio de Redis o del equipo. Antes no se guardaba nada
+    # y un reinicio las perdía (revisión del 2026-11-16, O2).
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--save", ""]
+    volumes:
+      - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -136,6 +148,7 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:
   ollama_models:
   media:
   scan_results:

@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% load inventory %}
+{% block title %}Plazos · Administración{% endblock %}
+{% block content %}
+<div class="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+  <form method="post" class="card flex flex-col gap-3" novalidate>{% csrf_token %}
+    <h3 class="card-title mb-0">Plazos para tratar un riesgo</h3>
+    <p class="text-sm text-ink-soft">Cuántos días tiene la organización para tratar un riesgo de cada nivel, contados desde que se detectó la más antigua de sus vulnerabilidades más graves (un riesgo reúne todo lo que lleva a la misma consecuencia en un activo y dura mientras quede algo sin corregir: si el plazo contara desde que se identificó, una vulnerabilidad crítica descubierta hoy nacería vencida). Con esto Atalaya propone la fecha compromiso al decidir un tratamiento y marca lo que va fuera de plazo.</p>
+    {% if form.non_field_errors %}<div class="alert-error text-sm" role="alert">{% for e in form.non_field_errors %}{{ e }} {% endfor %}</div>{% endif %}
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead><tr><th scope="col">Nivel del riesgo</th><th scope="col">Plazo (días)</th><th scope="col" class="col-md text-right" title="Riesgos sin decidir o en tratamiento">Con el plazo corriendo</th><th scope="col" class="text-right">Fuera de plazo hoy</th></tr></thead>
+        <tbody>
+          {% for row in overview.rows %}
+          <tr>
+            <td><label for="id_{{ row.field }}" class="font-medium">{{ row.label }}</label></td>
+            <td>{% for field in form %}{% if field.name == row.field %}<div class="w-28">{{ field }}</div>{% for e in field.errors %}<p class="form-error">{{ e }}</p>{% endfor %}{% endif %}{% endfor %}</td>
+            <td class="col-md text-right font-mono">{{ row.running|miles }}</td>
+            <td class="text-right font-mono {% if row.late %}text-critical{% endif %}">{% if row.late %}<a href="{% url 'detection:risks' %}?policy_overdue=1&amp;level={{ row.level }}">{{ row.late|miles }}</a>{% else %}0{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="max-w-xs"><label class="form-label" for="{{ form.accept_review_days.id_for_label }}">{{ form.accept_review_days.label }} (días)</label>{{ form.accept_review_days }}<p class="form-help" id="{{ form.accept_review_days.auto_id }}_helptext">{{ form.accept_review_days.help_text }}</p>{% for e in form.accept_review_days.errors %}<p class="form-error">{{ e }}</p>{% endfor %}</div>
+    <label class="flex items-center gap-2 text-sm">{{ form.use_cisa_deadline }} {{ form.use_cisa_deadline.label }}</label>
+    {% if can_manage %}<div class="flex gap-2"><button class="btn-primary" type="submit">Guardar</button><a href="{% url 'detection:risks' %}" class="btn-secondary">Ver riesgos</a></div>
+    {% else %}<p class="text-xs text-muted">Solo un administrador cambia los plazos.</p>{% endif %}
+    <p class="text-xs text-muted">Última edición: {{ policy.updated_at|fecha }}{% if policy.updated_by %} por {{ policy.updated_by.get_username }}{% endif %}. Los cambios quedan en la bitácora de automatización.</p>
+  </form>
+  <section class="card flex flex-col gap-2 text-sm">
+    <h3 class="card-title mb-0">Cómo se usa</h3>
+    <p class="text-ink-soft">Un riesgo <strong>más grave nunca tiene más plazo</strong> que uno menos grave: la pantalla no deja guardar plazos invertidos.</p>
+    <p class="text-ink-soft"><strong>Fuera de plazo</strong> es un riesgo sin decidir o en tratamiento cuyo plazo ya venció, aunque su fecha compromiso sea posterior: la política es la vara con la que se mide.</p>
+    <p class="text-ink-soft">Si una vulnerabilidad del riesgo tiene un <strong>plazo de CISA</strong> que seguía vigente cuando el riesgo se identificó y es más corto, manda ese. Un plazo de CISA que ya había vencido se muestra aparte, porque no es una fecha que se pueda cumplir.</p>
+    <p class="text-ink-soft">Un riesgo <strong>aceptado</strong> no tiene plazo: tiene fecha de revisión.</p>
+    <p class="text-xs text-muted">Hoy hay {{ overview.late|miles }} {{ overview.late|pl:"-riesgo,riesgos" }} fuera de plazo de {{ overview.running|miles }} con el plazo corriendo.</p>
+  </section>
+</div>
+{% endblock %}

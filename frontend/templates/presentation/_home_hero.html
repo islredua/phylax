@@ -1,0 +1,43 @@
+{% load presentation_tags inventory %}
+{% comment %}
+Gráfica maestra de Inicio: lo primero que se ve. Arriba, el estado en una cifra y el reparto de
+los riesgos por nivel; debajo, «Cómo trabaja la detección» (ocho etapas en tres columnas, sus
+conexiones y el bloque de la IA local). Cada etapa abre su detalle dentro de Inicio, sin salir
+de la página. Se dibuja en el servidor (funciona sin JS: las etapas son enlaces ?etapa=…), entra
+animada por CSS, home-flow.js traza las conexiones y home-charts.js refresca las cifras en
+sitio cada minuto.
+{% endcomment %}
+<section class="hero" id="recorrido" data-hero aria-labelledby="hero-titulo">
+  <div class="hero-top">
+    <div class="hero-status">
+      <p class="eyebrow flex flex-wrap items-center gap-2">Estado de salud {% if data.no_data %}<span class="badge-neutral">Sin datos suficientes</span>{% else %}<a href="{{ health_url }}" target="_blank" rel="noopener" class="hover:no-underline" title="Ver lo que sustenta el semáforo (se abre en otra pestaña)">{% health_badge data.health %}</a>{% endif %}<span class="hero-live" title="Los datos se actualizan solos cada minuto"><span class="hero-live-dot" aria-hidden="true"></span>en vivo · <span data-charts-stamp>{{ data.computed_at|hora }}</span></span></p>
+      <h2 id="hero-titulo" class="hero-headline" data-hero-headline>{% if headline %}{{ headline|plain }}{% else %}Estado de la organización{% endif %}</h2>
+      <a href="{% url 'detection:risks' %}" target="_blank" rel="noopener" class="hero-figure hover:no-underline" title="Abrir el registro de riesgos (se abre en otra pestaña)">
+        <span class="hero-number" data-hero-count="open">{{ hero.open|miles }}</span>
+        <span class="hero-number-label">{{ hero.open|pl:"-riesgo abierto,riesgos abiertos" }}{% if deltas.available and deltas.risks_comparable %} <span class="text-sm">{{ deltas.risks_open|delta }}</span><span class="block text-xs text-muted">frente al {{ deltas.since|fecha_corta }}</span>{% elif deltas.available %}<span class="block text-xs text-muted" title="El {{ deltas.since|fecha_corta }} se contaba el riesgo de cada activo; ahora, el de la organización: una consecuencia sobre una función de negocio. Las dos cifras no se restan.">sin comparación con el {{ deltas.since|fecha_corta }}: cambió la forma de contarlos</span>{% endif %}</span>
+      </a>
+    </div>
+    <div class="hero-levels">
+      <div class="segbar" role="img" aria-label="Riesgos abiertos por nivel: {% for l in hero.levels %}{{ l.value }} {{ l.label|lower }}{% if not forloop.last %}, {% endif %}{% endfor %}">
+        {% for l in hero.levels %}<a href="{{ l.url }}" target="_blank" rel="noopener" class="segbar-part" data-hero-level="{{ l.key }}" style="flex-grow:{{ l.value }};background:{{ l.color }}" title="{{ l.label }}: {{ l.value }}"{% if not l.value %} hidden{% endif %}><span class="sr-only">{{ l.label }}: {{ l.value }}</span></a>{% endfor %}
+      </div>
+      <ul class="segbar-legend">
+        {% for l in hero.levels %}<li><a href="{{ l.url }}" target="_blank" rel="noopener" class="hover:no-underline"><span class="legend-dot" style="background:{{ l.color }}"></span> {{ l.label }} <strong class="font-mono text-ink" data-hero-level-value="{{ l.key }}">{{ l.value }}</strong></a></li>{% endfor %}
+      </ul>
+      <p class="text-xs text-muted"><span data-hero-count="assets">{{ hero.assets|miles }}</span> {{ hero.assets|pl:"-activo vigilado,activos vigilados" }} · <a href="{% url 'detection:risks' %}?treatment=none" target="_blank" rel="noopener" class="out"><span data-hero-count="untreated">{{ hero.untreated|miles }}</span> sin tratamiento decidido</a></p>
+    </div>
+  </div>
+
+  <div class="hero-flow">
+    <div class="flow-head">
+      <div>
+        <h3 class="card-title mb-0">Cómo trabaja la detección</h3>
+        <p class="text-xs text-muted">Qué entra, qué se comprueba y qué resulta. Elige una etapa para ver el detalle.</p>
+      </div>
+      <button type="button" class="btn-secondary btn-sm" data-present hidden title="Recorre las etapas a pantalla completa, una tras otra; Esc para salir">Presentar</button>
+    </div>
+    {% include "presentation/_home_flow.html" %}
+  </div>
+
+  {% include "presentation/_home_stage.html" %}
+</section>

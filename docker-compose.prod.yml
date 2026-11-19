@@ -1,0 +1,92 @@
+# Atalaya — perfil de producción. Se suma al archivo base:
+#
+#   ATALAYA_PROFILE=prod scripts/compose.sh up -d
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d   # equivalente sin GPU
+#
+# Qué cambia respecto a desarrollo (docs/operacion.md):
+#   · un proxy (Caddy) termina TLS en el 443 y es lo único que publica puertos;
+#   · el backend corre con gunicorn y DEBUG apagado, sin puerto publicado;
+#   · PostgreSQL no publica el 5432;
+#   · los estáticos se recogen en un volumen y los sirve el proxy;
+#   · el código se monta de solo lectura.
+#
+# Variables (en .env): ATALAYA_HOSTNAME (el nombre con el que se entra), DJANGO_SECRET_KEY,
+# ATALAYA_FIELD_ENCRYPTION_KEYS y, si la organización tiene su certificado, ATALAYA_TLS.
+
+x-prod-env: &prod-env
+  DJANGO_DEBUG: "0"
+  DJANGO_ALLOWED_HOSTS: "${ATALAYA_HOSTNAME:-localhost},localhost,127.0.0.1,backend"
+  ATALAYA_BEHIND_PROXY: "1"
+  # Solo al proxy se le cree X-Forwarded-For (la IP del cliente en bitácora y sesiones).
+  ATALAYA_TRUSTED_PROXIES: "proxy"
+  ATALAYA_STATIC_ROOT: /data/static
+
+services:
+  db:
+    ports: !reset []
+
+  backend:
+    ports: !reset []
+    environment: *prod-env
+    volumes:
+      - ./backend:/app:ro
+      - static:/data/static
+    # Procesos, hilos, límite de tiempo y registro: backend/gunicorn.conf.py (gunicorn lo lee
+    # solo). No se ponen aquí: en este formato una línea más sangrada conserva su salto, y lo
+    # que quede después de «exec gunicorn …» ya no se ejecuta.
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py collectstatic --noinput &&
+             exec gunicorn atalaya.wsgi:application"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health/"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  worker:
+    environment: *prod-env
+    volumes:
+      - ./backend:/app:ro
+  worker-llm:
+    environment: *prod-env
+    volumes:
+      - ./backend:/app:ro
+  worker-discovery:
+    environment: *prod-env
+    volumes:
+      - ./backend:/app:ro
+  beat:
+    environment: *prod-env
+    volumes:
+      - ./backend:/app:ro
+
+  # Lo único que se publica. TLS con la autoridad interna de Caddy (certificado que los
+  # navegadores no conocen: hay que instalar su raíz o aceptar el aviso) o con el certificado de
+  # la organización: ATALAYA_TLS="/certs/atalaya.crt /certs/atalaya.key" y los archivos en
+  # deploy/certs/.
+  proxy:
+    image: caddy:2.8.4-alpine
+    container_name: atalaya-proxy
+    restart: unless-stopped
+    ports:
+      - "${ATALAYA_HTTP_PORT:-80}:80"
+      - "${ATALAYA_HTTPS_PORT:-443}:443"
+    environment:
+      ATALAYA_HOSTNAME: "${ATALAYA_HOSTNAME:-localhost}"
+      ATALAYA_TLS: "${ATALAYA_TLS:-internal}"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./deploy/certs:/certs:ro
+      - static:/srv/static:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  static:
+  caddy_data:
+  caddy_config:

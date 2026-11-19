@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}{% if channel %}Editar {{ channel.name }}{% else %}Nuevo canal de avisos{% endif %}{% endblock %}
+{% block breadcrumb_tail %}<li><a href="{% url 'alerts:settings' %}">Avisos</a></li><li>{% if channel %}{{ channel.name }}{% else %}Nuevo canal{% endif %}</li>{% endblock %}
+{% block toolbar %}<div class="toolbar"><h2>{% if channel %}Editar «{{ channel.name }}»{% else %}Nuevo canal de avisos{% endif %}</h2></div>{% endblock %}
+{% block content %}
+<div class="alert-info max-w-2xl text-sm">El correo sale con la configuración SMTP del servidor (<span class="font-mono">DJANGO_EMAIL_BACKEND</span>); en desarrollo se imprime en la consola del contenedor. El webhook recibe un POST con JSON y una clave <span class="font-mono">text</span> que entienden los webhooks entrantes de Slack y Teams.</div>
+{% url 'alerts:settings' as cancel %}
+{% include "assets/_simple_form.html" with cancel_url=cancel %}
+{% endblock %}

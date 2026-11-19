@@ -1,0 +1,234 @@
+{
+  "reposo": {
+    "muestras": 104,
+    "gpu_uso_pct": {
+      "media": 0.7,
+      "max": 70.0
+    },
+    "vram_mib": {
+      "media": 2143.0,
+      "max": 5343.0
+    },
+    "gpu_temperatura_c": {
+      "media": 39.0,
+      "max": 43.0
+    },
+    "gpu_potencia_w": {
+      "media": 13.8,
+      "max": 35.5
+    },
+    "carga_del_equipo_1min": {
+      "media": 0.18,
+      "max": 0.57
+    },
+    "ram_disponible_mib_min": 11966.0,
+    "contenedores": {
+      "atalaya-backend": {
+        "cpu_pct": {
+          "media": 3.4,
+          "max": 24.7
+        },
+        "memoria_mib": {
+          "media": 355.0,
+          "max": 356.0
+        }
+      },
+      "atalaya-beat": {
+        "cpu_pct": {
+          "media": 0.0,
+          "max": 0.0
+        },
+        "memoria_mib": {
+          "media": 86.0,
+          "max": 86.0
+        }
+      },
+      "atalaya-db": {
+        "cpu_pct": {
+          "media": 1.9,
+          "max": 26.7
+        },
+        "memoria_mib": {
+          "media": 454.0,
+          "max": 458.0
+        }
+      },
+      "atalaya-ollama": {
+        "cpu_pct": {
+          "media": 1.2,
+          "max": 104.3
+        },
+        "memoria_mib": {
+          "media": 635.0,
+          "max": 824.0
+        }
+      },
+      "atalaya-redis": {
+        "cpu_pct": {
+          "media": 0.8,
+          "max": 3.2
+        },
+        "memoria_mib": {
+          "media": 10.0,
+          "max": 11.0
+        }
+      },
+      "atalaya-worker": {
+        "cpu_pct": {
+          "media": 0.9,
+          "max": 37.5
+        },
+        "memoria_mib": {
+          "media": 174.0,
+          "max": 195.0
+        }
+      },
+      "atalaya-worker-discovery": {
+        "cpu_pct": {
+          "media": 0.8,
+          "max": 32.2
+        },
+        "memoria_mib": {
+          "media": 102.0,
+          "max": 123.0
+        }
+      },
+      "atalaya-worker-llm": {
+        "cpu_pct": {
+          "media": 0.9,
+          "max": 31.0
+        },
+        "memoria_mib": {
+          "media": 117.0,
+          "max": 136.0
+        }
+      }
+    },
+    "laboratorio_en_conjunto": {
+      "cpu_pct": {
+        "media": 0.2,
+        "max": 0.5
+      },
+      "memoria_mib": {
+        "media": 550.0,
+        "max": 551.0
+      }
+    }
+  },
+  "corrida": {
+    "muestras": 312,
+    "gpu_uso_pct": {
+      "media": 76.6,
+      "max": 100.0
+    },
+    "vram_mib": {
+      "media": 5346.0,
+      "max": 5347.0
+    },
+    "gpu_temperatura_c": {
+      "media": 84.0,
+      "max": 88.0
+    },
+    "gpu_potencia_w": {
+      "media": 110.6,
+      "max": 154.1
+    },
+    "carga_del_equipo_1min": {
+      "media": 3.51,
+      "max": 23.47
+    },
+    "ram_disponible_mib_min": 7746.0,
+    "contenedores": {
+      "atalaya-backend": {
+        "cpu_pct": {
+          "media": 3.7,
+          "max": 20.6
+        },
+        "memoria_mib": {
+          "media": 345.0,
+          "max": 356.0
+        }
+      },
+      "atalaya-beat": {
+        "cpu_pct": {
+          "media": 0.0,
+          "max": 0.0
+        },
+        "memoria_mib": {
+          "media": 86.0,
+          "max": 86.0
+        }
+      },
+      "atalaya-db": {
+        "cpu_pct": {
+          "media": 4.3,
+          "max": 53.1
+        },
+        "memoria_mib": {
+          "media": 455.0,
+          "max": 470.0
+        }
+      },
+      "atalaya-ollama": {
+        "cpu_pct": {
+          "media": 95.1,
+          "max": 120.4
+        },
+        "memoria_mib": {
+          "media": 1324.0,
+          "max": 1416.0
+        }
+      },
+      "atalaya-redis": {
+        "cpu_pct": {
+          "media": 1.0,
+          "max": 8.7
+        },
+        "memoria_mib": {
+          "media": 16.0,
+          "max": 20.0
+        }
+      },
+      "atalaya-worker": {
+        "cpu_pct": {
+          "media": 2.5,
+          "max": 83.1
+        },
+        "memoria_mib": {
+          "media": 600.0,
+          "max": 642.0
+        }
+      },
+      "atalaya-worker-discovery": {
+        "cpu_pct": {
+          "media": 168.6,
+          "max": 1522.7
+        },
+        "memoria_mib": {
+          "media": 4298.0,
+          "max": 6513.0
+        }
+      },
+      "atalaya-worker-llm": {
+        "cpu_pct": {
+          "media": 17.4,
+          "max": 198.7
+        },
+        "memoria_mib": {
+          "media": 305.0,
+          "max": 410.0
+        }
+      }
+    },
+    "laboratorio_en_conjunto": {
+      "cpu_pct": {
+        "media": 10.4,
+        "max": 231.3
+      },
+      "memoria_mib": {
+        "media": 779.0,
+        "max": 987.0
+      }
+    }
+  }
+}

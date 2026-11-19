@@ -18,6 +18,7 @@ from apps.assets.enums import AssetOrigin
 from apps.assets.enums import IdentifierKind as Kind
 from apps.assets.models import Asset, AssetConflict, NetworkRange, Tag
 from apps.assets.sbom import attach_sbom
+from apps.core.text import cuantos
 
 SEED_TAG = "lab-seed"
 AUTHORIZATION = "Laboratorio sintético – proyecto de tesis"
@@ -284,9 +285,9 @@ class Command(BaseCommand):
         )
         self.stdout.write(
             self.style.SUCCESS(
-                f"Laboratorio listo: {created} activo(s) nuevo(s), "
+                f"Laboratorio listo: {cuantos(created, 'activo nuevo', 'activos nuevos')}, "
                 f"{Asset.objects.filter(tags=tag).count()} con etiqueta {SEED_TAG}, "
-                f"{AssetConflict.objects.filter(resolved=False).count()} conflicto(s) abierto(s)."
+                f"{cuantos(AssetConflict.objects.filter(resolved=False).count(), 'conflicto abierto', 'conflictos abiertos')}."
             )
         )
 

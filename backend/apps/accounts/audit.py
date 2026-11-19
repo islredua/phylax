@@ -1,6 +1,10 @@
 """Escritura de eventos en la bitácora de auditoría."""
 
 import ipaddress
+import socket
+import time
+
+from django.conf import settings
 
 from .middleware import get_current_request
 from .models import AuditLogEntry
@@ -8,17 +12,62 @@ from .models import AuditLogEntry
 USER_AGENT_MAX_LENGTH = AuditLogEntry._meta.get_field("user_agent").max_length
 
 
-def client_ip(request):
-    """IP del cliente según REMOTE_ADDR.
+TRUSTED_PROXY_TTL = 60
+_trusted = {"at": 0.0, "entries": None, "networks": []}
 
-    No se confía en X-Forwarded-For: sin un proxy de confianza configurado
-    sería trivial de falsificar. Si se agrega un reverse proxy, revisar aquí.
+
+def _trusted_networks():
+    """Redes de ``settings.TRUSTED_PROXIES``. Un nombre de equipo (``proxy``, el servicio del
+    perfil de producción) se resuelve aquí y se vuelve a resolver cada minuto: su dirección en la
+    red de Docker cambia cuando el contenedor se recrea."""
+    entries = tuple(getattr(settings, "TRUSTED_PROXIES", ()) or ())
+    now = time.monotonic()
+    if _trusted["entries"] == entries and now - _trusted["at"] < TRUSTED_PROXY_TTL:
+        return _trusted["networks"]
+    networks = []
+    for entry in entries:
+        try:
+            networks.append(ipaddress.ip_network(entry, strict=False))
+            continue
+        except ValueError:
+            pass
+        try:
+            resolved = {info[4][0] for info in socket.getaddrinfo(entry, None)}
+        except OSError:
+            continue
+        networks.extend(ipaddress.ip_network(address) for address in resolved)
+    _trusted.update(at=now, entries=entries, networks=networks)
+    return networks
+
+
+def _is_trusted(address, networks):
+    return any(address.version == network.version and address in network for network in networks)
+
+
+def client_ip(request):
+    """IP del cliente.
+
+    Sin proxies de confianza (``ATALAYA_TRUSTED_PROXIES``) es REMOTE_ADDR: X-Forwarded-For
+    sería trivial de falsificar. Con ellos, y solo si la conexión viene de uno, el cliente es la
+    dirección más a la derecha de X-Forwarded-For que no es un proxy de confianza: lo que el
+    cliente haya escrito a la izquierda no cuenta.
     """
-    raw = request.META.get("REMOTE_ADDR", "")
     try:
-        return str(ipaddress.ip_address(raw))
+        remote = ipaddress.ip_address(request.META.get("REMOTE_ADDR", ""))
     except ValueError:
         return None
+    networks = _trusted_networks()
+    if not networks or not _is_trusted(remote, networks):
+        return str(remote)
+    hops = [h.strip() for h in request.META.get("HTTP_X_FORWARDED_FOR", "").split(",") if h.strip()]
+    for hop in reversed(hops):
+        try:
+            address = ipaddress.ip_address(hop)
+        except ValueError:
+            break
+        if not _is_trusted(address, networks):
+            return str(address)
+    return str(remote)
 
 
 def record_event(event_type, *, user=None, request=None, **metadata):

@@ -1,0 +1,55 @@
+{% load inventory %}
+{% comment %}
+«Cómo trabaja la detección»: ocho etapas en tres columnas (entra, se comprueba, resulta) y la
+franja de la IA local (estado, modelo y una cifra; el detalle está en su panel), con la línea
+«Ahora» y la leyenda debajo. Cada etapa es un enlace que abre su panel dentro de Inicio (HTMX cambia
+#etapa; sin JS, ?etapa=… recarga con el panel abierto). La que está abierta se marca y su enlace
+pasa a cerrarla. ``oob`` es verdadero cuando el fragmento viaja junto al panel para actualizar
+esta marca sin repetir la animación de entrada.
+
+No es una fila: qué alimenta a qué lo dicen las conexiones (``hero.links``), y una línea
+punteada dice qué se consulta sin que pase de una etapa a otra (el contexto de cada activo). En pantallas anchas
+home-flow.js las dibuja sobre las tarjetas, con su cifra; en las demás, o sin JS, cada tarjeta
+dice de dónde le llega lo suyo (``flow-origin``). Las etapas donde trabaja la IA llevan su marca
+y lo que hace ahí.
+{% endcomment %}
+<div id="flow" class="flow-wrap{% if oob %} is-static{% endif %}"{% if oob %} hx-swap-oob="true"{% endif %}>
+  <div class="flow-map" data-flow-map>
+    <svg class="flow-links" data-flow-svg aria-hidden="true" focusable="false"></svg>
+    {% for group in hero.groups %}
+    <section class="flow-group flow-group-{{ group.key }}" aria-labelledby="flow-grupo-{{ group.key }}">
+      <h4 class="flow-group-title" id="flow-grupo-{{ group.key }}">{{ group.title }}</h4>
+      <ol class="flow">
+        {% for st in group.steps %}
+        <li class="flow-step flow-step-{{ st.key }}{% if st.key == stage %} is-open{% endif %}{% if st.busy %} is-busy{% endif %}{% if st.ai %} has-ai{% endif %}" data-flow-step="{{ st.key }}">
+          <a class="flow-card{% if st.kind == 'ai' %} flow-card-ai{% endif %}" href="?{% if st.key != stage %}etapa={{ st.key }}{% endif %}#recorrido" hx-get="{% url 'home_block' 'stage' %}?etapa={% if st.key != stage %}{{ st.key }}{% endif %}" hx-target="#etapa" hx-swap="outerHTML" aria-expanded="{% if st.key == stage %}true{% else %}false{% endif %}" aria-controls="etapa" data-flow-node="{{ st.key }}">
+            <span class="flow-top"><span class="flow-actor flow-actor-{{ st.kind }}"><span class="flow-busy" aria-hidden="true"></span>{{ st.actor }}</span><span class="flow-scope">{{ st.scope }}</span></span>
+            <span class="flow-figure"><span class="flow-value" data-hero-stage-value="{{ st.key }}">{{ st.value|miles }}</span> <span class="flow-label">{{ st.label }}</span></span>
+            <span class="flow-sub" data-hero-stage-sub="{{ st.key }}">{{ st.sub }}</span>
+            {% if st.ai %}<span class="flow-ai"><svg class="flow-ai-mark" viewBox="0 0 12 12" aria-hidden="true" focusable="false"><path d="M6 0l1.6 4.4L12 6 7.6 7.6 6 12 4.4 7.6 0 6l4.4-1.6z"/></svg><span>IA: <span data-hero-stage-ai="{{ st.key }}">{{ st.ai }}</span></span></span>{% endif %}
+            {% if st.origin %}<span class="flow-origin{% if st.origin_always %} is-always{% endif %}" data-hero-stage-origin="{{ st.key }}">{{ st.origin }}</span>{% endif %}
+          </a>
+        </li>
+        {% endfor %}
+      </ol>
+    </section>
+    {% endfor %}
+    <div class="flow-base">
+      <a class="flow-engine{% if stage == 'ai' %} is-open{% endif %}{% if hero.engine.busy %} is-busy{% endif %}{% if not hero.engine.ok %} is-down{% endif %}" href="?{% if stage != 'ai' %}etapa=ai{% endif %}#recorrido" hx-get="{% url 'home_block' 'stage' %}?etapa={% if stage != 'ai' %}ai{% endif %}" hx-target="#etapa" hx-swap="outerHTML" aria-expanded="{% if stage == 'ai' %}true{% else %}false{% endif %}" aria-controls="etapa" data-flow-step="ai" data-flow-node="ai">
+        <span class="flow-engine-name"><span class="flow-engine-dot" aria-hidden="true"></span>IA local <span class="font-mono font-normal">{{ hero.engine.model }}</span> · <span data-hero-engine="state">{{ hero.engine.state }}</span>{% if hero.engine.local %} · en este equipo{% endif %}</span>
+        <span class="flow-engine-stats"><strong data-hero-engine="calls">{{ hero.engine.calls|miles }}</strong> inferencias en {{ hero.window_days }} días</span>
+        <span class="flow-engine-more">Cómo trabaja</span>
+      </a>
+      <div class="flow-foot">
+        <p class="flow-now{% if hero.now.working %} is-working{% endif %}" role="status"><span class="flow-now-label">Ahora</span> <span data-hero-now="text">{{ hero.now.text }}</span> · <span data-hero-now="mode"{% if hero.now.paused %} class="text-critical"{% endif %}>{{ hero.now.mode }}</span></p>
+        <p class="flow-legend"><span class="flow-legend-item flow-legend-ai"><svg class="flow-ai-mark" viewBox="0 0 12 12" aria-hidden="true" focusable="false"><path d="M6 0l1.6 4.4L12 6 7.6 7.6 6 12 4.4 7.6 0 6l4.4-1.6z"/></svg> Aquí trabaja la IA local</span><span class="flow-legend-item"><span class="flow-legend-line" aria-hidden="true"></span> lo que pasa de una etapa a otra</span><span class="flow-legend-item"><span class="flow-legend-line flow-legend-line-loop" aria-hidden="true"></span> lo que vuelve a entrar</span><span class="flow-legend-item"><span class="flow-legend-line flow-legend-line-context" aria-hidden="true"></span> lo que se consulta al valorar</span></p>
+      </div>
+    </div>
+    {% for link in hero.links %}<span class="flow-link{% if link.row %} flow-link-row{% endif %}{% if link.shape == 'under' %} flow-link-loop{% elif link.shape == 'context' %} flow-link-context{% endif %}{% if link.value is None and not link.caption %} flow-link-bare{% endif %}" data-flow-link="{{ link.key }}" data-from="{{ link.from }}" data-to="{{ link.to }}" data-out="{{ link.out }}" data-in="{{ link.in }}" data-shape="{{ link.shape }}" data-at="{{ link.at }}"{% if link.title %} title="{{ link.title }}"{% endif %} aria-hidden="true">{% if link.value is not None %}<span class="flow-link-figure"><strong data-hero-link="{{ link.key }}">{{ link.value|miles }}</strong>{% if link.unit %} <span data-hero-link-unit="{{ link.key }}">{{ link.unit }}</span>{% endif %}</span>{% endif %}{% if link.caption %}<span data-hero-link-caption="{{ link.key }}">{{ link.caption }}</span>{% endif %}</span>{% endfor %}
+  </div>
+  {% if hero.empty %}
+  <p class="stage-note mt-2" role="note" data-flow-empty><strong class="font-medium text-ink">Todavía no hay activos inventariados.</strong> La detección empieza cuando Atalaya conoce un activo: desde ahí cruza cada señal de inteligencia con su software, decide qué comprobar y valora lo que encuentra.{% if perms.assets.view_asset %} <a href="{% url 'assets:list' %}" target="_blank" rel="noopener" class="out" title="Se abre en otra pestaña">Abrir el inventario</a>{% endif %}</p>
+  {% elif hero.quiet %}
+  <p class="stage-note mt-2" role="note" data-flow-empty>Hay activos, pero en esta ventana todavía no llega ninguna señal: la próxima sincronización de inteligencia o el próximo cambio del inventario pone la detección en marcha.</p>
+  {% endif %}
+</div>

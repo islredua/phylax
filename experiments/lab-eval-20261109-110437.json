@@ -1,0 +1,603 @@
+{
+ "generated_at": "2026-11-09T11:04:37",
+ "hosts": [
+  {
+   "name": "portal-publico",
+   "found": true,
+   "criticality": "ALTO",
+   "criticality_source": "LLM_AUTO",
+   "expected_criticality": "ALTO",
+   "vulnerabilities": 4,
+   "open": 1,
+   "matched": [],
+   "top_contextual": 4.07,
+   "top_contextual_sustained": 4.07,
+   "top_cvss": 0,
+   "top_epss": 0,
+   "top_cvss_x_epss": 0,
+   "risks": 1,
+   "observations": 9,
+   "expected_severity": 0,
+   "verdict": "TN",
+   "false_alarms": [],
+   "llm_seconds": 185.0
+  },
+  {
+   "name": "api-pagos",
+   "found": true,
+   "criticality": "CRITICO",
+   "criticality_source": "LLM_AUTO",
+   "expected_criticality": "CRITICO",
+   "vulnerabilities": 23,
+   "open": 23,
+   "matched": [
+    [
+     "CVE-2021-44228",
+     "LIKELY",
+     0.8
+    ]
+   ],
+   "top_contextual": 8.43,
+   "top_contextual_sustained": 8.43,
+   "top_cvss": 8.1,
+   "top_epss": 0.99999,
+   "top_cvss_x_epss": 0.09930599999999999,
+   "risks": 1,
+   "observations": 23,
+   "expected_severity": 4,
+   "verdict": "TP",
+   "sources": [
+    "GRYPE"
+   ],
+   "llm_seconds": 63.5
+  },
+  {
+   "name": "portal-expuesto-apache",
+   "found": true,
+   "criticality": "CRITICO",
+   "criticality_source": "LLM_AUTO",
+   "expected_criticality": "CRITICO",
+   "vulnerabilities": 89,
+   "open": 89,
+   "matched": [
+    [
+     "CVE-2021-42013",
+     "LIKELY",
+     0.7
+    ],
+    [
+     "CVE-2021-41773",
+     "LIKELY",
+     0.7
+    ]
+   ],
+   "top_contextual": 6.67,
+   "top_contextual_sustained": 6.67,
+   "top_cvss": 9.8,
+   "top_epss": 0.99992,
+   "top_cvss_x_epss": 9.799216000000001,
+   "risks": 3,
+   "observations": 92,
+   "expected_severity": 4,
+   "verdict": "TP",
+   "sources": [
+    "CTI_MATCH",
+    "NUCLEI"
+   ],
+   "llm_seconds": 104.6
+  },
+  {
+   "name": "vpn-agentes",
+   "found": true,
+   "criticality": "CRITICO",
+   "criticality_source": "LLM_AUTO",
+   "expected_criticality": "ALTO",
+   "vulnerabilities": 1,
+   "open": 1,
+   "matched": [],
+   "top_contextual": 3.82,
+   "top_contextual_sustained": 3.82,
+   "top_cvss": 0,
+   "top_epss": 0,
+   "top_cvss_x_epss": 0,
+   "risks": 1,
+   "observations": 5,
+   "expected_severity": 0,
+   "verdict": "TN",
+   "false_alarms": [],
+   "llm_seconds": 20.7
+  },
+  {
+   "name": "lb-dmz",
+   "found": true,
+   "criticality": "BAJO",
+   "criticality_source": "LLM_AUTO",
+   "expected_criticality": "MEDIO",
+   "vulnerabilities": 1,
+   "open": 1,
+   "matched": [],
+   "top_contextual": 2.32,
+   "top_contextual_sustained": 2.32,
+   "top_cvss": 0,
+   "top_epss": 0,
+   "top_cvss_x_epss": 0,
+   "risks": 1,
+   "observations": 5,
+   "expected_severity": 0,
+   "verdict": "TN",
+   "false_alarms": [],
+   "llm_seconds": 18.0
+  },
+  {
+   "name": "decoy-info",
+   "found": true,
+   "criticality": "INFORMATIVO",
+   "criticality_source": "LLM_AUTO",
+   "expected_criticality": "INFORMATIVO",
+   "vulnerabilities": 80,
+   "open": 80,
+   "matched": [
+    [
+     "WEAKNESS:EXPOSICION_DE_INFORMACION",
+     "LIKELY",
+     1.0
+    ],
+    [
+     "WEAKNESS:nuclei_php_errors",
+     "LIKELY",
+     1.0
+    ],
+    [
+     "WEAKNESS:CABECERAS_HTTP",
+     "LIKELY",
+     1.0
+    ]
+   ],
+   "top_contextual": 4.0,
+   "top_contextual_sustained": 4.0,
+   "top_cvss": 9.8,
+   "top_epss": 0.99999,
+   "top_cvss_x_epss": 9.199907999999999,
+   "risks": 4,
+   "observations": 86,
+   "expected_severity": 1,
+   "verdict": "TP",
+   "sources": [
+    "NUCLEI"
+   ],
+   "llm_seconds": 150.3
+  },
+  {
+   "name": "file-server",
+   "found": true,
+   "criticality": "CRITICO",
+   "criticality_source": "LLM_AUTO",
+   "expected_criticality": "ALTO",
+   "vulnerabilities": 138,
+   "open": 138,
+   "matched": [
+    [
+     "CVE-2017-7494",
+     "NEEDS_VERIFICATION",
+     0.5
+    ]
+   ],
+   "top_contextual": 7.44,
+   "top_contextual_sustained": 0.0,
+   "top_cvss": 10.0,
+   "top_epss": 0.99448,
+   "top_cvss_x_epss": 9.745904000000001,
+   "risks": 0,
+   "observations": 138,
+   "expected_severity": 3,
+   "verdict": "TP",
+   "sources": [
+    "CTI_MATCH"
+   ],
+   "llm_seconds": 104.2
+  },
+  {
+   "name": "correo-interno",
+   "found": true,
+   "criticality": "CRITICO",
+   "criticality_source": "LLM_AUTO",
+   "expected_criticality": "ALTO",
+   "vulnerabilities": 0,
+   "open": 0,
+   "matched": [],
+   "top_contextual": 0.0,
+   "top_contextual_sustained": 0.0,
+   "top_cvss": 0.0,
+   "top_epss": 0.0,
+   "top_cvss_x_epss": 0.0,
+   "risks": 0,
+   "observations": 0,
+   "expected_severity": 0,
+   "verdict": "TN",
+   "false_alarms": [],
+   "llm_seconds": 4.4
+  },
+  {
+   "name": "app-siniestros",
+   "found": true,
+   "criticality": "CRITICO",
+   "criticality_source": "LLM_AUTO",
+   "expected_criticality": "ALTO",
+   "vulnerabilities": 83,
+   "open": 83,
+   "matched": [
+    [
+     "CVE-2021-25289",
+     "LIKELY",
+     0.95
+    ],
+    [
+     "CVE-2021-25287",
+     "LIKELY",
+     0.95
+    ],
+    [
+     "CVE-2021-25288",
+     "LIKELY",
+     0.95
+    ],
+    [
+     "CVE-2021-25290",
+     "LIKELY",
+     0.8
+    ]
+   ],
+   "top_contextual": 9.34,
+   "top_contextual_sustained": 9.34,
+   "top_cvss": 9.8,
+   "top_epss": 0.99979,
+   "top_cvss_x_epss": 0.7905660000000001,
+   "risks": 1,
+   "observations": 83,
+   "expected_severity": 2,
+   "verdict": "TP",
+   "sources": [
+    "CTI_MATCH",
+    "GRYPE"
+   ],
+   "llm_seconds": 156.2
+  },
+  {
+   "name": "backup-host",
+   "found": true,
+   "criticality": "CRITICO",
+   "criticality_source": "LLM_AUTO",
+   "expected_criticality": "ALTO",
+   "vulnerabilities": 32,
+   "open": 32,
+   "matched": [
+    [
+     "CVE-2024-6387",
+     "NEEDS_VERIFICATION",
+     0.1
+    ]
+   ],
+   "top_contextual": 4.89,
+   "top_contextual_sustained": 4.89,
+   "top_cvss": 9.8,
+   "top_epss": 0.99506,
+   "top_cvss_x_epss": 8.059985999999999,
+   "risks": 1,
+   "observations": 32,
+   "expected_severity": 0,
+   "verdict": "TP",
+   "sources": [
+    "CTI_MATCH"
+   ],
+   "llm_seconds": 55.6
+  },
+  {
+   "name": "ldap-ad",
+   "found": true,
+   "criticality": "CRITICO",
+   "criticality_source": "LLM_AUTO",
+   "expected_criticality": "CRITICO",
+   "vulnerabilities": 37,
+   "open": 37,
+   "matched": [],
+   "top_contextual": 5.04,
+   "top_contextual_sustained": 0.0,
+   "top_cvss": 9.8,
+   "top_epss": 0.98129,
+   "top_cvss_x_epss": 6.37455,
+   "risks": 0,
+   "observations": 37,
+   "expected_severity": 0,
+   "verdict": "TN",
+   "false_alarms": [],
+   "llm_seconds": 41.3
+  },
+  {
+   "name": "erp-interno",
+   "found": true,
+   "criticality": "CRITICO",
+   "criticality_source": "LLM_AUTO",
+   "expected_criticality": "ALTO",
+   "vulnerabilities": 1,
+   "open": 1,
+   "matched": [],
+   "top_contextual": 3.19,
+   "top_contextual_sustained": 3.19,
+   "top_cvss": 0,
+   "top_epss": 0,
+   "top_cvss_x_epss": 0,
+   "risks": 1,
+   "observations": 3,
+   "expected_severity": 0,
+   "verdict": "TN",
+   "false_alarms": [],
+   "llm_seconds": 17.0
+  },
+  {
+   "name": "portal-rh",
+   "found": true,
+   "criticality": "CRITICO",
+   "criticality_source": "LLM_AUTO",
+   "expected_criticality": "ALTO",
+   "vulnerabilities": 74,
+   "open": 74,
+   "matched": [
+    [
+     "CVE-2017-9841",
+     "NEEDS_VERIFICATION",
+     0.5
+    ]
+   ],
+   "top_contextual": 7.73,
+   "top_contextual_sustained": 7.73,
+   "top_cvss": 9.8,
+   "top_epss": 0.99999,
+   "top_cvss_x_epss": 9.096086999999999,
+   "risks": 1,
+   "observations": 78,
+   "expected_severity": 4,
+   "verdict": "TP",
+   "sources": [
+    "NUCLEI"
+   ],
+   "llm_seconds": 84.0
+  },
+  {
+   "name": "crm-legacy",
+   "found": true,
+   "criticality": "ALTO",
+   "criticality_source": "LLM_AUTO",
+   "expected_criticality": "ALTO",
+   "vulnerabilities": 299,
+   "open": 299,
+   "matched": [
+    [
+     "CVE-2017-1001000",
+     "LIKELY",
+     1.0
+    ]
+   ],
+   "top_contextual": 9.53,
+   "top_contextual_sustained": 9.53,
+   "top_cvss": 9.8,
+   "top_epss": 0.99999,
+   "top_cvss_x_epss": 9.771972000000002,
+   "risks": 2,
+   "observations": 311,
+   "expected_severity": 3,
+   "verdict": "TP",
+   "sources": [
+    "CTI_MATCH"
+   ],
+   "llm_seconds": 402.5
+  },
+  {
+   "name": "agente-portal",
+   "found": true,
+   "criticality": "ALTO",
+   "criticality_source": "LLM_AUTO",
+   "expected_criticality": "MEDIO",
+   "vulnerabilities": 9,
+   "open": 9,
+   "matched": [
+    [
+     "CVE-2020-8203",
+     "LIKELY",
+     1.0
+    ]
+   ],
+   "top_contextual": 7.38,
+   "top_contextual_sustained": 7.38,
+   "top_cvss": 9.8,
+   "top_epss": 0.21333,
+   "top_cvss_x_epss": 1.535976,
+   "risks": 1,
+   "observations": 9,
+   "expected_severity": 2,
+   "verdict": "TP",
+   "sources": [
+    "CTI_MATCH",
+    "GRYPE"
+   ],
+   "llm_seconds": 80.3
+  },
+  {
+   "name": "impresora-multifuncion",
+   "found": true,
+   "criticality": "BAJO",
+   "criticality_source": "LLM_AUTO",
+   "expected_criticality": "BAJO",
+   "vulnerabilities": 1,
+   "open": 1,
+   "matched": [
+    [
+     "WEAKNESS:CABECERAS_HTTP",
+     "LIKELY",
+     1.0
+    ]
+   ],
+   "top_contextual": 1.87,
+   "top_contextual_sustained": 1.87,
+   "top_cvss": 0,
+   "top_epss": 0,
+   "top_cvss_x_epss": 0,
+   "risks": 1,
+   "observations": 5,
+   "expected_severity": 1,
+   "verdict": "TP",
+   "sources": [
+    "NUCLEI"
+   ],
+   "llm_seconds": 18.4
+  },
+  {
+   "name": "nas-agentes",
+   "found": true,
+   "criticality": "ALTO",
+   "criticality_source": "LLM_AUTO",
+   "expected_criticality": "MEDIO",
+   "vulnerabilities": 121,
+   "open": 121,
+   "matched": [],
+   "top_contextual": 4.81,
+   "top_contextual_sustained": 0.0,
+   "top_cvss": 9.8,
+   "top_epss": 0.99448,
+   "top_cvss_x_epss": 9.745904000000001,
+   "risks": 0,
+   "observations": 121,
+   "expected_severity": 0,
+   "verdict": "TN",
+   "false_alarms": [],
+   "llm_seconds": 88.9
+  },
+  {
+   "name": "proxy-saliente",
+   "found": true,
+   "criticality": "BAJO",
+   "criticality_source": "LLM_AUTO",
+   "expected_criticality": "MEDIO",
+   "vulnerabilities": 7,
+   "open": 7,
+   "matched": [
+    [
+     "CVE-2025-62168",
+     "CONFIRMED",
+     1.0
+    ],
+    [
+     "CVE-2026-33526",
+     "CONFIRMED",
+     1.0
+    ],
+    [
+     "CVE-2026-32748",
+     "CONFIRMED",
+     1.0
+    ],
+    [
+     "CVE-2026-33515",
+     "CONFIRMED",
+     1.0
+    ],
+    [
+     "CVE-2026-47729",
+     "CONFIRMED",
+     1.0
+    ],
+    [
+     "CVE-2026-50012",
+     "CONFIRMED",
+     1.0
+    ],
+    [
+     "CVE-2025-59362",
+     "CONFIRMED",
+     1.0
+    ]
+   ],
+   "top_contextual": 6.0,
+   "top_contextual_sustained": 6.0,
+   "top_cvss": 9.2,
+   "top_epss": 0.64816,
+   "top_cvss_x_epss": 4.861199999999999,
+   "risks": 1,
+   "observations": 7,
+   "expected_severity": 3,
+   "verdict": "TP",
+   "sources": [
+    "CTI_MATCH"
+   ],
+   "llm_seconds": 51.0
+  },
+  {
+   "name": "correo-legacy-agentes",
+   "found": true,
+   "criticality": "CRITICO",
+   "criticality_source": "LLM_AUTO",
+   "expected_criticality": "ALTO",
+   "vulnerabilities": 52,
+   "open": 52,
+   "matched": [
+    [
+     "CVE-2019-10149",
+     "LIKELY",
+     1.0
+    ]
+   ],
+   "top_contextual": 9.8,
+   "top_contextual_sustained": 9.8,
+   "top_cvss": 9.8,
+   "top_epss": 0.99961,
+   "top_cvss_x_epss": 9.796178000000001,
+   "risks": 2,
+   "observations": 52,
+   "expected_severity": 3,
+   "verdict": "TP",
+   "sources": [
+    "CTI_MATCH"
+   ],
+   "llm_seconds": 80.4
+  },
+  {
+   "name": "backup-agentes",
+   "found": true,
+   "criticality": "BAJO",
+   "criticality_source": "LLM_AUTO",
+   "expected_criticality": "BAJO",
+   "vulnerabilities": 1,
+   "open": 1,
+   "matched": [],
+   "top_contextual": 2.37,
+   "top_contextual_sustained": 2.37,
+   "top_cvss": 0,
+   "top_epss": 0,
+   "top_cvss_x_epss": 0,
+   "risks": 1,
+   "observations": 5,
+   "expected_severity": 0,
+   "verdict": "TN",
+   "false_alarms": [],
+   "llm_seconds": 18.5
+  }
+ ],
+ "metrics": {
+  "tp": 12,
+  "fp": 0,
+  "fn": 0,
+  "precision": 1.0,
+  "recall": 1.0,
+  "via_expected_ok": "12/12",
+  "criticality_exact": "8/20",
+  "criticality_within_one": "20/20",
+  "api_pagos_rank_by_contextual": 4,
+  "api_pagos_rank_by_contextual_sustained": 4,
+  "backup_host_verdict": "TP",
+  "spearman_contextual": 0.748,
+  "spearman_contextual_sustained": 0.646,
+  "spearman_cvss": 0.506,
+  "spearman_epss": 0.716,
+  "spearman_cvss_x_epss": 0.58,
+  "llm_seconds_per_asset_median": 71.9
+ }
+}

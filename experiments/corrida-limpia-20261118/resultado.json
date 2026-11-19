@@ -1,0 +1,411 @@
+{
+  "t0": "2026-11-18T22:00:32-06:00",
+  "fin_de_actividad": "2026-11-18T23:44:39-06:00",
+  "minutos_de_punta_a_punta": 104.1,
+  "inventario": {
+    "activos": 20,
+    "por_estado": {
+      "ACTIVE": 20
+    },
+    "por_criticidad": {
+      "ALTO": 4,
+      "CRITICO": 11,
+      "BAJO": 4,
+      "INFORMATIVO": 1
+    },
+    "origen_criticidad": {
+      "LLM_AUTO": 20
+    }
+  },
+  "descubrimiento": {
+    "corridas": 20,
+    "perfiles": {
+      "SERVICE_SCAN": 20
+    },
+    "estados": {
+      "SUCCEEDED": 20
+    },
+    "servicios_vistos": 24,
+    "segundos_mediana": 18.1,
+    "segundos_total": 376,
+    "primero_min": 0.0,
+    "ultimo_min": 6.3
+  },
+  "senales": {
+    "total": 23,
+    "por_tipo": {
+      "ASSET_SERVICES_CHANGED": 20,
+      "ASSET_SBOM_UPDATED": 3
+    },
+    "por_estado": {
+      "PLANNED": 23
+    },
+    "primero_min": 0.0,
+    "ultimo_min": 6.3
+  },
+  "planificador": {
+    "decisiones": 23,
+    "por_accion": {
+      "DETECT_VULNS": 18,
+      "RECONCILE": 2,
+      "REANALYZE_SBOM": 3
+    },
+    "por_regla_de_respaldo": 3,
+    "primero_min": 0.1,
+    "ultimo_min": 36.4
+  },
+  "acciones": {
+    "total": 23,
+    "por_accion": {
+      "DETECT_VULNS": 18,
+      "RECONCILE": 2,
+      "REANALYZE_SBOM": 3
+    },
+    "por_estado": {
+      "DONE": 23
+    },
+    "aprobadas_solas": 23,
+    "escaladas_a_una_persona": 0,
+    "diferidas": 0
+  },
+  "escaneos": {
+    "GRYPE": {
+      "ejecuciones": 3,
+      "estados": {
+        "SUCCEEDED": 3
+      },
+      "perfiles": {
+        "sbom": 3
+      },
+      "activos": 3,
+      "segundos_mediana": 4.0,
+      "segundos_p90": 4.0,
+      "segundos_total": 104,
+      "observaciones_creadas": 28,
+      "primero_min": 6.3,
+      "ultimo_min": 58.4
+    },
+    "NUCLEI": {
+      "ejecuciones": 18,
+      "estados": {
+        "SUCCEEDED": 18
+      },
+      "perfiles": {
+        "cves-web": 12,
+        "cves-network": 6
+      },
+      "activos": 18,
+      "segundos_mediana": 305.0,
+      "segundos_p90": 369.3,
+      "segundos_total": 4278,
+      "observaciones_creadas": 45,
+      "primero_min": 8.1,
+      "ultimo_min": 80.6
+    }
+  },
+  "observaciones": {
+    "total": 894,
+    "por_fuente": {
+      "GRYPE": 110,
+      "CTI_MATCH": 821,
+      "NUCLEI": 46
+    },
+    "por_estado": {
+      "NEW": 894
+    },
+    "primero_min": 0.0,
+    "ultimo_min": 78.8
+  },
+  "vulnerabilidades": {
+    "total": 860,
+    "por_estado": {
+      "CONFIRMED": 516,
+      "NEEDS_VERIFICATION": 301,
+      "LIKELY_FALSE_POSITIVE": 26,
+      "LIKELY": 17
+    },
+    "quien_puso_el_estado": {
+      "AI": 856,
+      "RULE": 4
+    },
+    "descritas": 835,
+    "en_kev": 18,
+    "algoritmo": {
+      "m4-2026.11.3": 860
+    },
+    "altas_o_criticas_por_cvss": 497,
+    "por_cvss": {
+      "baja": 54,
+      "crítica": 124,
+      "alta": 373,
+      "media": 309
+    },
+    "por_tecnico": {
+      "crítica": 14,
+      "alta": 23,
+      "media": 521,
+      "baja": 302
+    },
+    "por_contextual": {
+      "crítica": 5,
+      "alta": 76,
+      "media": 601,
+      "baja": 178
+    },
+    "mismo_cve_distinto_activo": [
+      {
+        "cve": "CVE-2024-38475",
+        "cvss": 9.1,
+        "epss": 0.99957,
+        "kev": true,
+        "tecnico": 9.46,
+        "por_activo": [
+          {
+            "activo": "portal-expuesto-apache",
+            "criticidad": "CRITICO",
+            "exposicion": "DMZ",
+            "contextual": 9.23
+          },
+          {
+            "activo": "portal-rh",
+            "criticidad": "CRITICO",
+            "exposicion": "INTERNAL",
+            "contextual": 8.78
+          },
+          {
+            "activo": "crm-legacy",
+            "criticidad": "ALTO",
+            "exposicion": "INTERNAL",
+            "contextual": 8.28
+          },
+          {
+            "activo": "decoy-info",
+            "criticidad": "INFORMATIVO",
+            "exposicion": "DMZ",
+            "contextual": 4.0
+          }
+        ]
+      },
+      {
+        "cve": "CVE-2023-25690",
+        "cvss": 9.8,
+        "epss": 0.83968,
+        "kev": false,
+        "tecnico": 7.98,
+        "por_activo": [
+          {
+            "activo": "portal-rh",
+            "criticidad": "CRITICO",
+            "exposicion": "INTERNAL",
+            "contextual": 8.19
+          },
+          {
+            "activo": "portal-expuesto-apache",
+            "criticidad": "CRITICO",
+            "exposicion": "DMZ",
+            "contextual": 8.04
+          },
+          {
+            "activo": "crm-legacy",
+            "criticidad": "ALTO",
+            "exposicion": "INTERNAL",
+            "contextual": 7.09
+          },
+          {
+            "activo": "decoy-info",
+            "criticidad": "INFORMATIVO",
+            "exposicion": "DMZ",
+            "contextual": 4.0
+          }
+        ]
+      },
+      {
+        "cve": "CVE-2024-38476",
+        "cvss": 9.8,
+        "epss": 0.41611,
+        "kev": false,
+        "tecnico": 6.92,
+        "por_activo": [
+          {
+            "activo": "portal-rh",
+            "criticidad": "CRITICO",
+            "exposicion": "INTERNAL",
+            "contextual": 7.77
+          },
+          {
+            "activo": "portal-expuesto-apache",
+            "criticidad": "CRITICO",
+            "exposicion": "DMZ",
+            "contextual": 7.62
+          },
+          {
+            "activo": "crm-legacy",
+            "criticidad": "ALTO",
+            "exposicion": "INTERNAL",
+            "contextual": 6.67
+          },
+          {
+            "activo": "decoy-info",
+            "criticidad": "INFORMATIVO",
+            "exposicion": "DMZ",
+            "contextual": 4.0
+          }
+        ]
+      }
+    ]
+  },
+  "riesgos": {
+    "total": 35,
+    "por_estado": {
+      "OPEN": 35
+    },
+    "por_nivel": {
+      "CRITICAL": 8,
+      "HIGH": 11,
+      "VERY_HIGH": 7,
+      "MODERATE": 7,
+      "LOW": 2
+    },
+    "valorados_por": {
+      "AI": 35
+    },
+    "por_consecuencia": {
+      "CONFIDENTIALITY": 11,
+      "AVAILABILITY": 10,
+      "INTEGRITY": 14
+    },
+    "primero_min": 0.8,
+    "ultimo_min": 77.3
+  },
+  "ia": {
+    "modelo": {
+      "qwen2.5:7b-instruct-q4_K_M": 984
+    },
+    "acelerador": {
+      "gpu": 984
+    },
+    "llamadas": 984,
+    "aceptadas": 982,
+    "tokens_por_segundo_mediana": 64.1,
+    "horas_de_modelo": 1.49,
+    "por_tarea": {
+      "ASSET_CRITICALITY": {
+        "llamadas": 20,
+        "aceptadas": 20,
+        "intentos": 20,
+        "versiones_prompt": {
+          "v1": 20
+        },
+        "segundos_mediana": 1.9,
+        "segundos_p90": 2.0,
+        "segundos_total": 38,
+        "primero_min": 4.5,
+        "ultimo_min": 36.3
+      },
+      "DETECTION_PLANNER": {
+        "llamadas": 23,
+        "aceptadas": 23,
+        "intentos": 23,
+        "versiones_prompt": {
+          "v3": 23
+        },
+        "segundos_mediana": 3.0,
+        "segundos_p90": 3.2,
+        "segundos_total": 69,
+        "primero_min": 0.1,
+        "ultimo_min": 36.4
+      },
+      "ORG_RISK_DESCRIBE": {
+        "llamadas": 40,
+        "aceptadas": 39,
+        "intentos": 53,
+        "versiones_prompt": {
+          "v6": 40
+        },
+        "segundos_mediana": 0.8,
+        "segundos_p90": 1.4,
+        "segundos_total": 39,
+        "primero_min": 17.0,
+        "ultimo_min": 104.1
+      },
+      "RISK_ASSESSMENT": {
+        "llamadas": 51,
+        "aceptadas": 51,
+        "intentos": 52,
+        "versiones_prompt": {
+          "v5": 51
+        },
+        "segundos_mediana": 11.5,
+        "segundos_p90": 15.9,
+        "segundos_total": 614,
+        "primero_min": 0.7,
+        "ultimo_min": 77.1
+      },
+      "RISK_NARRATIVE": {
+        "llamadas": 51,
+        "aceptadas": 50,
+        "intentos": 97,
+        "versiones_prompt": {
+          "v1": 51
+        },
+        "segundos_mediana": 5.7,
+        "segundos_p90": 6.4,
+        "segundos_total": 288,
+        "primero_min": 0.8,
+        "ultimo_min": 77.3
+      },
+      "ROLE_DESCRIBE": {
+        "llamadas": 21,
+        "aceptadas": 21,
+        "intentos": 28,
+        "versiones_prompt": {
+          "v2": 21
+        },
+        "segundos_mediana": 1.5,
+        "segundos_p90": 2.0,
+        "segundos_total": 33,
+        "primero_min": 0.3,
+        "ultimo_min": 55.1
+      },
+      "SOFTWARE_DESCRIBE": {
+        "llamadas": 17,
+        "aceptadas": 17,
+        "intentos": 17,
+        "versiones_prompt": {
+          "v2": 17
+        },
+        "segundos_mediana": 0.9,
+        "segundos_p90": 1.1,
+        "segundos_total": 15,
+        "primero_min": 17.0,
+        "ultimo_min": 55.4
+      },
+      "VULN_ASSESSMENT": {
+        "llamadas": 59,
+        "aceptadas": 59,
+        "intentos": 59,
+        "versiones_prompt": {
+          "v4": 59
+        },
+        "segundos_mediana": 13.3,
+        "segundos_p90": 49.3,
+        "segundos_total": 1397,
+        "primero_min": 0.6,
+        "ultimo_min": 77.0
+      },
+      "VULN_DESCRIBE": {
+        "llamadas": 702,
+        "aceptadas": 702,
+        "intentos": 702,
+        "versiones_prompt": {
+          "v1": 702
+        },
+        "segundos_mediana": 4.1,
+        "segundos_p90": 4.7,
+        "segundos_total": 2878,
+        "primero_min": 9.3,
+        "ultimo_min": 101.5
+      }
+    }
+  }
+}

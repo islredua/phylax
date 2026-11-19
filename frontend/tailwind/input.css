@@ -81,7 +81,8 @@
   /* Texto */
   --color-ink: #0f172a;
   --color-ink-soft: #475569;
-  --color-muted: #64748b;
+  /* 4.9:1 sobre blanco y 4.6:1 sobre canvas incluso en textos de 10–11 px. */
+  --color-muted: #5b6472;
 
   /* Severidad / estado */
   --color-critical: #b91c1c;
@@ -102,8 +103,8 @@
 /* Bases reutilizables con @apply (en Tailwind 4 solo las utilidades se pueden aplicar). */
 @utility btn {
   @apply inline-flex cursor-pointer items-center justify-center gap-1.5 rounded px-3.5 py-2
-    text-sm font-medium whitespace-nowrap hover:no-underline focus:ring-2
-    focus:ring-primary/40 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50;
+    text-sm font-medium whitespace-nowrap hover:no-underline focus-visible:ring-2
+    focus-visible:ring-primary/40 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50;
 }
 @utility badge {
   @apply inline-flex items-center rounded-[3px] px-1.5 py-0.5 font-mono text-[11px]
@@ -120,6 +121,14 @@
 @layer base {
   html {
     color-scheme: light;
+    scroll-behavior: smooth;
+  }
+  /* Foco visible y uniforme para teclado en cualquier control. */
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    @apply outline-2 outline-offset-2 outline-primary;
+  }
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus:not(:focus-visible) {
+    outline: none;
   }
   body {
     @apply bg-canvas font-sans text-sm text-ink antialiased;
@@ -139,6 +148,64 @@
 }
 
 @layer components {
+  /* --- Accesibilidad y estado de carga --- */
+  .skip-link {
+    @apply sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded
+      focus:bg-primary focus:px-3 focus:py-2 focus:text-white;
+  }
+  /* Barra de progreso de HTMX (hx-indicator en <body>): aparece mientras hay petición en vuelo. */
+  .hx-progress {
+    @apply pointer-events-none fixed top-0 left-0 z-50 h-0.5 w-0 bg-primary opacity-0
+      transition-[width,opacity] duration-300;
+  }
+  .htmx-request .hx-progress,
+  .hx-progress.htmx-request {
+    @apply w-3/4 opacity-100;
+  }
+  /* Elementos con hx-indicator propio: un texto «cargando…» que solo se ve durante la petición. */
+  .hx-loading {
+    @apply hidden text-xs text-muted;
+  }
+  .htmx-request .hx-loading,
+  .hx-loading.htmx-request {
+    @apply inline-flex items-center gap-1;
+  }
+  .htmx-request .hx-hide-loading {
+    @apply opacity-50;
+  }
+  /* Inicio: menciones enlazadas dentro de la narrativa */
+  .nar-link {
+    @apply text-primary underline decoration-dotted underline-offset-2 hover:decoration-solid;
+  }
+  /* Un término que se explica al pulsarlo (abre un cuadro): punteado, como las menciones de Inicio. */
+  .term {
+    @apply cursor-pointer text-left font-medium underline decoration-muted decoration-dotted
+      underline-offset-4 hover:text-primary hover:decoration-primary hover:decoration-solid;
+  }
+  /* --- Cuadro modal: <dialog class="modal" data-dialog> (lo abre y lo cierra atalaya.js) --- */
+  /* El relleno va en la caja interior: así un clic en el telón cae sobre el propio <dialog>. */
+  dialog.modal {
+    @apply m-auto w-[min(36rem,calc(100vw-2rem))] max-w-none rounded-lg border border-line
+      bg-surface p-0 text-ink shadow-xl;
+  }
+  dialog.modal::backdrop {
+    background: rgb(15 23 42 / 0.45);
+  }
+  .modal-box {
+    @apply flex max-h-[85vh] flex-col;
+  }
+  .modal-head {
+    @apply flex items-start justify-between gap-3 border-b border-line px-5 py-4;
+  }
+  .modal-title {
+    @apply text-lg leading-tight font-semibold text-ink;
+  }
+  .modal-body {
+    @apply flex flex-col gap-4 overflow-y-auto px-5 py-4 text-sm;
+  }
+  .modal-section {
+    @apply mb-1.5 text-xs font-semibold text-ink-soft;
+  }
   /* --- Estructura --- */
   .app-shell {
     @apply min-h-screen md:grid md:grid-cols-[232px_minmax(0,1fr)];
@@ -147,16 +214,40 @@
   .sidebar-col {
     @apply border-b border-sidebar-line bg-sidebar md:border-r md:border-b-0;
   }
-  /* Móvil: barra horizontal compacta. Escritorio: columna fija a la izquierda. */
+  /* Móvil: cabecera con marca y botón «Menú» que despliega las secciones.
+     Escritorio: columna fija a la izquierda. */
   .sidebar {
-    @apply flex flex-wrap items-center gap-1 px-3 py-2.5 text-primary
-      md:sticky md:top-0 md:h-screen md:flex-col md:flex-nowrap md:items-stretch md:py-4;
+    @apply flex flex-col gap-1 px-3 py-2.5 text-primary
+      md:sticky md:top-0 md:h-screen md:flex-nowrap md:items-stretch md:py-4;
+  }
+  .sidebar-head {
+    @apply flex items-center justify-between;
+  }
+  .nav-toggle {
+    @apply inline-flex min-h-10 min-w-10 cursor-pointer items-center justify-center rounded
+      text-lg text-primary hover:bg-primary-soft md:!hidden;
+  }
+  /* Sin JS el menú siempre se ve; con JS, atalaya.js lo pliega en pantallas angostas. */
+  .sidebar-menu {
+    @apply flex flex-col gap-1 md:flex md:min-h-0 md:flex-1;
+  }
+  .sidebar-menu[hidden] {
+    @apply hidden md:flex;
   }
   .sidebar-group {
-    @apply flex flex-wrap gap-0.5 md:flex-col;
+    @apply flex flex-col gap-0.5;
+  }
+  /* Buscador global: arriba de las secciones, a todo el ancho de la barra. */
+  .sidebar-search {
+    @apply px-0.5 pb-2 max-md:pt-1;
+  }
+  .sidebar-search-input {
+    @apply block w-full rounded border border-sidebar-line bg-surface px-2.5 py-1.5 text-[13px] text-ink
+      placeholder:text-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/25
+      max-md:min-h-10;
   }
   .brand {
-    @apply mr-2 flex items-center gap-2.5 px-2 text-brand-ink hover:no-underline md:mr-0 md:pb-4;
+    @apply flex items-center gap-2.5 px-2 text-brand-ink hover:no-underline md:pb-4;
   }
   .brand-name {
     @apply text-[17px] font-semibold tracking-tight;
@@ -165,8 +256,8 @@
     @apply hidden px-2.5 pt-4 pb-1 md:block font-mono text-[10px] font-medium tracking-wider text-muted uppercase;
   }
   .nav-link {
-    @apply block cursor-pointer md:w-full rounded px-2.5 py-1.5 text-left text-[13px] text-primary
-      hover:bg-primary-soft hover:no-underline;
+    @apply block w-full cursor-pointer rounded px-2.5 py-2 text-left text-[13px] text-primary
+      hover:bg-primary-soft hover:no-underline md:py-1.5;
   }
   .nav-link-active {
     @apply bg-primary font-semibold text-white hover:bg-primary;
@@ -224,8 +315,19 @@
   .data-table th {
     @apply border-b border-line px-3 py-2 text-[11px] font-medium whitespace-nowrap text-muted;
   }
+  /* Columnas secundarias: se ocultan en pantallas angostas (añadir la clase a th y td). */
+  .data-table .col-lg {
+    @apply hidden lg:table-cell;
+  }
+  .data-table .col-md {
+    @apply hidden md:table-cell;
+  }
   .data-table td {
     @apply border-b border-line-soft px-3 py-2 align-middle;
+  }
+  /* Fila cuyo contenido puede crecer (pasos desplegados): las celdas se alinean arriba. */
+  .data-table tr.row-top td {
+    @apply align-top;
   }
   .data-table tbody tr:last-child td {
     @apply border-b-0;
@@ -266,8 +368,14 @@
   .btn-danger {
     @apply btn bg-critical text-white hover:bg-critical-strong focus:ring-critical/40;
   }
+  /* Mínimo 32 px de alto para que sea un objetivo táctil razonable. */
   .btn-sm {
-    @apply px-2.5 py-1 text-xs;
+    @apply min-h-8 px-2.5 py-1 text-xs;
+  }
+  /* Botón de peligro discreto para tablas: borde rojo, fondo blanco. */
+  .btn-danger-soft {
+    @apply btn border border-critical/40 bg-white text-critical hover:bg-critical-soft
+      focus-visible:ring-critical/40;
   }
 
   /* --- Etiquetas de severidad y estado --- */
@@ -317,15 +425,25 @@
   }
 
   /* --- Pestañas (subnavegación de una sección) --- */
+  /* Matriz de riesgo: la casilla sin riesgos conserva su color de nivel, atenuado. */
+  .matrix-cell-empty {
+    @apply opacity-30;
+  }
+  /* Administración lleva 13 pestañas: con este espaciado caben en una fila a 1440 px. */
   .tabs {
-    @apply flex flex-wrap gap-1 border-b border-line;
+    @apply flex gap-0.5 overflow-x-auto border-b border-line max-md:flex-nowrap md:flex-wrap;
   }
   .tab {
-    @apply -mb-px border-b-2 border-transparent px-3 py-2 text-[13px] text-ink-soft
+    @apply -mb-px border-b-2 border-transparent px-2.5 py-2 text-[13px] whitespace-nowrap text-ink-soft
       hover:text-primary hover:no-underline;
   }
   .tab-active {
     @apply border-primary font-semibold text-primary;
+  }
+  /* Pendientes tras la pestaña: solo aparece si hay trabajo. */
+  .tab-count {
+    @apply ml-1 inline-flex min-w-5 items-center justify-center rounded-full bg-high-soft px-1.5
+      py-px font-mono text-[11px] leading-4 font-semibold text-high;
   }
   /* Migas de pan: Inicio › Sección › Pestaña › página. La última no es enlace. */
   .breadcrumbs ol {
@@ -346,7 +464,7 @@
   }
   /* Subpestañas dentro de una vista (p. ej. detalle de activo). */
   .subtabs {
-    @apply flex flex-wrap gap-1;
+    @apply flex gap-1 overflow-x-auto max-md:flex-nowrap md:flex-wrap;
   }
   .subtab {
     @apply rounded px-2.5 py-1 text-[13px] text-ink-soft hover:bg-primary-soft hover:text-primary
@@ -364,5 +482,793 @@
   }
   .checkbox {
     @apply h-4 w-4 rounded border-line-strong text-primary accent-primary;
+  }
+  /* Leyenda de estados: un punto de color con texto al lado, nunca solo color. */
+  .legend {
+    @apply flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted;
+  }
+  .legend-dot {
+    @apply inline-block h-2 w-2 rounded-full;
+  }
+  /* Franja «qué hago hoy» (Inicio y Riesgos): tarjetas compactas en rejilla, no una lista a todo
+     lo ancho. El texto abre la lista (ver); el botón empieza el trabajo (hacer). */
+  .today {
+    @apply flex flex-col gap-2 rounded border border-primary/30 bg-primary-soft/40 px-4 py-3;
+  }
+  .today-head {
+    @apply flex flex-wrap items-baseline gap-x-3 gap-y-0.5;
+  }
+  .today-title {
+    @apply text-[15px] font-semibold text-ink;
+  }
+  .today-grid {
+    @apply grid grid-cols-1 gap-2 md:grid-cols-2 2xl:grid-cols-3;
+  }
+  .today-item {
+    @apply flex items-start gap-3 rounded border border-line border-l-4 bg-surface px-3 py-2;
+  }
+  .today-critical {
+    @apply border-l-critical;
+  }
+  .today-high {
+    @apply border-l-high;
+  }
+  .today-medium {
+    @apply border-l-medium;
+  }
+  .today-count {
+    @apply min-w-8 text-right font-mono text-xl leading-tight font-semibold text-ink;
+  }
+  .today-body {
+    @apply flex min-w-0 grow flex-col gap-1.5;
+  }
+  .today-text {
+    @apply text-sm leading-snug text-ink hover:text-primary;
+  }
+  .today-actions {
+    @apply flex flex-wrap items-center gap-x-3 gap-y-1;
+  }
+  .today-link {
+    @apply text-xs text-primary;
+  }
+  /* Banda de la cola de trabajo en la ficha de un riesgo. */
+  .queue-bar {
+    @apply flex flex-wrap items-center justify-between gap-2 rounded border border-primary/30 bg-primary-soft/60 px-3 py-2 text-sm;
+  }
+
+  /* --- Gráfica maestra de Inicio: estado + «Cómo trabaja la detección» --- */
+  .hero {
+    @apply flex flex-col gap-5 rounded border border-line bg-surface p-5;
+  }
+  .hero-top {
+    @apply grid grid-cols-1 gap-x-8 gap-y-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:items-end;
+  }
+  .hero-status {
+    @apply flex flex-col gap-3;
+  }
+  .hero-levels {
+    @apply flex flex-col gap-2;
+  }
+  .hero-headline {
+    @apply text-lg leading-snug font-semibold text-ink;
+  }
+  .hero-figure {
+    @apply flex items-end gap-3;
+  }
+  .hero-number {
+    @apply text-[56px] leading-none font-semibold tracking-tight text-ink;
+  }
+  .hero-number-label {
+    @apply pb-1 text-sm text-ink-soft;
+  }
+  .hero-live {
+    @apply inline-flex items-center gap-1.5 font-sans text-[11px] font-normal tracking-normal text-muted normal-case;
+  }
+  .hero-live-dot {
+    @apply inline-block h-2 w-2 rounded-full bg-low;
+    animation: hero-pulse 2s ease-in-out infinite;
+  }
+  /* Reparto por nivel: una barra segmentada con 2 px de separación; la leyenda lleva las cifras. */
+  .segbar {
+    @apply flex h-4 w-full gap-0.5 overflow-hidden rounded;
+  }
+  .segbar-part {
+    @apply block min-w-1.5 basis-0 transition-[flex-grow,opacity] duration-700 hover:opacity-80;
+  }
+  .segbar-part[hidden] {
+    display: none;
+  }
+  .segbar-legend {
+    @apply flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted;
+  }
+
+  /* «Cómo trabaja la detección»: ocho etapas en tres columnas (entra, se comprueba, resulta),
+     las conexiones entre ellas y el bloque de la IA local. No llevan barras comparables entre
+     sí: cada una cuenta algo distinto. La disposición depende del ancho de la tarjeta y no del
+     de la ventana (hay menú lateral): por eso son consultas de contenedor. */
+  .hero-flow {
+    @apply flex flex-col gap-3 border-t border-line-soft pt-4;
+    container: flow / inline-size;
+  }
+  .flow-head {
+    @apply flex flex-wrap items-start justify-between gap-3;
+  }
+  .flow-wrap {
+    @apply flex flex-col gap-2;
+  }
+  /* Angosto: los tres grupos uno debajo de otro y las tarjetas en dos columnas. Sin líneas:
+     cada tarjeta dice de dónde le llega lo suyo (.flow-origin). */
+  .flow-map {
+    @apply relative flex flex-col gap-3;
+  }
+  .flow-group {
+    @apply flex flex-col gap-1.5;
+  }
+  .flow-group-title {
+    @apply font-mono text-[10px] font-medium tracking-wider text-muted uppercase;
+  }
+  .flow {
+    @apply grid grid-cols-2 gap-2;
+  }
+  .flow-step {
+    @apply relative;
+    animation: flow-in 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+  .flow-group-check .flow-step {
+    animation-delay: 0.1s;
+  }
+  .flow-group-out .flow-step {
+    animation-delay: 0.2s;
+  }
+  .is-static .flow-step {
+    animation: none;
+  }
+  .flow-card {
+    @apply flex h-full flex-col gap-0.5 rounded border border-line bg-canvas/60 px-3 py-2 text-ink
+      transition-colors hover:border-primary/50 hover:bg-primary-soft/50 hover:no-underline
+      focus-visible:ring-2 focus-visible:ring-primary/40 focus:outline-none;
+  }
+  /* Donde decide o valora la IA local, la tarjeta lleva su tono: el mismo del bloque de la IA. */
+  .flow-card-ai {
+    @apply border-primary/30 bg-primary-soft/40;
+  }
+  .flow-step.is-open .flow-card {
+    @apply border-primary bg-primary-soft;
+  }
+  /* Quién actúa y, a la derecha, de cuándo es la cifra. */
+  .flow-top {
+    @apply mb-0.5 flex flex-wrap items-baseline justify-between gap-x-2;
+  }
+  .flow-actor {
+    @apply inline-flex items-center gap-1.5 font-mono text-[10px] font-medium tracking-wide text-muted uppercase;
+  }
+  .flow-actor-ai {
+    @apply text-primary;
+  }
+  .flow-busy {
+    @apply hidden h-1.5 w-1.5 rounded-full bg-low;
+  }
+  .is-busy .flow-busy {
+    @apply inline-block;
+    animation: hero-pulse 1.2s ease-in-out infinite;
+  }
+  /* La cifra y lo que cuenta, en una línea si caben. */
+  .flow-figure {
+    @apply flex flex-wrap items-baseline gap-x-2 gap-y-0.5;
+  }
+  .flow-value {
+    @apply font-mono text-[26px] leading-none font-semibold tracking-tight text-ink;
+  }
+  .flow-label {
+    @apply text-[13px] leading-tight font-medium text-ink;
+  }
+  .flow-sub {
+    @apply mt-0.5 text-[11px] leading-snug text-ink-soft;
+  }
+  .flow-ai {
+    @apply mt-0.5 flex items-start gap-1 text-[11px] leading-snug font-medium text-primary;
+  }
+  .flow-ai-mark {
+    @apply mt-[3px] h-2.5 w-2.5 shrink-0 fill-current;
+  }
+  .flow-origin {
+    @apply mt-0.5 text-[11px] leading-snug text-muted;
+  }
+  .flow-origin::before {
+    content: "← ";
+  }
+  /* Con las líneas dibujadas la cifra va en la conexión; el texto queda para lectores de pantalla. */
+  .flow-wrap.has-links .flow-origin:not(.is-always) {
+    @apply sr-only;
+  }
+  .flow-scope {
+    @apply text-[10px] whitespace-nowrap text-muted;
+  }
+
+  /* Bajo las tarjetas: la franja de la IA local y, debajo, qué pasa ahora y cómo se lee el
+     diagrama. */
+  .flow-base {
+    @apply flex flex-col gap-2;
+  }
+  /* La IA local: una franja de una línea, porque trabaja en varias etapas y lo que hace en cada
+     una ya lo dice su tarjeta. Estado, modelo, dónde corre y una cifra; el resto, en su panel. */
+  .flow-engine {
+    @apply flex flex-wrap items-baseline gap-x-5 gap-y-0.5 rounded border border-primary/30
+      bg-primary-soft/40 px-3 py-2 text-xs text-ink-soft transition-colors hover:border-primary
+      hover:bg-primary-soft hover:no-underline focus-visible:ring-2 focus-visible:ring-primary/40
+      focus:outline-none;
+  }
+  .flow-engine.is-open {
+    @apply border-primary bg-primary-soft;
+  }
+  .flow-engine.is-down {
+    @apply border-critical/40 bg-critical-soft/50;
+  }
+  .flow-engine-name {
+    @apply inline-flex flex-wrap items-center gap-1.5 text-[13px] font-semibold text-primary;
+  }
+  .flow-engine.is-down .flow-engine-name {
+    @apply text-critical;
+  }
+  .flow-engine-dot {
+    @apply inline-block h-2 w-2 rounded-full bg-low;
+  }
+  .flow-engine.is-busy .flow-engine-dot {
+    animation: hero-pulse 1.2s ease-in-out infinite;
+  }
+  .flow-engine.is-down .flow-engine-dot {
+    @apply bg-critical;
+  }
+  .flow-engine-stats strong {
+    @apply font-mono font-semibold text-ink;
+  }
+  .flow-engine-more {
+    @apply ml-auto text-xs font-medium whitespace-nowrap text-primary;
+  }
+  .flow-engine-more::after {
+    content: " ▾";
+  }
+  .flow-engine.is-open .flow-engine-more::after {
+    content: " ▴";
+  }
+  /* Al pasar por el bloque de la IA se marcan las etapas donde trabaja. */
+  .flow-map:has(.flow-engine:hover) .flow-step.has-ai .flow-card,
+  .flow-map:has(.flow-engine:focus-visible) .flow-step.has-ai .flow-card {
+    @apply border-primary ring-1 ring-primary/30;
+  }
+
+  /* Conexiones: home-flow.js traza las líneas en este SVG y coloca cada rótulo sobre la suya.
+     Solo en la disposición ancha (--flow-links) y con JS. */
+  .flow-links {
+    @apply pointer-events-none absolute inset-0 hidden h-full w-full overflow-visible;
+  }
+  .flow-wrap.has-links .flow-links {
+    @apply block;
+  }
+  /* Un gris más firme que el de los bordes: una línea fina de ese tono no se ve. */
+  .flow-map {
+    --flow-line: #8494ab;
+  }
+  .flow-line {
+    fill: none;
+    stroke: var(--flow-line);
+    stroke-width: 1.5;
+    transition: stroke 0.15s;
+  }
+  .flow-line-loop {
+    stroke-dasharray: 5 4;
+  }
+  /* Punteada: no es algo que pase de una etapa a otra, es lo que se consulta al valorar. */
+  .flow-line-context {
+    stroke-dasharray: 0.5 5;
+    stroke-linecap: round;
+    stroke-width: 2;
+  }
+  .flow-arrow {
+    fill: var(--flow-line);
+  }
+  .flow-line.is-on {
+    stroke: var(--color-primary);
+    stroke-width: 2;
+  }
+  .flow-arrow-on {
+    fill: var(--color-primary);
+  }
+  .flow-link {
+    @apply absolute z-10 hidden -translate-x-1/2 -translate-y-1/2 flex-col items-center rounded border border-line
+      bg-surface px-1.5 py-0.5 text-center text-[10px] leading-tight whitespace-nowrap text-ink-soft;
+  }
+  .flow-link strong {
+    @apply font-mono text-[11px] font-semibold text-ink;
+  }
+  /* La cifra con su unidad: «1,004 reportes». */
+  .flow-link-figure {
+    @apply inline-flex items-baseline gap-1;
+  }
+  /* En una línea: junto a una vertical o sobre el retorno. */
+  .flow-link-row {
+    @apply flex-row items-baseline gap-1;
+  }
+  .flow-link-loop {
+    @apply border-dashed;
+  }
+  .flow-link-context {
+    @apply border-dotted;
+  }
+  .flow-wrap.has-links .flow-link:not(.flow-link-bare) {
+    @apply flex;
+  }
+  .flow-link.is-on {
+    @apply border-primary text-primary;
+  }
+  /* Bajo la franja de la IA: qué está pasando ahora y cómo se lee el diagrama. */
+  .flow-foot {
+    @apply flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1;
+  }
+  .flow-legend {
+    @apply flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-muted;
+  }
+  .flow-legend-item {
+    @apply inline-flex items-center gap-1.5;
+  }
+  .flow-legend-ai {
+    @apply text-primary;
+  }
+  .flow-legend-ai .flow-ai-mark {
+    @apply mt-0;
+  }
+  .flow-legend-line {
+    @apply inline-block w-5 border-t-[1.5px];
+    border-color: var(--flow-line, #8494ab);
+  }
+  .flow-legend-line-loop {
+    @apply border-dashed;
+  }
+  .flow-legend-line-context {
+    @apply border-t-2 border-dotted;
+  }
+  .flow-wrap:not(.has-links) .flow-legend-item:not(.flow-legend-ai) {
+    @apply hidden;
+  }
+  .flow-now {
+    @apply text-xs text-muted;
+  }
+  .flow-now-label {
+    @apply mr-1 font-mono text-[10px] font-medium tracking-wider text-primary uppercase;
+  }
+  .flow-now.is-working [data-hero-now="text"] {
+    @apply font-medium text-ink;
+  }
+
+  /* En dos columnas, la tarjeta que queda sola al final ocupa el ancho entero. */
+  @container flow (max-width: 39.99rem) {
+    .flow > .flow-step:last-child:nth-child(odd) {
+      grid-column: span 2;
+    }
+  }
+  /* Medio: los tres grupos lado a lado, cada uno con sus tarjetas en columna. */
+  @container flow (min-width: 40rem) {
+    .flow-map {
+      @apply grid grid-cols-3 items-start gap-x-4 gap-y-3;
+    }
+    .flow {
+      @apply grid-cols-1;
+    }
+    .flow-base {
+      @apply col-span-3;
+    }
+  }
+  /* Ancho: el diagrama. Siete pistas (tarjeta, canal, tarjeta, hueco, tarjeta, canal, tarjeta)
+     y tres filas de tarjetas con su separación; los grupos heredan las pistas (subgrid) para que
+     las filas casen de una columna a otra.
+
+       fila 1   Señales      ─►  Cruce (dos tarjetas de ancho)   ─►  Evidencia
+       fila 2   Inventario   ─►  Decisiones ─► Escaneos          ─►  Vulnerabilidades
+       fila 3   IA local, «Ahora» y leyenda (cinco pistas)           Riesgos
+  */
+  @supports (grid-template-rows: subgrid) {
+    @container flow (min-width: 54rem) {
+      .flow-map {
+        --flow-links: 1;
+        --flow-gutter: 6rem; /* canal entre columnas: ahí va el rótulo de cada conexión */
+        --flow-gap: 5rem; /* entre Decisiones y Escaneos: caben la cifra, su unidad y la flecha */
+        --flow-row-gap: 2rem; /* entre la primera y la segunda fila: pasan las líneas verticales */
+        --flow-lane-gap: 2.75rem; /* bajo la segunda: dos carriles, el retorno y el contexto */
+        @apply grid max-w-[96rem] items-stretch gap-0;
+        grid-template-columns:
+          minmax(0, 1fr) var(--flow-gutter) minmax(0, 1fr) var(--flow-gap)
+          minmax(0, 1fr) var(--flow-gutter) minmax(0, 1fr);
+        grid-template-rows: auto auto var(--flow-row-gap) auto var(--flow-lane-gap) auto;
+      }
+      .flow-group {
+        @apply grid gap-0;
+        grid-template-columns: subgrid;
+        grid-template-rows: subgrid;
+        grid-row: 1 / 5;
+      }
+      .flow-group-in {
+        grid-column: 1 / 2;
+      }
+      .flow-group-check {
+        grid-column: 3 / 6;
+      }
+      .flow-group-out {
+        grid-column: 7 / 8;
+        grid-row: 1 / 7;
+      }
+      .flow-group-title {
+        @apply mb-1.5;
+        grid-row: 1;
+        grid-column: 1 / -1;
+      }
+      .flow {
+        @apply gap-0;
+        grid-template-columns: subgrid;
+        grid-template-rows: subgrid;
+        grid-row: 2 / 5;
+        grid-column: 1 / -1;
+      }
+      .flow-group-out .flow {
+        grid-row: 2 / 7;
+      }
+      .flow-step-signals,
+      .flow-step-match,
+      .flow-step-observations {
+        grid-row: 1;
+      }
+      .flow-step-inventory,
+      .flow-step-decisions,
+      .flow-step-scans,
+      .flow-step-vulnerabilities {
+        grid-row: 3;
+      }
+      .flow-step-risks {
+        grid-row: 5;
+      }
+      .flow-step-match {
+        grid-column: 1 / -1;
+      }
+      .flow-step-decisions {
+        grid-column: 1;
+      }
+      .flow-step-scans {
+        grid-column: 3;
+      }
+      /* La franja arriba y la leyenda abajo, a la altura de «Riesgos abiertos». */
+      .flow-base {
+        @apply justify-between;
+        grid-row: 6;
+        grid-column: 1 / 6;
+      }
+    }
+  }
+
+  /* Panel de la etapa abierta (detalle a demanda dentro de Inicio). */
+  .stage {
+    @apply flex flex-col gap-3 border-t border-line-soft pt-4;
+    animation: stage-in 0.35s ease-out both;
+  }
+  .stage-empty {
+    display: none;
+  }
+  .stage-head {
+    @apply flex flex-wrap items-center justify-between gap-2;
+  }
+  .stage-title {
+    @apply text-[15px] font-semibold text-ink;
+  }
+  .stage-lead {
+    @apply max-w-4xl text-sm text-ink-soft;
+  }
+  .stage-grid {
+    @apply grid grid-cols-1 gap-x-8 gap-y-4 lg:grid-cols-2;
+  }
+  .stage-sub {
+    @apply mb-2 text-[13px] font-semibold text-ink;
+  }
+  .stage-note {
+    @apply rounded bg-canvas px-3 py-2.5 text-sm text-ink-soft;
+  }
+  .stage-list {
+    @apply mt-3 flex flex-col gap-1.5 text-sm text-ink-soft;
+  }
+  .stage-links {
+    @apply flex flex-wrap gap-x-5 gap-y-1 border-t border-line-soft pt-3 text-sm;
+  }
+  .tiles {
+    @apply grid grid-cols-1 gap-2 sm:grid-cols-3;
+  }
+  .tiles-1 {
+    @apply sm:grid-cols-1;
+  }
+  .tiles-4 {
+    @apply sm:grid-cols-2 xl:grid-cols-4;
+  }
+  .tile {
+    @apply rounded border border-line bg-surface px-3 py-2.5;
+  }
+  .tile-accent {
+    @apply border-primary/40 bg-primary-soft/50;
+  }
+  .tile-value {
+    @apply font-mono text-[22px] leading-tight font-semibold text-ink;
+  }
+  .tile-value-text {
+    @apply text-[13px] leading-snug break-all;
+  }
+  .tile-of {
+    @apply text-sm font-normal text-muted;
+  }
+  .tile-label {
+    @apply mt-0.5 text-xs leading-snug text-ink-soft;
+  }
+  /* Barras horizontales: etiqueta, barra de un solo tono y cifra exacta. */
+  .bars {
+    @apply flex flex-col gap-1.5;
+  }
+  .bar-row {
+    @apply grid grid-cols-[minmax(0,9rem)_minmax(0,1fr)_auto] items-center gap-3 text-sm;
+  }
+  .bar-row-wide {
+    @apply grid-cols-[minmax(0,1fr)_auto] gap-y-1 sm:grid-cols-[minmax(0,15rem)_minmax(0,1fr)_auto];
+  }
+  .bar-row-wide .bar-track {
+    @apply order-3 col-span-2 sm:order-none sm:col-span-1;
+  }
+  /* En pantallas angostas la barra baja a su propia línea: nombre y cifra arriba, barra debajo. */
+  .bar-row-tool {
+    @apply grid-cols-[minmax(0,1fr)_auto] items-start gap-y-1 sm:grid-cols-[minmax(0,13rem)_minmax(0,1fr)_minmax(5rem,auto)];
+  }
+  .bar-row-tool .bar-track {
+    @apply order-3 col-span-2 sm:order-none sm:col-span-1 sm:mt-1;
+  }
+  .bar-row-pair {
+    @apply grid-cols-[minmax(0,5rem)_minmax(0,1fr)_3rem] text-xs;
+  }
+  .bar-label {
+    @apply text-ink-soft;
+  }
+  .bar-hint {
+    @apply block text-[11px] leading-snug font-normal text-muted;
+  }
+  .bar-track {
+    @apply flex h-4 gap-0.5 overflow-hidden rounded bg-line-soft;
+  }
+  .bar-fill {
+    @apply block h-full min-w-0.5 rounded bg-primary;
+    transform-origin: left center;
+    animation: bar-grow 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+  .bar-fill-bad {
+    @apply bg-critical;
+  }
+  .bar-fill-muted {
+    @apply bg-line-strong;
+  }
+  .bar-fill-warn {
+    @apply bg-medium;
+  }
+  .bar-value {
+    @apply text-right font-mono font-semibold text-ink;
+  }
+  .bar-bad {
+    @apply font-sans text-xs font-normal text-critical;
+  }
+  .pair {
+    @apply grid grid-cols-[minmax(0,4.5rem)_minmax(0,1fr)] items-center gap-3 py-1 text-sm;
+  }
+  .pair-label {
+    @apply font-medium text-ink;
+  }
+  .pair-bars {
+    @apply flex flex-col gap-1;
+  }
+  /* Cruce de fuentes: una fila por combinación exacta, con un punto por fuente que la vio. */
+  .combo {
+    @apply w-full border-collapse text-sm;
+  }
+  .combo th {
+    @apply border-b border-line px-2 py-1.5 text-left text-[11px] font-medium text-muted;
+  }
+  .combo td {
+    @apply border-b border-line-soft px-2 py-1.5;
+  }
+  .combo .combo-src {
+    @apply w-28 text-center;
+  }
+  .combo .combo-n {
+    @apply w-40 text-right font-mono font-semibold whitespace-nowrap text-ink;
+  }
+  .combo-bar {
+    @apply min-w-32;
+  }
+  .combo-dot {
+    @apply inline-block h-3 w-3 rounded-full border border-line-strong bg-surface align-middle;
+  }
+  .combo-dot.is-on {
+    @apply border-primary bg-primary;
+  }
+  .combo-multi td {
+    @apply bg-primary-soft/40;
+  }
+  .decisions {
+    @apply flex flex-col gap-2;
+  }
+  .decision {
+    @apply rounded border border-line border-l-4 border-l-primary bg-surface px-3 py-2;
+  }
+  .decision-head {
+    @apply flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-soft;
+  }
+  .decision-why {
+    @apply mt-1 text-sm text-ink;
+  }
+  .decision-meta {
+    @apply mt-1 text-xs text-muted;
+  }
+  /* En pantallas angostas la barra se encoge y el desglose baja de línea: el porcentaje, que es
+     el dato, nunca queda fuera de la vista. */
+  .ai-meter {
+    @apply grid grid-cols-[3rem_2.75rem] items-center gap-x-2 text-xs sm:grid-cols-[minmax(4rem,10rem)_3rem_auto];
+  }
+  .ai-meter > :nth-child(3) {
+    @apply col-span-2 sm:col-span-1;
+  }
+  /* Enlace que sale de Inicio: abre otra pestaña y lo dice con una flecha. */
+  a.out::after {
+    content: "\00a0↗";
+    @apply text-[0.85em] text-muted;
+  }
+  /* Modo presentación: la gráfica maestra a pantalla completa, recorriendo las etapas. */
+  .hero:fullscreen {
+    @apply overflow-auto rounded-none border-0 px-[4vw] py-[3vh];
+    zoom: 1.25;
+  }
+  .hero:fullscreen .flow-step.is-open .flow-card,
+  .hero:fullscreen .flow-engine.is-open {
+    @apply ring-2 ring-primary/40;
+  }
+  details.fold > summary {
+    @apply cursor-pointer list-none text-xs text-primary select-none;
+  }
+  details.fold > summary::-webkit-details-marker {
+    display: none;
+  }
+  details.fold > summary::before {
+    content: "▸ ";
+  }
+  details.fold[open] > summary::before {
+    content: "▾ ";
+  }
+  /* Sección plegable de una ficha: el título es el resumen y dice lo esencial sin abrirla. */
+  details.section-fold > summary {
+    @apply flex cursor-pointer list-none flex-wrap items-center gap-x-2 gap-y-1 text-[15px]
+      font-semibold text-ink select-none;
+  }
+  details.section-fold > summary::-webkit-details-marker {
+    display: none;
+  }
+  details.section-fold > summary::before {
+    content: "▸";
+    @apply w-3 text-xs text-muted;
+  }
+  details.section-fold[open] > summary::before {
+    content: "▾";
+  }
+  details.section-fold[open] > summary {
+    @apply mb-3;
+  }
+  .section-hint {
+    @apply text-xs font-normal text-muted;
+  }
+  /* Columna de decisión que acompaña al desplazar (ficha del riesgo). Si no cabe en la
+     ventana, se desplaza por dentro: nada queda fuera de alcance. */
+  .sticky-col {
+    @apply lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto;
+  }
+  /* Teléfono: botón que despliega los filtros de una lista (lo crea atalaya.js). */
+  .filter-toggle {
+    @apply flex min-h-10 w-full cursor-pointer items-center justify-between rounded border
+      border-line bg-surface px-3 text-sm font-medium text-ink sm:hidden;
+  }
+  .filter-toggle::after {
+    content: "▾";
+    @apply text-xs text-muted;
+  }
+  .filter-toggle[aria-expanded="true"]::after {
+    content: "▴";
+  }
+  /* Teléfono: acción principal fija al pie mientras su formulario no está a la vista. */
+  .sticky-action {
+    @apply fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface/95 px-4 py-2 shadow-lg
+      lg:hidden;
+  }
+  /* Menú desplegable de acciones secundarias (detalle del activo). */
+  details.menu {
+    @apply relative;
+  }
+  details.menu > summary {
+    @apply cursor-pointer list-none select-none;
+  }
+  details.menu > summary::-webkit-details-marker {
+    display: none;
+  }
+  .menu-panel {
+    @apply absolute right-0 z-20 mt-1 flex w-72 flex-col rounded border border-line bg-surface p-1
+      shadow-lg;
+  }
+  .menu-item {
+    @apply flex w-full flex-col items-start gap-0.5 rounded px-3 py-2 text-left text-sm
+      hover:bg-primary-soft;
+  }
+  .menu-item-danger {
+    @apply hover:bg-critical-soft;
+  }
+  .menu-item-danger > .font-medium {
+    @apply text-critical;
+  }
+  /* Barra de acciones en lote plegada hasta que se marca algo (atalaya.js). */
+  [data-bulk].bulk-idle > :not([data-bulk-hint]) {
+    display: none;
+  }
+  /* Cabeceras ordenables. */
+  .th-sort {
+    @apply text-inherit no-underline hover:text-primary;
+  }
+  .th-sort-active {
+    @apply text-primary;
+  }
+}
+
+@keyframes bar-grow {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+@keyframes flow-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes stage-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes hero-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bar-fill,
+  .flow-step,
+  .stage,
+  .hero-live-dot,
+  .is-busy .flow-busy,
+  .flow-engine.is-busy .flow-engine-dot {
+    animation: none;
+  }
+  .segbar-part,
+  .flow-card,
+  .flow-engine {
+    transition: none;
   }
 }

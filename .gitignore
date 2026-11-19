@@ -81,3 +81,10 @@ secrets/
 
 # Herramientas locales (binario standalone de Tailwind, etc.)
 .tools/
+
+# Operación: respaldos locales y certificado de la organización (docs/operacion.md)
+backups/
+deploy/certs/*
+!deploy/certs/README.md
+deploy/ca/*
+!deploy/ca/README.md

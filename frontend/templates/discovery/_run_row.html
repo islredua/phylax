@@ -1,0 +1,14 @@
+{% load inventory %}
+{# Una ejecución de descubrimiento como fila de tabla. Recibe r. #}
+<tr>
+  <td class="text-xs whitespace-nowrap"><a href="{% url 'discovery:run_detail' r.pk %}">{{ r.created_at|hace }}</a></td>
+  <td class="whitespace-nowrap">{{ r.get_profile_display }}</td>
+  <td>{% if r.network_range %}<a href="{% url 'assets:range_detail' r.network_range_id %}">{{ r.network_range.name }}</a>{% elif r.target_asset %}<a href="{% url 'assets:detail' r.target_asset_id %}">{{ r.target_asset.name }}</a>{% elif r.target_text %}<span title="El activo ya no está en el inventario">{{ r.target_text }}</span>{% else %}—{% endif %}</td>
+  <td>{% run_status_badge r %}</td>
+  <td class="font-mono">{{ r.hosts_up }}</td>
+  <td class="col-md font-mono">{% if r.assets_created %}<a href="{% url 'discovery:run_detail' r.pk %}?show=pending#observed-hosts" title="Ver los hosts por confirmar">{{ r.assets_created }}</a>{% else %}0{% endif %}</td>
+  <td class="col-md font-mono">{{ r.assets_updated }}</td>
+  <td class="col-md font-mono">{% if r.conflicts %}<a href="{% url 'assets:conflicts' %}" class="text-high">{{ r.conflicts }}</a>{% else %}0{% endif %}</td>
+  <td class="col-lg font-mono text-xs">{{ r.requested_by.get_username|default:"programado" }}</td>
+  <td class="text-right"><a href="{% url 'discovery:run_detail' r.pk %}" class="btn-secondary btn-sm">Ver</a></td>
+</tr>

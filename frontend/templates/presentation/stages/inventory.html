@@ -1,0 +1,18 @@
+{% load inventory l10n %}
+{% with inv=flow.inventory %}
+<p class="stage-lead">El inventario reúne los activos de la organización con sus servicios y su software, y contra él se cruza cada señal. Lo actualizan los escaneos, los SBOM cargados y las personas; cada cambio entra como señal.</p>
+<div class="tiles tiles-4">
+  <div class="tile"><p class="tile-value">{{ inv.assets|miles }}</p><p class="tile-label">{{ inv.assets|pl:"-activo vigilado,activos vigilados" }} · {{ inv.discovered|miles }} por descubrimiento y {{ inv.registered|miles }} dados de alta</p></div>
+  <div class="tile"><p class="tile-value">{{ inv.products|miles }}</p><p class="tile-label">{{ inv.products|pl:"-producto de software distinto,productos de software distintos" }} en {{ inv.with_software|pl:"activo,activos" }} · {{ inv.with_sbom|miles }} con SBOM</p></div>
+  <div class="tile tile-accent"><p class="tile-value">{{ inv.criticality_ai|miles }} <span class="tile-of">de {{ inv.assets|miles }}</span></p><p class="tile-label">con la criticidad propuesta por la IA local{% if inv.criticality_person %} · {{ inv.criticality_person|miles }} fijada por una persona{% endif %}</p></div>
+  <div class="tile"><p class="tile-value">{{ inv.changes|miles }}</p><p class="tile-label">{{ inv.changes|pl:"-cambio del inventario entró,cambios del inventario entraron" }} como señal en {{ window_days }} días</p></div>
+</div>
+<div class="stage-grid">
+  <div class="stage-note">
+    <p><strong>Qué hace aquí la IA.</strong> Propone la criticidad de cada activo y explica el motivo. Si el activo no tenía una, se aplica marcada «calculada por IA», y una persona puede confirmarla o cambiarla.</p>
+  </div>
+  <div class="stage-note">
+    <p><strong>Por qué vuelve a entrar.</strong> Cuando un escaneo encuentra un servicio nuevo, el inventario cambia y ese cambio entra como señal. En {{ window_days }} días hubo {{ inv.nmap_runs|pl:"ejecución,ejecuciones" }} de nmap.</p>
+  </div>
+</div>
+{% endwith %}

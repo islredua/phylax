@@ -57,7 +57,11 @@ def import_assets_csv(upload_id):
     try:
         with upload.file.open("rb") as fh:
             rows = read_rows(fh.read())
-        upload.result = execute_import(rows, user=upload.user)
+        from .csv_io import authorize_reference
+
+        upload.result = execute_import(
+            rows, user=upload.user, authorize_reference=authorize_reference(upload)
+        )
         upload.status = UploadStatus.DONE
     except Exception as exc:
         logger.exception("Importación %s fallida", upload_id)

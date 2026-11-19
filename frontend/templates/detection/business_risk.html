@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% load detection_tags inventory %}
+{% block title %}{{ risk.title }}{% endblock %}
+{% block breadcrumb_tail %}<li>{{ risk.title }}</li>{% endblock %}
+{% block toolbar %}
+<div class="toolbar">
+  <div class="flex flex-wrap items-center gap-2">
+    <h2>{{ risk.title }}</h2>
+    {% risk_level_badge risk.level %}
+    <span class="text-xs text-muted">riesgo de la organización · {{ risk.scenarios|length|pl:"escenario,escenarios" }} en {{ risk.assets|length|pl:"activo,activos" }}</span>
+  </div>
+  <div class="page-actions">
+    <a href="{% url 'detection:risks' %}" class="btn-secondary btn-sm">← Registro de riesgos</a>
+  </div>
+</div>
+{% endblock %}
+{% block content %}
+<section class="card grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_auto]" data-business-risk>
+  <dl class="flex flex-col gap-2 text-sm">
+    {% if what.show %}<div class="grid grid-cols-1 gap-x-3 sm:grid-cols-[9rem_minmax(0,1fr)]"><dt class="kv-label sm:pt-0.5">Qué puede pasar</dt><dd>{% include "detection/_business_risk_what.html" %}</dd></div>{% endif %}
+    {% for label, text in brief %}<div class="grid grid-cols-1 gap-x-3 sm:grid-cols-[9rem_minmax(0,1fr)]"><dt class="kv-label sm:pt-0.5">{{ label }}</dt><dd class="text-ink">{{ text }}{% if label == where_label %} <button type="button" class="term text-xs font-normal" data-dialog-open="{{ role_card.dialog_id }}" aria-haspopup="dialog">¿Qué es «{{ role_card.label }}»?</button>{% include "detection/_business_risk_systems.html" %}{% endif %}</dd></div>{% endfor %}
+  </dl>
+  <dl class="grid grid-cols-2 gap-x-6 gap-y-2 text-sm lg:w-80">
+    <div><dt class="kv-label">Vulnerabilidades</dt><dd class="kv-value font-mono">{{ risk.vulnerabilities|miles }}{% if risk.kev %} <span class="font-sans text-xs text-critical">{{ risk.kev }} con explotación activa</span>{% endif %}</dd></div>
+    <div><dt class="kv-label">Tratamiento</dt><dd class="kv-value">{{ risk.treatments }}</dd></div>
+    <div><dt class="kv-label">Plazo más próximo</dt><dd class="kv-value">{% with d=risk.deadline %}{% if d %}<span class="{% if d.state == 'late' %}text-critical{% elif d.state == 'today' or d.state == 'soon' %}text-high{% endif %}" title="{{ d.rule }}">{{ d.when }}</span> <span class="font-mono text-xs text-muted">{{ d.date|fecha }}</span>{% else %}—{% endif %}{% endwith %}</dd></div>
+    <div><dt class="kv-label">A cargo de</dt><dd class="kv-value">{{ risk.responsibles|join:", " }}</dd></div>
+  </dl>
+</section>
+<p class="text-xs text-muted">El riesgo reúne un escenario por activo: en cada uno la IA valora la probabilidad y el impacto de esta consecuencia con las vulnerabilidades de ese activo, y el riesgo toma el nivel del peor. El tratamiento, el responsable y el plazo se llevan en cada escenario; aquí se deciden todos a la vez. Un activo que entre después llega sin decidir.</p>
+{% if perms.detection.work_findings %}
+<form method="post" action="{% url 'detection:risk_bulk' %}" class="flex flex-col gap-2" data-no-busy id="tratamiento">
+  {% csrf_token %}
+  <input type="hidden" name="next" value="{{ request.get_full_path }}">
+  {% include "detection/_risk_bulk.html" with bulk_label="Para todo el riesgo" hint_empty="Marca los escenarios a los que aplica la decisión; al entrar están todos marcados." %}
+  {% include "detection/_risk_rows.html" with bulk=True checked=True software_link=True %}
+</form>
+{% else %}
+{% include "detection/_risk_rows.html" with software_link=True %}
+{% endif %}
+{% include "detection/_business_role_dialog.html" with card=role_card %}
+{% endblock %}

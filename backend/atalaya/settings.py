@@ -4,13 +4,30 @@ import os
 from pathlib import Path
 
 from celery.schedules import crontab
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # --- Seguridad ---
-SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "insecure-fallback-change-me")
+_FALLBACK_SECRET_KEY = "insecure-fallback-change-me"
+# Llaves que cualquiera conoce: la de respaldo y la que trae ``.env.example``.
+_PUBLIC_SECRET_KEYS = (_FALLBACK_SECRET_KEY, "change-me")
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "") or _FALLBACK_SECRET_KEY
 DEBUG = os.environ.get("DJANGO_DEBUG", "0") == "1"
-ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,backend").split(",")
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,backend").split(",")
+    if host.strip()
+]
+# La llave firma las sesiones y los enlaces de recuperación de contraseña: fuera de DEBUG una
+# llave pública (la de respaldo de este archivo o la de ejemplo de ``.env.example``) no es
+# aceptable y Atalaya no arranca con ella.
+if not DEBUG and SECRET_KEY.startswith(_PUBLIC_SECRET_KEYS):
+    raise ImproperlyConfigured(
+        "Falta DJANGO_SECRET_KEY: fuera de DJANGO_DEBUG=1 Atalaya no arranca con la llave de "
+        'respaldo ni con la de ejemplo. Genera una con: python -c "from django.core.management.utils import '
+        'get_random_secret_key; print(get_random_secret_key())"'
+    )
 
 # --- Aplicaciones ---
 INSTALLED_APPS = [
@@ -33,7 +50,9 @@ INSTALLED_APPS = [
     "apps.scanners",
     "apps.cti",
     "apps.scoring",
+    "apps.detection",
     "apps.presentation",
+    "apps.alerts",
 ]
 
 MIDDLEWARE = [
@@ -42,6 +61,8 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # Una petición HTMX sin sesión recibe 401 + HX-Redirect en vez del login incrustado.
+    "apps.core.middleware.HtmxLoginRedirectMiddleware",
     # Todas las vistas requieren sesión salvo las marcadas con @login_not_required
     # (health, login, password reset). Ver ADR-004.
     "django.contrib.auth.middleware.LoginRequiredMiddleware",
@@ -72,6 +93,8 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "apps.presentation.context_processors.navigation",
             ],
+            # Filtros de fecha/número/plural disponibles en toda plantilla sin {% load %}.
+            "builtins": ["apps.core.templatetags.ui"],
         },
     },
 ]
@@ -118,12 +141,75 @@ _secure_cookies = os.environ.get("DJANGO_SECURE_COOKIES", "0" if DEBUG else "1")
 SESSION_COOKIE_SECURE = _secure_cookies
 CSRF_COOKIE_SECURE = _secure_cookies
 
-# --- Correo (password reset) ---
-# En desarrollo el correo se imprime en la consola del contenedor.
-EMAIL_BACKEND = os.environ.get(
-    "DJANGO_EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
+# --- Detrás de un proxy con TLS (perfil de producción: docker-compose.prod.yml) ---
+# ATALAYA_BEHIND_PROXY=1 dice que un proxy termina TLS delante del backend y anuncia el esquema
+# original en X-Forwarded-Proto. Solo vale cuando al backend no se llega sin pasar por él (en el
+# perfil de producción no publica puertos): si no, cualquiera podría fingir la cabecera.
+BEHIND_PROXY = os.environ.get("ATALAYA_BEHIND_PROXY", "0") == "1"
+if BEHIND_PROXY:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+# De quién se acepta X-Forwarded-For para saber la IP del cliente (bitácora, sesiones): redes
+# CIDR, direcciones o nombres de equipo separados por comas. Vacío: nadie, vale REMOTE_ADDR.
+TRUSTED_PROXIES = [
+    entry.strip()
+    for entry in os.environ.get("ATALAYA_TRUSTED_PROXIES", "").split(",")
+    if entry.strip()
+]
+# Todo por HTTPS y que el navegador lo recuerde un año. Por defecto, cuando hay proxy con TLS y
+# cookies seguras; /health/ queda fuera para las comprobaciones internas por HTTP.
+_https_only = BEHIND_PROXY and _secure_cookies
+SECURE_SSL_REDIRECT = os.environ.get("DJANGO_SSL_REDIRECT", "1" if _https_only else "0") == "1"
+SECURE_REDIRECT_EXEMPT = [r"^health/$"]
+SECURE_HSTS_SECONDS = int(
+    os.environ.get("DJANGO_HSTS_SECONDS", str(365 * 24 * 3600) if _https_only else "0")
 )
+SECURE_HSTS_INCLUDE_SUBDOMAINS = os.environ.get("DJANGO_HSTS_SUBDOMAINS", "0") == "1"
+# Orígenes extra que pueden enviar formularios (https://atalaya.ejemplo.mx): solo hace falta si
+# el proxy cambia el nombre de equipo que ve el backend.
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",")
+    if origin.strip()
+]
+# `manage.py check --deploy` pide HSTS para subdominios y la lista de precarga de los navegadores:
+# no aplican a un nombre interno de la organización (se activan arriba si el despliegue lo quiere).
+SILENCED_SYSTEM_CHECKS = ["security.W005", "security.W021"]
+
+# --- Correo (restablecer contraseña y avisos) ---
+# Con ``DJANGO_EMAIL_HOST`` el correo sale por ese servidor SMTP. Sin él se imprime en la consola
+# del contenedor: sirve para desarrollar, pero nadie lo recibe (Administración › Sistema lo dice).
+EMAIL_HOST = os.environ.get("DJANGO_EMAIL_HOST", "").strip()
+EMAIL_BACKEND = os.environ.get("DJANGO_EMAIL_BACKEND", "").strip() or (
+    "apps.core.mail.EmailBackend"
+    if EMAIL_HOST
+    else "django.core.mail.backends.console.EmailBackend"
+)
+# CA interna que firma el certificado del servidor de correo (además de las públicas).
+EMAIL_CA_FILE = os.environ.get("DJANGO_EMAIL_CA_FILE", "").strip()
+# Cifrado: STARTTLS (lo habitual en el 587) o TLS desde el primer byte (465). Nunca los dos.
+EMAIL_USE_TLS = os.environ.get("DJANGO_EMAIL_USE_TLS", "0") == "1"
+EMAIL_USE_SSL = os.environ.get("DJANGO_EMAIL_USE_SSL", "0") == "1"
+if EMAIL_USE_TLS and EMAIL_USE_SSL:
+    raise ImproperlyConfigured(
+        "DJANGO_EMAIL_USE_TLS y DJANGO_EMAIL_USE_SSL no van juntos: STARTTLS (587) usa el "
+        "primero; TLS desde la conexión (465), el segundo."
+    )
+EMAIL_PORT = int(
+    os.environ.get("DJANGO_EMAIL_PORT", "").strip()
+    or (465 if EMAIL_USE_SSL else 587 if EMAIL_USE_TLS else 25)
+)
+EMAIL_HOST_USER = os.environ.get("DJANGO_EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("DJANGO_EMAIL_HOST_PASSWORD", "")
+# Un servidor de correo que no contesta no puede dejar colgada una petición ni a un trabajador.
+EMAIL_TIMEOUT = int(os.environ.get("DJANGO_EMAIL_TIMEOUT", "20") or 20)
 DEFAULT_FROM_EMAIL = os.environ.get("DJANGO_DEFAULT_FROM_EMAIL", "atalaya@localhost")
+SERVER_EMAIL = DEFAULT_FROM_EMAIL
+
+# --- Avisos (F3) ---
+# URL pública de Atalaya para los enlaces de los avisos (correo, webhook).
+ATALAYA_BASE_URL = os.environ.get("ATALAYA_BASE_URL", "http://localhost:8000")
+# Horas que una acción puede esperar aprobación antes de avisar.
+ALERTS_ACTION_WAIT_HOURS = int(os.environ.get("ALERTS_ACTION_WAIT_HOURS", "4"))
 
 # --- Cifrado de campos (tokens de registry) ---
 # Lista separada por comas; la primera cifra, todas descifran (rotación).
@@ -159,6 +245,9 @@ DISCOVERY_SWEEP_SYN_PORTS = "22,80,443,445,3389"
 DISCOVERY_SWEEP_ACK_PORTS = "80,443"
 DISCOVERY_SWEEP_HOST_TIMEOUT = os.environ.get("DISCOVERY_SWEEP_HOST_TIMEOUT", "2m")
 DISCOVERY_SERVICE_HOST_TIMEOUT = os.environ.get("DISCOVERY_SERVICE_HOST_TIMEOUT", "10m")
+# Sonda de alcance («Verificar alcance» al dar de alta): rápida, pocos puertos, sin -sV.
+DISCOVERY_PROBE_HOST_TIMEOUT = os.environ.get("DISCOVERY_PROBE_HOST_TIMEOUT", "5s")
+DISCOVERY_PROBE_PORTS = os.environ.get("DISCOVERY_PROBE_PORTS", "22,80,443,445,3389,8080,8443")
 DISCOVERY_TOP_PORTS = int(os.environ.get("DISCOVERY_TOP_PORTS", "1000"))
 DISCOVERY_TIMING = os.environ.get("DISCOVERY_TIMING", "T4")
 DISCOVERY_RUN_TIMEOUT_S = int(os.environ.get("DISCOVERY_RUN_TIMEOUT_S", "3600"))
@@ -192,9 +281,25 @@ CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 CELERY_TASK_DEFAULT_QUEUE = "default"
 # Rutas por nombre exacto: solo la inferencia va a "llm" y solo nmap a "discovery".
 CELERY_TASK_ROUTES = {
+    "apps.presentation.tasks.generate_health_narrative": {"queue": "llm"},
     "apps.assets.tasks.suggest_criticality": {"queue": "llm"},
     "apps.assets.tasks.sweep_unclassified_criticality": {"queue": "llm"},
     "apps.discovery.tasks.run_discovery": {"queue": "discovery"},
+    "apps.discovery.tasks.probe_host": {"queue": "discovery"},
+    "apps.discovery.tasks.probe_asset": {"queue": "discovery"},
+    # Módulo 3: el planificador infiere en la cola llm; las herramientas corren en el
+    # worker de descubrimiento (único con acceso a las redes escaneadas).
+    "apps.detection.tasks.plan_event": {"queue": "llm"},
+    "apps.detection.tasks.draft_org_profile": {"queue": "llm"},
+    "apps.detection.tasks.consolidate_asset": {"queue": "llm"},
+    "apps.detection.tasks.describe_vulnerability": {"queue": "llm"},
+    "apps.detection.tasks.describe_software": {"queue": "llm"},
+    "apps.detection.tasks.describe_business_role": {"queue": "llm"},
+    "apps.detection.tasks.describe_business_risk": {"queue": "llm"},
+    "apps.scanners.tasks.run_tool": {"queue": "discovery"},
+    # Misma cola que las herramientas (concurrencia 1): los datos nunca se reemplazan durante
+    # un escaneo.
+    "apps.scanners.tasks.update_scanner_data": {"queue": "discovery"},
 }
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_BEAT_SCHEDULE = {
@@ -218,6 +323,74 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.llm.tasks.refresh_llm_status",
         "schedule": 60.0,
     },
+    # Módulo 3: fuentes CTI (cada fuente respeta su propio intervalo).
+    "sync-cti-sources": {
+        "task": "apps.cti.tasks.sync_cti_sources",
+        "schedule": crontab(minute=20),
+    },
+    "detection-process-pending": {
+        "task": "apps.detection.tasks.process_pending_events",
+        "schedule": 60.0,
+    },
+    "home-health-snapshot": {
+        "task": "apps.presentation.tasks.snapshot_health",
+        "schedule": crontab(minute=5),
+    },
+    "scanners-recover-orphans": {
+        "task": "apps.scanners.tasks.recover_orphaned_executions",
+        "schedule": crontab(minute="*/5"),
+    },
+    "home-health-narrative": {
+        "task": "apps.presentation.tasks.refresh_health_narrative",
+        "schedule": crontab(minute="*/10"),
+    },
+    "detection-describe-pending": {
+        "task": "apps.detection.tasks.describe_pending_vulnerabilities",
+        "schedule": float(os.environ.get("DETECTION_DESCRIBE_EVERY", "120")),
+    },
+    "detection-time-reviews": {
+        "task": "apps.detection.tasks.emit_time_reviews",
+        "schedule": crontab(minute=40),
+    },
+    "detection-plan-stragglers": {
+        "task": "apps.detection.tasks.plan_stragglers",
+        "schedule": crontab(minute="*/5"),
+    },
+    "detection-dispatch-actions": {
+        "task": "apps.detection.tasks.dispatch_actions",
+        "schedule": 60.0,
+    },
+    # Plantillas de nuclei y base de Grype: cada madrugada, antes de la jornada. Grype rechaza
+    # una base construida hace más de cinco días.
+    "scanners-update-data": {
+        "task": "apps.scanners.tasks.update_scanner_data_scheduled",
+        "schedule": crontab(hour=4, minute=30),
+    },
+    # Latido del sistema: qué trabajadores responden y qué hacen (Administración › Sistema).
+    "system-heartbeat": {
+        "task": "apps.presentation.tasks.refresh_system_status",
+        "schedule": 60.0,
+    },
+    # Lo que la base cree «en cola» y Redis ya no tiene (corte de luz, cola vaciada al restaurar).
+    "recover-lost-work": {
+        "task": "apps.presentation.tasks.recover_lost_work",
+        "schedule": crontab(minute="2-59/5"),
+    },
+    # Retención: señales descartadas, cambios de inteligencia e inferencias que ya nada cita.
+    "retention-apply": {
+        "task": "apps.presentation.tasks.apply_retention",
+        "schedule": crontab(hour=3, minute=40),
+    },
+    # Sesiones caducadas y sus registros: nadie las borraba salvo quien abría su cuenta.
+    "accounts-purge-sessions": {
+        "task": "apps.accounts.tasks.purge_expired_sessions",
+        "schedule": crontab(minute=50),
+    },
+    # Avisos (F3): correo/webhook con los hechos nuevos que piden a una persona.
+    "alerts-dispatch": {
+        "task": "apps.alerts.tasks.dispatch_alerts",
+        "schedule": crontab(minute="*/10"),
+    },
 }
 
 # --- Archivos subidos (SBOM, XML de discovery, cargas temporales) ---
@@ -226,7 +399,8 @@ MEDIA_ROOT = os.environ.get("ATALAYA_MEDIA_ROOT", "/data/media")
 
 # --- Archivos estáticos ---
 STATIC_URL = "static/"
-STATIC_ROOT = BASE_DIR / "staticfiles"
+# En el perfil de producción collectstatic los deja en un volumen que sirve el proxy.
+STATIC_ROOT = Path(os.environ.get("ATALAYA_STATIC_ROOT", "") or BASE_DIR / "staticfiles")
 STATICFILES_DIRS = [BASE_DIR.parent / "frontend" / "static"]
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
@@ -262,21 +436,53 @@ NMAP_BIN = os.environ.get("NMAP_BIN", "/usr/bin/nmap")
 NUCLEI_BIN = os.environ.get("NUCLEI_BIN", "/usr/local/bin/nuclei")
 GRYPE_BIN = os.environ.get("GRYPE_BIN", "/usr/local/bin/grype")
 SCAN_RESULTS_DIR = os.environ.get("SCAN_RESULTS_DIR", "/data/scan-results")
+# Plantillas de nuclei (vacío = las que nuclei encuentre en su directorio por defecto).
+NUCLEI_TEMPLATES_DIR = os.environ.get("NUCLEI_TEMPLATES_DIR", "")
+# Grype lee esta misma variable; aquí sirve para mostrar la antigüedad de su base.
+GRYPE_DB_CACHE_DIR = os.environ.get("GRYPE_DB_CACHE_DIR", "")
+# Tiempo máximo de una ejecución de nuclei o Grype.
+SCANNER_TIMEOUT_S = int(os.environ.get("SCANNER_TIMEOUT_S", "3600"))
 
-# --- CTI ---
+# --- CTI (Módulo 3: espejo local de NVD, EPSS y KEV) ---
 NVD_API_KEY = os.environ.get("NVD_API_KEY", "")
 NVD_API_BASE = os.environ.get("NVD_API_BASE", "https://services.nvd.nist.gov/rest/json/cves/2.0")
-EPSS_SNAPSHOT_URL = os.environ.get("EPSS_SNAPSHOT_URL", "")
-KEV_CATALOG_URL = os.environ.get("KEV_CATALOG_URL", "")
+EPSS_SNAPSHOT_URL = os.environ.get(
+    "EPSS_SNAPSHOT_URL", "https://epss.cyentia.com/epss_scores-current.csv.gz"
+)
+KEV_CATALOG_URL = os.environ.get(
+    "KEV_CATALOG_URL",
+    "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
+)
+# CTI_ONLINE=0 impide cualquier descarga (pruebas, entornos sin salida a internet).
+CTI_ONLINE = os.environ.get("CTI_ONLINE", "1") == "1"
+# Primera sincronización incremental de NVD: cuántos días hacia atrás.
+CTI_NVD_INITIAL_DAYS = int(os.environ.get("CTI_NVD_INITIAL_DAYS", "30"))
+# Espejo dirigido: cada cuántos días se vuelven a traer los CVE de un producto del inventario.
+CTI_PRODUCT_REFRESH_DAYS = int(os.environ.get("CTI_PRODUCT_REFRESH_DAYS", "7"))
+# Lectura de una página de NVD (2 000 CVE, 10–20 MB) con salidas lentas.
+CTI_HTTP_TIMEOUT_S = float(os.environ.get("CTI_HTTP_TIMEOUT_S", "600"))
+# «EPSS subió»: incremento mínimo entre snapshots, o primer puntaje por encima de CTI_EPSS_HIGH.
+CTI_EPSS_RISE_DELTA = float(os.environ.get("CTI_EPSS_RISE_DELTA", "0.1"))
+CTI_EPSS_HIGH = float(os.environ.get("CTI_EPSS_HIGH", "0.5"))
 
-# --- Scoring weights ---
-SCORING_WEIGHTS = {
-    "cvss": float(os.environ.get("SCORING_WEIGHT_CVSS", "0.30")),
-    "epss": float(os.environ.get("SCORING_WEIGHT_EPSS", "0.25")),
-    "kev": float(os.environ.get("SCORING_WEIGHT_KEV", "0.20")),
-    "asset_criticality": float(os.environ.get("SCORING_WEIGHT_ASSET_CRITICALITY", "0.15")),
-    "exposure": float(os.environ.get("SCORING_WEIGHT_EXPOSURE", "0.10")),
-}
+# --- Detección continua (Módulo 3) ---
+# «Pasó mucho sin revisar»: días sin decisión del planificador sobre un activo, y días sin
+# que una fuente vuelva a ver un hallazgo abierto.
+DETECTION_ASSET_REVIEW_DAYS = int(os.environ.get("DETECTION_ASSET_REVIEW_DAYS", "14"))
+DETECTION_FINDING_REVIEW_DAYS = int(os.environ.get("DETECTION_FINDING_REVIEW_DAYS", "30"))
+# «Volver a evaluar» se ofrece solo si la última decisión del planificador es más vieja que esto.
+DETECTION_REEVALUATE_MINUTES = int(os.environ.get("DETECTION_REEVALUATE_MINUTES", "30"))
+# Consolidación de observaciones → vulnerabilidades: retardo agrupador y observaciones por llamada.
+DETECTION_CONSOLIDATE_DELAY_S = int(os.environ.get("DETECTION_CONSOLIDATE_DELAY_S", "20"))
+DETECTION_CONSOLIDATE_CHUNK = int(os.environ.get("DETECTION_CONSOLIDATE_CHUNK", "25"))
+# Cuántas vulnerabilidades sin descripción en español se redactan solas tras cada consolidación.
+DETECTION_DESCRIBE_BATCH = int(os.environ.get("DETECTION_DESCRIBE_BATCH", "10"))
+# Multiplicador del lote cuando la cola ``llm`` está vacía (F9: el modelo ocioso no debe esperar).
+DETECTION_DESCRIBE_BURST = int(os.environ.get("DETECTION_DESCRIBE_BURST", "4"))
+# Cada cuántos segundos beat encola otro lote (DETECTION_DESCRIBE_BATCH) de descripciones pendientes.
+DETECTION_DESCRIBE_EVERY = float(os.environ.get("DETECTION_DESCRIBE_EVERY", "120"))
+# EPSS a partir del cual una vulnerabilidad se considera de explotación probable (FIRST sugiere 0.1).
+DETECTION_EPSS_HIGH = float(os.environ.get("DETECTION_EPSS_HIGH", "0.1"))
 
 # --- Logging ---
 LOGGING = {

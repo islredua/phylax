@@ -16,6 +16,8 @@ from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.debug import sensitive_post_parameters
 from django.views.generic import FormView, ListView
 
+from apps.core.views import PaginationMixin
+
 from . import mfa, user_sessions
 from .audit import record_event
 from .forms import MFACodeForm
@@ -135,7 +137,7 @@ class AuditLogFilterForm(forms.Form):
             field.widget.attrs.setdefault("class", "form-input")
 
 
-class AuditLogListView(PermissionRequiredMixin, ListView):
+class AuditLogListView(PermissionRequiredMixin, PaginationMixin, ListView):
     """Bitácora de solo lectura. Visible para los roles auditor y admin."""
 
     model = AuditLogEntry

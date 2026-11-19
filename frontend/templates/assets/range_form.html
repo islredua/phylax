@@ -1,9 +1,13 @@
 {% extends "base.html" %}
 {% block title %}{% if range %}Editar {{ range.name }}{% else %}Nuevo rango{% endif %}{% endblock %}
-{% block breadcrumb_tail %}{% if range %}<li><a href="{% url 'assets:range_detail' range.pk %}">{{ range.name }}</a></li><li>Editar</li>{% else %}<li>Nuevo rango</li>{% endif %}{% endblock %}
-{% block toolbar %}<div class="toolbar"><h2>{% if range %}Editar {{ range.name }}{% else %}Nuevo rango de red{% endif %}</h2></div>{% endblock %}
+{% block breadcrumb_tail %}{% if range %}<li><a href="{% url 'assets:range_detail' range.pk %}">{{ range.name }}</a></li><li>{% if renewing %}Renovar autorización{% else %}Editar{% endif %}</li>{% else %}<li>Nuevo rango</li>{% endif %}{% endblock %}
+{% block toolbar %}<div class="toolbar"><h2>{% if renewing %}Renovar la autorización de {{ range.name }}{% elif range %}Editar {{ range.name }}{% else %}Nuevo rango de red{% endif %}</h2></div>{% endblock %}
 {% block content %}
+{% if renewing %}
+<div class="alert-warning max-w-2xl">Actualiza <strong>«Vigente hasta»</strong> con la nueva fecha y, si cambió, la referencia del oficio o ticket que lo autoriza. Quedarás registrado como quien renovó.</div>
+{% else %}
 <div class="alert-info max-w-2xl">Marcar un rango <strong>dentro del alcance</strong> autoriza escanearlo: registra la referencia del oficio, ticket o carta que lo permite. Quedarás registrado como quien autorizó.</div>
+{% endif %}
 {% if range %}{% url 'assets:range_detail' range.pk as cancel %}{% else %}{% url 'assets:ranges' as cancel %}{% endif %}
 {% include "assets/_simple_form.html" with cancel_url=cancel %}
 {% endblock %}

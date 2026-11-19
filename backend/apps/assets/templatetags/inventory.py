@@ -1,7 +1,7 @@
 """Badges del inventario con el sistema visual (ADR-007). Todo el texto pasa por format_html."""
 
 from django import template
-from django.utils.html import format_html
+from django.utils.html import format_html, format_html_join
 from django.utils.safestring import mark_safe
 
 from apps.assets.enums import AssetStatus, Criticality, CriticalitySource, Exposure
@@ -34,9 +34,7 @@ RUN_STYLE = {
 @register.simple_tag
 def criticality_badge(value, source=None):
     if not value:
-        return mark_safe(
-            '<span class="badge-neutral">sin clasificar</span>'
-        )  # noqa: S308 (literal)
+        return mark_safe('<span class="badge-neutral">sin clasificar</span>')  # noqa: S308 (literal)
     label = Criticality(value).label
     title = CriticalitySource(source).label if source else ""
     badge = format_html(
@@ -79,6 +77,16 @@ def run_status_badge(run):
     )
 
 
+@register.simple_tag
+def launch_status_badges(parts):
+    """Estados de un lanzamiento de varias ejecuciones: «17 completados» «2 fallidos»."""
+    return format_html_join(
+        " ",
+        '<span class="{}">{}</span>',
+        ((RUN_STYLE.get(status, "badge-neutral"), text) for status, text in parts),
+    )
+
+
 @register.filter
 def choice_label(value, enum_name):
     """Etiqueta legible de un valor de enum (``{{ v|choice_label:"Environment" }}``)."""
@@ -98,3 +106,15 @@ def catalog(value, kind):
     from apps.assets.catalogs import label
 
     return label(kind, value) if value else "—"
+
+
+SCAN_MODE_LABELS = {
+    "privileged": "con privilegios (SYN, detección de SO)",
+    "unprivileged": "sin privilegios (connect)",
+}
+
+
+@register.filter
+def scan_mode_label(value):
+    """Modo de nmap en palabras (``privileged`` → «con privilegios…»)."""
+    return SCAN_MODE_LABELS.get(value, value or "—")

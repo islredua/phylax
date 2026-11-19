@@ -9,10 +9,11 @@
   <div class="card"><p class="stat-label">Conflictos</p><p class="stat-value {% if upload.meta.counts.conflict %}text-high{% endif %}">{{ upload.meta.counts.conflict }}</p></div>
   <div class="card"><p class="stat-label">Errores</p><p class="stat-value {% if upload.meta.counts.error %}text-critical{% endif %}">{{ upload.meta.counts.error }}</p></div>
 </div>
+{% if upload.meta.authorize_hosts %}<div class="alert-info text-sm">Al confirmar se autorizará el escaneo de los equipos nuevos con IP privada que hoy estén fuera del alcance (un rango de un solo equipo por IP; referencia: {% if upload.meta.authorization_reference %}«{{ upload.meta.authorization_reference }}»{% else %}este archivo{% endif %}).</div>{% endif %}
 <form method="post" class="flex flex-wrap items-center gap-3">
   {% csrf_token %}
   <button class="btn-primary" type="submit">Confirmar importación</button>
-  <span class="text-xs text-muted">Las filas con error se omiten. Vista previa válida hasta {{ upload.expires_at|date:"H:i" }}.</span>
+  <span class="text-xs text-muted">Las filas con error se omiten. Vista previa válida hasta {{ upload.expires_at|hora }}.</span>
 </form>
 <div class="table-wrap">
   <table class="data-table">

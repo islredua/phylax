@@ -1,7 +1,29 @@
 {% if is_paginated %}
-<nav class="flex items-center justify-between" aria-label="Paginación">
-  {% if page_obj.has_previous %}<a class="btn-secondary btn-sm" href="{% querystring page=page_obj.previous_page_number %}">← Anterior</a>{% else %}<span></span>{% endif %}
-  <span class="font-mono text-xs text-muted">Página {{ page_obj.number }} de {{ paginator.num_pages }}</span>
-  {% if page_obj.has_next %}<a class="btn-secondary btn-sm" href="{% querystring page=page_obj.next_page_number %}">Siguiente →</a>{% else %}<span></span>{% endif %}
+<nav class="flex flex-wrap items-center justify-between gap-2" aria-label="Paginación">
+  <div class="flex items-center gap-1">
+    {% if page_obj.has_previous %}
+    <a class="btn-secondary btn-sm" href="{% querystring page=1 %}" aria-label="Primera página">«</a>
+    <a class="btn-secondary btn-sm" href="{% querystring page=page_obj.previous_page_number %}">← Anterior</a>
+    {% endif %}
+  </div>
+  <div class="flex flex-wrap items-center gap-3 text-xs text-muted">
+    <span>Mostrando <span class="font-mono">{{ page_obj.start_index }}–{{ page_obj.end_index }}</span> de <span class="font-mono">{{ paginator.count|miles }}</span> · página {{ page_obj.number }} de {{ paginator.num_pages }}</span>
+    <form method="get" class="flex items-center gap-1">
+      {% for key, values in request.GET.lists %}{% if key != 'page' and key != 'per_page' %}{% for v in values %}<input type="hidden" name="{{ key }}" value="{{ v }}">{% endfor %}{% endif %}{% endfor %}
+      <label for="per_page" class="sr-only">Filas por página</label>
+      <select name="per_page" id="per_page" class="form-input !w-auto !py-0.5 !text-xs" data-autosubmit>
+        {% for n in page_sizes %}<option value="{{ n }}" {% if n == per_page %}selected{% endif %}>{{ n }} por página</option>{% endfor %}
+      </select>
+      <label for="ir_a" class="sr-only">Ir a la página</label>
+      <input type="number" name="page" id="ir_a" min="1" max="{{ paginator.num_pages }}" value="{{ page_obj.number }}" class="form-input !w-16 !py-0.5 !text-xs" aria-label="Ir a la página">
+      <button type="submit" class="btn-secondary btn-sm">Ir</button>
+    </form>
+  </div>
+  <div class="flex items-center gap-1">
+    {% if page_obj.has_next %}
+    <a class="btn-secondary btn-sm" href="{% querystring page=page_obj.next_page_number %}">Siguiente →</a>
+    <a class="btn-secondary btn-sm" href="{% querystring page=paginator.num_pages %}" aria-label="Última página">»</a>
+    {% endif %}
+  </div>
 </nav>
 {% endif %}

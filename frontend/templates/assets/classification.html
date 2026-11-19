@@ -1,16 +1,23 @@
 {% extends "base.html" %}
 {% load inventory %}
 {% block title %}Clasificación{% endblock %}
-{% block toolbar %}<div class="toolbar"><h2>Pendientes de clasificación</h2></div>{% endblock %}
+{% block toolbar %}<div class="toolbar"><h2>Clasificación de criticidad</h2></div>{% endblock %}
 {% block content %}
+<p class="text-sm text-ink-soft">La IA calcula la criticidad de cada activo con su contexto de negocio y la aplica sola cuando el activo no tenía ninguna; las personas la confirman o la cambian. Aquí están las decisiones pendientes y los activos que aún no tienen criticidad.</p>
 {% if not llm_ready %}{% include "assets/_model_missing.html" %}{% else %}<p class="text-xs text-muted">Modelo del sistema: <span class="font-mono">{{ llm_model }}</span></p>{% endif %}
+<div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+  <div class="card"><p class="stat-label">Sugerencias por decidir</p><p class="stat-value">{{ pending|length }}</p></div>
+  <a href="{% url 'assets:list' %}?criticality=llm_auto" class="card hover:no-underline"><p class="stat-label">Calculadas por IA sin revisar</p><p class="stat-value {% if auto_count %}text-medium{% endif %}">{{ auto_count }}</p></a>
+  <div class="card"><p class="stat-label">Sin criticidad</p><p class="stat-value">{{ unclassified_total }}</p></div>
+  <div class="card"><p class="stat-label">Fallidas en 24 h</p><p class="stat-value {% if failed_day %}text-critical{% endif %}">{{ failed_day }}</p>{% if failed_day and llm_blocker %}<p class="text-xs text-muted">{{ llm_blocker }}</p>{% endif %}</div>
+</div>
 
 <section class="flex flex-col gap-3">
   <h3 class="eyebrow">Sugerencias por decidir y revisiones sugeridas</h3>
   <div id="pending" class="flex flex-col gap-3">
     {% for s in pending %}{% include "assets/_suggestion_card.html" %}{% endfor %}
     {# Visible solo cuando no hay tarjetas (también tras insertar una con HTMX). #}
-    <p class="muted hidden only:block">No hay sugerencias pendientes.</p>
+    <p class="muted hidden only:block">No hay sugerencias pendientes.{% if auto_count %} Las criticidades <a href="{% url 'assets:list' %}?criticality=llm_auto">calculadas por IA sin revisar</a> se confirman desde cada activo.{% endif %}</p>
   </div>
 </section>
 
@@ -18,22 +25,24 @@
   <h3 class="eyebrow">Activos sin criticidad</h3>
   <div class="table-wrap">
     <table class="data-table">
-      <thead><tr><th>Activo</th><th>Tipo</th><th>Entorno</th><th>Función</th><th></th></tr></thead>
+      <thead><tr><th scope="col">Activo</th><th scope="col" class="col-md">Tipo</th><th scope="col" class="col-md">Entorno</th><th scope="col">Función</th><th scope="col"></th></tr></thead>
       <tbody>
         {% for a in unclassified %}
         <tr id="unclassified-{{ a.pk }}">
           <td><a href="{% url 'assets:detail' a.pk %}">{{ a.name }}</a></td>
-          <td class="text-ink-soft">{{ a.asset_type|catalog:"ASSET_TYPE" }}</td>
-          <td class="text-ink-soft">{{ a.environment|catalog:"ENVIRONMENT" }}</td>
+          <td class="col-md text-ink-soft">{{ a.asset_type|catalog:"ASSET_TYPE" }}</td>
+          <td class="col-md text-ink-soft">{{ a.environment|catalog:"ENVIRONMENT" }}</td>
           <td class="text-ink-soft">{{ a.business_role|catalog:"BUSINESS_ROLE" }}</td>
           <td class="text-right">
             {% if not a.has_minimum_context %}
-              <a href="{% url 'assets:edit' a.pk %}" class="badge-neutral" title="Falta descripción o función de negocio">contexto insuficiente</a>
+              <a href="{% url 'assets:edit' a.pk %}" class="badge-neutral" title="Falta descripción o función de negocio">contexto insuficiente · completar</a>
             {% elif perms.assets.decide_criticality and llm_ready %}
             <form method="post" action="{% url 'assets:suggest' a.pk %}" hx-post="{% url 'assets:suggest' a.pk %}" hx-target="#pending" hx-swap="afterbegin" hx-on::after-request="if(event.detail.successful){document.getElementById('unclassified-{{ a.pk }}').remove()}" class="flex justify-end gap-2">
               {% csrf_token %}<input type="hidden" name="next" value="{% url 'assets:classification' %}">
-              <button class="btn-secondary btn-sm" type="submit">Sugerir</button>
+              <button class="btn-secondary btn-sm" type="submit">Sugerir con IA</button>
             </form>
+            {% elif perms.assets.change_asset %}
+              <a href="{% url 'assets:edit' a.pk %}" class="btn-secondary btn-sm" title="{{ llm_blocker }}">Fijar a mano</a>
             {% endif %}
           </td>
         </tr>
@@ -41,6 +50,7 @@
       </tbody>
     </table>
   </div>
+  {% if unclassified_total > unclassified|length %}<p class="text-xs text-muted">Se muestran {{ unclassified|length }} de {{ unclassified_total }}; <a href="{% url 'assets:list' %}?criticality=none">ver todos en Activos</a>.</p>{% endif %}
 </section>
 
 {% if failed %}

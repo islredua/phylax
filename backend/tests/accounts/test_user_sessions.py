@@ -92,10 +92,13 @@ def test_revoke_cannot_touch_other_users_sessions(make_user, user, password):
     assert other_client.get("/").status_code == 200
 
 
-def test_active_sessions_prunes_expired(client, user, password):
+def test_active_sessions_skip_the_ones_that_are_gone(client, user, password):
     login(client, user, password)
     Session.objects.all().delete()
     assert user_sessions.active_sessions(user) == []
+    # Leer no borra (R1): el registro lo retira la tarea de depuración.
+    assert UserSession.objects.filter(user=user).exists()
+    assert user_sessions.purge_expired()["records"] == 1
     assert not UserSession.objects.filter(user=user).exists()
 
 
@@ -112,3 +115,75 @@ def test_password_reset_completion_revokes_all_sessions(user, password, reset_li
     )
     assert victim_session.get("/").status_code == 302
     assert not UserSession.objects.filter(user=user).exists()
+
+
+# --- Revisión del 2026-11-16, R1: leer las sesiones no cuesta una consulta por sesión ---
+
+
+def _session(user, *, expired=False):
+    """Una sesión de Django con su registro, como la deja el inicio de sesión."""
+    from datetime import timedelta
+
+    from django.contrib.sessions.backends.db import SessionStore
+    from django.utils import timezone
+
+    store = SessionStore()
+    store["marca"] = 1
+    store.save()
+    if expired:
+        Session.objects.filter(session_key=store.session_key).update(
+            expire_date=timezone.now() - timedelta(days=1)
+        )
+    return UserSession.objects.create(user=user, session_key=store.session_key, user_agent=UA)
+
+
+def test_active_sessions_read_in_two_queries_and_delete_nothing(user, django_assert_num_queries):
+    alive = [_session(user) for _ in range(12)]
+    _session(user, expired=True)
+    UserSession.objects.create(user=user, session_key="sesion-que-ya-no-existe")
+    with django_assert_num_queries(2):
+        listed = user_sessions.active_sessions(user)
+    # Una sesión caducada que nadie ha borrado no es una sesión abierta.
+    assert {s.pk for s in listed} == {s.pk for s in alive}
+    # Leer no borra: los registros muertos esperan a la tarea.
+    assert UserSession.objects.filter(user=user).count() == 14
+
+
+def test_purge_removes_expired_sessions_and_their_records(user):
+    from apps.accounts import tasks
+
+    kept = _session(user)
+    _session(user, expired=True)
+    UserSession.objects.create(user=user, session_key="sesion-que-ya-no-existe")
+    assert tasks.purge_expired_sessions() == {"records": 2, "expired": 1}
+    assert list(UserSession.objects.filter(user=user)) == [kept]
+    assert list(Session.objects.values_list("session_key", flat=True)) == [kept.session_key]
+    assert tasks.purge_expired_sessions() == {"records": 0, "expired": 0}
+
+
+def test_purge_is_scheduled(settings):
+    scheduled = {entry["task"] for entry in settings.CELERY_BEAT_SCHEDULE.values()}
+    assert "apps.accounts.tasks.purge_expired_sessions" in scheduled
+
+
+@pytest.mark.parametrize("path", ["/", "/accounts/me/", "/accounts/me/security/"])
+def test_pages_do_not_query_once_per_open_session(client, user, password, path):
+    """Inicio hacía una consulta por cada sesión abierta del usuario (77 de 109 en la revisión)
+    y borraba las caducadas en una petición de lectura."""
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    login(client, user, password)
+
+    def queries():
+        with CaptureQueriesContext(connection) as captured:
+            assert client.get(path).status_code == 200
+        return len(captured)
+
+    queries()
+    few = queries()
+    for _ in range(20):
+        _session(user)
+    _session(user, expired=True)
+    assert queries() == few
+    assert UserSession.objects.filter(user=user).count() == 22

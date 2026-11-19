@@ -12,6 +12,8 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.debug import sensitive_post_parameters
 from django.views.generic import FormView, ListView, TemplateView, UpdateView
 
+from apps.core.views import PaginationMixin
+
 from . import mfa, user_sessions
 from .audit import record_event
 from .forms import (
@@ -221,7 +223,7 @@ class SessionRevokeView(View):
         return redirect("accounts:security")
 
 
-class ActivityView(ListView):
+class ActivityView(PaginationMixin, ListView):
     template_name = "accounts/me/activity.html"
     context_object_name = "entries"
     paginate_by = 25
