@@ -149,9 +149,10 @@ FLOW_GROUPS = (
     ("out", "Resulta", ("observations", "vulnerabilities", "risks")),
 )
 # Qué alimenta a qué. ``out`` e ``in`` dicen por qué lado de cada tarjeta sale y entra la línea
-# (lado:fracción); ``shape`` «under» es el retorno que pasa por debajo. home-flow.js las dibuja
-# sobre las tarjetas en pantallas anchas; en las demás, cada tarjeta dice de dónde le llega lo
-# suyo (``origin``).
+# (lado:fracción); ``shape`` «under» es el retorno que pasa por debajo y «context» lo que no
+# pasa de una etapa a otra sino que se consulta (el contexto de cada activo al valorar).
+# home-flow.js las dibuja sobre las tarjetas en pantallas anchas; en las demás, cada tarjeta
+# dice de dónde le llega lo suyo (``origin``).
 FLOW_LINKS = (
     ("signals", "match", "right:0.5", "left:0.3", ""),
     ("inventory", "match", "right:0.5", "left:0.72", ""),
@@ -159,10 +160,18 @@ FLOW_LINKS = (
     ("match", "decisions", "bottom:0.5", "top:0.5", ""),
     ("decisions", "scans", "right:0.5", "left:0.5", ""),
     ("scans", "observations", "right:0.5", "left:0.72", ""),
-    ("scans", "inventory", "bottom:0.5", "bottom:0.5", "under"),
+    # El retorno llega por la derecha del inventario y el contexto sale por su izquierda, en
+    # un carril más bajo: así no se cruzan.
+    ("scans", "inventory", "bottom:0.5", "bottom:0.7", "under"),
     ("observations", "vulnerabilities", "bottom:0.5", "top:0.5", ""),
     ("vulnerabilities", "risks", "bottom:0.5", "top:0.5", ""),
+    # Una sola línea que al final se abre hacia las dos etapas que valoran.
+    ("inventory", "vulnerabilities", "bottom:0.3", "bottom:0.25", "context"),
+    ("inventory", "risks", "bottom:0.3", "top:0.25", "context"),
 )
+# Dónde va el rótulo a lo largo de la línea (0 = donde sale, 1 = donde llega); por defecto, al
+# centro. El del contexto va cerca del final para no pisar el del retorno.
+FLOW_LABEL_AT = {("inventory", "vulnerabilities"): "0.87"}
 # Qué hace la IA local en cada etapa donde trabaja.
 FLOW_AI = {
     "inventory": "sugiere la criticidad de cada activo",
@@ -229,6 +238,20 @@ def hero_payload(data):
         scan_sub = _count(scan["failed"], "fallido", "fallidos")
     else:
         scan_sub = "todos correctos" if scan["total"] else "ninguno todavía"
+    if scan["total"] and scan["assets_total"]:
+        # Los escaneos tienen varios orígenes: lo que dice si el inventario está cubierto no es
+        # cuántos pidió el planificador, sino cuántos activos tienen alguno.
+        scanned = "activo escaneado" if scan["assets_total"] == 1 else "activos escaneados"
+        scan_sub = f"{scan['assets_covered']:,} de {scan['assets_total']:,} {scanned} · {scan_sub}"
+    if dec["total"]:
+        dec_origin = (
+            f"{dec['from_cti']:,} por inteligencia · "
+            f"{dec['from_inventory']:,} por cambios o revisiones del inventario"
+        )
+    else:
+        dec_origin = (
+            "Por inteligencia que toca al inventario o por un cambio o revisión del inventario"
+        )
     stations = [
         {
             "key": "signals",
@@ -270,14 +293,16 @@ def hero_payload(data):
         },
         {
             "key": "decisions",
-            "label": "Decisiones",
+            "label": "Decisiones del planificador",
             "value": dec["total"],
             "sub": dec_sub,
             "actor": "IA local",
             "kind": "ai",
             "scope": window,
             "busy": False,
-            "origin": "De lo que toca al inventario",
+            # Recibe por dos lados y la línea que le llega es una sola: se dice siempre.
+            "origin": dec_origin,
+            "origin_always": True,
         },
         {
             "key": "scans",
@@ -313,7 +338,7 @@ def hero_payload(data):
             "kind": "ai",
             "scope": "vigentes hoy",
             "busy": False,
-            "origin": "De la evidencia, reunida por activo",
+            "origin": "De la evidencia, reunida por activo y valorada con su contexto",
         },
         {
             "key": "risks",
@@ -324,7 +349,7 @@ def hero_payload(data):
             "kind": "person",
             "scope": "vigentes hoy",
             "busy": False,
-            "origin": "De las vulnerabilidades de cada activo",
+            "origin": "De las vulnerabilidades y el contexto de cada activo",
         },
     ]
     by_key = {st["key"]: st for st in stations}
@@ -343,48 +368,66 @@ def hero_payload(data):
         for key, title, keys in FLOW_GROUPS
     ]
     # La cifra de cada conexión: cuánto pasa por ahí. ``None`` es una línea sin rótulo.
+    # Cada conexión: cuánto pasa por ahí (``None`` es una línea sin cifra), en qué unidad, qué
+    # es y la explicación al pasar el cursor.
     link_text = {
         ("signals", "match"): (
             sig["cti"],
+            "señal" if sig["cti"] == 1 else "señales",
             "de inteligencia",
             "Señales de las fuentes de inteligencia que llegan al cruce",
         ),
         ("inventory", "match"): (
             sig["inventory"],
             "cambio" if sig["inventory"] == 1 else "cambios",
+            "del inventario",
             "Cambios del inventario que entran como señal",
         ),
         ("match", "observations"): (
             obs["from_match"],
+            "reporte" if obs["from_match"] == 1 else "reportes",
             "sin escanear",
             "Reportes de evidencia que salen del cruce de inteligencia con el inventario, "
             "sin pasar por un escaneo",
         ),
         ("match", "decisions"): (
             dec["total"],
+            "señal" if dec["total"] == 1 else "señales",
             "al planificador",
-            "Decisiones del planificador sobre lo que toca al inventario",
+            "Señales que el cruce no resuelve solo y sobre las que decide el planificador: "
+            "las de inteligencia sin versión conocida o con explotación activa, y los cambios "
+            "y revisiones del inventario",
         ),
         ("decisions", "scans"): (
             scan["by_planner"],
             "",
-            "Escaneos que ordenó el planificador",
+            "escaneo" if scan["by_planner"] == 1 else "escaneos",
+            "Escaneos que ordenó el planificador; los demás los pide una persona o el calendario",
         ),
         ("scans", "observations"): (
             obs["with_tool"],
+            "reporte" if obs["with_tool"] == 1 else "reportes",
             "por escaneo",
             "Reportes de evidencia que encontró o confirmó una herramienta",
         ),
         ("scans", "inventory"): (
             None,
+            "",
             "lo que descubren vuelve al inventario",
             "Los puertos, servicios y software que encuentra un escaneo actualizan el "
             "inventario, y ese cambio entra como señal",
         ),
+        ("inventory", "vulnerabilities"): (
+            None,
+            "",
+            "contexto de cada activo",
+            "La criticidad, la exposición, la función de negocio y la clasificación de los "
+            "datos de cada activo se usan al valorar sus vulnerabilidades y sus riesgos",
+        ),
     }
     links = []
     for origin, target, out, into, shape in FLOW_LINKS:
-        value, caption, title = link_text.get((origin, target), (None, "", ""))
+        value, unit, caption, title = link_text.get((origin, target), (None, "", "", ""))
         links.append(
             {
                 "key": f"{origin}-{target}",
@@ -393,9 +436,11 @@ def hero_payload(data):
                 "out": out,
                 "in": into,
                 "shape": shape,
-                # En una sola línea: junto a una línea vertical o sobre el retorno.
-                "row": shape == "under" or out.startswith("bottom"),
+                "at": FLOW_LABEL_AT.get((origin, target), "0.5"),
+                # En una sola línea: junto a una línea vertical o sobre un carril horizontal.
+                "row": bool(shape) or out.startswith("bottom"),
                 "value": value,
+                "unit": unit,
                 "caption": caption,
                 "title": title,
             }

@@ -887,7 +887,7 @@ def test_home_first_run_has_an_empty_state_and_every_panel_renders(client, as_ro
     as_role(OPERATOR)
     body = client.get("/").content.decode()
     assert "Todavía no hay activos inventariados" in body and "Sin datos suficientes" in body
-    assert body.count('class="flow-step') == 8 and body.count("data-flow-link=") == 9
+    assert body.count('class="flow-step') == 8 and body.count("data-flow-link=") == 11
     for key in STAGE_KEYS:
         assert client.get(f"/home/block/stage/?etapa={key}").status_code == 200, key
     assert client.get("/home/charts.json").json()["hero"]["empty"] is True
@@ -952,7 +952,7 @@ def test_report_carries_the_journey_with_the_same_figures(client, as_role):
             assert label in body, label
         # Donde trabaja la IA y de dónde le llega lo suyo a cada etapa, también en el reporte.
         assert "IA: elige qué comprobar ante cada señal" in body
-        assert "De lo que toca al inventario" in body
+        assert "revisión del inventario" in body or "revisiones del inventario" in body
         assert "IA local (" in body and "aceptadas por el validador" in body
     assert f"| Señales recibidas | {flow['signals']['total']} |" in md
     assert f"| Riesgos abiertos | {flow['risks']['open']} |" in md
@@ -1035,8 +1035,11 @@ def test_every_scan_is_counted_once_under_who_asked_for_it(client, as_role):
         "2 por decisión · 3 por personas · 2 por calendario · 1 sin origen"
     )
     assert station["origin_always"] is True
+    # La tarjeta dice la cobertura: los escaneos no salen todos del planificador, así que lo
+    # que dice si el inventario está cubierto es cuántos activos tienen alguno.
+    assert station["sub"] == "1 de 1 activo escaneado · 1 en curso ahora"
     link = next(row for row in hero["links"] if row["key"] == "decisions-scans")
-    assert link["value"] == 2
+    assert link["value"] == 2 and link["caption"] == "escaneos"
     # Sin escaneos sin rastro, esa fila no aparece.
     from apps.scanners.models import ToolExecution
 
@@ -1066,7 +1069,7 @@ def test_the_diagram_says_what_feeds_what_and_where_the_ai_works(client, as_role
     assert grouped == list(STAGES) == [st["key"] for st in hero["flow"]]
     # Cada conexión une dos etapas que existen y su cifra es la del recorrido.
     links = {row["key"]: row for row in hero["links"]}
-    assert len(links) == len(FLOW_LINKS) == 9
+    assert len(links) == len(FLOW_LINKS) == 11
     assert all(row["from"] in STAGES and row["to"] in STAGES for row in links.values())
     assert links["signals-match"]["value"] == flow["signals"]["cti"]
     assert links["inventory-match"]["value"] == flow["signals"]["inventory"]
@@ -1075,6 +1078,21 @@ def test_the_diagram_says_what_feeds_what_and_where_the_ai_works(client, as_role
     assert links["decisions-scans"]["value"] == flow["scans"]["by_planner"]
     assert links["scans-observations"]["value"] == flow["observations"]["with_tool"]
     assert links["scans-inventory"]["shape"] == "under" and links["scans-inventory"]["caption"]
+    # Cada cifra lleva su unidad: sin ella «1,004 sin escanear» se leía como señales.
+    assert links["signals-match"]["unit"] in ("señal", "señales")
+    assert links["match-observations"]["unit"] in ("reporte", "reportes")
+    assert links["scans-observations"]["unit"] in ("reporte", "reportes")
+    assert links["decisions-scans"]["caption"] in ("escaneo", "escaneos")
+    # El contexto de cada activo no pasa de una etapa a otra: se consulta al valorar. Una sola
+    # línea punteada que se abre hacia vulnerabilidades y riesgos.
+    context = [row for row in links.values() if row["shape"] == "context"]
+    assert [(row["from"], row["to"]) for row in context] == [
+        ("inventory", "vulnerabilities"),
+        ("inventory", "risks"),
+    ]
+    assert context[0]["caption"] == "contexto de cada activo" and not context[1]["caption"]
+    assert all(row["value"] is None for row in context)
+    assert links["inventory-vulnerabilities"]["out"] == links["inventory-risks"]["out"]
     # Los escaneos no dependen de las señales de inteligencia: ninguna línea las une.
     assert "signals-scans" not in links and "signals-decisions" not in links
     obs = flow["observations"]
@@ -1094,7 +1112,12 @@ def test_the_diagram_says_what_feeds_what_and_where_the_ai_works(client, as_role
     body = client.get("/").content.decode()
     for key in STAGES:
         assert f'data-flow-node="{key}"' in body, key
-    assert body.count("data-flow-link=") == 9 and 'data-flow-link="scans-inventory"' in body
+    assert body.count("data-flow-link=") == 11 and 'data-flow-link="scans-inventory"' in body
+    assert body.count('data-shape="context"') == 2 and "lo que se consulta al valorar" in body
+    # El planificador se nombra, y sin señales todavía dice por dónde le llega lo que decide.
+    assert "Decisiones del planificador" in body
+    assert "o por un cambio o revisión del inventario" in body
+    assert "valorada con su contexto" in body and "y el contexto de cada activo" in body
     assert (
         body.count('class="flow-ai"') == 4
         and 'data-hero-stage-ai="inventory">sugiere la criticidad de cada activo' in body
@@ -1107,7 +1130,7 @@ def test_the_diagram_says_what_feeds_what_and_where_the_ai_works(client, as_role
         "Por tarea",
         "Aquí trabaja la IA local",
         # sin líneas, el texto de cada tarjeta
-        "De lo que toca al inventario",
+        "Por inteligencia que toca al inventario",
         "Cada señal se cruza con el software de cada activo",
         "Lo actualizan los escaneos y las personas",
     ):
@@ -1185,6 +1208,8 @@ def test_each_recent_decision_says_who_decided_and_who_asked(client, as_role, ma
     indicators.invalidate()
     found = indicators.compute()["pipeline"]["decisions"]
     assert (found["total"], found["by_model"], found["fallback"]) == (3, 2, 1)
+    # Al planificador le llega por inteligencia o por un cambio del inventario.
+    assert (found["from_cti"], found["from_inventory"]) == (0, 3)
     by_rule = next(row for row in found["latest"] if row["fallback"])
     assert by_rule["asked_by"] == user.get_username()
     assert by_rule["signal"] == "Evaluación pedida a mano"
@@ -1202,6 +1227,9 @@ def test_each_recent_decision_says_who_decided_and_who_asked(client, as_role, ma
         if st["key"] == "decisions"
     )
     assert station["ai"] == "decidió 2 de 3 · 1 por regla"
+    assert station["label"] == "Decisiones del planificador" and station["origin_always"]
+    assert station["origin"] == "0 por inteligencia · 3 por cambios o revisiones del inventario"
+    assert "0 por inteligencia y 3 por cambios o revisiones del inventario" in html
     assert (
         'data-hero-stage-ai="decisions">decidió 2 de 3 · 1 por regla'
         in client.get("/").content.decode()

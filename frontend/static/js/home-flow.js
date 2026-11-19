@@ -2,7 +2,7 @@
  * «Cómo trabaja la detección» en Inicio: traza las conexiones entre las etapas.
  *
  * El servidor pinta las tarjetas y, por cada conexión, un rótulo [data-flow-link] que dice de
- * qué etapa sale, a cuál llega, por qué lado (lado:fracción) y su cifra. Aquí solo se dibuja:
+ * qué etapa sale, a cuál llega, por qué lado (lado:fracción), su forma y su cifra. Aquí solo se dibuja:
  * una línea SVG por conexión, medida sobre las tarjetas tal como quedaron, y el rótulo encima.
  * Solo en la disposición ancha (la hoja de estilos lo dice con --flow-links: 1); en las demás, o
  * sin JS, cada tarjeta dice con texto de dónde le llega lo suyo. Se vuelve a trazar cuando
@@ -35,21 +35,29 @@
 
   function round(n) { return Math.round(n * 100) / 100; }
 
-  // Línea entre dos puntos. Devuelve el trazo y dónde va su rótulo.
-  function route(a, b, shape, fromBox, toBox) {
-    if (shape === "under") {
-      // El retorno: baja, pasa por debajo de las tarjetas y sube a la de destino.
-      var lane = Math.max(fromBox.bottom, toBox.bottom) + 16;
-      var r = 8;
+  // Carriles bajo la segunda fila de tarjetas, como fracción del hueco que queda hasta el
+  // bloque de la IA: arriba el retorno (lo que descubre un escaneo vuelve al inventario) y
+  // debajo el contexto (lo que se consulta de cada activo al valorar).
+  var LANE = { under: 0.3, context: 0.72 };
+
+  // Línea entre dos puntos. Devuelve el trazo y dónde va su rótulo. ``gap`` es el alto del
+  // hueco de los carriles y ``at`` en qué punto de la línea va el rótulo (0 a 1).
+  function route(a, b, shape, fromBox, toBox, gap, at) {
+    if (LANE[shape] !== undefined) {
+      // Baja al carril, lo recorre y entra en la tarjeta de destino: por debajo (sube) o,
+      // si está en la fila siguiente, por arriba (baja).
+      var up = b.side === "bottom";
+      var lane = (up ? Math.max(fromBox.bottom, toBox.bottom) : fromBox.bottom) + gap * LANE[shape];
       var dir = b.x < a.x ? -1 : 1;
+      var r = Math.max(2, Math.min(8, lane - a.y - 1, Math.abs(b.y - lane) / 2));
       return {
         d: "M" + round(a.x) + " " + round(a.y) +
           " V" + round(lane - r) +
           " Q" + round(a.x) + " " + round(lane) + " " + round(a.x + dir * r) + " " + round(lane) +
           " H" + round(b.x - dir * r) +
-          " Q" + round(b.x) + " " + round(lane) + " " + round(b.x) + " " + round(lane - r) +
-          " V" + round(b.y + 1),
-        label: { x: (a.x + b.x) / 2, y: lane }
+          " Q" + round(b.x) + " " + round(lane) + " " + round(b.x) + " " + round(up ? lane - r : lane + r) +
+          " V" + round(up ? b.y + 1 : b.y - 1),
+        label: { x: a.x + (b.x - a.x) * at, y: lane }
       };
     }
     if (a.side === "bottom" && b.side === "top") {
@@ -100,6 +108,11 @@
     }
     svg.setAttribute("viewBox", "0 0 " + round(frame.width) + " " + round(frame.height));
     svg.setAttribute("preserveAspectRatio", "none");
+    // El hueco de los carriles: de la segunda fila de tarjetas al bloque de la IA.
+    var engine = map.querySelector('[data-flow-node="ai"]');
+    var second = map.querySelector('[data-flow-node="inventory"]');
+    var gap = engine && second ? box(engine).top - box(second).bottom : 0;
+    if (!(gap > 8)) gap = 32;
 
     var defs = el("defs");
     ["", "-on"].forEach(function (suffix) {
@@ -121,9 +134,11 @@
       var a = anchor(fromBox, label.getAttribute("data-out"));
       var b = anchor(toBox, label.getAttribute("data-in"));
       var shape = label.getAttribute("data-shape") || "";
-      var path = route(a, b, shape, fromBox, toBox);
+      var at = parseFloat(label.getAttribute("data-at") || "0.5");
+      var path = route(a, b, shape, fromBox, toBox, gap, isNaN(at) ? 0.5 : at);
+      var style = shape === "under" ? " flow-line-loop" : shape === "context" ? " flow-line-context" : "";
       var line = el("path", {
-        d: path.d, "class": "flow-line" + (shape === "under" ? " flow-line-loop" : ""),
+        d: path.d, "class": "flow-line" + style,
         "marker-end": "url(#flow-arrow)", "data-from": label.getAttribute("data-from"),
         "data-to": label.getAttribute("data-to")
       });

@@ -35,7 +35,7 @@ from apps.scoring.services import severity_for
 from . import pipeline
 from .models import HealthSnapshot, HealthStatus, PresentationSettings
 
-CACHE_KEY = "home:indicators:v2"  # v2: el recorrido trae el inventario y el origen de cada escaneo
+CACHE_KEY = "home:indicators:v3"  # v3: de dónde le llega al planificador lo que decide
 CACHE_SECONDS = 60
 RISK_OPEN = ("OPEN", "TREATED", "ACCEPTED")
 # Valores planos (str), no miembros del enum: el dato viaja a caché, JSON y al modelo.

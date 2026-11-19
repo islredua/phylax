@@ -194,6 +194,10 @@ def decisions(since) -> dict:
     by_action = dict(rows.values_list("action").annotate(n=Count("id")).values_list("action", "n"))
     total = sum(by_action.values())
     fallback = rows.filter(fallback=True).count()
+    # El planificador recibe por dos lados: un CVE que toca al inventario sin poder resolverse
+    # solo, o algo del propio inventario (activo confirmado, servicios, SBOM, producto vigilado,
+    # evaluación pedida, revisión por tiempo).
+    from_cti = rows.filter(event__kind__in=CTI_EVENT_KINDS).count()
     actions = PlannedAction.objects.filter(created_at__gte=since)
     by_status = dict(
         actions.values_list("status").annotate(n=Count("id")).values_list("status", "n")
@@ -226,6 +230,8 @@ def decisions(since) -> dict:
         "by_model": total - fallback,
         "fallback": fallback,
         "by_person": by_person,
+        "from_cti": from_cti,
+        "from_inventory": total - from_cti,
         "by_action": [
             {"key": action, "label": action_label.get(action, action), "value": n}
             for action, n in sorted(by_action.items(), key=lambda kv: -kv[1])

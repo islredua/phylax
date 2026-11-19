@@ -773,6 +773,12 @@
   .flow-line-loop {
     stroke-dasharray: 5 4;
   }
+  /* Punteada: no es algo que pase de una etapa a otra, es lo que se consulta al valorar. */
+  .flow-line-context {
+    stroke-dasharray: 0.5 5;
+    stroke-linecap: round;
+    stroke-width: 2;
+  }
   .flow-arrow {
     fill: var(--flow-line);
   }
@@ -790,12 +796,19 @@
   .flow-link strong {
     @apply font-mono text-[11px] font-semibold text-ink;
   }
+  /* La cifra con su unidad: «1,004 reportes». */
+  .flow-link-figure {
+    @apply inline-flex items-baseline gap-1;
+  }
   /* En una línea: junto a una vertical o sobre el retorno. */
   .flow-link-row {
     @apply flex-row items-baseline gap-1;
   }
   .flow-link-loop {
     @apply border-dashed;
+  }
+  .flow-link-context {
+    @apply border-dotted;
   }
   .flow-wrap.has-links .flow-link:not(.flow-link-bare) {
     @apply flex;
@@ -825,6 +838,9 @@
   }
   .flow-legend-line-loop {
     @apply border-dashed;
+  }
+  .flow-legend-line-context {
+    @apply border-t-2 border-dotted;
   }
   .flow-wrap:not(.has-links) .flow-legend-item:not(.flow-legend-ai) {
     @apply hidden;
@@ -870,13 +886,14 @@
       .flow-map {
         --flow-links: 1;
         --flow-gutter: 6rem; /* canal entre columnas: ahí va el rótulo de cada conexión */
-        --flow-gap: 3.5rem; /* entre Decisiones y Escaneos: cabe una cifra */
-        --flow-row-gap: 2rem; /* entre filas: pasan las líneas verticales y el retorno */
+        --flow-gap: 5rem; /* entre Decisiones y Escaneos: caben la cifra, su unidad y la flecha */
+        --flow-row-gap: 2rem; /* entre la primera y la segunda fila: pasan las líneas verticales */
+        --flow-lane-gap: 2.75rem; /* bajo la segunda: dos carriles, el retorno y el contexto */
         @apply grid max-w-[96rem] items-stretch gap-0;
         grid-template-columns:
           minmax(0, 1fr) var(--flow-gutter) minmax(0, 1fr) var(--flow-gap)
           minmax(0, 1fr) var(--flow-gutter) minmax(0, 1fr);
-        grid-template-rows: auto auto var(--flow-row-gap) auto var(--flow-row-gap) auto;
+        grid-template-rows: auto auto var(--flow-row-gap) auto var(--flow-lane-gap) auto;
       }
       .flow-group {
         @apply grid gap-0;

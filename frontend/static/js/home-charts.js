@@ -141,6 +141,8 @@
     (data.links || []).forEach(function (link) {
       if (link.value !== null && link.value !== undefined) {
         setText('[data-hero-link="' + link.key + '"]', fmt.format(link.value));
+        if (link.unit) setText('[data-hero-link-unit="' + link.key + '"]', link.unit);
+        if (link.caption) setText('[data-hero-link-caption="' + link.key + '"]', link.caption);
       }
     });
     if (data.engine) {

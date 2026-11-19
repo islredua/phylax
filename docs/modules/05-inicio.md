@@ -339,21 +339,23 @@ la otra entrada del cruce:
 | Columna | Etapas |
 |---|---|
 | **Entra** | Señales recibidas · Activos en el inventario |
-| **Se comprueba** | Tocan al inventario (el cruce) · Decisiones · Escaneos |
+| **Se comprueba** | Tocan al inventario (el cruce) · Decisiones del planificador · Escaneos |
 | **Resulta** | Evidencia · Vulnerabilidades · Riesgos abiertos |
 
-Las conexiones (`views.FLOW_LINKS`) dicen qué alimenta a qué, cada una con su cifra:
+Las conexiones (`views.FLOW_LINKS`) dicen qué alimenta a qué, cada una con su cifra y la
+unidad de esa cifra:
 
-| De → a | Cifra | Laboratorio |
-|---|---|---|
-| Señales → cruce | señales de inteligencia | 13 282 |
-| Inventario → cruce | cambios del inventario que entraron como señal | 26 |
-| Cruce → evidencia | reportes que dio el cruce, sin escanear (`observations.from_match`) | 1 004 |
-| Cruce → decisiones | lo que pasó al planificador | 47 |
-| Decisiones → escaneos | escaneos pedidos por una decisión (`scans.by_planner`) | 22 |
-| Escaneos → evidencia | reportes con nuclei o Grype entre sus fuentes (`observations.with_tool`) | 180 |
-| Escaneos → inventario | el retorno, en línea discontinua: lo que descubren vuelve al inventario | — |
-| Evidencia → vulnerabilidades → riesgos | la única parte en secuencia | — |
+| De → a | Rótulo | Qué cuenta | Laboratorio |
+|---|---|---|---|
+| Señales → cruce | «N señales de inteligencia» | señales de las fuentes | 13 282 |
+| Inventario → cruce | «N cambios del inventario» | lo del inventario que entró como señal | 26 |
+| Cruce → evidencia | «N reportes sin escanear» | reportes que dio el cruce (`observations.from_match`) | 1 004 |
+| Cruce → decisiones | «N señales al planificador» | lo que el cruce no resuelve solo | 47 |
+| Decisiones → escaneos | «N escaneos» | escaneos pedidos por una decisión (`scans.by_planner`) | 22 |
+| Escaneos → evidencia | «N reportes por escaneo» | reportes con nuclei o Grype entre sus fuentes (`observations.with_tool`) | 180 |
+| Escaneos → inventario | «lo que descubren vuelve al inventario» | el retorno, en línea discontinua | — |
+| Inventario → vulnerabilidades y riesgos | «contexto de cada activo» | lo que se consulta al valorar, en línea punteada | — |
+| Evidencia → vulnerabilidades → riesgos | sin rótulo | la única parte en secuencia | — |
 
 **Los indicadores de la fila se conservan.** Cada tarjeta sigue llevando quién actúa, la cifra,
 lo que cuenta, el dato que la matiza y su periodo; el bloque de la IA local, sus inferencias, el
@@ -387,9 +389,16 @@ al pie.
 - **Sin líneas no se pierde la relación** (pantalla angosta, sin JavaScript, lector de
   pantalla): cada tarjeta dice con texto de dónde le llega lo suyo (`origin`: «1 004 del cruce,
   sin escanear · 180 de escaneos»). Con las líneas dibujadas ese texto se oculta a la vista,
-  salvo en Escaneos, donde quién los pidió no cabe en una línea del dibujo.
+  salvo en Escaneos y en Decisiones del planificador, donde quién los pidió o por dónde llegó
+  cada señal no cabe en una línea del dibujo.
 - No hay líneas hacia la IA: serían cuatro cruces sobre el resto. La marca en cada tarjeta dice
   lo mismo sin enredar el dibujo.
+- Bajo la segunda fila de tarjetas hay dos carriles (`LANE` en `home-flow.js`, como fracción del
+  hueco hasta el bloque de la IA): arriba el retorno y debajo el contexto. El retorno llega al
+  inventario por su derecha y el contexto sale por su izquierda, así que no se cruzan. El
+  contexto es una sola línea que al final se abre hacia las dos etapas que valoran: son dos
+  conexiones con la misma salida y solo la primera lleva rótulo (`FLOW_LABEL_AT` lo pone cerca
+  del final para que no pise el del retorno).
 - Al pasar por una etapa se resaltan sus conexiones. `home-charts.js` refresca cada minuto
   también las cifras de las conexiones y las de cada tarea de la IA.
 
@@ -406,8 +415,10 @@ al pie.
   software, con SBOM, criticidad propuesta por la IA o fijada por una persona y cambios que
   entraron como señal. Su panel (`stages/inventory.html`) explica qué hace ahí la IA y por qué
   lo que descubre un escaneo vuelve a entrar.
-- La clave de la caché pasó a `home:indicators:v2`: un proceso con el código anterior no debe
-  servir a este un bloque sin los campos nuevos.
+- `decisions()` añade `from_cti` y `from_inventory`: por dónde le llegó al planificador cada
+  señal sobre la que decidió.
+- La clave de la caché pasó a `home:indicators:v2`, y a `v3` con los campos del planificador:
+  un proceso con el código anterior no debe servir a este un bloque sin los campos nuevos.
 
 ### Quién decidió cada decisión
 
@@ -429,10 +440,49 @@ acción pedida a mano, que se cuenta aparte. Pruebas:
 `test_each_recent_decision_says_who_decided_and_who_asked` (Inicio) y
 `test_asking_for_an_evaluation_is_not_deciding_what_to_do` (ficha de la acción).
 
+### Lo que no se leía bien: unidades, cobertura, planificador y contexto
+
+El usuario leyó el diagrama y preguntó dos cosas que el dibujo dejaba entender mal: que 1 101
+eran señales que pasaban directo a evidencia, y que solo 22 escaneos significaba que no todo el
+inventario pasaba por escaneo. Al aprobar los retoques pidió además que se viera el
+planificador (que recibe de las fuentes y también cuando algo del inventario cambia) y una
+línea del inventario a vulnerabilidades y riesgos, porque se valoran con el contexto del activo.
+
+- **Cada cifra de una conexión lleva su unidad.** «1 004 sin escanear» pasó a «1 004 reportes
+  sin escanear»; «22» a «22 escaneos»; «47 al planificador» a «47 señales al planificador». Una
+  señal y un reporte de evidencia no son lo mismo: los 1 004 reportes salen de 298 señales de
+  inteligencia y de los cambios de software, porque un CVE puede tocar varios activos y cada
+  cambio vuelve a cruzar el activo contra todos los CVE conocidos.
+- **La tarjeta «Escaneos» dice la cobertura**: «20 de 21 activos escaneados · 6 fallidos»
+  (`scans.assets_covered` de `assets_total`, que ya se calculaban para el panel). El 22 es solo
+  lo que pidió el planificador; si el inventario está cubierto lo dice cuántos activos tienen
+  algún escaneo.
+- **El planificador se nombra y dice por dónde le llega lo suyo.** La tarjeta es «Decisiones
+  del planificador» y muestra siempre su origen, repartido: «23 por inteligencia · 24 por
+  cambios o revisiones del inventario». No se añadió una línea directa del inventario al
+  planificador porque no existe ese atajo: un cambio del inventario vuelve a cruzar el activo
+  contra toda la inteligencia y después va al planificador (`events._triage_asset`), que es el
+  camino inventario → cruce → planificador que ya está dibujado. «Cambios o revisiones» y no
+  solo «cambios»: por ese lado entran también la evaluación pedida a mano y la revisión por
+  tiempo. El panel lo explica en su primera frase y su cifra lleva el mismo reparto.
+- **Línea punteada «contexto de cada activo»** del inventario a vulnerabilidades y riesgos. No
+  es algo que pase de una etapa a otra, por eso no lleva cifra y tiene trazo propio (leyenda:
+  «lo que se consulta al valorar»): la criticidad, la exposición, la función de negocio y la
+  clasificación de los datos del activo entran en la valoración de cada vulnerabilidad
+  (`consolidation`) y en el impacto y la probabilidad de cada riesgo (`risks`). Sin líneas, lo
+  dicen las tarjetas: «De la evidencia, reunida por activo y valorada con su contexto» y «De
+  las vulnerabilidades y el contexto de cada activo».
+
+Pruebas: `test_the_diagram_says_what_feeds_what_and_where_the_ai_works` (unidades y línea de
+contexto), `test_every_scan_is_counted_once_under_who_asked_for_it` (cobertura) y
+`test_each_recent_decision_says_who_decided_and_who_asked` (reparto del planificador).
+
 ### Comprobado
 
 En el laboratorio, con el navegador a 1440, 1280 y 1100 px, en teléfono (390 px), con un panel
-abierto, con el zoom de pantalla completa y reponiendo `#flow` como lo hace HTMX. No se probó
+abierto, con el zoom de pantalla completa y reponiendo `#flow` como lo hace HTMX. Los retoques
+de arriba, a 1440, 1280 y 1200 px, en teléfono, con el panel de decisiones abierto y con el
+zoom de pantalla completa. No se probó
 el botón «Presentar» en una pantalla completa real ni el estado vacío a la vista (sí por
 pruebas).
 
