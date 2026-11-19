@@ -1,0 +1,117 @@
+{
+  "corrida": "corrida limpia del laboratorio Aseguradora Norte",
+  "preparada": "2026-11-18T21:25:25-06:00",
+  "codigo": {
+    "commit": "c20abf3",
+    "rama": "feature/deteccion-continua",
+    "arbol_limpio": true
+  },
+  "respaldo_previo": "backups/20261118-212019",
+  "limpieza": {
+    "tablas_vaciadas": 43,
+    "filas_borradas": 163018,
+    "se_conservo": [
+      "cuentas y sesiones",
+      "configuración (automatización, tratamiento, Inicio, retención)",
+      "perfil de la organización",
+      "catálogos",
+      "espejo de inteligencia (NVD, EPSS, KEV) y su historial",
+      "datos de los escáneres (plantillas de nuclei, base de Grype)",
+      "modelo en Ollama"
+    ]
+  },
+  "equipo": {
+    "cpu": "AMD Ryzen 9 6900HX with Radeon Graphics",
+    "hilos": 16,
+    "ram_visible_mib": 15607,
+    "gpu": "NVIDIA GeForce RTX 3080 Laptop GPU, 8192 MiB, 617.42",
+    "sistema": "6.18.58.1-microsoft-standard-WSL2",
+    "docker": "29.1.3"
+  },
+  "ollama": {
+    "version": "ollama version is 0.5.7-0-ga420a45-dirty",
+    "modelos": [
+      "qwen2.5:0.5b-instruct a8b0c5157701",
+      "mistral:7b-instruct-q4_K_M 1a85656b534f",
+      "llama3.1:8b-instruct-q4_K_M 46e0c10c039e",
+      "qwen2.5:7b-instruct-q4_K_M 845dbda0ea48"
+    ],
+    "num_parallel": "1",
+    "keep_alive": "10m",
+    "prueba_previa_tokens_por_s": 73.8
+  },
+  "workers": {
+    "default": 2,
+    "llm": 1,
+    "discovery": 1
+  },
+  "laboratorio": {
+    "contenedores": 21,
+    "inventario": "datasets/lab-inventario-hosts.csv",
+    "esperado": "datasets/lab-expected-results.csv"
+  },
+  "plataforma": {
+    "algoritmo_scoring": "m4-2026.11.3",
+    "modelo": "qwen2.5:7b-instruct-q4_K_M",
+    "zona_horaria": "America/Mexico_City",
+    "automatizacion": {
+      "modo": "AUTO",
+      "pausada": false,
+      "difiere_acciones_pesadas": true,
+      "ventana": "22:00-06:00",
+      "escala_criticas_a_una_persona": true,
+      "max_escaneos_por_hora": 30,
+      "max_ejecuciones_simultaneas": 2,
+      "max_llamadas_planificador_por_hora": 60
+    },
+    "organizacion": "Aseguradora Norte",
+    "politica_tratamiento_dias": {
+      "critical_days": 7,
+      "very_high_days": 15,
+      "high_days": 30,
+      "moderate_days": 90,
+      "low_days": 180
+    },
+    "inteligencia": {
+      "cve_en_espejo": 93143,
+      "cve_en_kev": 1786,
+      "fuentes": {
+        "EPSS": "2026-11-18T15:25:20-06:00",
+        "KEV": "2026-11-18T15:25:28-06:00",
+        "NVD": "2026-11-18T15:20:23-06:00"
+      }
+    },
+    "datos_escaneres": [
+      {
+        "status": "SUCCEEDED",
+        "finished_at": "2026-11-18T14:34:22+00:00",
+        "detail": "Grype (base de datos): /usr/local/bin/grype db update\n  No vulnerability database update available\n  listo en 1 s\nDatos de las herramientas actualizados."
+      },
+      {
+        "status": "SUCCEEDED",
+        "finished_at": "2026-11-18T14:34:21+00:00",
+        "detail": "nuclei (plantillas): /usr/local/bin/nuclei -update-templates -update-template-dir /data/cti-cache/nuclei-templates\n  [INF] Your current nuclei-templates  are outdated. Latest is v10.5.2\n  [INF] Successfully updated nuclei-templates (v10.5.2) to /data/cti-cache/nuclei-templates. GoodLuck!\n  [INF] No new updates found for nuclei templates\n  listo en 8 s\n  plantillas en /data/cti-cache/nuclei-templates\nDatos de las herramientas actualizados."
+      },
+      {
+        "status": "SUCCEEDED",
+        "finished_at": "2026-11-18T00:15:18+00:00",
+        "detail": "Grype (base de datos): /usr/local/bin/grype db update\n  No vulnerability database update available\n  listo en 1 s\nDatos de las herramientas actualizados."
+      },
+      {
+        "status": "SUCCEEDED",
+        "finished_at": "2026-11-18T00:15:17+00:00",
+        "detail": "nuclei (plantillas): /usr/local/bin/nuclei -update-templates -update-template-dir /data/cti-cache/nuclei-templates\n  [INF] Your current nuclei-templates  are outdated. Latest is v10.5.2\n  [INF] Successfully updated nuclei-templates (v10.5.2) to /data/cti-cache/nuclei-templates. GoodLuck!\n  [INF] No new updates found for nuclei templates\n  listo en 16 s\n  plantillas en /data/cti-cache/nuclei-templates\nDatos de las herramientas actualizados."
+      }
+    ],
+    "ajustes": {
+      "DETECTION_CONSOLIDATE_DELAY_S": 20,
+      "DETECTION_CONSOLIDATE_CHUNK": 25,
+      "DETECTION_DESCRIBE_BATCH": 10,
+      "DETECTION_DESCRIBE_BURST": 4,
+      "DETECTION_EPSS_HIGH": 0.1,
+      "SCANNER_TIMEOUT_S": 3600
+    },
+    "prompts": {}
+  },
+  "arranque_previsto": "2026-11-18T22:00:30-06:00 (al abrir la ventana 22:00-06:00, para que ninguna acción pesada espere)"
+}
