@@ -1,5 +1,6 @@
 """Arma condiciones.json: lo que dice la plataforma (condiciones.py, por manage.py shell) más el
-equipo, Ollama y el código. Solo lee. Uso: python3 armar_condiciones.py <respaldo> <tablas> <filas>
+equipo, Ollama y el código. Solo lee.
+Uso: python3 armar_condiciones.py <respaldo> <tablas> <filas> [<cómo y cuándo arranca>]
 """
 import json
 import subprocess
@@ -64,7 +65,7 @@ out = {
         "esperado": "datasets/lab-expected-results.csv",
     },
     "plataforma": app,
-    "arranque_previsto": "22:00:30 del mismo día (al abrir la ventana 22:00-06:00, para que ninguna acción pesada espere); lo lanza esperar_y_medir.sh",
+    "arranque_previsto": sys.argv[4] if len(sys.argv) > 4 else "",
 }
 (here / "condiciones.json").write_text(json.dumps(out, ensure_ascii=False, indent=2) + "\n")
 print("condiciones.json escrito:", len(out["plataforma"]), "claves de plataforma")

@@ -1,8 +1,8 @@
 {
   "corrida": "segunda corrida limpia del laboratorio Aseguradora Norte",
-  "preparada": "2026-11-19T10:02:11-06:00",
+  "preparada": "2026-11-19T11:11:36-06:00",
   "codigo": {
-    "commit": "94c3a3e",
+    "commit": "ae7f392",
     "rama": "feature/deteccion-continua",
     "arbol_limpio": true
   },
@@ -59,7 +59,7 @@
     "automatizacion": {
       "modo": "AUTO",
       "pausada": false,
-      "difiere_acciones_pesadas": true,
+      "difiere_acciones_pesadas": false,
       "ventana": "22:00-06:00",
       "escala_criticas_a_una_persona": true,
       "max_escaneos_por_hora": 30,
@@ -139,5 +139,5 @@
       "vuln_describe": "v1"
     }
   },
-  "arranque_previsto": "22:00:30 del mismo día (al abrir la ventana 22:00-06:00, para que ninguna acción pesada espere); lo lanza esperar_y_medir.sh"
+  "arranque_previsto": "de inmediato a petición del usuario, hacia las 11:14 (hora local); el aplazamiento de acciones pesadas se desactivó para la corrida y medir.sh lo vuelve a activar al final"
 }

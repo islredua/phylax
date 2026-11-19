@@ -360,6 +360,29 @@ el modelo respondió `LIKELY_FALSE_POSITIVE` con plausibilidad 0.5. El tope solo
 cuando el modelo decía `CONFIRMED` o `LIKELY`. Ahora vale en los dos sentidos (punto 1 de arriba).
 El puntaje no cambia, porque depende de la plausibilidad y no del estado.
 
+**Segunda corrida, con los dos arreglos (2026-11-19, `experiments/corrida-limpia-20261119/`).**
+Laboratorio desde cero sobre `ae7f392`, mismas plantillas de nuclei (v10.5.2). `evaluate_lab`
+da 12 de 12 casos sembrados (precisión 1.0, cada uno por la vía esperada) y el orden por activo
+frente al esperado queda en 0.747 (0.506 con CVSS, 0.716 con EPSS).
+
+| | Primera (18-nov) | Segunda (19-nov) |
+|---|---|---|
+| De punta a punta | 104.1 min | 117.9 min |
+| Observaciones | 894 | 1 093 |
+| Vulnerabilidades | 860 | 1 050 |
+| «Probable falso positivo» | 26 | 0 |
+| Riesgos abiertos | 35 | 35 |
+| Escaneos de nuclei (mediana, total) | 18 (305 s, 4 278 s) | 17 (303 s, 3 359 s) |
+| Escaneos con salida recortada | 2 | 0 |
+| Memoria máxima del contenedor que escanea | 6 513 MiB | 3 669 MiB |
+| Inferencias (redacciones de vulnerabilidad) | 984 (702) | 1 216 (925) |
+
+crm-legacy pasa de 116 a 300 vulnerabilidades y su escaneo de 650 a 319 s. La corrida tarda más
+porque hay 190 vulnerabilidades más que redactar: la última redacción termina en el minuto 117.9
+y todo lo demás (escaneos, valoración, riesgos) en el minuto 69. En 44 vulnerabilidades (25 de
+app-siniestros, 17 de crm-legacy, 2 de ldap-ad) el modelo no devolvió la observación en su
+respuesta y el estado lo puso la regla; en la primera fueron 4.
+
 ## H3. Riesgos (`detection/risks.py`, ISO/IEC 27005:2022)
 
 Tras cada consolidación, las vulnerabilidades **sostenidas** del activo (confirmadas, probables, o

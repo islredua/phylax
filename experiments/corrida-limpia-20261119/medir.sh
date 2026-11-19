@@ -5,6 +5,8 @@
 # Se asienta = colas vacías, nada en curso ni pendiente, todos los activos con criticidad y
 # 15 minutos seguidos sin inferencias nuevas (sin contar el resumen ejecutivo de Inicio).
 # Al asentarse deja también, solo leyendo la base: lab-eval.json, resultado.json y recursos.json.
+# Esta corrida arrancó de día, con el aplazamiento de acciones pesadas desactivado para que los
+# escaneos no esperaran a la ventana 22:00-06:00; al final se vuelve a activar.
 cd /home/emaceda/projects/phylax || exit 1
 D=experiments/corrida-limpia-20261119
 START=${1:-220030}
@@ -55,5 +57,11 @@ if [ $launched = 1 ]; then
   fin=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["fin_de_actividad"])' $D/resultado.json 2>/dev/null)
   [ -n "$fin" ] && python3 $D/recursos.py "$(cat $D/t0.txt)" "$fin" > $D/recursos.json 2>> $D/resultado.err
   say "recursos.json: $(wc -c < $D/recursos.json 2>/dev/null) bytes (fin de actividad $fin)"
+  docker compose exec -T backend python manage.py shell -c "
+from django.contrib.auth import get_user_model
+from apps.detection import automation
+automation.update_settings(user=get_user_model().objects.get(username='emaceda'), fields={'defer_heavy_actions': True})
+print('aplazamiento de acciones pesadas:', automation.current_settings().defer_heavy_actions)" >> $D/evaluacion.log 2>&1
+  say "aplazamiento de acciones pesadas restaurado (salida $?)"
   echo "listo $(date -Iseconds)" >> $D/fin.txt
 fi
