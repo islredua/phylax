@@ -1,5 +1,5 @@
 {% load inventory l10n %}
-<p class="stage-lead">Lo que el planificador decide comprobar se ejecuta con perfiles fijos: nadie pasa parámetros a mano y cada ejecución guarda su comando y su salida. Los escaneos confirman o descartan lo que la inteligencia sugirió.</p>
+<p class="stage-lead">Un escaneo lo pide el planificador ante una señal, una persona (un descubrimiento, comprobar una corrección) o el calendario de descubrimiento. Todos corren con perfiles fijos: nadie pasa parámetros a mano y cada ejecución guarda su comando y su salida. Lo que encuentran va a la evidencia y, si cambia puertos o servicios, al inventario.</p>
 <div class="stage-grid">
   <div>
     <p class="stage-sub">Ejecuciones en {{ window_days }} días</p>
@@ -13,8 +13,18 @@
       {% endfor %}
     </ul>
     <p class="legend mt-2"><span><span class="legend-dot bg-primary"></span> Completados</span><span><span class="legend-dot bg-critical"></span> Fallidos</span></p>
+    <p class="stage-sub mt-4">Quién los pidió</p>
+    <ul class="bars">
+      {% for row in flow.scans.origins %}
+      <li class="bar-row bar-row-tool">
+        <span class="bar-label"><span class="text-ink">{{ row.label }}</span><span class="bar-hint">{{ row.hint }}</span></span>
+        <span class="bar-track"><span class="bar-fill" style="width:{{ row.width|unlocalize }}%"></span></span>
+        <span class="bar-value">{{ row.value|miles }}</span>
+      </li>
+      {% endfor %}
+    </ul>
   </div>
-  <div class="tiles tiles-1">
+  <div class="tiles tiles-1 self-start">
     <div class="tile tile-accent"><p class="tile-value">{{ flow.scans.assets_covered|miles }} <span class="tile-of">de {{ flow.scans.assets_total|miles }}</span></p><p class="tile-label">activos escaneados en {{ window_days }} días</p></div>
     <div class="tile"><p class="tile-value {% if flow.scans.failed %}text-critical{% endif %}">{{ flow.scans.failed|miles }}</p><p class="tile-label">{{ flow.scans.failed|pl:"-escaneo fallido,escaneos fallidos" }} de {{ flow.scans.total|miles }}</p></div>
     <div class="tile"><p class="tile-value">{{ flow.scans.running|miles }}</p><p class="tile-label">en curso o en cola ahora mismo</p></div>

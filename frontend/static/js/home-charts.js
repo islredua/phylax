@@ -2,8 +2,8 @@
  * Gráficas dinámicas de Inicio (Chart.js vendorizado, sin CDN ni scripts inline).
  * Lee [data-home-charts] (URL del JSON y periodo), dibuja y refresca en sitio; cada punto
  * abre en otra pestaña el apartado que lo sustenta (Inicio no se pierde). Refresca también la
- * gráfica maestra (estado, estaciones del recorrido, motor de IA) y gobierna el modo
- * presentación. Sin JS quedan las tablas de datos (<details>) y los enlaces ?etapa=….
+ * gráfica maestra (estado, etapas de «Cómo trabaja la detección», cifras de sus conexiones y
+ * bloque de la IA) y gobierna el modo presentación. Sin JS quedan las tablas de datos (<details>) y los enlaces ?etapa=….
  * Si el servidor no responde se avisa junto a la hora («sin conexión desde…») en vez de callar,
  * y el sondeo se detiene mientras la pestaña no se ve.
  */
@@ -132,10 +132,20 @@
     (data.flow || []).forEach(function (stage) {
       countTo(document.querySelector('[data-hero-stage-value="' + stage.key + '"]'), stage.value);
       setText('[data-hero-stage-sub="' + stage.key + '"]', stage.sub);
+      if (stage.origin) setText('[data-hero-stage-origin="' + stage.key + '"]', stage.origin);
       var step = document.querySelector('li[data-flow-step="' + stage.key + '"]');
       if (step) step.classList.toggle("is-busy", !!stage.busy);
     });
+    // La cifra de cada conexión del diagrama (las líneas las traza home-flow.js).
+    (data.links || []).forEach(function (link) {
+      if (link.value !== null && link.value !== undefined) {
+        setText('[data-hero-link="' + link.key + '"]', fmt.format(link.value));
+      }
+    });
     if (data.engine) {
+      (data.engine.tasks || []).forEach(function (task) {
+        setText('[data-hero-engine-task="' + task.key + '"]', fmt.format(task.calls));
+      });
       countTo(document.querySelector('[data-hero-engine="calls"]'), data.engine.calls);
       setText('[data-hero-engine="state"]', data.engine.state);
       setText('[data-hero-engine="ok_pct"]', Math.round(data.engine.ok_pct));
@@ -166,7 +176,7 @@
   }
 
   // --- Modo presentación: la gráfica maestra a pantalla completa, etapa por etapa ---
-  var ORDER = ["signals", "match", "decisions", "scans", "observations", "vulnerabilities", "risks", "ai"];
+  var ORDER = ["signals", "inventory", "match", "decisions", "scans", "observations", "vulnerabilities", "risks", "ai"];
   var heroEl = document.querySelector("[data-hero]");
   var presentBtn = document.querySelector("[data-present]");
   var stageUrl = root.getAttribute("data-stage-url");

@@ -115,12 +115,23 @@ def _charts(data, rows):
     }
 
 
-# Etapas del recorrido, en orden. ``ai`` no es una estación más: es el motor que trabaja en
-# varias de ellas y se abre desde su propia franja.
-STAGES = ("signals", "match", "decisions", "scans", "observations", "vulnerabilities", "risks")
+# Etapas de «Cómo trabaja la detección», en el orden en que se leen y se presentan (no es una
+# cadena: ``FLOW_LINKS`` dice qué alimenta a qué). ``ai`` no es una etapa más: es el motor que
+# trabaja en varias de ellas y se abre desde su propio bloque.
+STAGES = (
+    "signals",
+    "inventory",
+    "match",
+    "decisions",
+    "scans",
+    "observations",
+    "vulnerabilities",
+    "risks",
+)
 STAGE_KEYS = (*STAGES, "ai")
 STAGE_TITLES = {
     "signals": "Señales recibidas",
+    "inventory": "Inventario: contra qué se cruza cada señal",
     "match": "Cruce con el inventario",
     "decisions": "Decisiones del planificador",
     "scans": "Escaneos ejecutados",
@@ -128,6 +139,36 @@ STAGE_TITLES = {
     "vulnerabilities": "Vulnerabilidades valoradas",
     "risks": "Riesgos abiertos",
     "ai": "IA local: qué hace y qué tan bien",
+}
+
+
+# Las tres columnas del diagrama: qué entra, qué se comprueba y qué resulta.
+FLOW_GROUPS = (
+    ("in", "Entra", ("signals", "inventory")),
+    ("check", "Se comprueba", ("match", "decisions", "scans")),
+    ("out", "Resulta", ("observations", "vulnerabilities", "risks")),
+)
+# Qué alimenta a qué. ``out`` e ``in`` dicen por qué lado de cada tarjeta sale y entra la línea
+# (lado:fracción); ``shape`` «under» es el retorno que pasa por debajo. home-flow.js las dibuja
+# sobre las tarjetas en pantallas anchas; en las demás, cada tarjeta dice de dónde le llega lo
+# suyo (``origin``).
+FLOW_LINKS = (
+    ("signals", "match", "right:0.5", "left:0.3", ""),
+    ("inventory", "match", "right:0.5", "left:0.72", ""),
+    ("match", "observations", "right:0.3", "left:0.3", ""),
+    ("match", "decisions", "bottom:0.5", "top:0.5", ""),
+    ("decisions", "scans", "right:0.5", "left:0.5", ""),
+    ("scans", "observations", "right:0.5", "left:0.72", ""),
+    ("scans", "inventory", "bottom:0.5", "bottom:0.5", "under"),
+    ("observations", "vulnerabilities", "bottom:0.5", "top:0.5", ""),
+    ("vulnerabilities", "risks", "bottom:0.5", "top:0.5", ""),
+)
+# Qué hace la IA local en cada etapa donde trabaja.
+FLOW_AI = {
+    "inventory": "sugiere la criticidad de cada activo",
+    "decisions": "elige qué comprobar ante cada señal",
+    "vulnerabilities": "valora si cada una aplica y la explica",
+    "risks": "los agrupa, los valora y los redacta",
 }
 
 
@@ -139,13 +180,29 @@ def _count(n, singular, plural=None):
     return f"{n:,} {singular if n == 1 else (plural or singular + 's')}"
 
 
+def _scan_origin(scan) -> str:
+    """Quién pidió los escaneos de la ventana, en una línea."""
+    if not scan["total"]:
+        return "Los pide el planificador, una persona o el calendario"
+    parts = [
+        f"{scan['by_planner']:,} por decisión",
+        f"{scan['by_person']:,} por personas",
+        f"{scan['scheduled']:,} por calendario",
+    ]
+    if scan["unlinked"]:
+        parts.append(f"{scan['unlinked']:,} sin origen")
+    return " · ".join(parts)
+
+
 def hero_payload(data):
     """Gráfica maestra de Inicio: el estado en una cifra, el reparto de los riesgos por nivel y
-    el recorrido «del ruido a la decisión» con sus siete estaciones y el motor de IA local.
+    el diagrama «Cómo trabaja la detección»: ocho etapas en tres columnas (entra, se comprueba,
+    resulta), las conexiones entre ellas con su cifra y el bloque de la IA local.
 
-    Lo consumen la plantilla (primer dibujo, sin JS) y el JSON de refresco. Las estaciones no
-    llevan barras comparables entre sí porque cuentan cosas distintas (señales, decisiones,
-    escaneos, riesgos): cada una muestra su cifra, quién actúa y el dato que la matiza.
+    Lo consumen la plantilla (primer dibujo, sin JS) y el JSON de refresco. Las etapas no llevan
+    barras comparables entre sí porque cuentan cosas distintas (señales, decisiones, escaneos,
+    riesgos): cada una muestra su cifra, quién actúa, el dato que la matiza, de dónde le llega
+    lo suyo y, donde trabaja, qué hace ahí la IA.
     """
     from apps.detection.models import RiskLevel
 
@@ -157,6 +214,7 @@ def hero_payload(data):
     window = f"en {days} días"
     sig, match, dec, scan = flow["signals"], flow["match"], flow["decisions"], flow["scans"]
     obs, vul, ai = flow["observations"], flow["vulnerabilities"], flow["ai"]
+    inv = flow["inventory"]
     now = flow["now"]
 
     if dec["waiting_approval"]:
@@ -183,6 +241,21 @@ def hero_payload(data):
             "busy": False,
         },
         {
+            "key": "inventory",
+            "label": "Activos en el inventario",
+            "value": inv["assets"],
+            "sub": f"{_count(inv['products'], 'producto de software', 'productos de software')}"
+            f" en {_count(inv['with_software'], 'activo')}"
+            if inv["products"]
+            else "sin software identificado todavía",
+            # Quién lo mantiene sobre todo: el descubrimiento o las altas a mano.
+            "actor": "Escaneos + IA" if inv["discovered"] > inv["registered"] else "Personas + IA",
+            "kind": "auto",
+            "scope": "vigentes hoy",
+            "busy": False,
+            "origin": "Lo actualizan los escaneos y las personas",
+        },
+        {
             "key": "match",
             "label": "Tocan al inventario",
             "value": match["passed"],
@@ -193,6 +266,7 @@ def hero_payload(data):
             "kind": "rule",
             "scope": window,
             "busy": bool(match["pending"]),
+            "origin": "Cada señal se cruza con el software de cada activo",
         },
         {
             "key": "decisions",
@@ -203,6 +277,7 @@ def hero_payload(data):
             "kind": "ai",
             "scope": window,
             "busy": False,
+            "origin": "De lo que toca al inventario",
         },
         {
             "key": "scans",
@@ -213,6 +288,9 @@ def hero_payload(data):
             "kind": "auto",
             "scope": window,
             "busy": bool(scan["running"]),
+            # Tiene tres orígenes y solo uno se ve como línea: se dice siempre.
+            "origin": _scan_origin(scan),
+            "origin_always": True,
         },
         {
             "key": "observations",
@@ -223,6 +301,8 @@ def hero_payload(data):
             "kind": "rule",
             "scope": "vigentes hoy",
             "busy": False,
+            "origin": f"{obs['from_match']:,} del cruce, sin escanear · "
+            f"{obs['with_tool']:,} de escaneos",
         },
         {
             "key": "vulnerabilities",
@@ -233,6 +313,7 @@ def hero_payload(data):
             "kind": "ai",
             "scope": "vigentes hoy",
             "busy": False,
+            "origin": "De la evidencia, reunida por activo",
         },
         {
             "key": "risks",
@@ -243,8 +324,77 @@ def hero_payload(data):
             "kind": "person",
             "scope": "vigentes hoy",
             "busy": False,
+            "origin": "De las vulnerabilidades de cada activo",
         },
     ]
+    by_key = {st["key"]: st for st in stations}
+    for st in stations:
+        st.setdefault("origin", "")
+        st.setdefault("origin_always", False)
+        st["ai"] = FLOW_AI.get(st["key"], "")
+    stations.sort(key=lambda st: STAGES.index(st["key"]))
+    groups = [
+        {"key": key, "title": title, "steps": [by_key[k] for k in keys]}
+        for key, title, keys in FLOW_GROUPS
+    ]
+    # La cifra de cada conexión: cuánto pasa por ahí. ``None`` es una línea sin rótulo.
+    link_text = {
+        ("signals", "match"): (
+            sig["cti"],
+            "de inteligencia",
+            "Señales de las fuentes de inteligencia que llegan al cruce",
+        ),
+        ("inventory", "match"): (
+            sig["inventory"],
+            "cambio" if sig["inventory"] == 1 else "cambios",
+            "Cambios del inventario que entran como señal",
+        ),
+        ("match", "observations"): (
+            obs["from_match"],
+            "sin escanear",
+            "Reportes de evidencia que salen del cruce de inteligencia con el inventario, "
+            "sin pasar por un escaneo",
+        ),
+        ("match", "decisions"): (
+            dec["total"],
+            "al planificador",
+            "Decisiones del planificador sobre lo que toca al inventario",
+        ),
+        ("decisions", "scans"): (
+            scan["by_planner"],
+            "",
+            "Escaneos que ordenó el planificador",
+        ),
+        ("scans", "observations"): (
+            obs["with_tool"],
+            "por escaneo",
+            "Reportes de evidencia que encontró o confirmó una herramienta",
+        ),
+        ("scans", "inventory"): (
+            None,
+            "lo que descubren vuelve al inventario",
+            "Los puertos, servicios y software que encuentra un escaneo actualizan el "
+            "inventario, y ese cambio entra como señal",
+        ),
+    }
+    links = []
+    for origin, target, out, into, shape in FLOW_LINKS:
+        value, caption, title = link_text.get((origin, target), (None, "", ""))
+        links.append(
+            {
+                "key": f"{origin}-{target}",
+                "from": origin,
+                "to": target,
+                "out": out,
+                "in": into,
+                "shape": shape,
+                # En una sola línea: junto a una línea vertical o sobre el retorno.
+                "row": shape == "under" or out.startswith("bottom"),
+                "value": value,
+                "caption": caption,
+                "title": title,
+            }
+        )
 
     if ai["available"] is False:
         engine_state, engine_ok = "no responde: decide la regla", False
@@ -282,6 +432,8 @@ def hero_payload(data):
         "empty": bool(data.get("no_data")),
         "quiet": not sig["total"],
         "flow": stations,
+        "groups": groups,
+        "links": links,
         "engine": {
             "model": ai["model"],
             "state": engine_state,
@@ -292,6 +444,16 @@ def hero_payload(data):
             "hours": ai["hours"],
             "local": ai["local"],
             "busy": bool(queue),
+            # Dónde trabaja: las tareas que cuentan, con sus llamadas en la ventana.
+            "tasks": [
+                {
+                    "key": task["key"],
+                    "short": task["short"],
+                    "calls": task["calls"],
+                    "stage": task["stage"],
+                }
+                for task in ai["tasks"]
+            ],
         },
         "now": {
             "text": " · ".join(bits)
@@ -364,6 +526,11 @@ def stage_context(stage, data, user):
         ctx["syncs"] = data["automation"]["cti_syncs_window"]
         if user.has_perm("cti.view_ctisource"):
             ctx["links"].append(("Abrir las fuentes de inteligencia", reverse("detection:sources")))
+    elif stage == "inventory":
+        if user.has_perm("assets.view_asset"):
+            ctx["links"].append(("Abrir el inventario", reverse("assets:list")))
+        if user.has_perm("assets.view_networkrange"):
+            ctx["links"].append(("Rangos de red y descubrimiento", reverse("assets:ranges")))
     elif stage == "match":
         ctx["reasons"] = _bars([dict(row) for row in flow["match"]["reasons"]])
         if can_activity:

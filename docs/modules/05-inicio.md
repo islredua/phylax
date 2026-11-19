@@ -9,8 +9,8 @@ riesgos conforme a ISO/IEC 27005 y un modelo de lenguaje local que redacta para 
 
 | Bloque | Fuente | Actualización |
 |---|---|---|
-| **Gráfica maestra**: semáforo, titular con las cifras vigentes, riesgos abiertos por nivel y el recorrido «Del ruido a la decisión» (siete estaciones y el motor de IA local) | `views.hero_payload`, `presentation.pipeline.compute` | Al cargar y cada 60 s (`/home/charts.json`) |
-| **Panel de la etapa** elegida (señales, cruce con el inventario, decisiones, escaneos, observaciones, vulnerabilidades, riesgos, IA local) | `views.stage_context`, `presentation/stages/<etapa>.html` | Al abrirlo (`/home/block/stage/?etapa=…`) |
+| **Gráfica maestra**: semáforo, titular con las cifras vigentes, riesgos abiertos por nivel y el diagrama «Cómo trabaja la detección» (ocho etapas en tres columnas, sus conexiones y el bloque de la IA local) | `views.hero_payload`, `presentation.pipeline.compute` | Al cargar y cada 60 s (`/home/charts.json`) |
+| **Panel de la etapa** elegida (señales, inventario, cruce con el inventario, decisiones, escaneos, observaciones, vulnerabilidades, riesgos, IA local) | `views.stage_context`, `presentation/stages/<etapa>.html` | Al abrirlo (`/home/block/stage/?etapa=…`) |
 | **Qué hago hoy** | `indicators.today()` | Al cargar |
 | **Indicadores** que el recorrido no cuenta (KEV y plazos CISA vencidos, activos, acciones por aprobar, fuentes de inteligencia) con delta frente a la última instantánea | `presentation.indicators.current()` (caché 60 s) | Sondeo HTMX cada 30 s |
 | **Tendencias** (riesgos por nivel; vulnerabilidades sostenidas y en KEV) | `HealthSnapshot` diaria, `indicators.trend()` | Instantánea del día cada hora (`beat`, minuto 5) |
@@ -92,7 +92,7 @@ texto se escapa siempre; solo se insertan `<a>` con URLs del sistema.
 
 ## Pruebas
 
-`tests/presentation/test_home.py` (49 pruebas, sin red ni modelo): conteos de indicadores,
+`tests/presentation/test_home.py` (53 pruebas, sin red ni modelo): conteos de indicadores,
 semáforo por reglas acotadas, caché e invalidación, instantánea/tendencia/deltas, avisos, ventana
 configurable, narrativa por regla coherente, rechazo de semáforo incorrecto y cifras inventadas,
 generación con mock y omisión si nada cambió, caída a regla por incoherencia o modelo apagado,
@@ -100,7 +100,8 @@ cadencia y cola ocupada, pantallas por permiso, fragmentos, reporte y CSV, botó
 pantalla de configuración y tareas de `beat`. Del recorrido: conteos por etapa coherentes con los
 indicadores, cada panel con y sin JavaScript, enlaces en pestaña nueva, estado vacío, enlaces
 según permisos, recorrido en el reporte, lo que el modelo ve, coherencia con calificativos y
-titular con cifras vigentes.
+titular con cifras vigentes. Del diagrama: cada escaneo contado una vez bajo quien lo pidió, las
+conexiones con la cifra del recorrido, la IA marcada en sus etapas y el inventario como etapa.
 
 ## Resultados con el modelo real (2026-11-08, qwen2.5:7b-instruct-q4_K_M, laboratorio de 20 activos)
 
@@ -149,7 +150,8 @@ sincronizar) ofrece solo el enlace, nombrado como lo que es.
 
 ## Revisión del 2026-11-16 (segunda parte): Inicio cuenta todo lo que hace la plataforma
 
-**El recorrido «Del ruido a la decisión».** El embudo de cinco barras se sustituyó por siete
+**El recorrido «Del ruido a la decisión»** (desde el 2026-11-18 se llama «Cómo trabaja la
+detección» y se dibuja como diagrama: ver más abajo)**.** El embudo de cinco barras se sustituyó por siete
 estaciones que siguen el lazo completo, cada una con su cifra, quién actúa y el dato que la matiza:
 
 | Estación | Qué cuenta | Quién actúa | Periodo |
@@ -313,6 +315,106 @@ misma exposición. Restarlas diría «20 riesgos menos». Por eso:
   es cierto para las vulnerabilidades. El reporte ejecutivo lleva la misma frase.
 
 Al día siguiente la instantánea anterior ya es de la misma unidad y todo vuelve a compararse.
+
+## «Cómo trabaja la detección»: un diagrama y no una fila (2026-11-18)
+
+El recorrido se dibujaba como siete estaciones en fila con una flecha entre cada par, bajo el
+título «Del ruido a la decisión». Dos objeciones del usuario al revisarlo:
+
+- **El título sonaba a publicidad.** Ahora dice lo que hay: «Cómo trabaja la detección», con el
+  subtítulo «Qué entra, qué se comprueba y qué resulta». El reporte ejecutivo lo llama «Cómo
+  trabajó la detección» y deja de decir «por sí solo».
+- **La fila daba a entender una secuencia** (fuentes → cruce → IA → nmap) **que no existe.**
+  Medido en el laboratorio (30 días): de 225 escaneos, 22 salieron de una decisión del
+  planificador, 111 los pidió una persona, 4 el calendario de descubrimiento y 88 no conservan
+  quién los pidió (su señal o su decisión se borró); ninguno nació de una señal de inteligencia
+  (las 23 acciones ante un CVE nuevo fueron todas reconciliaciones). Y 1 004 de los 1 101
+  reportes de evidencia vienen del cruce de inteligencia con inventario, sin escanear nada.
+
+### Qué se dibuja
+
+Tres columnas y ocho etapas (`views.FLOW_GROUPS`); el inventario pasa a ser una etapa, porque es
+la otra entrada del cruce:
+
+| Columna | Etapas |
+|---|---|
+| **Entra** | Señales recibidas · Activos en el inventario |
+| **Se comprueba** | Tocan al inventario (el cruce) · Decisiones · Escaneos |
+| **Resulta** | Evidencia · Vulnerabilidades · Riesgos abiertos |
+
+Las conexiones (`views.FLOW_LINKS`) dicen qué alimenta a qué, cada una con su cifra:
+
+| De → a | Cifra | Laboratorio |
+|---|---|---|
+| Señales → cruce | señales de inteligencia | 13 282 |
+| Inventario → cruce | cambios del inventario que entraron como señal | 26 |
+| Cruce → evidencia | reportes que dio el cruce, sin escanear (`observations.from_match`) | 1 004 |
+| Cruce → decisiones | lo que pasó al planificador | 47 |
+| Decisiones → escaneos | escaneos pedidos por una decisión (`scans.by_planner`) | 22 |
+| Escaneos → evidencia | reportes con nuclei o Grype entre sus fuentes (`observations.with_tool`) | 180 |
+| Escaneos → inventario | el retorno, en línea discontinua: lo que descubren vuelve al inventario | — |
+| Evidencia → vulnerabilidades → riesgos | la única parte en secuencia | — |
+
+**Los indicadores de la fila se conservan.** Cada tarjeta sigue llevando quién actúa, la cifra,
+lo que cuenta, el dato que la matiza y su periodo; el bloque de la IA local, sus inferencias, el
+porcentaje aceptado, las horas de cómputo y si corre en este equipo; y la línea «Ahora» sigue
+al pie.
+
+**Dónde trabaja la IA local** (`views.FLOW_AI`), que antes solo se veía en la franja inferior:
+
+- Las tarjetas donde decide o valora el modelo (Decisiones, Vulnerabilidades) llevan el tono del
+  bloque de la IA.
+- Las cuatro etapas donde trabaja llevan su marca y lo que hace ahí: sugiere la criticidad de
+  cada activo (Inventario), elige qué comprobar ante cada señal (Decisiones), valora si cada una
+  aplica y la explica (Vulnerabilidades), y agrupa, valora y redacta (Riesgos).
+- El bloque de la IA es parte del diagrama y reparte sus inferencias «por tarea»
+  (`pipeline.AI_TASK_SHORT`); la suma es el total que muestra. La redacción que no entra en esa
+  cuenta (explicación de cada vulnerabilidad, «qué puede pasar», la lectura de Inicio) se dice
+  aparte. Al pasar por el bloque se resaltan las etapas donde trabaja.
+
+### Cómo se dibuja
+
+- La disposición depende del ancho **de la tarjeta**, no de la ventana (hay menú lateral):
+  consultas de contenedor sobre `.hero-flow`. Desde 54rem, el diagrama (rejilla de siete pistas
+  con `subgrid` para que las filas casen entre columnas); desde 40rem, tres columnas sin líneas;
+  por debajo, los grupos apilados con sus tarjetas a dos columnas.
+- Las líneas las traza `static/js/home-flow.js` en un SVG sobre las tarjetas: el servidor pinta
+  un rótulo por conexión con de qué etapa sale, a cuál llega y por qué lado
+  (`data-out="right:0.5"`), y el script mide las tarjetas y dibuja. Solo cuando la hoja de
+  estilos lo pide (`--flow-links: 1`). Todo se coloca en proporción al mapa, así que vale igual
+  con el zoom de «Presentar». Se vuelve a trazar al cambiar el tamaño y, en el mismo paso, cuando
+  HTMX repone `#flow` (no se ve un instante sin líneas).
+- **Sin líneas no se pierde la relación** (pantalla angosta, sin JavaScript, lector de
+  pantalla): cada tarjeta dice con texto de dónde le llega lo suyo (`origin`: «1 004 del cruce,
+  sin escanear · 180 de escaneos»). Con las líneas dibujadas ese texto se oculta a la vista,
+  salvo en Escaneos, donde quién los pidió no cabe en una línea del dibujo.
+- No hay líneas hacia la IA: serían cuatro cruces sobre el resto. La marca en cada tarjeta dice
+  lo mismo sin enredar el dibujo.
+- Al pasar por una etapa se resaltan sus conexiones. `home-charts.js` refresca cada minuto
+  también las cifras de las conexiones y las de cada tarea de la IA.
+
+### Datos nuevos (`presentation/pipeline.py`)
+
+- `scans()` añade quién pidió cada escaneo terminado (`_scan_origins`): **por una persona** si
+  tiene solicitante o cuelga de una acción pedida a mano (`PlannerDecision.BY_PERSON`); **por
+  decisión** si cuelga de una acción del planificador; **por calendario** si es un
+  descubrimiento de un rango entero sin solicitante ni acción; **sin origen registrado** lo que
+  queda (se muestra aparte, no se reparte). Las cuatro suman el total. El panel de Escaneos lo
+  muestra en «Quién los pidió».
+- `observations()` añade `from_match` y `with_tool`.
+- `inventory()` es nueva: activos por origen (descubiertos o dados de alta), productos de
+  software, con SBOM, criticidad propuesta por la IA o fijada por una persona y cambios que
+  entraron como señal. Su panel (`stages/inventory.html`) explica qué hace ahí la IA y por qué
+  lo que descubre un escaneo vuelve a entrar.
+- La clave de la caché pasó a `home:indicators:v2`: un proceso con el código anterior no debe
+  servir a este un bloque sin los campos nuevos.
+
+### Comprobado
+
+En el laboratorio, con el navegador a 1440, 1280 y 1100 px, en teléfono (390 px), con un panel
+abierto, con el zoom de pantalla completa y reponiendo `#flow` como lo hace HTMX. No se probó
+el botón «Presentar» en una pantalla completa real ni el estado vacío a la vista (sí por
+pruebas).
 
 ## Buscador global (`presentation/search.py`, revisión del 2026-11-16, N3)
 

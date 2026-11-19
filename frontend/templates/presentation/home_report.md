@@ -49,13 +49,13 @@ Un riesgo es una consecuencia sobre una función de negocio; reúne un escenario
 |---|---|---|---|---|---|
 {% for r in top_risks %}| {{ r.title }} | {{ r.asset.name }} | {{ r.likelihood }} × {{ r.impact }} | {{ r.get_level_display }} | {{ r.intelligence_summary|default:"—"|plain }} | {% if r.treatment %}{{ r.get_treatment_display }}{% else %}sin decidir{% endif %} |
 {% endfor %}
-## Del ruido a la decisión: lo que el sistema hizo por sí solo
+## Cómo trabajó la detección
 
-Las cuatro primeras etapas cuentan los últimos {{ data.window_days }} días; las tres últimas, lo vigente hoy.
+Las etapas no van en fila: las señales y el inventario entran por separado, y un escaneo lo pide el planificador, una persona o el calendario. El periodo dice si la cifra cuenta los últimos {{ data.window_days }} días o lo vigente hoy.
 
-| Etapa | Cifra | Quién actúa | Detalle | Periodo |
-|---|---:|---|---|---|
-{% for st in hero.flow %}| {{ st.label }} | {{ st.value }} | {{ st.actor }} | {{ st.sub }} | {{ st.scope }} |
+| Etapa | Cifra | Quién actúa | Detalle | Le llega de | Periodo |
+|---|---:|---|---|---|---|
+{% for st in hero.flow %}| {{ st.label }} | {{ st.value }} | {{ st.actor }} | {{ st.sub }}{% if st.ai %}. IA: {{ st.ai }}{% endif %} | {{ st.origin|default:"—" }} | {{ st.scope }} |
 {% endfor %}
 - De {{ data.pipeline.signals.total }} señales, {{ data.pipeline.match.filtered }} ({{ data.pipeline.match.filtered_pct|floatformat:1 }} %) se descartaron por regla al no tocar el inventario; {{ data.pipeline.match.reconciled }} se resolvieron sin escanear.
 - {{ data.pipeline.observations.intel_only_pct|floatformat:0 }} % de los reportes se encontró cruzando inteligencia con inventario, sin tocar el activo; {{ data.pipeline.observations.multi_source }} las confirmaron dos fuentes a la vez.

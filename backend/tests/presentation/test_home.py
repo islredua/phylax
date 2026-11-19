@@ -309,7 +309,7 @@ def test_home_renders_executive_view_with_blocks_and_downloads(client, as_role):
     for text in (
         "Estado de salud",
         "Riesgos abiertos",
-        "Del ruido a la decisión",
+        "Cómo trabaja la detección",
         "Riesgos abiertos por nivel",
         "Vulnerabilidades sostenidas y explotación activa",
         "Riesgos que más pesan",
@@ -619,12 +619,15 @@ def test_home_opens_with_the_master_chart_then_today_then_text(client, as_role):
         body.index(mark) for mark in ("data-hero", 'id="hoy"', 'id="indicadores"', 'id="narrativa"')
     ]
     assert order == sorted(order)
-    # El recorrido: siete estaciones en orden y el motor de IA local, cada una un enlace que
-    # abre su detalle dentro de Inicio (con y sin JavaScript).
-    assert "Del ruido a la decisión" in body and body.count('class="flow-step') == 7
+    # «Cómo trabaja la detección»: ocho etapas y el bloque de la IA local, cada una un enlace
+    # que abre su detalle dentro de Inicio (con y sin JavaScript). El título dice lo que hay: el
+    # anterior («Del ruido a la decisión») sonaba a publicidad.
+    assert "Cómo trabaja la detección" in body and "Del ruido a la decisión" not in body
+    assert body.count('class="flow-step') == 8
     hero = client.get("/home/charts.json").json()["hero"]
     assert [s["key"] for s in hero["flow"]] == [
         "signals",
+        "inventory",
         "match",
         "decisions",
         "scans",
@@ -633,7 +636,8 @@ def test_home_opens_with_the_master_chart_then_today_then_text(client, as_role):
         "risks",
     ]
     assert all(
-        {"label", "value", "sub", "actor", "kind", "scope", "busy"} <= set(s) for s in hero["flow"]
+        {"label", "value", "sub", "actor", "kind", "scope", "busy", "origin", "ai"} <= set(s)
+        for s in hero["flow"]
     )
     assert hero["open"] == 1 and hero["flow"][-1]["value"] == 1
     assert {"model", "state", "calls", "ok_pct", "hours", "local"} <= set(hero["engine"])
@@ -649,7 +653,7 @@ def test_home_opens_with_the_master_chart_then_today_then_text(client, as_role):
     assert "Decidir tratamiento →" in body and "Ver lista" in body
 
 
-# --- Recorrido «del ruido a la decisión» (2026-11-16) -------------------------------------------
+# --- Recorrido de la detección (2026-11-16; como diagrama desde el 2026-11-18) -------------------
 
 
 def test_pipeline_counts_each_stage_once_and_agrees_with_the_indicators():
@@ -811,7 +815,12 @@ def test_stage_panels_explain_how_the_platform_works(client, as_role):
         "signals": ("Espejo local de inteligencia", "Qué llegó en"),
         "match": ("Así se cruza la inteligencia con el inventario", "Por qué se descartaron"),
         "decisions": ("Límites que acotan la automatización", "Qué decidió"),
-        "scans": ("Ejecuciones en", "activos escaneados"),
+        "inventory": (
+            "El inventario es la otra entrada",
+            "Qué hace aquí la IA",
+            "Por qué vuelve a entrar",
+        ),
+        "scans": ("Ejecuciones en", "activos escaneados", "Quién los pidió", "Por calendario"),
         "observations": ("Qué combinación de fuentes dio cada reporte", "combo-dot"),
         "vulnerabilities": (
             "Severidad teórica frente a prioridad real",
@@ -878,7 +887,7 @@ def test_home_first_run_has_an_empty_state_and_every_panel_renders(client, as_ro
     as_role(OPERATOR)
     body = client.get("/").content.decode()
     assert "Todavía no hay activos inventariados" in body and "Sin datos suficientes" in body
-    assert body.count('class="flow-step') == 7
+    assert body.count('class="flow-step') == 8 and body.count("data-flow-link=") == 9
     for key in STAGE_KEYS:
         assert client.get(f"/home/block/stage/?etapa={key}").status_code == 200, key
     assert client.get("/home/charts.json").json()["hero"]["empty"] is True
@@ -907,6 +916,7 @@ def test_stage_links_follow_the_permissions_of_the_role(client, make_user):
     _asset_with_risk()
     for key, hidden in (
         ("signals", "Abrir las fuentes de inteligencia"),
+        ("inventory", "Abrir el inventario"),
         ("decisions", "Controles de automatización"),
         ("scans", "Ver las ejecuciones"),
         ("observations", "Ver la evidencia"),
@@ -930,12 +940,214 @@ def test_report_carries_the_journey_with_the_same_figures(client, as_role):
     html = client.get("/home/report/").content.decode()
     md = client.get("/home/report/?format=md").content.decode()
     for body in (html, md):
-        assert "Del ruido a la decisión" in body
-        for label in ("Señales recibidas", "Tocan al inventario", "Decisiones", "Escaneos"):
+        assert "Cómo trabajó la detección" in body and "Del ruido a la decisión" not in body
+        assert "por sí solo" not in body and "Le llega de" in body
+        for label in (
+            "Señales recibidas",
+            "Activos en el inventario",
+            "Tocan al inventario",
+            "Decisiones",
+            "Escaneos",
+        ):
             assert label in body, label
+        # Donde trabaja la IA y de dónde le llega lo suyo a cada etapa, también en el reporte.
+        assert "IA: elige qué comprobar ante cada señal" in body
+        assert "De lo que toca al inventario" in body
         assert "IA local (" in body and "aceptadas por el validador" in body
     assert f"| Señales recibidas | {flow['signals']['total']} |" in md
     assert f"| Riesgos abiertos | {flow['risks']['open']} |" in md
+
+
+# --- «Cómo trabaja la detección»: un diagrama y no una fila (2026-11-18) --------------------------
+
+
+def _scans_of_every_origin(asset, user):
+    """Un escaneo terminado por cada forma de pedirlo, y uno en cola que no cuenta."""
+    from apps.detection.models import DetectionEvent, PlannedAction, PlannerDecision
+    from apps.discovery.models import DiscoveryRun
+    from apps.scanners.models import ToolExecution
+    from tests.factories import NetworkRangeFactory
+
+    event = DetectionEvent.objects.create(kind="ASSET_CHANGED", asset=asset, dedupe_key="origen")
+
+    def action(version="v9"):
+        decision = PlannerDecision.objects.create(
+            event=event, asset=asset, action="DETECT_VULNS", prompt_version=version
+        )
+        return PlannedAction.objects.create(
+            decision=decision, event=event, asset=asset, action="DETECT_VULNS"
+        )
+
+    def tool(**kwargs):
+        kwargs.setdefault("status", "SUCCEEDED")
+        return ToolExecution.objects.create(
+            tool="NUCLEI", profile="NUCLEI_WEB", asset=asset, targets=["http://10.0.0.5"], **kwargs
+        )
+
+    rng = NetworkRangeFactory()
+    tool(action=action())  # lo decidió el planificador
+    tool(action=action(PlannerDecision.BY_PERSON))  # «ya lo corregí: comprobar»
+    tool(requested_by=user, status="FAILED")  # un escaneo pedido a mano
+    tool()  # la señal que lo pidió ya no está
+    tool(status="QUEUED")  # no terminó: no cuenta
+    by_planner = action()
+    by_planner.discovery_run = DiscoveryRun.objects.create(
+        network_range=rng, target_asset=asset, profile="SERVICE_SCAN", status="SUCCEEDED"
+    )
+    by_planner.save(update_fields=["discovery_run"])
+    DiscoveryRun.objects.create(  # un descubrimiento pedido por una persona
+        network_range=rng, profile="HOST_SWEEP", status="SUCCEEDED", requested_by=user
+    )
+    for _ in range(2):  # el calendario: un rango entero y nadie detrás
+        DiscoveryRun.objects.create(network_range=rng, profile="HOST_SWEEP", status="SUCCEEDED")
+
+
+def test_every_scan_is_counted_once_under_who_asked_for_it(client, as_role):
+    """Un escaneo no sale siempre de una decisión: lo pide el planificador, una persona o el
+    calendario. La fila anterior dejaba entender que los 225 del laboratorio venían de sus 47
+    decisiones; venían 22."""
+    user = as_role(OPERATOR)
+    asset = AssetFactory(name="web-01")
+    _scans_of_every_origin(asset, user)
+    indicators.invalidate()
+    scans = indicators.compute()["pipeline"]["scans"]
+    assert scans["total"] == 8 and scans["nmap"] == 4
+    assert (scans["by_planner"], scans["by_person"], scans["scheduled"], scans["unlinked"]) == (
+        2,
+        3,
+        2,
+        1,
+    )
+    assert sum(row["value"] for row in scans["origins"]) == scans["total"]
+    assert [row["key"] for row in scans["origins"]] == ["planner", "person", "schedule", "unlinked"]
+    html = client.get("/home/block/stage/?etapa=scans").content.decode()
+    for text in (
+        "Quién los pidió",
+        "Por decisión del planificador",
+        "Pedidos por una persona",
+        "Por calendario",
+        "Sin origen registrado",
+    ):
+        assert text in html, text
+    hero = client.get("/home/charts.json").json()["hero"]
+    station = next(st for st in hero["flow"] if st["key"] == "scans")
+    assert station["origin"] == (
+        "2 por decisión · 3 por personas · 2 por calendario · 1 sin origen"
+    )
+    assert station["origin_always"] is True
+    link = next(row for row in hero["links"] if row["key"] == "decisions-scans")
+    assert link["value"] == 2
+    # Sin escaneos sin rastro, esa fila no aparece.
+    from apps.scanners.models import ToolExecution
+
+    ToolExecution.objects.filter(action__isnull=True, requested_by__isnull=True).delete()
+    indicators.invalidate()
+    scans = indicators.compute()["pipeline"]["scans"]
+    assert scans["unlinked"] == 0 and len(scans["origins"]) == 3
+
+
+def test_the_diagram_says_what_feeds_what_and_where_the_ai_works(client, as_role):
+    """Tres columnas (entra, se comprueba, resulta) con sus conexiones, y la IA local marcada en
+    las etapas donde trabaja. Sin JavaScript o en una pantalla angosta no hay líneas: cada
+    tarjeta dice con texto de dónde le llega lo suyo."""
+    from apps.presentation.views import FLOW_AI, FLOW_LINKS, STAGES
+
+    as_role(OPERATOR)
+    _asset_with_risk()
+    data = indicators.current()
+    flow = data["pipeline"]
+    hero = client.get("/home/charts.json").json()["hero"]
+    assert [(g["key"], g["title"]) for g in hero["groups"]] == [
+        ("in", "Entra"),
+        ("check", "Se comprueba"),
+        ("out", "Resulta"),
+    ]
+    grouped = [st["key"] for group in hero["groups"] for st in group["steps"]]
+    assert grouped == list(STAGES) == [st["key"] for st in hero["flow"]]
+    # Cada conexión une dos etapas que existen y su cifra es la del recorrido.
+    links = {row["key"]: row for row in hero["links"]}
+    assert len(links) == len(FLOW_LINKS) == 9
+    assert all(row["from"] in STAGES and row["to"] in STAGES for row in links.values())
+    assert links["signals-match"]["value"] == flow["signals"]["cti"]
+    assert links["inventory-match"]["value"] == flow["signals"]["inventory"]
+    assert links["match-observations"]["value"] == flow["observations"]["from_match"]
+    assert links["match-decisions"]["value"] == flow["decisions"]["total"]
+    assert links["decisions-scans"]["value"] == flow["scans"]["by_planner"]
+    assert links["scans-observations"]["value"] == flow["observations"]["with_tool"]
+    assert links["scans-inventory"]["shape"] == "under" and links["scans-inventory"]["caption"]
+    # Los escaneos no dependen de las señales de inteligencia: ninguna línea las une.
+    assert "signals-scans" not in links and "signals-decisions" not in links
+    obs = flow["observations"]
+    assert obs["from_match"] + obs["with_tool"] >= obs["total"] - obs["by_source"].get("MANUAL", 0)
+    # La IA: en qué etapas trabaja y cuánto, tarea por tarea.
+    with_ai = {st["key"]: st["ai"] for st in hero["flow"] if st["ai"]}
+    assert with_ai == FLOW_AI and set(with_ai) == {
+        "inventory",
+        "decisions",
+        "vulnerabilities",
+        "risks",
+    }
+    tasks = hero["engine"]["tasks"]
+    assert sum(task["calls"] for task in tasks) == hero["engine"]["calls"]
+    assert all(task["short"] and task["key"] for task in tasks)
+
+    body = client.get("/").content.decode()
+    for key in STAGES:
+        assert f'data-flow-node="{key}"' in body, key
+    assert body.count("data-flow-link=") == 9 and 'data-flow-link="scans-inventory"' in body
+    assert body.count('class="flow-ai"') == 4 and "IA: sugiere la criticidad de cada activo" in body
+    assert body.count("flow-card flow-card-ai") == 2  # donde decide o valora el modelo
+    for text in (
+        "Entra",
+        "Se comprueba",
+        "Resulta",
+        "Por tarea",
+        "Aquí trabaja la IA local",
+        # sin líneas, el texto de cada tarjeta
+        "De lo que toca al inventario",
+        "Cada señal se cruza con el software de cada activo",
+        "Lo actualizan los escaneos y las personas",
+    ):
+        assert text in body, text
+    # Las líneas las traza un script propio, sin código en la página.
+    assert "js/home-flow.js" in body and "<script>" not in body
+    # Los indicadores de la fila anterior siguen: quién actúa, la cifra, su detalle y su periodo.
+    for st in hero["flow"]:
+        for field in ("actor", "label", "sub", "scope"):
+            assert str(st[field]) in body, (st["key"], field)
+
+
+def test_inventory_is_a_stage_with_what_the_ai_does_there(client, as_role):
+    """El inventario es la otra entrada del cruce, y ahí la IA propone la criticidad."""
+    from apps.assets.enums import AssetOrigin, CriticalitySource
+    from apps.assets.models import Asset
+
+    as_role(OPERATOR)
+    _asset_with_risk()
+    AssetFactory(name="hallado", origin=AssetOrigin.DISCOVERY)
+    Asset.objects.filter(name="hallado").update(
+        criticality="ALTO", criticality_source=CriticalitySource.LLM_AUTO
+    )
+    indicators.invalidate()
+    data = indicators.compute()
+    inv = data["pipeline"]["inventory"]
+    assert inv["assets"] == data["assets"]["total"] == 2
+    assert inv["discovered"] == 1 and inv["registered"] == 1
+    assert inv["criticality_ai"] == inv["criticality_auto"] == 1
+    assert inv["criticality_ai"] + inv["criticality_person"] == inv["with_criticality"] == 2
+    assert inv["products"] == data["pipeline"]["match"]["products"] >= 1
+    assert inv["changes"] == data["pipeline"]["signals"]["inventory"]
+    page = client.get("/?etapa=inventory")
+    body = page.content.decode()
+    assert page.status_code == 200 and "Inventario: contra qué se cruza cada señal" in body
+    assert "con la criticidad propuesta por la IA local" in body
+    assert "Abrir el inventario" in body
+    station = next(
+        st
+        for st in client.get("/home/charts.json").json()["hero"]["flow"]
+        if st["key"] == "inventory"
+    )
+    assert station["value"] == 2 and station["scope"] == "vigentes hoy"
 
 
 # --- Lectura por IA: lo que el modelo ve, lo que arma el código y su vigencia --------------------

@@ -1,0 +1,18 @@
+{% load inventory l10n %}
+{% with inv=flow.inventory %}
+<p class="stage-lead">El inventario es la otra entrada: sin saber qué activos hay y qué software corre en cada uno, una señal de inteligencia no se puede cruzar con nada. Lo mantienen los escaneos (lo que descubren actualiza puertos, servicios y versiones), los SBOM que se cargan y las personas. Cada cambio entra a su vez como señal.</p>
+<div class="tiles tiles-4">
+  <div class="tile"><p class="tile-value">{{ inv.assets|miles }}</p><p class="tile-label">{{ inv.assets|pl:"-activo vigilado,activos vigilados" }} · {{ inv.discovered|miles }} por descubrimiento y {{ inv.registered|miles }} dados de alta</p></div>
+  <div class="tile"><p class="tile-value">{{ inv.products|miles }}</p><p class="tile-label">{{ inv.products|pl:"-producto de software distinto,productos de software distintos" }} en {{ inv.with_software|pl:"activo,activos" }} · {{ inv.with_sbom|miles }} con SBOM</p></div>
+  <div class="tile tile-accent"><p class="tile-value">{{ inv.criticality_ai|miles }} <span class="tile-of">de {{ inv.assets|miles }}</span></p><p class="tile-label">con la criticidad propuesta por la IA local{% if inv.criticality_person %} · {{ inv.criticality_person|miles }} fijada por una persona{% endif %}</p></div>
+  <div class="tile"><p class="tile-value">{{ inv.changes|miles }}</p><p class="tile-label">{{ inv.changes|pl:"-cambio del inventario entró,cambios del inventario entraron" }} como señal en {{ window_days }} días</p></div>
+</div>
+<div class="stage-grid">
+  <div class="stage-note">
+    <p><strong>Qué hace aquí la IA.</strong> Lee lo que se sabe de cada activo y propone su criticidad, con el motivo. Si el activo no tenía ninguna, se aplica marcada «calculada por IA»; una persona puede confirmarla o cambiarla, y lo que decide una persona ya no lo toca el modelo.</p>
+  </div>
+  <div class="stage-note">
+    <p><strong>Por qué vuelve a entrar.</strong> Un escaneo que encuentra un servicio nuevo cambia el inventario; ese cambio es una señal, se cruza con la inteligencia y puede pedir otro escaneo. En {{ window_days }} días hubo {{ inv.nmap_runs|pl:"ejecución,ejecuciones" }} de nmap.</p>
+  </div>
+</div>
+{% endwith %}

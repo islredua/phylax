@@ -23,7 +23,7 @@
   {% endif %}
 </div>
 {% endblock %}
-{% block scripts %}{% if blocks.detection %}{% load static %}<script src="{% static 'vendor/chart-4.4.1.umd.js' %}" defer></script><script src="{% static 'js/home-charts.js' %}" defer></script>{% endif %}{% endblock %}
+{% block scripts %}{% if blocks.detection %}{% load static %}<script src="{% static 'vendor/chart-4.4.1.umd.js' %}" defer></script><script src="{% static 'js/home-flow.js' %}" defer></script><script src="{% static 'js/home-charts.js' %}" defer></script>{% endif %}{% endblock %}
 {% block content %}
 {% if blocks.detection %}
 <div class="flex flex-col gap-4" data-home-charts="{% url 'home_charts' %}" data-every="60" data-stage-url="{% url 'home_block' 'stage' %}">

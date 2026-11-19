@@ -9,6 +9,7 @@ ninguna. Cuando llega por HTMX trae además, fuera de banda, las estaciones con 
     <a href="?#recorrido" hx-get="{% url 'home_block' 'stage' %}?etapa=" hx-target="#etapa" hx-swap="outerHTML" class="btn-secondary btn-sm" data-stage-close>Cerrar</a>
   </div>
   {% if stage == "signals" %}{% include "presentation/stages/signals.html" %}
+  {% elif stage == "inventory" %}{% include "presentation/stages/inventory.html" %}
   {% elif stage == "match" %}{% include "presentation/stages/match.html" %}
   {% elif stage == "decisions" %}{% include "presentation/stages/decisions.html" %}
   {% elif stage == "scans" %}{% include "presentation/stages/scans.html" %}

@@ -536,7 +536,7 @@
     @apply flex flex-wrap items-center justify-between gap-2 rounded border border-primary/30 bg-primary-soft/60 px-3 py-2 text-sm;
   }
 
-  /* --- Gráfica maestra de Inicio: estado + recorrido «del ruido a la decisión» --- */
+  /* --- Gráfica maestra de Inicio: estado + «Cómo trabaja la detección» --- */
   .hero {
     @apply flex flex-col gap-5 rounded border border-line bg-surface p-5;
   }
@@ -582,10 +582,13 @@
     @apply flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted;
   }
 
-  /* Recorrido: siete estaciones (lo que entra, quién actúa, qué queda) y el motor de IA local.
-     No llevan barras comparables entre sí: cada una cuenta algo distinto. */
+  /* «Cómo trabaja la detección»: ocho etapas en tres columnas (entra, se comprueba, resulta),
+     las conexiones entre ellas y el bloque de la IA local. No llevan barras comparables entre
+     sí: cada una cuenta algo distinto. La disposición depende del ancho de la tarjeta y no del
+     de la ventana (hay menú lateral): por eso son consultas de contenedor. */
   .hero-flow {
     @apply flex flex-col gap-3 border-t border-line-soft pt-4;
+    container: flow / inline-size;
   }
   .flow-head {
     @apply flex flex-wrap items-start justify-between gap-3;
@@ -593,51 +596,51 @@
   .flow-wrap {
     @apply flex flex-col gap-2;
   }
+  /* Angosto: los tres grupos uno debajo de otro y las tarjetas en dos columnas. Sin líneas:
+     cada tarjeta dice de dónde le llega lo suyo (.flow-origin). */
+  .flow-map {
+    @apply relative flex flex-col gap-3;
+  }
+  .flow-group {
+    @apply flex flex-col gap-1.5;
+  }
+  .flow-group-title {
+    @apply font-mono text-[10px] font-medium tracking-wider text-muted uppercase;
+  }
   .flow {
-    @apply grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7;
+    @apply grid grid-cols-2 gap-2;
   }
   .flow-step {
     @apply relative;
     animation: flow-in 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
   }
-  .flow-step:nth-child(2) {
-    animation-delay: 0.07s;
+  .flow-group-check .flow-step {
+    animation-delay: 0.1s;
   }
-  .flow-step:nth-child(3) {
-    animation-delay: 0.14s;
-  }
-  .flow-step:nth-child(4) {
-    animation-delay: 0.21s;
-  }
-  .flow-step:nth-child(5) {
-    animation-delay: 0.28s;
-  }
-  .flow-step:nth-child(6) {
-    animation-delay: 0.35s;
-  }
-  .flow-step:nth-child(7) {
-    animation-delay: 0.42s;
+  .flow-group-out .flow-step {
+    animation-delay: 0.2s;
   }
   .is-static .flow-step {
     animation: none;
   }
-  /* La flecha entre estaciones solo cuando van en una fila. */
-  .flow-step:not(:last-child)::after {
-    @apply absolute top-1/2 -right-2 z-10 hidden h-3 w-2 -translate-y-1/2 text-line-strong xl:block;
-    content: "";
-    background: currentColor;
-    clip-path: polygon(0 0, 100% 50%, 0 100%);
-  }
   .flow-card {
-    @apply flex h-full flex-col gap-0.5 rounded border border-line bg-canvas/60 px-3 py-2.5 text-ink
+    @apply flex h-full flex-col gap-0.5 rounded border border-line bg-canvas/60 px-3 py-2 text-ink
       transition-colors hover:border-primary/50 hover:bg-primary-soft/50 hover:no-underline
       focus-visible:ring-2 focus-visible:ring-primary/40 focus:outline-none;
+  }
+  /* Donde decide o valora la IA local, la tarjeta lleva su tono: el mismo del bloque de la IA. */
+  .flow-card-ai {
+    @apply border-primary/30 bg-primary-soft/40;
   }
   .flow-step.is-open .flow-card {
     @apply border-primary bg-primary-soft;
   }
+  /* Quién actúa y, a la derecha, de cuándo es la cifra. */
+  .flow-top {
+    @apply mb-0.5 flex flex-wrap items-baseline justify-between gap-x-2;
+  }
   .flow-actor {
-    @apply mb-1 inline-flex items-center gap-1.5 self-start font-mono text-[10px] font-medium tracking-wide text-muted uppercase;
+    @apply inline-flex items-center gap-1.5 font-mono text-[10px] font-medium tracking-wide text-muted uppercase;
   }
   .flow-actor-ai {
     @apply text-primary;
@@ -649,21 +652,43 @@
     @apply inline-block;
     animation: hero-pulse 1.2s ease-in-out infinite;
   }
+  /* La cifra y lo que cuenta, en una línea si caben. */
+  .flow-figure {
+    @apply flex flex-wrap items-baseline gap-x-2 gap-y-0.5;
+  }
   .flow-value {
     @apply font-mono text-[26px] leading-none font-semibold tracking-tight text-ink;
   }
   .flow-label {
-    @apply mt-1 text-[13px] leading-tight font-medium text-ink;
+    @apply text-[13px] leading-tight font-medium text-ink;
   }
   .flow-sub {
-    @apply text-[11px] leading-snug text-ink-soft;
+    @apply mt-0.5 text-[11px] leading-snug text-ink-soft;
+  }
+  .flow-ai {
+    @apply mt-0.5 flex items-start gap-1 text-[11px] leading-snug font-medium text-primary;
+  }
+  .flow-ai-mark {
+    @apply mt-[3px] h-2.5 w-2.5 shrink-0 fill-current;
+  }
+  .flow-origin {
+    @apply mt-0.5 text-[11px] leading-snug text-muted;
+  }
+  .flow-origin::before {
+    content: "← ";
+  }
+  /* Con las líneas dibujadas la cifra va en la conexión; el texto queda para lectores de pantalla. */
+  .flow-wrap.has-links .flow-origin:not(.is-always) {
+    @apply sr-only;
   }
   .flow-scope {
-    @apply mt-auto pt-1 text-[10px] text-muted;
+    @apply text-[10px] whitespace-nowrap text-muted;
   }
-  /* El motor: una franja bajo las estaciones, porque la IA trabaja en varias de ellas. */
+
+  /* La IA local: un bloque del diagrama, porque trabaja en varias etapas. Dice su estado, sus
+     cifras y dónde trabaja. */
   .flow-engine {
-    @apply flex flex-wrap items-center gap-x-4 gap-y-1 rounded border border-primary/30 bg-primary-soft/40 px-3 py-2
+    @apply flex flex-col gap-1.5 rounded border border-primary/30 bg-primary-soft/40 px-3 py-2.5
       text-xs text-ink-soft transition-colors hover:border-primary hover:bg-primary-soft hover:no-underline
       focus-visible:ring-2 focus-visible:ring-primary/40 focus:outline-none;
   }
@@ -672,6 +697,9 @@
   }
   .flow-engine.is-down {
     @apply border-critical/40 bg-critical-soft/50;
+  }
+  .flow-engine-head {
+    @apply flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5;
   }
   .flow-engine-name {
     @apply inline-flex flex-wrap items-center gap-1.5 text-[13px] font-semibold text-primary;
@@ -689,16 +717,117 @@
     @apply bg-critical;
   }
   .flow-engine-stats {
-    @apply grow;
+    @apply leading-snug;
+  }
+  .flow-engine-tasks {
+    @apply flex flex-wrap items-baseline gap-x-4 gap-y-0.5;
+  }
+  .flow-engine-tasks-label {
+    @apply font-mono text-[10px] font-medium tracking-wide text-muted uppercase;
+  }
+  .flow-engine-task {
+    @apply inline-flex items-baseline gap-1 text-[11px] text-ink-soft;
+  }
+  .flow-engine-task .flow-ai-mark {
+    @apply mt-0 h-2 w-2 self-center text-primary;
+  }
+  .flow-engine-task strong {
+    @apply font-mono font-semibold text-ink;
+  }
+  .flow-engine-note {
+    @apply text-[11px] leading-snug text-muted;
   }
   .flow-engine-more {
-    @apply font-medium text-primary;
+    @apply text-xs font-medium whitespace-nowrap text-primary;
   }
   .flow-engine-more::after {
     content: " ▾";
   }
   .flow-engine.is-open .flow-engine-more::after {
     content: " ▴";
+  }
+  /* Al pasar por el bloque de la IA se marcan las etapas donde trabaja. */
+  .flow-map:has(.flow-engine:hover) .flow-step.has-ai .flow-card,
+  .flow-map:has(.flow-engine:focus-visible) .flow-step.has-ai .flow-card {
+    @apply border-primary ring-1 ring-primary/30;
+  }
+
+  /* Conexiones: home-flow.js traza las líneas en este SVG y coloca cada rótulo sobre la suya.
+     Solo en la disposición ancha (--flow-links) y con JS. */
+  .flow-links {
+    @apply pointer-events-none absolute inset-0 hidden h-full w-full overflow-visible;
+  }
+  .flow-wrap.has-links .flow-links {
+    @apply block;
+  }
+  /* Un gris más firme que el de los bordes: una línea fina de ese tono no se ve. */
+  .flow-map {
+    --flow-line: #8494ab;
+  }
+  .flow-line {
+    fill: none;
+    stroke: var(--flow-line);
+    stroke-width: 1.5;
+    transition: stroke 0.15s;
+  }
+  .flow-line-loop {
+    stroke-dasharray: 5 4;
+  }
+  .flow-arrow {
+    fill: var(--flow-line);
+  }
+  .flow-line.is-on {
+    stroke: var(--color-primary);
+    stroke-width: 2;
+  }
+  .flow-arrow-on {
+    fill: var(--color-primary);
+  }
+  .flow-link {
+    @apply absolute z-10 hidden -translate-x-1/2 -translate-y-1/2 flex-col items-center rounded border border-line
+      bg-surface px-1.5 py-0.5 text-center text-[10px] leading-tight whitespace-nowrap text-ink-soft;
+  }
+  .flow-link strong {
+    @apply font-mono text-[11px] font-semibold text-ink;
+  }
+  /* En una línea: junto a una vertical o sobre el retorno. */
+  .flow-link-row {
+    @apply flex-row items-baseline gap-1;
+  }
+  .flow-link-loop {
+    @apply border-dashed;
+  }
+  .flow-wrap.has-links .flow-link:not(.flow-link-bare) {
+    @apply flex;
+  }
+  .flow-link.is-on {
+    @apply border-primary text-primary;
+  }
+  /* Al pie: qué está pasando ahora y, a la derecha, cómo se lee el diagrama. */
+  .flow-foot {
+    @apply flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1;
+  }
+  .flow-legend {
+    @apply flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-muted;
+  }
+  .flow-legend-item {
+    @apply inline-flex items-center gap-1.5;
+  }
+  .flow-legend-ai {
+    @apply text-primary;
+  }
+  .flow-legend-ai .flow-ai-mark {
+    @apply mt-0;
+  }
+  .flow-legend-line {
+    @apply inline-block w-5 border-t-[1.5px];
+    border-color: var(--flow-line, #8494ab);
+  }
+  .flow-legend-line-loop {
+    @apply border-dashed;
+  }
+  .flow-wrap:not(.has-links) .flow-legend-item:not(.flow-legend-ai) {
+    @apply hidden;
   }
   .flow-now {
     @apply text-xs text-muted;
@@ -708,6 +837,106 @@
   }
   .flow-now.is-working [data-hero-now="text"] {
     @apply font-medium text-ink;
+  }
+
+  /* En dos columnas, la tarjeta que queda sola al final ocupa el ancho entero. */
+  @container flow (max-width: 39.99rem) {
+    .flow > .flow-step:last-child:nth-child(odd) {
+      grid-column: span 2;
+    }
+  }
+  /* Medio: los tres grupos lado a lado, cada uno con sus tarjetas en columna. */
+  @container flow (min-width: 40rem) {
+    .flow-map {
+      @apply grid grid-cols-3 items-start gap-x-4 gap-y-3;
+    }
+    .flow {
+      @apply grid-cols-1;
+    }
+    .flow-engine {
+      @apply col-span-3;
+    }
+  }
+  /* Ancho: el diagrama. Siete pistas (tarjeta, canal, tarjeta, hueco, tarjeta, canal, tarjeta)
+     y tres filas de tarjetas con su separación; los grupos heredan las pistas (subgrid) para que
+     las filas casen de una columna a otra.
+
+       fila 1   Señales      ─►  Cruce (dos tarjetas de ancho)   ─►  Evidencia
+       fila 2   Inventario   ─►  Decisiones ─► Escaneos          ─►  Vulnerabilidades
+       fila 3   IA local (cinco pistas)                              Riesgos
+  */
+  @supports (grid-template-rows: subgrid) {
+    @container flow (min-width: 54rem) {
+      .flow-map {
+        --flow-links: 1;
+        --flow-gutter: 6rem; /* canal entre columnas: ahí va el rótulo de cada conexión */
+        --flow-gap: 3.5rem; /* entre Decisiones y Escaneos: cabe una cifra */
+        --flow-row-gap: 2rem; /* entre filas: pasan las líneas verticales y el retorno */
+        @apply grid max-w-[96rem] items-stretch gap-0;
+        grid-template-columns:
+          minmax(0, 1fr) var(--flow-gutter) minmax(0, 1fr) var(--flow-gap)
+          minmax(0, 1fr) var(--flow-gutter) minmax(0, 1fr);
+        grid-template-rows: auto auto var(--flow-row-gap) auto var(--flow-row-gap) auto;
+      }
+      .flow-group {
+        @apply grid gap-0;
+        grid-template-columns: subgrid;
+        grid-template-rows: subgrid;
+        grid-row: 1 / 5;
+      }
+      .flow-group-in {
+        grid-column: 1 / 2;
+      }
+      .flow-group-check {
+        grid-column: 3 / 6;
+      }
+      .flow-group-out {
+        grid-column: 7 / 8;
+        grid-row: 1 / 7;
+      }
+      .flow-group-title {
+        @apply mb-1.5;
+        grid-row: 1;
+        grid-column: 1 / -1;
+      }
+      .flow {
+        @apply gap-0;
+        grid-template-columns: subgrid;
+        grid-template-rows: subgrid;
+        grid-row: 2 / 5;
+        grid-column: 1 / -1;
+      }
+      .flow-group-out .flow {
+        grid-row: 2 / 7;
+      }
+      .flow-step-signals,
+      .flow-step-match,
+      .flow-step-observations {
+        grid-row: 1;
+      }
+      .flow-step-inventory,
+      .flow-step-decisions,
+      .flow-step-scans,
+      .flow-step-vulnerabilities {
+        grid-row: 3;
+      }
+      .flow-step-risks {
+        grid-row: 5;
+      }
+      .flow-step-match {
+        grid-column: 1 / -1;
+      }
+      .flow-step-decisions {
+        grid-column: 1;
+      }
+      .flow-step-scans {
+        grid-column: 3;
+      }
+      .flow-engine {
+        grid-row: 6;
+        grid-column: 1 / 6;
+      }
+    }
   }
 
   /* Panel de la etapa abierta (detalle a demanda dentro de Inicio). */

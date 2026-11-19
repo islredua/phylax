@@ -1,10 +1,11 @@
 {% load presentation_tags inventory %}
 {% comment %}
 Gráfica maestra de Inicio: lo primero que se ve. Arriba, el estado en una cifra y el reparto de
-los riesgos por nivel; debajo, el recorrido «del ruido a la decisión» (siete estaciones y el
-motor de IA local). Cada estación abre su detalle dentro de Inicio, sin salir de la página.
-Se dibuja en el servidor (funciona sin JS: las estaciones son enlaces ?etapa=…), entra animada
-por CSS y home-charts.js refresca las cifras en sitio cada minuto.
+los riesgos por nivel; debajo, «Cómo trabaja la detección» (ocho etapas en tres columnas, sus
+conexiones y el bloque de la IA local). Cada etapa abre su detalle dentro de Inicio, sin salir
+de la página. Se dibuja en el servidor (funciona sin JS: las etapas son enlaces ?etapa=…), entra
+animada por CSS, home-flow.js traza las conexiones y home-charts.js refresca las cifras en
+sitio cada minuto.
 {% endcomment %}
 <section class="hero" id="recorrido" data-hero aria-labelledby="hero-titulo">
   <div class="hero-top">
@@ -30,8 +31,8 @@ por CSS y home-charts.js refresca las cifras en sitio cada minuto.
   <div class="hero-flow">
     <div class="flow-head">
       <div>
-        <h3 class="card-title mb-0">Del ruido a la decisión</h3>
-        <p class="text-xs text-muted">Lo que Atalaya recibe, descarta, decide, comprueba y valora por ti. Elige una etapa para ver cómo lo hace.</p>
+        <h3 class="card-title mb-0">Cómo trabaja la detección</h3>
+        <p class="text-xs text-muted">Qué entra, qué se comprueba y qué resulta. Elige una etapa para ver el detalle.</p>
       </div>
       <button type="button" class="btn-secondary btn-sm" data-present hidden title="Recorre las etapas a pantalla completa, una tras otra; Esc para salir">Presentar</button>
     </div>

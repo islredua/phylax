@@ -1,10 +1,20 @@
-"""El recorrido «del ruido a la decisión»: qué hizo Atalaya en la ventana y con qué resultado.
+"""«Cómo trabaja la detección»: qué hizo Atalaya en la ventana y con qué resultado.
 
-Es la columna vertebral de Inicio. Cada etapa cuenta lo que entró, lo que la regla o el modelo
-local hicieron con ello y lo que quedó para la siguiente:
+Es la columna vertebral de Inicio. No es una fila: tiene dos entradas, un ciclo y un tramo final
+que sí va en orden.
 
-    señales → cruce con el inventario → decisiones → escaneos → observaciones →
-    vulnerabilidades → riesgos
+    entra          señales (inteligencia) ─┐
+                   inventario ─────────────┴─► cruce ─► evidencia (sin escanear)
+    se comprueba   cruce ─► decisiones ─► escaneos ─► evidencia
+                   escaneos ─► inventario (lo que descubren vuelve a entrar)
+                   personas y calendario ─► escaneos
+    resulta        evidencia ─► vulnerabilidades ─► riesgos
+
+Hasta el 2026-11-18 se dibujaba como siete estaciones en fila («del ruido a la decisión») y las
+cifras lo desmentían: 47 decisiones, 225 escaneos, 1 101 reportes. En el laboratorio ningún
+escaneo salió de una señal de inteligencia y el 84 % de la evidencia no pasó por un escaneo. Por
+eso cada etapa dice ahora de dónde le llega lo suyo (``scans.origins``, ``observations.from_match``
+y ``with_tool``).
 
 Reglas de este módulo:
 
@@ -45,12 +55,21 @@ from apps.scanners.models import ToolExecution
 # el del recorrido: primero decide, después valora y al final redacta.
 AI_TASKS = (
     ("DETECTION_PLANNER", "Decidir qué hacer ante cada señal", "decisions"),
-    ("ASSET_CRITICALITY", "Sugerir la criticidad de cada activo", ""),
+    ("ASSET_CRITICALITY", "Sugerir la criticidad de cada activo", "inventory"),
     ("VULN_ASSESSMENT", "Valorar si cada vulnerabilidad aplica de verdad", "vulnerabilities"),
     ("RISK_ASSESSMENT", "Agrupar vulnerabilidades en riesgos y valorarlos", "risks"),
     ("RISK_NARRATIVE", "Redactar cada riesgo para la dirección", "risks"),
     ("ORG_PROFILE_DRAFT", "Proponer el perfil de la organización", ""),
 )
+# Lo mismo en tres palabras, para la lista «Dónde trabaja» del diagrama de Inicio.
+AI_TASK_SHORT = {
+    "DETECTION_PLANNER": "Decide qué comprobar",
+    "ASSET_CRITICALITY": "Sugiere la criticidad",
+    "VULN_ASSESSMENT": "Valora vulnerabilidades",
+    "RISK_ASSESSMENT": "Agrupa y valora riesgos",
+    "RISK_NARRATIVE": "Redacta cada riesgo",
+    "ORG_PROFILE_DRAFT": "Propone el perfil",
+}
 # Tareas de redacción que no entran en las cifras de la IA local de Inicio. A quien mira la
 # pantalla le importa el resultado, que ya se muestra donde corresponde, no cuántas llamadas
 # costó ni cuántas se aceptaron:
@@ -282,14 +301,96 @@ def scans(since, assets_total) -> dict:
         ToolExecution.objects.filter(status__in=("QUEUED", "RUNNING")).count()
         + DiscoveryRun.objects.filter(status__in=("QUEUED", "RUNNING")).count()
     )
+    total = sum(t["total"] for t in tools)
+    origins = _scan_origins(executions, runs, total)
     return {
-        "total": sum(t["total"] for t in tools),
+        "total": total,
         "ok": sum(t["ok"] for t in tools),
         "failed": sum(t["failed"] for t in tools),
         "running": running,
         "tools": tools,
+        "nmap": tools[0]["total"],
         "assets_covered": len(covered),
         "assets_total": assets_total,
+        **origins,
+    }
+
+
+SCAN_DONE = ("SUCCEEDED", "FAILED")  # los que cuenta ``scans``: terminados, bien o mal
+
+
+def _scan_origins(executions, runs, total) -> dict:
+    """Quién pidió cada escaneo terminado de la ventana.
+
+    No todos nacen de una decisión del planificador: el descubrimiento corre por calendario y una
+    persona puede pedir un escaneo o comprobar una corrección. Lo que no deja rastro de quién lo
+    pidió (la señal o la decisión se borraron después) se dice aparte en vez de repartirlo.
+    """
+    by_hand = Q(action__decision__prompt_version=PlannerDecision.BY_PERSON)
+    done = executions.filter(status__in=SCAN_DONE)
+    tool_person = done.filter(Q(requested_by__isnull=False) | by_hand).count()
+    tool_planner = (
+        done.filter(action__isnull=False, requested_by__isnull=True).exclude(by_hand).count()
+    )
+    runs_done = runs.filter(status__in=SCAN_DONE)
+    asked = PlannedAction.objects.filter(discovery_run__in=runs_done)
+    hand_runs = set(
+        asked.filter(decision__prompt_version=PlannerDecision.BY_PERSON).values_list(
+            "discovery_run_id", flat=True
+        )
+    )
+    planner_runs = set(asked.values_list("discovery_run_id", flat=True)) - hand_runs
+    run_planner = run_person = run_schedule = 0
+    for pk, requested_by, target in runs_done.values_list(
+        "pk", "requested_by_id", "target_asset_id"
+    ):
+        if pk in hand_runs or requested_by:
+            run_person += 1
+        elif pk in planner_runs:
+            run_planner += 1
+        elif target is None:
+            run_schedule += 1  # un rango entero sin nadie detrás: el calendario
+    by_planner = tool_planner + run_planner
+    by_person = tool_person + run_person
+    unlinked = max(total - by_planner - by_person - run_schedule, 0)
+    rows = [
+        {
+            "key": "planner",
+            "label": "Por decisión del planificador",
+            "hint": "ante una señal o un cambio del inventario",
+            "value": by_planner,
+        },
+        {
+            "key": "person",
+            "label": "Pedidos por una persona",
+            "hint": "un descubrimiento, un escaneo o comprobar una corrección",
+            "value": by_person,
+        },
+        {
+            "key": "schedule",
+            "label": "Por calendario",
+            "hint": "descubrimiento programado de un rango de red",
+            "value": run_schedule,
+        },
+    ]
+    if unlinked:
+        rows.append(
+            {
+                "key": "unlinked",
+                "label": "Sin origen registrado",
+                "hint": "la señal o la decisión que los pidió ya no está en el registro",
+                "value": unlinked,
+            }
+        )
+    top = max((row["value"] for row in rows), default=0) or 1
+    for row in rows:
+        row["width"] = max(_pct(row["value"], top), 1.5) if row["value"] else 0
+    return {
+        "by_planner": by_planner,
+        "by_person": by_person,
+        "scheduled": run_schedule,
+        "unlinked": unlinked,
+        "origins": rows,
     }
 
 
@@ -335,8 +436,13 @@ def observations() -> dict:
     scan_only = sum(
         n for combo, n in combos.items() if "CTI_MATCH" not in combo and combo != ("MANUAL",)
     )
+    with_tool = sum(n for combo, n in combos.items() if {"NUCLEI", "GRYPE"} & set(combo))
     return {
         "total": total,
+        # Por dónde llegó cada reporte: del cruce de inteligencia con el inventario (sin
+        # escanear) o de una herramienta. Lo que confirman las dos vías cuenta en ambas.
+        "from_match": by_source.get("CTI_MATCH", 0),
+        "with_tool": with_tool,
         "by_source": dict(by_source),
         "multi_source": multi,
         "intel_only": intel_only,
@@ -344,6 +450,52 @@ def observations() -> dict:
         "scan_only": scan_only,
         "columns": [{"key": s, "label": SOURCE_LABEL.get(s, s)} for s in present],
         "combos": rows,
+    }
+
+
+def inventory(since, assets_block, match_block, signal_block, nmap_runs) -> dict:
+    """El inventario como entrada: contra qué se cruza cada señal, quién lo mantiene y qué hace
+    ahí la IA (la criticidad de cada activo)."""
+    from apps.assets.enums import AssetOrigin, CriticalitySource
+    from apps.assets.models import Asset
+
+    assets = Asset.objects.filter(merged_into__isnull=True)
+    by_origin = dict(
+        assets.values_list("origin").annotate(n=Count("id")).values_list("origin", "n")
+    )
+    by_source = dict(
+        assets.exclude(criticality__isnull=True)
+        .exclude(criticality="")
+        .values_list("criticality_source")
+        .annotate(n=Count("id"))
+        .values_list("criticality_source", "n")
+    )
+    by_ai = sum(
+        by_source.get(source, 0)
+        for source in (
+            CriticalitySource.LLM_AUTO,
+            CriticalitySource.LLM_ACCEPTED,
+            CriticalitySource.LLM_EDITED,
+        )
+    )
+    total = assets_block["total"]
+    discovered = by_origin.get(AssetOrigin.DISCOVERY, 0)
+    with_criticality = sum(by_source.values())
+    return {
+        "assets": total,
+        "with_software": match_block["assets_with_software"],
+        "components": match_block["components"],
+        "products": match_block["products"],
+        "with_sbom": assets_block["with_sbom"],
+        "with_criticality": with_criticality,
+        "criticality_ai": by_ai,
+        "criticality_auto": by_source.get(CriticalitySource.LLM_AUTO, 0),
+        "criticality_person": max(with_criticality - by_ai, 0),
+        "discovered": discovered,
+        "registered": max(total - discovered, 0),
+        "new_window": assets.filter(created_at__gte=since).count(),
+        "changes": signal_block["inventory"],
+        "nmap_runs": nmap_runs,
     }
 
 
@@ -420,6 +572,7 @@ def ai(since, llm_status, model) -> dict:
             {
                 "key": key,
                 "label": what,
+                "short": AI_TASK_SHORT.get(key, what),
                 "stage": stage,
                 "calls": row["calls"],
                 "ok": row["ok"],
@@ -474,6 +627,9 @@ def compute(*, since, data) -> dict:
     block = {
         "window_days": data["window_days"],
         **flow,
+        "inventory": inventory(
+            since, data["assets"], flow["match"], flow["signals"], scan_block["nmap"]
+        ),
         "decisions": decisions(since),
         "scans": scan_block,
         "observations": observations(),

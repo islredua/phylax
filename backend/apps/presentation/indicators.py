@@ -35,7 +35,7 @@ from apps.scoring.services import severity_for
 from . import pipeline
 from .models import HealthSnapshot, HealthStatus, PresentationSettings
 
-CACHE_KEY = "home:indicators:v1"
+CACHE_KEY = "home:indicators:v2"  # v2: el recorrido trae el inventario y el origen de cada escaneo
 CACHE_SECONDS = 60
 RISK_OPEN = ("OPEN", "TREATED", "ACCEPTED")
 # Valores planos (str), no miembros del enum: el dato viaja a caché, JSON y al modelo.
@@ -233,8 +233,8 @@ def compute(now=None) -> dict:
         "cti": cti_block,
         "llm": {"status": llm_status.get_status(), "model": llm_status.active_model()},
     }
-    # El recorrido «del ruido a la decisión» (señales → cruce → decisiones → escaneos →
-    # observaciones → vulnerabilidades → riesgos) con el mismo periodo para todo lo que es flujo.
+    # «Cómo trabaja la detección» (qué entra, qué se comprueba y qué resulta), con el mismo
+    # periodo para todo lo que es flujo.
     flow = pipeline.compute(since=since, data=data)
     data["pipeline"] = flow
     data["observations"] = {
