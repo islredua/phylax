@@ -1329,6 +1329,27 @@ no cuelga de ningún evento (una pausa, un cambio de configuración) va como fil
 pestañas por tipo siguen siendo el listado plano. Lo que la persona desplegó sigue abierto tras
 el refresco de 10 s (`data-keep-open`).
 
+**Los descubrimientos de nmap también están** (2026-11-18). Actividad listaba señales,
+decisiones, acciones, bitácora y las ejecuciones de nuclei y Grype, pero no los `DiscoveryRun`:
+un barrido lanzado desde el inventario no dejaba fila, y tras una tarde de trabajo lo más
+reciente de la lista decía «ayer», lo que parecía un desfase de fechas (no lo era: «ayer» se
+calcula con la fecha local). Inicio, además, contaba los nmap entre los «escaneos» y su enlace
+«Ver las ejecuciones» llevaba a una lista donde no estaban. Ahora (`activity._discovery_entry`):
+
+- Cada descubrimiento es una fila de tipo «herramienta» («nmap · barrido de hosts», «nmap ·
+  escaneo de servicios») con el rango o el activo, su estado, lo que encontró (hosts activos o
+  servicios vistos, activos nuevos y actualizados, conflictos) o su error, y **quién lo pidió**
+  con el mismo criterio que cuenta Inicio: «lo pidió *usuario*», «lo pidió una persona» (acción
+  pedida a mano), «por decisión del planificador» o «por calendario».
+- En «Todo», el que salió de una acción es un paso más del hilo de esa acción; los pedidos a
+  mano o por calendario van como fila propia. En «Herramientas» van todos, junto a nuclei y
+  Grype. «Pulso del sistema» de Inicio usa la misma lista.
+- El enlace a la página de la ejecución (`discovery:run_detail`) solo aparece para quien tiene
+  `discovery.view_discoveryrun`; sin él la fila se ve, sin enlace (`recent(user=…)`,
+  `threads(user=…)`).
+
+Prueba: `test_activity_lists_nmap_discoveries_with_who_asked`.
+
 ## La corrección como eje (2026-11-18)
 
 Las vulnerabilidades siguen siendo vulnerabilidades. Lo que cambia es cómo se juntan para

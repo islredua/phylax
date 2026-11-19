@@ -651,7 +651,7 @@ class HomeView(TemplateView):
             top_risks=top,
             top_business=business_risks.register()[:5],
             alerts=indicators.alerts(data),
-            pulse=activity.recent(limit=12) if blocks["activity"] else [],
+            pulse=activity.recent(limit=12, user=self.request.user) if blocks["activity"] else [],
             **narrative.reading(data, top),
             narrative_pending=bool(cache.get(NARRATIVE_PENDING_KEY)),
             linker=Linker.from_db(),
@@ -773,7 +773,7 @@ class HomeFragmentView(PermissionRequiredMixin, TemplateView):
         elif block == "alerts":
             context.update(alerts=indicators.alerts(data))
         elif block == "pulse":
-            context.update(pulse=activity.recent(limit=12))
+            context.update(pulse=activity.recent(limit=12, user=self.request.user))
         elif block == "stage":
             # El panel de la etapa elegida y, fuera de banda, las estaciones con la nueva marca
             # de «abierta» (así el botón de la etapa abierta pasa a cerrarla).

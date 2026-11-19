@@ -1828,8 +1828,12 @@ class ActivityView(Perm, TemplateView):
         context.update(
             # «Todo» agrupa: una fila por acción con sus pasos plegados. Las demás pestañas son
             # el listado plano de un solo tipo.
-            threads=None if kinds else activity.threads(),
-            entries=activity.recent(kinds=kinds, include_filtered=show_filtered) if kinds else [],
+            threads=None if kinds else activity.threads(user=self.request.user),
+            entries=activity.recent(
+                kinds=kinds, include_filtered=show_filtered, user=self.request.user
+            )
+            if kinds
+            else [],
             kind=kind,
             show_filtered=show_filtered,
             filtered_today=DetectionEvent.objects.filter(

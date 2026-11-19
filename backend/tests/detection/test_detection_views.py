@@ -337,6 +337,97 @@ def test_activity_shows_one_row_per_action_with_its_steps_folded(client, as_role
     assert "Enviada a ejecutar" in flat.content.decode()
 
 
+def test_activity_lists_nmap_discoveries_with_who_asked(client, as_role, make_user):
+    """Un barrido de nmap lanzado desde el inventario no dejaba fila en Actividad: tras una
+    tarde de trabajo lo más reciente de la lista decía «ayer» y parecía un desfase de fechas
+    (2026-11-18). Ahora cada descubrimiento es una fila con lo que encontró y quién lo pidió; el
+    que salió de una decisión es un paso más de esa acción."""
+    from django.contrib.auth.models import Permission
+
+    from apps.detection import activity
+    from apps.detection.models import PlannerDecision
+    from apps.discovery.models import DiscoveryRun
+    from tests.factories import NetworkRangeFactory
+
+    user = as_role(ADMIN)
+    asset = _asset()
+    rng = NetworkRangeFactory(cidr="10.60.30.0/24")
+    by_hand = DiscoveryRun.objects.create(
+        network_range=rng,
+        profile="HOST_SWEEP",
+        status="SUCCEEDED",
+        requested_by=user,
+        hosts_up=3,
+        assets_created=1,
+    )
+    scheduled = DiscoveryRun.objects.create(
+        network_range=rng, profile="HOST_SWEEP", status="SUCCEEDED", hosts_up=0
+    )
+    failed = DiscoveryRun.objects.create(
+        network_range=rng, profile="HOST_SWEEP", status="FAILED", error="nmap no respondió"
+    )
+    # El que ordenó el planificador cuelga del evento de su acción.
+    event = DetectionEvent.objects.create(
+        kind=EventKind.ASSET_SERVICES_CHANGED, asset=asset, dedupe_key="cambio"
+    )
+    decision = PlannerDecision.objects.create(
+        event=event, asset=asset, action="RESCAN_SERVICES", prompt_version="v3"
+    )
+    by_planner = DiscoveryRun.objects.create(
+        target_asset=asset,
+        profile="SERVICE_SCAN",
+        status="SUCCEEDED",
+        services_seen=4,
+        assets_updated=1,
+    )
+    PlannedAction.objects.create(
+        decision=decision,
+        event=event,
+        asset=asset,
+        action="RESCAN_SERVICES",
+        discovery_run=by_planner,
+    )
+
+    tools = {e.url: e for e in activity.recent(kinds=["execution"])}
+    assert len(tools) == 4 and all(e.kind == "execution" for e in tools.values())
+    row = tools[f"/discovery/runs/{by_hand.pk}/"]
+    assert row.label == "nmap · barrido de hosts" and row.subject == "10.60.30.0/24"
+    assert row.text == f"3 hosts activos · 1 activo nuevo · lo pidió {user.get_username()}"
+    assert row.badge == "SUCCEEDED" and row.thread == ""
+    assert tools[f"/discovery/runs/{scheduled.pk}/"].text == "0 hosts activos · por calendario"
+    assert tools[f"/discovery/runs/{failed.pk}/"].text == "nmap no respondió · por calendario"
+    row = tools[f"/discovery/runs/{by_planner.pk}/"]
+    assert row.label == "nmap · escaneo de servicios" and row.subject == asset.name
+    assert row.text == ("4 servicios vistos · 1 activo actualizado · por decisión del planificador")
+    assert row.thread == str(event.pk)
+
+    # «Todo»: tres filas sueltas y el del planificador dentro del hilo de su acción.
+    threads = activity.threads()
+    loose = [t for t in threads if not t.key and t.head.label.startswith("nmap")]
+    assert len(loose) == 3 and all(t.steps == [] for t in loose)
+    thread = next(t for t in threads if t.key == str(event.pk))
+    assert [step.kind for step in thread.steps].count("execution") == 1
+    assert "4 servicios vistos" in thread.summary
+
+    body = client.get("/detection/activity/").content.decode()
+    assert body.count("nmap · barrido de hosts") == 3
+    assert f"lo pidió {user.get_username()}" in body and "por calendario" in body
+    assert f'href="/discovery/runs/{by_hand.pk}/"' in body
+    assert body.count(f'data-thread="{event.pk}"') == 1 and "nmap · escaneo de servicios" in body
+    flat = client.get("/detection/activity/?kind=execution").content.decode()
+    assert flat.count("nmap · ") == 4 and "los descubrimientos de nmap" in flat
+    # Y en el pulso de Inicio, que usa la misma lista.
+    assert "nmap · barrido de hosts" in client.get("/home/block/pulse/").content.decode()
+
+    # Quien ve la actividad pero no puede abrir un descubrimiento ve la fila, sin enlace.
+    reader = make_user(username="solo-actividad")
+    reader.groups.clear()
+    reader.user_permissions.add(Permission.objects.get(codename="view_detectionevent"))
+    client.force_login(reader)
+    body = client.get("/detection/activity/?kind=execution").content.decode()
+    assert body.count("nmap · ") == 4 and "/discovery/runs/" not in body
+
+
 def test_model_mismatch_warning_is_visible(client, as_role):
     as_role(OPERATOR)
     asset = _asset()

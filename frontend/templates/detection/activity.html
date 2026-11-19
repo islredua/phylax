@@ -12,6 +12,6 @@
 </div>
 {% endblock %}
 {% block content %}
-<p class="text-xs text-muted">Los CVE nuevos que no tocan a ningún activo se descartan en silencio ({{ filtered_today|miles }} hoy) y no aparecen aquí{% if kind == 'event' %}{% if show_filtered %}; <a href="?kind=event">ocultarlos</a>{% else %}; <a href="?kind=event&filtered=1">mostrarlos</a>{% endif %}{% else %}; se pueden ver en la pestaña Eventos{% endif %}. {% if not kind %}Cada fila es una acción completa, del evento que la originó a lo que resultó; «N pasos» despliega el detalle. {% endif %}La tabla se actualiza sola cada 10 s sin mover la página.</p>
+<p class="text-xs text-muted">Los CVE nuevos que no tocan a ningún activo se descartan en silencio ({{ filtered_today|miles }} hoy) y no aparecen aquí{% if kind == 'event' %}{% if show_filtered %}; <a href="?kind=event">ocultarlos</a>{% else %}; <a href="?kind=event&filtered=1">mostrarlos</a>{% endif %}{% else %}; se pueden ver en la pestaña Eventos{% endif %}. {% if not kind %}Cada fila es una acción completa, del evento que la originó a lo que resultó; «N pasos» despliega el detalle. Un descubrimiento de nmap pedido a mano o por calendario va como fila propia. {% elif kind == 'execution' %}Aquí van las ejecuciones de nuclei y Grype y los descubrimientos de nmap, con quién pidió cada uno. {% endif %}La tabla se actualiza sola cada 10 s sin mover la página.</p>
 {% include "detection/_activity_feed.html" %}
 {% endblock %}
