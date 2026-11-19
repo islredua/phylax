@@ -252,15 +252,16 @@ cabeceras, credenciales por defecto, exposición de información). El flujo:
    una que aún no la tenga (la tarjeta «Descripción» se refresca sola). Una descripción redactada
    por IA o por una persona sobrevive a las reconsolidaciones por regla; `description_source` dice
    quién la escribió.
-4. **Scoring (Módulo 4, `apps.scoring`)**: `technical_score` (CVSS, EPSS, KEV con piso 7.0) y
-   `contextual_score` (técnico × criticidad, exposición y clasificación de datos del activo ×
-   factores del LLM, con plausibilidad que reduce hasta el 40 %, controles compensatorios y
-   ajuste). Dos anclas deterministas sobre los factores del modelo: la explotabilidad no baja de
-   HIGH con el CVE en KEV ni de MEDIUM con EPSS ≥ 0.3, y la criticidad del activo pone techo al
-   contextual (INFORMATIVO 4.0, BAJO 6.0, MEDIO 8.0): un señuelo con Apache viejo no encabeza el
-   panel por mucho que el modelo infle «impacto crítico». Determinista y versionado
-   (`algorithm_version` `m4-2026.11.2`); `baselines` da CVSS, EPSS y CVSS×EPSS para comparar. La
-   severidad mostrada deriva del puntaje contextual.
+4. **Scoring (Módulo 4, `apps.scoring`)**: `technical_score` (CVSS 60 %, EPSS 25 %, KEV 15 %,
+   con piso 7.0 si está en KEV) y `contextual_score`: el técnico (40 %) con la criticidad (20 %),
+   la exposición (15 %) y la clasificación de datos (10 %) **del inventario**, más la
+   explotabilidad que el LLM estima para el caso (15 %); la plausibilidad reduce el resultado
+   hasta el 40 %, y los controles compensatorios y el ajuste (±1) lo corrigen. Dos anclas
+   deterministas: la explotabilidad no baja de HIGH con el CVE en KEV ni de MEDIUM con
+   EPSS ≥ 0.3, y la criticidad del activo pone techo al contextual (INFORMATIVO 4.0, BAJO 6.0,
+   MEDIO 8.0). Determinista y versionado (`algorithm_version` `m4-2026.11.3`); `baselines` da
+   CVSS, EPSS y CVSS×EPSS para comparar. La severidad mostrada deriva del puntaje contextual.
+   Los pesos están en `apps/scoring/services.py` y en ningún otro sitio.
 5. **Estado por IA**: la vulnerabilidad nace con el estado que eligió el modelo
    (`status_source = AI`, etiqueta «por IA»). Una persona puede corregirlo (`HUMAN`): desde entonces
    la consolidación actualiza explicación y puntajes pero **no el estado**, hasta que «Devolver la
@@ -272,6 +273,54 @@ cabeceras, credenciales por defecto, exposición de información). El flujo:
 `DETECTION_CONSOLIDATE_DELAY_S`): fin de una herramienta con activo, reconciliación con cambios,
 cambio CTI que toca observaciones del activo, observación manual y «Reevaluar con IA» (sin
 retardo). Varios disparadores cercanos producen una sola corrida.
+
+### La criticidad y los datos salen del inventario (`m4-2026.11.3`, 2026-11-18)
+
+Hasta `m4-2026.11.2` la fórmula tomaba, para la criticidad, el mayor entre la del activo y el
+«impacto de negocio» que el modelo estima por vulnerabilidad, y lo mismo con la clasificación de
+datos y la «sensibilidad de datos». Medido sobre las 1 053 vulnerabilidades del laboratorio:
+
+| Qué responde el modelo | Casos |
+|---|---|
+| Impacto de negocio «crítico» | 945 (90 %) |
+| Sensibilidad de datos «alta» | 906 (86 %) |
+| El impacto sube la criticidad del activo | 455 |
+| Ajuste distinto de 0 | 0 |
+| Controles compensatorios distintos de «ninguno» | 0 |
+
+Con el modelo respondiendo «crítico» casi siempre, un activo de criticidad alta puntuaba igual
+que uno crítico: CVE-2024-38475 daba 8.78 tanto en `crm-legacy` (alta) como en `portal-rh`
+(crítica). La criticidad del activo ya la propone la IA con todo el contexto del equipo y la
+corrige una persona; repetir esa estimación por vulnerabilidad no añadía información y borraba la
+del inventario.
+
+Desde `m4-2026.11.3` `contextual_score` no recibe esas dos estimaciones. El modelo las sigue
+devolviendo (el prompt `vuln_assessment/v4` no cambió), se guardan en `Vulnerability.factors` y
+la ficha las muestra bajo la lista de lo que puntúa, como «Estimación de la IA que no entra al
+puntaje». La regla de respaldo de los riesgos (`risks.rule_impact`) todavía las lee.
+
+Efecto recalculado con los factores guardados (sin IA):
+
+| | `m4-2026.11.2` | `m4-2026.11.3` |
+|---|---|---|
+| Críticas | 5 | 5 |
+| Altas | 119 | 89 |
+| Medias | 776 | 737 |
+| Bajas | 153 | 222 |
+| CVE-2024-38475 en `crm-legacy` (alta) | 8.78 | 8.28 |
+| CVE-2024-38475 en `portal-rh` (crítica) | 8.78 | 8.78 |
+| Orden por activo frente al esperado (Spearman) | 0.723 | 0.724 |
+
+El orden por activo no cambia y `api-pagos` sigue primero; lo que cambia es que cada nivel de
+criticidad del inventario vuelve a mover el puntaje. Los pesos, el piso de KEV, el techo por
+criticidad y la plausibilidad quedaron igual: con 20 activos, afinarlos habría sido acomodar la
+fórmula a la prueba.
+
+De paso salió de `settings.py` y de `.env.example` el bloque `SCORING_WEIGHTS`
+(`SCORING_WEIGHT_*`), que traía otro juego de pesos y que el motor nunca leyó.
+
+Tras desplegar el cambio, `manage.py rescore_vulnerabilities` pone al día las vulnerabilidades
+abiertas con la versión nueva.
 
 ## H3. Riesgos (`detection/risks.py`, ISO/IEC 27005:2022)
 

@@ -112,6 +112,58 @@ def test_contextual_score_clamps_adjustment_and_honours_plausibility():
     assert scoring.baselines(cvss=9.8, epss=0.5) == {"cvss": 9.8, "epss": 5.0, "cvss_x_epss": 4.9}
 
 
+def test_inventory_criticality_and_data_decide_their_share_of_the_score():
+    """La criticidad y la clasificación de datos salen del inventario: un activo de criticidad
+    alta no puntúa como uno crítico, y cada nivel de las dos escalas mueve el puntaje."""
+    base = {"technical": 9.0, "exposure": "INTERNAL", "exploitability": "HIGH"}
+    by_criticality = [
+        scoring.contextual_score(**base, criticality=level, data_classification="CONFIDENCIAL")
+        for level in ("ALTO", "CRITICO")
+    ]
+    assert by_criticality[0].score < by_criticality[1].score
+    assert by_criticality[1].score - by_criticality[0].score == pytest.approx(0.5, abs=0.01)
+    by_data = [
+        scoring.contextual_score(**base, criticality="CRITICO", data_classification=level).score
+        for level in ("PUBLICA", "INTERNA", "CONFIDENCIAL", "RESTRINGIDA")
+    ]
+    assert by_data == sorted(by_data) and len(set(by_data)) == 4
+    # El motor ya no recibe las estimaciones del modelo sobre esas dos dimensiones.
+    assert not {"business_impact_level", "data_sensitivity"} & set(by_criticality[0].breakdown)
+    with pytest.raises(TypeError):
+        scoring.contextual_score(**base, criticality="ALTO", business_impact_level="CRITICAL")
+    with pytest.raises(TypeError):
+        scoring.contextual_score(**base, criticality="ALTO", data_sensitivity="HIGH")
+
+
+def test_model_impact_estimate_does_not_raise_the_asset_criticality(lab_cti, monkeypatch):
+    """El modelo dice «impacto crítico» y «datos de sensibilidad alta» para todo: el mismo CVE
+    puntúa más en el activo crítico que en el alto, y lo que estimó se conserva aparte."""
+    _recording(
+        monkeypatch,
+        business_impact_level="CRITICAL",
+        data_sensitivity="HIGH",
+        exploitability="MEDIUM",
+        plausibility=1.0,
+    )
+    scores = {}
+    for criticality in ("ALTO", "CRITICO"):
+        asset = _nginx_asset(criticality=criticality, data_classification="INTERNA")
+        findings.apply_matches(matching.reconcile_assets([asset.pk]))
+        consolidation.consolidate_asset(asset.pk)
+        vuln = Vulnerability.objects.get(asset=asset, key="CVE-2025-23419")
+        assert vuln.factors["business_impact_level"] == "CRITICAL"
+        assert vuln.factors["data_sensitivity"] == "HIGH"
+        breakdown = vuln.score_breakdown["contextual"]
+        assert breakdown["criticality"] == criticality
+        assert breakdown["data_classification"] == "INTERNA"
+        assert "business_impact_level" not in breakdown and "data_sensitivity" not in breakdown
+        assert vuln.algorithm_version == scoring.ALGORITHM_VERSION == "m4-2026.11.3"
+        scores[criticality] = vuln.contextual_score
+        # Recalcular con los factores guardados da lo mismo: el recálculo tampoco los usa.
+        assert consolidation.rescore_asset(asset.pk) == 0
+    assert scores["ALTO"] < scores["CRITICO"]
+
+
 def test_score_findings_ranks_raw_observations_with_asset_context():
     asset = _nginx_asset()
     f = _observe(asset, "CVE-2099-0001", "NUCLEI", severity="HIGH")
@@ -522,9 +574,18 @@ def test_exact_evidence_floors_status_and_scoring_anchors(lab_cti, monkeypatch):
     vuln = Vulnerability.objects.get(asset=asset, key="CVE-2025-23419")
     assert vuln.status == VulnerabilityStatus.LIKELY and vuln.status_source == StatusSource.AI
     assert "versión exacta en el rango afectado" in vuln.rule_flags
-    # Un señuelo (INFORMATIVO) no encabeza el panel aunque el CVE sea grave.
+    # Un señuelo (INFORMATIVO) no encabeza el panel aunque el CVE sea grave: su criticidad ya
+    # deja el puntaje abajo, y el techo cubre el caso extremo (explotado y expuesto a internet).
     assert vuln.contextual_score <= scoring.CRITICALITY_CAP["INFORMATIVO"]
-    assert vuln.score_breakdown["contextual"]["criticality_cap_applied"]
+    worst = scoring.contextual_score(
+        technical=9.5,
+        criticality="INFORMATIVO",
+        exposure="INTERNET",
+        exploitability="HIGH",
+        in_kev=True,
+    )
+    assert worst.score == scoring.CRITICALITY_CAP["INFORMATIVO"]
+    assert worst.breakdown["criticality_cap_applied"]
     # KEV ancla la explotabilidad aunque el modelo diga NONE.
     ctx = scoring.contextual_score(
         technical=9.0, criticality="CRITICO", exploitability="NONE", in_kev=True, plausibility=0.9
@@ -1125,8 +1186,6 @@ def test_daily_epss_moves_the_score_but_not_the_assessment(lab_cti, monkeypatch)
         exposure="INTERNET",
         plausibility=vuln.plausibility,
         exploitability="LOW",
-        data_sensitivity=vuln.factors["data_sensitivity"],
-        business_impact_level=vuln.factors["business_impact_level"],
         compensating_controls=vuln.factors["compensating_controls"],
         adjustment=vuln.adjustment,
         in_kev=vuln.in_kev,

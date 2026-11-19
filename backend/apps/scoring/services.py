@@ -1,10 +1,10 @@
 """Motor de scoring (Módulo 4): puntaje técnico y puntaje contextual, deterministas y versionados.
 
 - **Técnico**: CVSS, EPSS y KEV. Es lo que diría cualquier escáner.
-- **Contextual**: el técnico ponderado con el contexto del activo (criticidad, exposición,
-  clasificación de datos) y con los factores que el LLM estima sobre el caso concreto
-  (plausibilidad, explotabilidad en contexto, sensibilidad de los datos, impacto de negocio,
-  controles compensatorios), más un ajuste acotado a ±1 que el modelo debe justificar.
+- **Contextual**: el técnico ponderado con el contexto del activo, que sale del inventario
+  (criticidad, exposición, clasificación de datos), y con lo que el LLM estima sobre el caso
+  concreto (plausibilidad, explotabilidad en contexto, controles compensatorios), más un ajuste
+  acotado a ±1 que el modelo debe justificar.
 
 La fórmula no la decide el LLM: él aporta factores, aquí se calcula. Misma entrada, mismo
 resultado, y ``ALGORITHM_VERSION`` queda registrada en cada vulnerabilidad para la tesis. Las
@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 
 from django.conf import settings
 
-ALGORITHM_VERSION = "m4-2026.11.2"
+ALGORITHM_VERSION = "m4-2026.11.3"
 
 # Normalizaciones a [0, 1] de los valores categóricos del inventario.
 CRITICALITY_NORM = {"CRITICO": 1.0, "ALTO": 0.75, "MEDIO": 0.5, "BAJO": 0.25, "INFORMATIVO": 0.1}
@@ -25,7 +25,6 @@ EXPOSURE_NORM = {"INTERNET": 1.0, "DMZ": 0.8, "INTERNAL": 0.5, "ISOLATED": 0.2}
 DATA_NORM = {"RESTRINGIDA": 1.0, "CONFIDENCIAL": 0.75, "INTERNA": 0.5, "PUBLICA": 0.25}
 SEVERITY_SCORE = {"CRITICAL": 9.5, "HIGH": 7.5, "MEDIUM": 5.0, "LOW": 2.5, "INFO": 0.5}
 EXPLOITABILITY_NORM = {"NONE": 0.0, "LOW": 0.3, "MEDIUM": 0.6, "HIGH": 1.0}
-LEVEL_NORM = {"LOW": 0.25, "MEDIUM": 0.5, "HIGH": 0.75, "CRITICAL": 1.0}
 CONTROLS_PENALTY = {"NONE": 0.0, "PARTIAL": 0.5, "STRONG": 1.0}
 KEV_FLOOR = 7.0
 MAX_ADJUSTMENT = 1.0
@@ -98,8 +97,6 @@ def contextual_score(
     data_classification=None,
     plausibility=1.0,
     exploitability="MEDIUM",
-    data_sensitivity=None,
-    business_impact_level=None,
     compensating_controls="NONE",
     adjustment=0.0,
     in_kev=False,
@@ -110,6 +107,11 @@ def contextual_score(
     Dos anclas deterministas sobre los factores del modelo: la explotabilidad no baja de HIGH si el
     CVE está en KEV (ni de MEDIUM con EPSS ≥ 0.3), y la criticidad del activo pone techo al puntaje
     (`CRITICALITY_CAP`): el modelo matiza, pero no puede convertir un señuelo en lo más urgente.
+
+    La criticidad y la clasificación de datos son las del inventario. Hasta `m4-2026.11.2` el
+    impacto de negocio y la sensibilidad de datos que el modelo estima por vulnerabilidad podían
+    subirlas; el modelo de 7B responde «crítico» en nueve de cada diez casos y un activo de
+    criticidad alta acababa puntuando igual que uno crítico.
     """
     w_tech = _w("SCORING_W_TECHNICAL", 0.4)
     w_crit = _w("SCORING_W_CRITICALITY", 0.2)
@@ -119,10 +121,6 @@ def contextual_score(
     crit = CRITICALITY_NORM.get(criticality, 0.5)
     expo = EXPOSURE_NORM.get(exposure, 0.5)
     data = DATA_NORM.get(data_classification, 0.5)
-    if data_sensitivity:
-        data = max(data, LEVEL_NORM.get(data_sensitivity, 0.5))
-    if business_impact_level:
-        crit = max(crit, LEVEL_NORM.get(business_impact_level, 0.5))
     expl = EXPLOITABILITY_NORM.get(exploitability, 0.6)
     exploitability_floor = ""
     if in_kev and expl < EXPLOITABILITY_NORM["HIGH"]:
@@ -160,8 +158,6 @@ def contextual_score(
             "data_classification": data_classification,
             "plausibility": plaus,
             "exploitability": exploitability,
-            "data_sensitivity": data_sensitivity,
-            "business_impact_level": business_impact_level,
             "compensating_controls": compensating_controls,
             "adjustment": adj,
             "base": round(base, 2),

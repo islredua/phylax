@@ -3,6 +3,7 @@
 Si estos fallan, nada más del sistema puede funcionar. Son la primera línea de defensa.
 """
 
+import pytest
 from django.conf import settings
 
 
@@ -59,7 +60,12 @@ def test_llm_mock_mode_returns_valid_structured_output(db, settings):
     assert log.parsed_ok and log.accelerator == "mock"
 
 
-def test_scoring_weights_sum_approximately_one():
-    """La suma de los pesos del scoring está cerca de 1.0 (regla de sanidad)."""
-    total = sum(settings.SCORING_WEIGHTS.values())
-    assert 0.95 <= total <= 1.05, f"Suma de pesos = {total}, debe estar cerca de 1.0"
+def test_scoring_weights_sum_one():
+    """Los pesos que usa el motor suman 1.0, y la configuración no trae otro juego de pesos."""
+    from apps.scoring import services as scoring
+
+    technical = scoring.technical_score(cvss=5.0).breakdown["weights"]
+    contextual = scoring.contextual_score(technical=5.0).breakdown["weights"]
+    assert sum(technical.values()) == pytest.approx(1.0)
+    assert sum(contextual.values()) == pytest.approx(1.0)
+    assert not hasattr(settings, "SCORING_WEIGHTS")

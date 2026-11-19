@@ -484,15 +484,6 @@ DETECTION_DESCRIBE_EVERY = float(os.environ.get("DETECTION_DESCRIBE_EVERY", "120
 # EPSS a partir del cual una vulnerabilidad se considera de explotación probable (FIRST sugiere 0.1).
 DETECTION_EPSS_HIGH = float(os.environ.get("DETECTION_EPSS_HIGH", "0.1"))
 
-# --- Scoring weights ---
-SCORING_WEIGHTS = {
-    "cvss": float(os.environ.get("SCORING_WEIGHT_CVSS", "0.30")),
-    "epss": float(os.environ.get("SCORING_WEIGHT_EPSS", "0.25")),
-    "kev": float(os.environ.get("SCORING_WEIGHT_KEV", "0.20")),
-    "asset_criticality": float(os.environ.get("SCORING_WEIGHT_ASSET_CRITICALITY", "0.15")),
-    "exposure": float(os.environ.get("SCORING_WEIGHT_EXPOSURE", "0.10")),
-}
-
 # --- Logging ---
 LOGGING = {
     "version": 1,
