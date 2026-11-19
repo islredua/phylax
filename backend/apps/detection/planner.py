@@ -252,9 +252,12 @@ def rule_decision(data) -> dict | None:
             return {
                 "action": str(Action.DETECT_VULNS),
                 "urgency": str(Urgency.HIGH),
+                # Empieza por lo que se hace y dice quién lo decide: «Evaluación pedida por
+                # una persona: …» se leía como que la decisión era de la persona.
                 "rationale": (
-                    "Evaluación pedida por una persona: se escanean vulnerabilidades en los "
-                    "servicios conocidos del activo y después se reconcilia y consolida."
+                    "Se escanean vulnerabilidades en los servicios conocidos del activo y "
+                    "después se reconcilia y consolida, porque una persona pidió evaluarlo. "
+                    "Lo decide una regla fija, no la IA."
                 ),
                 "evidence": [
                     f"{len(asset.get('software') or [])} componentes conocidos",

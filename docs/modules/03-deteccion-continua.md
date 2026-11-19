@@ -411,7 +411,13 @@ quién la pidió, e Inicio la cuenta aparte de las decisiones del planificador. 
 2026-11-18 decían «por regla, sin LLM · Decidida por regla» y contaban como decisiones «por la
 regla de respaldo». Distinto es pedir una evaluación sin elegir la acción («Evaluar el activo
 ahora», «Volver a evaluar»): ahí la acción sí la elige el planificador, por regla o con el
-modelo, y así se muestra, con el motivo «Evaluación pedida por una persona». Si ya hay una acción en marcha sobre el activo se enlaza en vez de duplicar;
+modelo, y así se muestra. Quien pide la evaluación no decide qué se hace: la página de la acción
+lo dice en una línea («La evaluación la pidió *usuario*. Qué hacer lo decidió una regla fija, no
+la IA», `PlannerDecision.asked_by`), y el motivo de esa regla empieza por lo que se hace («Se
+escanean vulnerabilidades… porque una persona pidió evaluarlo. Lo decide una regla fija, no la
+IA»). Hasta el 2026-11-18 el motivo empezaba por «Evaluación pedida por una persona: …» y, visto
+desde la lista de decisiones de la IA en Inicio, se leía como que la decisión era de la persona;
+las decisiones anteriores conservan ese texto. Si ya hay una acción en marcha sobre el activo se enlaza en vez de duplicar;
 sin IP autorizada se explica el bloqueo. **Triaje en lote** (`/detection/vulnerabilities/bulk/`,
 permiso `work_findings`): casillas en la lista, un estado y una nota para todas las marcadas
 (`consolidation.set_status` una por una: aceptar o falso positivo siguen exigiendo nota); el

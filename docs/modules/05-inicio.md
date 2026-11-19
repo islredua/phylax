@@ -92,7 +92,7 @@ texto se escapa siempre; solo se insertan `<a>` con URLs del sistema.
 
 ## Pruebas
 
-`tests/presentation/test_home.py` (53 pruebas, sin red ni modelo): conteos de indicadores,
+`tests/presentation/test_home.py` (54 pruebas, sin red ni modelo): conteos de indicadores,
 semáforo por reglas acotadas, caché e invalidación, instantánea/tendencia/deltas, avisos, ventana
 configurable, narrativa por regla coherente, rechazo de semáforo incorrecto y cifras inventadas,
 generación con mock y omisión si nada cambió, caída a regla por incoherencia o modelo apagado,
@@ -408,6 +408,26 @@ al pie.
   lo que descubre un escaneo vuelve a entrar.
 - La clave de la caché pasó a `home:indicators:v2`: un proceso con el código anterior no debe
   servir a este un bloque sin los campos nuevos.
+
+### Quién decidió cada decisión
+
+La tarjeta dice «IA local · 47 decisiones», pero no todas son del modelo: en el laboratorio, 43
+las eligió el modelo y 4 una regla del planificador (tres veces la regla corrigió al modelo ante
+un SBOM nuevo, y una resolvió sin consultarlo una evaluación pedida a mano). El usuario abrió
+la primera de «Últimas decisiones», leyó «Evaluación pedida por una persona» y preguntó por qué
+una decisión de la IA decía que la había decidido una persona. Desde entonces:
+
+- La tarjeta lo reparte cuando alguna fue por regla: «IA: decidió 43 de 47 · 4 por regla».
+- Cada fila de «Últimas decisiones» dice quién decidió («decidió la IA» o «decidió una regla,
+  sin IA») y ante qué señal; si la señal fue una petición, quién la hizo («señal: evaluación
+  pedida a mano (la pidió *usuario*)»; sin permiso para abrir las decisiones, «una persona»).
+- El panel explica que pedir una evaluación no es decidir qué se hace, y su cifra dice «por
+  una regla, sin IA» (no toda regla es «de respaldo»).
+
+El conteo no cambia: una evaluación pedida sí pasa por el planificador, a diferencia de una
+acción pedida a mano, que se cuenta aparte. Pruebas:
+`test_each_recent_decision_says_who_decided_and_who_asked` (Inicio) y
+`test_asking_for_an_evaluation_is_not_deciding_what_to_do` (ficha de la acción).
 
 ### Comprobado
 

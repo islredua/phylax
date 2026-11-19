@@ -23,10 +23,11 @@
   <section class="card flex flex-col gap-2">
     <h3 class="card-title mb-0">Por qué</h3>
     <div class="flex flex-wrap items-center gap-2">{% if action.decision.by_person %}<span class="badge-neutral">pedida por una persona</span> <span class="text-xs text-muted">No la decidió la IA ni una regla.</span>{% elif action.decision.fallback %}<span class="badge-medium">por regla, sin LLM</span> <span class="text-xs text-muted">{{ action.decision.fallback_reason }}</span>{% endif %}{% model_warning action.decision.model_mismatch action.decision.model_requested action.decision.model_responded %}</div>
+    {% if action.decision.asked_by and not action.decision.by_person %}<p class="text-sm font-medium text-ink">La evaluación la pidió {{ action.decision.asked_by }}. Qué hacer lo decidió {% if action.decision.fallback %}una regla fija, no la IA{% else %}la IA local{% endif %}.</p>{% endif %}
     <p class="text-ink-soft">{{ action.decision.rationale|linebreaksbr }}</p>
     {% if action.decision.evidence and not action.decision.by_person %}<ul class="flex flex-wrap gap-1">{% for e in action.decision.evidence %}<li class="badge-neutral">{{ e }}</li>{% endfor %}</ul>{% endif %}
     {% review_facts action as facts %}{% if facts %}{% include "detection/_review_facts.html" with caps=facts.caps asset_id=facts.asset_id top_findings=facts.top_findings in_form=False %}{% endif %}
-    <p class="text-xs text-muted">{% if action.decision.by_person %}Pedida por {% if action.event.requested_by %}{{ action.event.requested_by.get_username }}{% else %}una persona{% endif %}{% elif action.decision.fallback %}Decidida por regla{% else %}Modelo {{ action.decision.model_requested|default:"—" }} · prompt {{ action.decision.prompt_version }}{% endif %}{% if action.category %} · plantillas: {{ action.category|category_label }}{% endif %}</p>
+    <p class="text-xs text-muted">{% if action.decision.by_person %}Pedida por {% if action.event.requested_by %}{{ action.event.requested_by.get_username }}{% else %}una persona{% endif %}{% elif action.decision.fallback %}Decidida por una regla fija, sin IA{% else %}Decidida por la IA · modelo {{ action.decision.model_requested|default:"—" }} · prompt {{ action.decision.prompt_version }}{% endif %}{% if action.category %} · plantillas: {{ action.category|category_label }}{% endif %}</p>
   </section>
   <section class="card">
     <dl class="kv-grid">

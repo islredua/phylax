@@ -330,3 +330,8 @@ def test_manual_evaluation_scans_by_rule_without_asking_the_model(mock_llm):
     assert decision.category == "cves" and decision.fallback and decision.inference is None
     assert "pedida por una persona" in decision.fallback_reason
     assert InferenceLog.objects.filter(task="DETECTION_PLANNER").count() == 0
+    # El motivo empieza por lo que se hace y dice quién lo decide: «Evaluación pedida por una
+    # persona: …» se leía como que la decisión era de la persona (2026-11-18).
+    assert decision.rationale.startswith("Se escanean vulnerabilidades")
+    assert "Lo decide una regla fija, no la IA" in decision.rationale
+    assert decision.asked_by == "una persona" and not decision.by_person

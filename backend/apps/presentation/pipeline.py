@@ -199,7 +199,8 @@ def decisions(since) -> dict:
         actions.values_list("status").annotate(n=Count("id")).values_list("status", "n")
     )
     latest = []
-    for d in rows.select_related("asset", "planned").order_by("-created_at")[:3]:
+    recent = rows.select_related("asset", "planned", "event", "event__requested_by")
+    for d in recent.order_by("-created_at")[:3]:
         planned = getattr(d, "planned", None)
         latest.append(
             {
@@ -210,6 +211,10 @@ def decisions(since) -> dict:
                 "asset": d.asset.name if d.asset_id else "",
                 "rationale": (d.rationale or "").strip()[:320],
                 "fallback": d.fallback,
+                # Ante qué señal se decidió y, si esa señal fue una petición, de quién: pedir
+                # la evaluación no es decidir qué hacer.
+                "signal": d.event.get_kind_display(),
+                "asked_by": d.asked_by,
                 "url": reverse("detection:action", args=[planned.pk])
                 if planned is not None
                 else reverse("detection:event", args=[d.event_id]),

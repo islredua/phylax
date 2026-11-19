@@ -612,6 +612,53 @@ def test_an_action_a_person_asked_for_is_not_shown_or_counted_as_a_planner_decis
     assert found["latest"] == [] and found["by_action"] == [] and found["auto_approved"] == 0
 
 
+def test_asking_for_an_evaluation_is_not_deciding_what_to_do(client, as_role):
+    """Quien pide evaluar un activo no decide qué se hace: lo elige el planificador, con una
+    regla fija o con el modelo. La ficha decía «Evaluación pedida por una persona» junto a «por
+    regla» y, vista desde la lista de decisiones de la IA en Inicio, se leía como que la
+    decisión era de la persona (2026-11-18)."""
+    from apps.detection.models import DetectionEvent, PlannedAction, PlannerDecision
+
+    user = as_role(OPERATOR)
+    asset = _nginx_asset()
+
+    def planned(kind, key, **decision):
+        event = DetectionEvent.objects.create(
+            kind=kind, asset=asset, dedupe_key=key, requested_by=decision.pop("asked", None)
+        )
+        made = PlannerDecision.objects.create(
+            event=event, asset=asset, action="DETECT_VULNS", prompt_version="v3", **decision
+        )
+        return PlannedAction.objects.create(
+            decision=made, event=event, asset=asset, action="DETECT_VULNS"
+        )
+
+    by_rule = planned(
+        "MANUAL_EVALUATION",
+        "pedida",
+        asked=user,
+        fallback=True,
+        fallback_reason="regla: evaluación pedida por una persona → escaneo de vulnerabilidades",
+        rationale="Evaluación pedida por una persona: se escanean vulnerabilidades.",
+    )
+    assert by_rule.decision.asked_by == user.get_username() and not by_rule.decision.by_person
+    body = client.get(f"/detection/actions/{by_rule.pk}/").content.decode()
+    assert "Decidida por una regla fija, sin IA" in body
+    asked = f"La evaluación la pidió {user.get_username()}. Qué hacer lo decidió"
+    assert f"{asked} una regla fija, no la IA." in body
+
+    # La misma petición, cuando la regla no aplica y decide el modelo.
+    by_model = planned("MANUAL_EVALUATION", "pedida-2", asked=user, model_requested="modelo-x")
+    body = client.get(f"/detection/actions/{by_model.pk}/").content.decode()
+    assert "Decidida por la IA" in body and f"{asked} la IA local." in body
+
+    # Una señal que no pidió nadie no menciona a ninguna persona.
+    alone = planned("ASSET_SERVICES_CHANGED", "sola", model_requested="modelo-x")
+    assert alone.decision.asked_by == ""
+    body = client.get(f"/detection/actions/{alone.pk}/").content.decode()
+    assert "Decidida por la IA" in body and "La evaluación la pidió" not in body
+
+
 def test_observation_can_be_registered_from_the_global_list(client, as_role):
     as_role(OPERATOR)
     asset = _nginx_asset()

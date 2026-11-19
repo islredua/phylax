@@ -1171,6 +1171,20 @@ class PlannerDecision(UUIDModel):
         (2026-11-18)."""
         return self.prompt_version == self.BY_PERSON
 
+    @property
+    def asked_by(self) -> str:
+        """Quién pidió evaluar el activo, cuando la señal de esta decisión fue esa petición.
+
+        Pedir la evaluación no es decidir qué hacer: eso lo elige el planificador, con una
+        regla fija o con el modelo. El motivo decía «Evaluación pedida por una persona: …» y
+        se leía como que la decisión era de la persona (2026-11-18). Vacío si la señal no la
+        pidió nadie.
+        """
+        event = self.event
+        if event.kind != EventKind.MANUAL_EVALUATION:
+            return ""
+        return event.requested_by.get_username() if event.requested_by_id else "una persona"
+
 
 class WatchItem(UUIDModel):
     """«Esto me interesa pero no lo tengo inventariado: avísame si aparece»."""

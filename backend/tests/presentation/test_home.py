@@ -1095,7 +1095,10 @@ def test_the_diagram_says_what_feeds_what_and_where_the_ai_works(client, as_role
     for key in STAGES:
         assert f'data-flow-node="{key}"' in body, key
     assert body.count("data-flow-link=") == 9 and 'data-flow-link="scans-inventory"' in body
-    assert body.count('class="flow-ai"') == 4 and "IA: sugiere la criticidad de cada activo" in body
+    assert (
+        body.count('class="flow-ai"') == 4
+        and 'data-hero-stage-ai="inventory">sugiere la criticidad de cada activo' in body
+    )
     assert body.count("flow-card flow-card-ai") == 2  # donde decide o valora el modelo
     for text in (
         "Entra",
@@ -1148,6 +1151,70 @@ def test_inventory_is_a_stage_with_what_the_ai_does_there(client, as_role):
         if st["key"] == "inventory"
     )
     assert station["value"] == 2 and station["scope"] == "vigentes hoy"
+
+
+def test_each_recent_decision_says_who_decided_and_who_asked(client, as_role, make_user):
+    """La tarjeta «IA local · N decisiones» y su lista mezclaban las del modelo con las de una
+    regla sin decirlo, y una evaluación pedida a mano se leía como decidida por la persona."""
+    from apps.detection.models import DetectionEvent, PlannerDecision
+
+    user = as_role(OPERATOR)
+    asset = AssetFactory(name="lb-dmz")
+    asked = DetectionEvent.objects.create(
+        kind="MANUAL_EVALUATION", asset=asset, dedupe_key="pedida", requested_by=user
+    )
+    PlannerDecision.objects.create(
+        event=asked,
+        asset=asset,
+        action="DETECT_VULNS",
+        prompt_version="v3",
+        fallback=True,
+        rationale="Se escanean vulnerabilidades porque una persona pidió evaluarlo.",
+    )
+    changed = DetectionEvent.objects.create(
+        kind="ASSET_SERVICES_CHANGED", asset=asset, dedupe_key="cambio"
+    )
+    for n in range(2):
+        PlannerDecision.objects.create(
+            event=changed,
+            asset=asset,
+            action="DETECT_VULNS",
+            prompt_version="v3",
+            rationale=f"Servicio nuevo {n}.",
+        )
+    indicators.invalidate()
+    found = indicators.compute()["pipeline"]["decisions"]
+    assert (found["total"], found["by_model"], found["fallback"]) == (3, 2, 1)
+    by_rule = next(row for row in found["latest"] if row["fallback"])
+    assert by_rule["asked_by"] == user.get_username()
+    assert by_rule["signal"] == "Evaluación pedida a mano"
+    assert all(not row["asked_by"] for row in found["latest"] if not row["fallback"])
+
+    html = client.get("/home/block/stage/?etapa=decisions").content.decode()
+    assert html.count("decidió la IA") == 2 and html.count("decidió una regla, sin IA") == 1
+    assert f"señal: evaluación pedida a mano (la pidió {user.get_username()})" in html
+    assert "quien pide la evaluación no decide qué se hace" in html
+    assert "del modelo · 1 por una regla, sin IA" in html
+    # La tarjeta del diagrama dice cuántas eligió la IA cuando alguna fue por regla.
+    station = next(
+        st
+        for st in client.get("/home/charts.json").json()["hero"]["flow"]
+        if st["key"] == "decisions"
+    )
+    assert station["ai"] == "decidió 2 de 3 · 1 por regla"
+    assert (
+        'data-hero-stage-ai="decisions">decidió 2 de 3 · 1 por regla'
+        in client.get("/").content.decode()
+    )
+    # Quien no puede abrir las decisiones no ve el nombre de quien pidió la evaluación.
+    from django.contrib.auth.models import Permission
+
+    reader = make_user(username="solo-riesgos")
+    reader.groups.clear()
+    reader.user_permissions.add(Permission.objects.get(codename="view_risk"))
+    client.force_login(reader)
+    html = client.get("/home/block/stage/?etapa=decisions").content.decode()
+    assert "(la pidió una persona)" in html and user.get_username() not in html
 
 
 # --- Lectura por IA: lo que el modelo ve, lo que arma el código y su vigencia --------------------

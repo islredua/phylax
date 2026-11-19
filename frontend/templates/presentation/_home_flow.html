@@ -24,7 +24,7 @@ y lo que hace ahí.
             <span class="flow-top"><span class="flow-actor flow-actor-{{ st.kind }}"><span class="flow-busy" aria-hidden="true"></span>{{ st.actor }}</span><span class="flow-scope">{{ st.scope }}</span></span>
             <span class="flow-figure"><span class="flow-value" data-hero-stage-value="{{ st.key }}">{{ st.value|miles }}</span> <span class="flow-label">{{ st.label }}</span></span>
             <span class="flow-sub" data-hero-stage-sub="{{ st.key }}">{{ st.sub }}</span>
-            {% if st.ai %}<span class="flow-ai"><svg class="flow-ai-mark" viewBox="0 0 12 12" aria-hidden="true" focusable="false"><path d="M6 0l1.6 4.4L12 6 7.6 7.6 6 12 4.4 7.6 0 6l4.4-1.6z"/></svg><span>IA: {{ st.ai }}</span></span>{% endif %}
+            {% if st.ai %}<span class="flow-ai"><svg class="flow-ai-mark" viewBox="0 0 12 12" aria-hidden="true" focusable="false"><path d="M6 0l1.6 4.4L12 6 7.6 7.6 6 12 4.4 7.6 0 6l4.4-1.6z"/></svg><span>IA: <span data-hero-stage-ai="{{ st.key }}">{{ st.ai }}</span></span></span>{% endif %}
             {% if st.origin %}<span class="flow-origin{% if st.origin_always %} is-always{% endif %}" data-hero-stage-origin="{{ st.key }}">{{ st.origin }}</span>{% endif %}
           </a>
         </li>

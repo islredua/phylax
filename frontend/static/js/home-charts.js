@@ -133,6 +133,7 @@
       countTo(document.querySelector('[data-hero-stage-value="' + stage.key + '"]'), stage.value);
       setText('[data-hero-stage-sub="' + stage.key + '"]', stage.sub);
       if (stage.origin) setText('[data-hero-stage-origin="' + stage.key + '"]', stage.origin);
+      if (stage.ai) setText('[data-hero-stage-ai="' + stage.key + '"]', stage.ai);
       var step = document.querySelector('li[data-flow-step="' + stage.key + '"]');
       if (step) step.classList.toggle("is-busy", !!stage.busy);
     });

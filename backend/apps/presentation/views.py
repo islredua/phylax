@@ -332,6 +332,11 @@ def hero_payload(data):
         st.setdefault("origin", "")
         st.setdefault("origin_always", False)
         st["ai"] = FLOW_AI.get(st["key"], "")
+    if dec["fallback"]:
+        # No todas son del modelo: algunas las resuelve una regla del planificador.
+        by_key["decisions"]["ai"] = (
+            f"decidió {dec['by_model']:,} de {dec['total']:,} · {dec['fallback']:,} por regla"
+        )
     stations.sort(key=lambda st: STAGES.index(st["key"]))
     groups = [
         {"key": key, "title": title, "steps": [by_key[k] for k in keys]}
