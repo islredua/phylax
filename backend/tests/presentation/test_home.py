@@ -640,7 +640,7 @@ def test_home_opens_with_the_master_chart_then_today_then_text(client, as_role):
         for s in hero["flow"]
     )
     assert hero["open"] == 1 and hero["flow"][-1]["value"] == 1
-    assert {"model", "state", "calls", "ok_pct", "hours", "local"} <= set(hero["engine"])
+    assert {"model", "state", "calls", "local"} <= set(hero["engine"])
     assert hero["now"]["text"] and "automatización" in hero["now"]["mode"]
     assert sum(level["value"] for level in hero["levels"]) == 1
     # «Qué hago hoy»: el botón hace lo que dice (abre el riesgo en su tratamiento, en cola) y
@@ -1114,7 +1114,7 @@ def test_the_diagram_says_what_feeds_what_and_where_the_ai_works(client, as_role
     assert "signals-scans" not in links and "signals-decisions" not in links
     obs = flow["observations"]
     assert obs["from_match"] + obs["with_tool"] >= obs["total"] - obs["by_source"].get("MANUAL", 0)
-    # La IA: en qué etapas trabaja y cuánto, tarea por tarea.
+    # La IA: en qué etapas trabaja lo dice cada tarjeta; cuánto, tarea por tarea, su panel.
     with_ai = {st["key"]: st["ai"] for st in hero["flow"] if st["ai"]}
     assert with_ai == FLOW_AI and set(with_ai) == {
         "inventory",
@@ -1122,9 +1122,10 @@ def test_the_diagram_says_what_feeds_what_and_where_the_ai_works(client, as_role
         "vulnerabilities",
         "risks",
     }
-    tasks = hero["engine"]["tasks"]
-    assert sum(task["calls"] for task in tasks) == hero["engine"]["calls"]
-    assert all(task["short"] and task["key"] for task in tasks)
+    # La franja de la IA no repite lo que ya muestra su panel: lleva estado, modelo, dónde
+    # corre y una sola cifra. El reparto por tarea suma esa cifra y está en el panel.
+    assert set(hero["engine"]) == {"model", "state", "ok", "now", "calls", "local", "busy"}
+    assert sum(task["calls"] for task in flow["ai"]["tasks"]) == hero["engine"]["calls"]
 
     body = client.get("/").content.decode()
     for key in STAGES:
@@ -1144,7 +1145,6 @@ def test_the_diagram_says_what_feeds_what_and_where_the_ai_works(client, as_role
         "Entra",
         "Se comprueba",
         "Resulta",
-        "Por tarea",
         "Aquí trabaja la IA local",
         # sin líneas, el texto de cada tarjeta
         "Por inteligencia que toca al inventario",
@@ -1152,6 +1152,15 @@ def test_the_diagram_says_what_feeds_what_and_where_the_ai_works(client, as_role
         "Lo actualizan los escaneos y las personas",
     ):
         assert text in body, text
+    # La franja de la IA: una línea, y debajo de ella «Ahora» y la leyenda, dentro del diagrama.
+    strip = body[body.index('class="flow-base"') : body.index("data-flow-link=")]
+    assert strip.count("data-hero-engine=") == 2  # el estado y las inferencias
+    assert "inferencias en" in strip and "Cómo trabaja" in strip
+    assert 'class="flow-foot"' in strip and "flow-legend" in strip
+    for gone in ("Por tarea", "aceptadas por el validador", "h de cómputo", "Aparte de esa cuenta"):
+        assert gone not in strip, gone
+    panel = client.get("/home/block/stage/?etapa=ai").content.decode()
+    assert "aceptadas por el validador" in panel and "de cómputo" in panel
     # Las líneas las traza un script propio, sin código en la página.
     assert "js/home-flow.js" in body and "<script>" not in body
     # Los indicadores de la fila anterior siguen: quién actúa, la cifra, su detalle y su periodo.

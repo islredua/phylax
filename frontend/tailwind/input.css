@@ -685,21 +685,24 @@
     @apply text-[10px] whitespace-nowrap text-muted;
   }
 
-  /* La IA local: un bloque del diagrama, porque trabaja en varias etapas. Dice su estado, sus
-     cifras y dónde trabaja. */
+  /* Bajo las tarjetas: la franja de la IA local y, debajo, qué pasa ahora y cómo se lee el
+     diagrama. */
+  .flow-base {
+    @apply flex flex-col gap-2;
+  }
+  /* La IA local: una franja de una línea, porque trabaja en varias etapas y lo que hace en cada
+     una ya lo dice su tarjeta. Estado, modelo, dónde corre y una cifra; el resto, en su panel. */
   .flow-engine {
-    @apply flex flex-col gap-1.5 rounded border border-primary/30 bg-primary-soft/40 px-3 py-2.5
-      text-xs text-ink-soft transition-colors hover:border-primary hover:bg-primary-soft hover:no-underline
-      focus-visible:ring-2 focus-visible:ring-primary/40 focus:outline-none;
+    @apply flex flex-wrap items-baseline gap-x-5 gap-y-0.5 rounded border border-primary/30
+      bg-primary-soft/40 px-3 py-2 text-xs text-ink-soft transition-colors hover:border-primary
+      hover:bg-primary-soft hover:no-underline focus-visible:ring-2 focus-visible:ring-primary/40
+      focus:outline-none;
   }
   .flow-engine.is-open {
     @apply border-primary bg-primary-soft;
   }
   .flow-engine.is-down {
     @apply border-critical/40 bg-critical-soft/50;
-  }
-  .flow-engine-head {
-    @apply flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5;
   }
   .flow-engine-name {
     @apply inline-flex flex-wrap items-center gap-1.5 text-[13px] font-semibold text-primary;
@@ -716,29 +719,11 @@
   .flow-engine.is-down .flow-engine-dot {
     @apply bg-critical;
   }
-  .flow-engine-stats {
-    @apply leading-snug;
-  }
-  .flow-engine-tasks {
-    @apply flex flex-wrap items-baseline gap-x-4 gap-y-0.5;
-  }
-  .flow-engine-tasks-label {
-    @apply font-mono text-[10px] font-medium tracking-wide text-muted uppercase;
-  }
-  .flow-engine-task {
-    @apply inline-flex items-baseline gap-1 text-[11px] text-ink-soft;
-  }
-  .flow-engine-task .flow-ai-mark {
-    @apply mt-0 h-2 w-2 self-center text-primary;
-  }
-  .flow-engine-task strong {
+  .flow-engine-stats strong {
     @apply font-mono font-semibold text-ink;
   }
-  .flow-engine-note {
-    @apply text-[11px] leading-snug text-muted;
-  }
   .flow-engine-more {
-    @apply text-xs font-medium whitespace-nowrap text-primary;
+    @apply ml-auto text-xs font-medium whitespace-nowrap text-primary;
   }
   .flow-engine-more::after {
     content: " ▾";
@@ -816,7 +801,7 @@
   .flow-link.is-on {
     @apply border-primary text-primary;
   }
-  /* Al pie: qué está pasando ahora y, a la derecha, cómo se lee el diagrama. */
+  /* Bajo la franja de la IA: qué está pasando ahora y cómo se lee el diagrama. */
   .flow-foot {
     @apply flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1;
   }
@@ -869,7 +854,7 @@
     .flow {
       @apply grid-cols-1;
     }
-    .flow-engine {
+    .flow-base {
       @apply col-span-3;
     }
   }
@@ -879,7 +864,7 @@
 
        fila 1   Señales      ─►  Cruce (dos tarjetas de ancho)   ─►  Evidencia
        fila 2   Inventario   ─►  Decisiones ─► Escaneos          ─►  Vulnerabilidades
-       fila 3   IA local (cinco pistas)                              Riesgos
+       fila 3   IA local, «Ahora» y leyenda (cinco pistas)           Riesgos
   */
   @supports (grid-template-rows: subgrid) {
     @container flow (min-width: 54rem) {
@@ -949,7 +934,9 @@
       .flow-step-scans {
         grid-column: 3;
       }
-      .flow-engine {
+      /* La franja arriba y la leyenda abajo, a la altura de «Riesgos abiertos». */
+      .flow-base {
+        @apply justify-between;
         grid-row: 6;
         grid-column: 1 / 6;
       }

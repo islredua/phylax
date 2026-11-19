@@ -9,7 +9,7 @@ riesgos conforme a ISO/IEC 27005 y un modelo de lenguaje local que redacta para 
 
 | Bloque | Fuente | Actualización |
 |---|---|---|
-| **Gráfica maestra**: semáforo, titular con las cifras vigentes, riesgos abiertos por nivel y el diagrama «Cómo trabaja la detección» (ocho etapas en tres columnas, sus conexiones y el bloque de la IA local) | `views.hero_payload`, `presentation.pipeline.compute` | Al cargar y cada 60 s (`/home/charts.json`) |
+| **Gráfica maestra**: semáforo, titular con las cifras vigentes, riesgos abiertos por nivel y el diagrama «Cómo trabaja la detección» (ocho etapas en tres columnas, sus conexiones y la franja de la IA local) | `views.hero_payload`, `presentation.pipeline.compute` | Al cargar y cada 60 s (`/home/charts.json`) |
 | **Panel de la etapa** elegida (señales, inventario, cruce con el inventario, decisiones, escaneos, observaciones, vulnerabilidades, riesgos, IA local) | `views.stage_context`, `presentation/stages/<etapa>.html` | Al abrirlo (`/home/block/stage/?etapa=…`) |
 | **Qué hago hoy** | `indicators.today()` | Al cargar |
 | **Indicadores** que el recorrido no cuenta (KEV y plazos CISA vencidos, activos, acciones por aprobar, fuentes de inteligencia) con delta frente a la última instantánea | `presentation.indicators.current()` (caché 60 s) | Sondeo HTMX cada 30 s |
@@ -360,7 +360,8 @@ unidad de esa cifra:
 **Los indicadores de la fila se conservan.** Cada tarjeta sigue llevando quién actúa, la cifra,
 lo que cuenta, el dato que la matiza y su periodo; el bloque de la IA local, sus inferencias, el
 porcentaje aceptado, las horas de cómputo y si corre en este equipo; y la línea «Ahora» sigue
-al pie.
+al pie. (El bloque de la IA se redujo después a una franja; el porcentaje, las horas y el
+reparto por tarea quedaron en su panel: ver «La IA local, una franja».)
 
 **Dónde trabaja la IA local** (`views.FLOW_AI`), que antes solo se veía en la franja inferior:
 
@@ -369,10 +370,8 @@ al pie.
 - Las cuatro etapas donde trabaja llevan su marca y lo que hace ahí: sugiere la criticidad de
   cada activo (Inventario), elige qué comprobar ante cada señal (Decisiones), valora si cada una
   aplica y la explica (Vulnerabilidades), y agrupa, valora y redacta (Riesgos).
-- El bloque de la IA es parte del diagrama y reparte sus inferencias «por tarea»
-  (`pipeline.AI_TASK_SHORT`); la suma es el total que muestra. La redacción que no entra en esa
-  cuenta (explicación de cada vulnerabilidad, «qué puede pasar», la lectura de Inicio) se dice
-  aparte. Al pasar por el bloque se resaltan las etapas donde trabaja.
+- La IA tiene su franja dentro del diagrama (ver «La IA local, una franja»). Al pasar por ella
+  se resaltan las etapas donde trabaja.
 
 ### Cómo se dibuja
 
@@ -394,7 +393,7 @@ al pie.
 - No hay líneas hacia la IA: serían cuatro cruces sobre el resto. La marca en cada tarjeta dice
   lo mismo sin enredar el dibujo.
 - Bajo la segunda fila de tarjetas hay dos carriles (`LANE` en `home-flow.js`, como fracción del
-  hueco hasta el bloque de la IA): arriba el retorno y debajo el contexto. El retorno llega al
+  hueco hasta la franja de la IA): arriba el retorno y debajo el contexto. El retorno llega al
   inventario por su derecha y el contexto sale por su izquierda, así que no se cruzan. El
   contexto es una sola línea que al final se abre hacia las dos etapas que valoran: son dos
   conexiones con la misma salida y solo la primera lleva rótulo (`FLOW_LABEL_AT` lo pone cerca
@@ -508,12 +507,38 @@ revisar con el mismo criterio los textos fijos del resto de la plataforma (las d
 de Inicio, Riesgos, Vulnerabilidades, Inventario, Operación, Administración, las fichas de
 detalle y los reportes).
 
+### La IA local, una franja
+
+El bloque de la IA bajo las tarjetas llevaba cuatro renglones: estado y modelo; inferencias,
+porcentaje aceptado, horas de cómputo y «todo en este equipo»; el reparto «por tarea» con cinco
+cifras; y una nota sobre lo que no entra en la cuenta. El usuario lo vio cargado: «pone ahí
+todos los números cuando al darle clic los vuelve a mostrar». Todo eso está en el panel que
+abre (cifras y tabla por tarea), y lo que hace la IA en cada etapa lo dice ya cada tarjeta.
+
+- Es una franja de una línea: estado, modelo, «en este equipo» si el modelo es local, las
+  inferencias de la ventana y «Cómo trabaja». El estado se queda porque, si el modelo no
+  responde, las evaluaciones corren por regla y conviene verlo sin abrir nada.
+- El porcentaje aceptado, las horas, el reparto por tarea y la nota están solo en el panel.
+  `hero.engine` ya no los lleva, y `pipeline.AI_TASK_SHORT` (el nombre corto de cada tarea, que
+  solo usaba el bloque) se quitó.
+- La línea «Ahora» y la leyenda subieron a su lado: van con la franja en `.flow-base`, que en
+  la disposición ancha ocupa el hueco a la izquierda de «Riesgos abiertos» (la franja arriba y
+  la leyenda abajo, a la altura de la tarjeta). El diagrama termina donde termina esa tarjeta.
+- Medido en el laboratorio, el diagrama pierde unos 45 px de alto a 1440 px y unos 180 px en
+  teléfono. A lo ancho gana poco porque el alto de esa fila lo fija «Riesgos abiertos»; lo
+  que cambia ahí es cuánto hay que leer.
+
+Prueba: `test_the_diagram_says_what_feeds_what_and_where_the_ai_works` comprueba que la franja
+lleva solo el estado y las inferencias, que «Ahora» y la leyenda van con ella y que el
+porcentaje y las horas siguen en el panel.
+
 ### Comprobado
 
 En el laboratorio, con el navegador a 1440, 1280 y 1100 px, en teléfono (390 px), con un panel
 abierto, con el zoom de pantalla completa y reponiendo `#flow` como lo hace HTMX. Los retoques
 de arriba, a 1440, 1280 y 1200 px, en teléfono, con el panel de decisiones abierto y con el
-zoom de pantalla completa. No se probó
+zoom de pantalla completa. La franja de la IA, a 1440, 1200 y 1100 px, en teléfono y con el zoom
+de pantalla completa. No se probó
 el botón «Presentar» en una pantalla completa real ni el estado vacío a la vista (sí por
 pruebas).
 

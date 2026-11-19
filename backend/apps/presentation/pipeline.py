@@ -61,15 +61,6 @@ AI_TASKS = (
     ("RISK_NARRATIVE", "Redactar cada riesgo para la dirección", "risks"),
     ("ORG_PROFILE_DRAFT", "Proponer el perfil de la organización", ""),
 )
-# Lo mismo en tres palabras, para la lista «Dónde trabaja» del diagrama de Inicio.
-AI_TASK_SHORT = {
-    "DETECTION_PLANNER": "Decide qué comprobar",
-    "ASSET_CRITICALITY": "Sugiere la criticidad",
-    "VULN_ASSESSMENT": "Valora vulnerabilidades",
-    "RISK_ASSESSMENT": "Agrupa y valora riesgos",
-    "RISK_NARRATIVE": "Redacta cada riesgo",
-    "ORG_PROFILE_DRAFT": "Propone el perfil",
-}
 # Tareas de redacción que no entran en las cifras de la IA local de Inicio. A quien mira la
 # pantalla le importa el resultado, que ya se muestra donde corresponde, no cuántas llamadas
 # costó ni cuántas se aceptaron:
@@ -583,7 +574,6 @@ def ai(since, llm_status, model) -> dict:
             {
                 "key": key,
                 "label": what,
-                "short": AI_TASK_SHORT.get(key, what),
                 "stage": stage,
                 "calls": row["calls"],
                 "ok": row["ok"],

@@ -146,13 +146,8 @@
       }
     });
     if (data.engine) {
-      (data.engine.tasks || []).forEach(function (task) {
-        setText('[data-hero-engine-task="' + task.key + '"]', fmt.format(task.calls));
-      });
       countTo(document.querySelector('[data-hero-engine="calls"]'), data.engine.calls);
       setText('[data-hero-engine="state"]', data.engine.state);
-      setText('[data-hero-engine="ok_pct"]', Math.round(data.engine.ok_pct));
-      setText('[data-hero-engine="hours"]', data.engine.hours);
       var engine = document.querySelector(".flow-engine");
       if (engine) {
         engine.classList.toggle("is-busy", !!data.engine.busy);

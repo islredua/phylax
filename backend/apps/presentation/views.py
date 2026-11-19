@@ -490,20 +490,8 @@ def hero_payload(data):
             "ok": engine_ok,
             "now": engine_now,
             "calls": ai["calls"],
-            "ok_pct": ai["ok_pct"],
-            "hours": ai["hours"],
             "local": ai["local"],
             "busy": bool(queue),
-            # Dónde trabaja: las tareas que cuentan, con sus llamadas en la ventana.
-            "tasks": [
-                {
-                    "key": task["key"],
-                    "short": task["short"],
-                    "calls": task["calls"],
-                    "stage": task["stage"],
-                }
-                for task in ai["tasks"]
-            ],
         },
         "now": {
             "text": " · ".join(bits)
