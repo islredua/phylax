@@ -319,7 +319,9 @@ def test_a_cut_scan_output_is_visible_in_its_page_and_in_the_feed(client, as_rol
     body = client.get(f"/detection/executions/{execution.pk}/").content.decode()
     assert "data-output-cut" in body and "Pasó de 50 MB y se guardó hasta ese punto." in body
     assert "Puede faltar parte de lo que encontró la herramienta." in body
-    assert "data-output-repeated" in body and "secrets-patterns-pii 11819" in body
+    # Las dos cifras con el mismo formato de miles.
+    assert "data-output-repeated" in body and "secrets-patterns-pii 11,819" in body
+    assert "Quedaron fuera 11,819 líneas repetidas" in body
     assert "Se guardan hasta 200 líneas por plantilla y objetivo." in body
     feed = client.get("/detection/activity/?kind=execution").content.decode()
     assert "salida recortada" in feed
